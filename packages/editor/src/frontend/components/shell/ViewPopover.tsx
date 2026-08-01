@@ -57,7 +57,17 @@ const LAYER_TITLES: Record<VisibilityLayer, string> = {
 	field: "the per-class surface meshes",
 	kit: "the instanced kit pieces",
 	props: "placed prop proxies (scatter placements)",
-	ghost: "brush ghost + stamp hologram",
+	// Everything the editor draws as a PREVIEW rides this one gate: the brush ghost, the
+	// stamp hologram and its placement proxies, the segment anchor and capsule, and the
+	// armed-but-unanchored cursor affordance. Deliberately NOT rendered `disabled` in any
+	// state — the panel's old layers row did that, computing `ghostSuppressed` as
+	// "a selection gesture is armed and no session stands", and F4.5b falsified the
+	// predicate rather than merely unplumbing it: Task 9 gave every armed-but-unanchored
+	// gesture an affordance drawn under exactly this gate, and a session draws its
+	// hologram here too. So there is no longer a reachable state in which this box is
+	// live over an empty layer, and a disabled tick would be the lie the affordance was
+	// meant to prevent.
+	ghost: "brush ghost, stamp hologram, segment preview, cursor affordance",
 	selection: "selection overlay + entity highlight",
 	grid: "the reference grid",
 	flags:

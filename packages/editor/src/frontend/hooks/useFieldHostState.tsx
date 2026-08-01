@@ -22,7 +22,7 @@
 // Two values here have NO seam behind them and never will: the brush `radius` and the
 // armed `gesture`. Both are chrome state pushed one way into the host, and both sit here
 // rather than in `useView` because they belong to the DIG LOOP (useView's line), and
-// because every surface that shows one also shows `tool` — the panel's strip, the status
+// because every surface that shows one also shows `tool` — the top strip, the status
 // bar's keymap line, and the action registry's family keys, which arm the same slot.
 //
 // They publish through NINE contexts, split by CADENCE rather than by owner: a seam that
@@ -229,16 +229,18 @@ const FieldEntitiesContext = createContext<FieldEntitiesState | null>(null);
 const FieldEntitySelectionContext =
 	createContext<FieldEntitySelectionState | null>(null);
 
-// The four contexts below are what the control stack reads, and they are honest about
-// which of their two splits pays TODAY. Keeping them out of the frame-paced
-// FieldHostState is a live saving: FieldPanel reads all four, so folding any of them into
-// the stats value would repaint a form-heavy subtree on every remesh. Splitting them from
-// EACH OTHER saves nothing yet, because that one consumer reads all four — a stamp nudge
-// re-renders the panel whichever context carries it, exactly as the local `useState` slots
-// it replaced did. It is built as four because the shape has to be right before the
-// consumers arrive, not after: Tasks 8 and 13 of this slice break the panel into a tool
-// strip and a flags palette that read one context each, and that is when the split starts
-// paying. Cadence is the axis because it is the one that will not need revisiting then.
+// The four contexts below carry the dig loop's user-paced state, and the split along
+// CADENCE is the one that pays. Keeping them out of the frame-paced FieldHostState is a
+// live saving in every arrangement: folding any of them into the stats value would
+// repaint a form-heavy subtree on every remesh.
+//
+// Splitting them from EACH OTHER was speculative when it was written — FieldPanel read
+// all four, so a stamp nudge re-rendered the same subtree whichever context carried it —
+// and the bet is now settled by the surfaces that replaced the panel. The tool strip
+// (Task 8) reads the tool context, the flags palette (Task 13) reads the flags context,
+// the session card (Task 10) reads the stamp context, and the status bar's selection chip
+// reads the selection one. Four contexts, four consumers, no consumer reading a context
+// it does not need.
 
 /** The brush concern, USER-paced: the host pushes a tool on an Alt-click eyedrop and on
  *  every momentary ⇧/⌃ press and release, i.e. as fast as fingers move and no faster.

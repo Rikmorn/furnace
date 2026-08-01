@@ -1,7 +1,7 @@
 // The pure orbit-state math behind the field host's camera.
 //
-// F4.5b Task 6 closed this module's orphan register (the backlog entry
-// `viewport-host-orphans-gizmo-and-orbit-camera.md`): `pan`, `zoom`, `orbit` and
+// F4.5b Task 6 closed this module's orphan register, and Task 14 retired the backlog
+// entry that had opened it: `pan`, `zoom`, `orbit` and
 // `fromEyeTarget` are GONE — their cases went with them — and everything left
 // here has a live caller in `field-host.ts`. `orbitAbout` subsumes the old
 // `orbit` (pass the state's own target as the pivot and it reduces to exactly
