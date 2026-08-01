@@ -23,7 +23,7 @@ import { cn } from "../../lib/cn.ts";
 import { isValidWorldName, WORLD_NAME_RULE } from "../../lib/generation.ts";
 import { errorMessage, relTime } from "../../lib/humanize.ts";
 import { useEditor } from "../editor-context.ts";
-import { ReasonTip } from "../field/form-bits.tsx";
+import { ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 import {
 	Dialog,

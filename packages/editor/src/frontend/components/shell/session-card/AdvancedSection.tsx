@@ -1,7 +1,8 @@
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import type { NudgeSteps } from "../../../../viewport-host/index.ts"; // type-only: erased
 import { CollapsibleSection } from "../../CollapsibleSection.tsx";
-import { ActionTip, SELECT_CLASS } from "../../field/form-bits.tsx";
+import { SELECT_CLASS } from "../../field/form-bits.tsx";
+import { ActionTip } from "../../tips.tsx";
 import { Button } from "../../ui/button.tsx";
 
 const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";

@@ -1,5 +1,5 @@
 import type { SessionVerbs } from "../../../lib/field-session.ts";
-import { ReasonTip } from "../../field/form-bits.tsx";
+import { ReasonTip } from "../../tips.tsx";
 import { Button } from "../../ui/button.tsx";
 
 /**

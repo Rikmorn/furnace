@@ -30,7 +30,7 @@ import type {
 import { useFieldFlags } from "../../hooks/useFieldHostState.tsx";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
-import { ActionTip, ReasonTip } from "../field/form-bits.tsx";
+import { ActionTip, ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** A finding joins a cluster when it is within this world distance (metres) of

@@ -12,8 +12,8 @@
 // distinguishing two findings and a bare "Dismiss" repeats nowhere else but
 // still deserves a stable name.
 import type { DriftFinding } from "@furnace/core/field"; // type-only: erased
+import { ActionTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
-import { ActionTip } from "./form-bits.tsx";
 
 export function DriftReport(props: {
 	findings: DriftFinding[];

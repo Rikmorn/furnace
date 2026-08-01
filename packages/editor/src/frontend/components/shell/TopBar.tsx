@@ -12,7 +12,7 @@ import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { useFieldStamp } from "../../hooks/useFieldHostState.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { ACTIONS } from "../../lib/actions.ts";
-import { ReasonTip } from "../field/form-bits.tsx";
+import { ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
 import { SessionStrip } from "./SessionStrip.tsx";

@@ -54,7 +54,7 @@ import { cn } from "../../lib/cn.ts";
 // The tooltip BODY, shared with `ActionTip` (D-25) rather than spelled twice: this file
 // keeps its own trigger — a roving-tabindex button whose props cannot move to a wrapper,
 // opening to the `side` a 44 px column needs — and takes only the keycap-and-hint layout.
-import { KeyTip } from "../field/form-bits.tsx";
+import { KeyTip } from "../tips.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 

@@ -25,7 +25,7 @@ import {
 	notify,
 } from "../../lib/notify-store.ts";
 import { PALETTE_IDS } from "../../lib/palette-store.ts";
-import { ActionTip } from "../field/form-bits.tsx";
+import { ActionTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 
 /** The severity dot + its tone. Same reasoning as the toast: an ICON rather than a bare

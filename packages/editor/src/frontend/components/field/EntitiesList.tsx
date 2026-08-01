@@ -96,8 +96,8 @@ import {
 	openBlockedReason,
 } from "../../lib/field-entity.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
+import { ActionTip, ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
-import { ActionTip, ReasonTip } from "./form-bits.tsx";
 
 /** `opSpan` is [firstOpId, lastOpId] inclusive (commitGenerator). */
 const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;

@@ -38,7 +38,7 @@ import type {
 	FieldLayers,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
-import { ActionTip } from "../field/form-bits.tsx";
+import { ActionTip } from "../tips.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 
 const VOID_CAST_HINT =
