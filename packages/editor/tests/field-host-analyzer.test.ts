@@ -215,9 +215,10 @@ function fixture(
   const errors: string[] = [];
   /** Recorded alongside the text, index for index: this file drives BOTH sides of the
    *  seam's severity split — the advisor-idle report, which is the only `warn` there
-   *  is, and four verify refusals plus an analyzer failure, which must all stay
-   *  `error`. Reading them from one fixture is what keeps either claim from passing
-   *  because the host stopped reporting altogether. */
+   *  is, and four verify refusals plus two analyzer failures, which must all stay
+   *  `error`. Every one of those six asserts its severity below; reading them from one
+   *  fixture is what keeps either claim from passing because the host stopped
+   *  reporting altogether. */
   const severities: ToolErrorSeverity[] = [];
   host.subscribeToolError((m, s) => {
     errors.push(m);
@@ -501,6 +502,7 @@ test("a worker-side failure surfaces as a tool problem, not a silent stall", asy
   await f.deliver();
   expect(f.errors.at(-1)).toContain("walkability analyzer:");
   expect(f.errors.at(-1)).toContain("climbCeiling");
+  expect(f.severities.at(-1)).toBe("error");
 });
 
 // --- stage 2: the verify verb (D-F4-13) --------------------------------------
@@ -661,6 +663,7 @@ test("a second verify while one runs is REFUSED, never queued", async () => {
   // field the first may have outlived, with nothing on screen saying so.
   expect(f.sent).toEqual([]);
   expect(f.errors.at(-1)).toBe("a verify is already running");
+  expect(f.severities.at(-1)).toBe("error");
 
   // …and the latch RELEASES: once the first answers, the next is accepted.
   engine.release();
@@ -679,6 +682,7 @@ test("a key no finding holds is refused — the analyzer moved on", async () => 
   // `deliver` first would splice `sent` and make the emptiness check vacuous.
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toBe("that flag was re-analyzed away");
+  expect(f.severities.at(-1)).toBe("error");
 });
 
 test("a pit is refused HERE, not only greyed out in the panel", async () => {
@@ -703,6 +707,7 @@ test("a pit is refused HERE, not only greyed out in the panel", async () => {
   // this emptiness check is the whole assertion that nothing was posted.
   expect(f.of("verify")).toEqual([]);
   expect(f.errors.at(-1)).toContain("region-level — walk it");
+  expect(f.severities.at(-1)).toBe("error");
 });
 
 test("with no agent profile a verify refuses instead of posting a bad request", () => {
@@ -729,6 +734,7 @@ test("a stage-2 failure surfaces as a tool problem and releases the latch", asyn
   f.host.verifyFlag(f.row.key);
   await f.deliver();
   expect(f.errors.at(-1)).toContain("rapier wasm never loaded");
+  expect(f.severities.at(-1)).toBe("error");
 
   // The latch must not wedge on a failure: a verify that died has to leave the
   // verb usable, or one bad bundle costs the rest of the session.

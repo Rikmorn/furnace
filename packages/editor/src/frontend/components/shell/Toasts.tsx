@@ -48,14 +48,14 @@ const TONE: Record<
 		text: "text-success",
 	},
 	warn: {
-		// A TRIANGLE, and it is the status bar's ⚠ glyph on purpose: the chip and this
-		// row are the same alarm at two volumes, and the shape is what separates a
-		// warning from the error's circle for a reader who cannot see the amber.
+		// A TRIANGLE: the shape is what separates a warning from the error's circle
+		// for a reader who cannot see the amber (WCAG 1.4.1).
 		Icon: TriangleAlert,
 		box: "border-warning",
-		// D-23 Task 13 adds `--warning-text` and this becomes `text-warning-text`.
-		// `--warning` is a FILL colour, so as body text it is under the 4.5:1 floor —
-		// the same split the error row above already has, one token short of it.
+		// MIGRATION (until F4.5c Task 13): D-23 adds `--warning-text` there and this
+		// becomes `text-warning-text`. `--warning` is a FILL colour, so as body text it
+		// is under the 4.5:1 floor — the same split the error row above already has,
+		// one token short of it.
 		text: "text-warning",
 	},
 	error: {

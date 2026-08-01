@@ -1157,12 +1157,13 @@ mind.
   profile" — at the first edit that would have analysed, as a **`warn`** rather than an
   error (`ToolErrorSeverity`): the advisor is behaving correctly and no verb was refused, so
   this must not light the ⚠ chip on an otherwise clean boot. It is the only `warn` the seam
-  sends; every refusal on it, `verifyFlag`'s included, stays `error`. Reachability + pit SEEDS are the
-  loaded world's manifest `playerStart`, and EMPTY for a new world honestly so: both passes
-  refuse an empty seed set outright rather than demoting everything or guessing where the
-  agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1 queued; the latch admits
-  no more) and stays 0 with no profile — off, not busy. The footer renders `· analyzing…`
-  while it is above 0 and nothing at 0, because the count is PASSES owed, not chunks.
+  sends; every refusal on it, `verifyFlag`'s included, stays `error`. Reachability + pit
+  SEEDS are the loaded world's manifest `playerStart`, and EMPTY for a new world honestly
+  so: both passes refuse an empty seed set outright rather than demoting everything or
+  guessing where the agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1
+  queued; the latch admits no more) and stays 0 with no profile — off, not busy. The footer
+  renders `· analyzing…` while it is above 0 and nothing at 0, because the count is PASSES
+  owed, not chunks.
 - **Flag presentation state — `viewport-host/field-flags.ts`**, pure and GPU-free (the
   `field-ghost.ts` / `field-placements.ts` sibling). `createFlagStore()` holds stage-1
   findings by OWNER chunk, pits beside them (a pit region can span chunks, so its anchor's
@@ -1515,10 +1516,10 @@ tested by waiting.
   not shown", two numbers about the same list that cannot both be true.
 - `unreadErrors` drives the status bar's ⚠ chip, and counts **`error` only** — a warning
   that lit it would demand attention exactly the way that severity exists not to. The log
-  palette calls `markSeen` **only
-  while it is topmost** (its `VisibilityProbe`), so a log buried under another palette
-  keeps the chip lit rather than silently swallowing the errors behind it. `markSeen` is a
-  no-op when nothing is new, or a palette that marks on render would loop.
+  palette calls `markSeen` **only while it is topmost** (its `VisibilityProbe`), so a log
+  buried under another palette keeps the chip lit rather than silently swallowing the
+  errors behind it. `markSeen` is a no-op when nothing is new, or a palette that marks on
+  render would loop.
 
 The toast stack (`shell/Toasts.tsx`) and the log palette (`shell/LogPalette.tsx`) render
 the SAME records by id. Live regions are **persistent** — mounted whether or not there is

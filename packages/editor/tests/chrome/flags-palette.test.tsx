@@ -761,6 +761,36 @@ test("the in-flight column is released by a verdict AND by a refusal", () => {
 	// …and the refusal is not swallowed on the way: it is on screen as a toast,
 	// which is the only place it is said now.
 	expect(toastText("that flag was re-analyzed away")).toBeTruthy();
+
+	// (3) a WARN does NOT release it, which is the other half of (2)'s reasoning. The
+	// release exists because a refusal pushes no flags, so nothing else would ever say
+	// the verify never began — and every one of those refusals is an `error`. A warning
+	// is not a way a verify can fail to start, so releasing on one could only ever blank
+	// a column that is telling the truth: the verify is still running, the host still
+	// refuses a second with "a verify is already running", and the row would offer a
+	// button that does nothing.
+	fireEvent.click(verifyA());
+	expect(verifyA().textContent).toBe("Verifying…");
+	act(() => {
+		stub.fire.toolError(
+			"walkability advisor idle — this project installs no agent profile",
+			"warn",
+		);
+	});
+	expect(verifyA().textContent).toBe("Verifying…");
+	// Said, though — a warning that released nothing must still be readable, or the
+	// branch would be indistinguishable from dropping the message on the floor.
+	expect(
+		toastText(
+			"walkability advisor idle — this project installs no agent profile",
+		),
+	).toBeTruthy();
+	// …and the ERROR half still works from this same state, so the case cannot pass by
+	// the release having stopped working altogether.
+	act(() => {
+		stub.fire.toolError("a verify is already running");
+	});
+	expect(verifyA().textContent).toBe("verify ▸");
 });
 
 test("a SYNCHRONOUS refusal never leaves the column stuck", () => {

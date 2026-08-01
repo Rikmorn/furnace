@@ -452,7 +452,7 @@ export type FieldHost = {
    *  mirror and the `setTool` funnel together at `useFieldTool` — they are one
    *  concern precisely because of that guard); returns an unsubscribe. */
   subscribeTool(cb: (tool: FieldTool) => void): () => void;
-  /** Subscribes to user-facing tool problems: swallowed stroke failures (kit
+  /** Subscribes to the host's user-facing messages: swallowed stroke failures (kit
    *  fill off the lattice, unknown material class — F2a buried these in
    *  console.warn; the console trail stays) and the selection-mask-without-a-
    *  selection drop (reported once per pointer-down stroke, re-armed on the

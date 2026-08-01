@@ -912,12 +912,7 @@ test("an advisor-idle WARN leaves the status bar quiet and reads amber", async (
 	// non-cheerful severity there used to be) this one sentence opened the editor with a
 	// red "1 unread error" over a clean world. The log is closed on a fresh workspace, so
 	// nothing here is marking it read: the chip is absent because it was never lit.
-	//
-	// COUNTED rather than compared to null, and that is not style: a failing
-	// `expect(element).toBeNull()` prints the element, and a happy-dom node carries
-	// React's fiber graph — the same megabyte serialisation the dismiss-focus case
-	// avoids, which reads as a hung run rather than a red one. This assertion is the one
-	// that has to fail LEGIBLY when the severity stops being honoured.
+	// Counted rather than compared to null so the failure reads as 0-vs-1.
 	expect(logPalette()).toBeNull();
 	expect(screen.queryAllByLabelText(/unread error/).length).toBe(0);
 

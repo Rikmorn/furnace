@@ -412,11 +412,13 @@ export function FieldHostStateProvider({
 		);
 	}, [engineReady, host]);
 
-	// The host's user-facing refusals (selection-mask misuse, an empty flood, the
-	// void-cast budget, all four verify guards). They go STRAIGHT to the toast stack
-	// — the F3b gate found them landing on a shared footer line where they read
-	// indistinguishably from routine info, i.e. as dead features. A toast is toned, is
-	// over the canvas the user is looking at, and outlives the next message.
+	// What the host has to SAY: its user-facing refusals (selection-mask misuse, an
+	// empty flood, the void-cast budget, all four verify guards) and — since F4.5c —
+	// the one report that refuses nothing, the advisor standing down over a project
+	// with no agent profile. They go STRAIGHT to the toast stack — the F3b gate found
+	// them landing on a shared footer line where they read indistinguishably from
+	// routine info, i.e. as dead features. A toast is toned, is over the canvas the
+	// user is looking at, and outlives the next message.
 	//
 	// No message is mirrored into context: the toast IS the render, and a second copy in
 	// React state would be a second thing to keep in agreement with it.
