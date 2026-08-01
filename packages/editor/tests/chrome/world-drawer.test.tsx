@@ -681,8 +681,9 @@ test("Bake is refused while the world is untitled, and live once it is named", a
 test("a save reports its OUTCOME, and says nothing while it is in flight", async () => {
 	// The stack caps at 3 and NEVER evicts, so a "saving…" toast in front of the
 	// outcome is a slot spent on something that has already finished. In-flight is said
-	// AT the controls (they disable); D-19's mechanism for a long job is a progress chip
-	// with a cooperative cancel (F4.5c), not a toast nobody can act on.
+	// AT the controls (they disable) and on the status bar's long-job chip, which is
+	// D-19's mechanism — a readout, with no cancel on it (see `useWorld.tsx`'s `write`),
+	// rather than a toast nobody can act on.
 	stubDaemon([], { bakeFiles: 12 });
 	const stub = makeStubHost();
 	await renderTopBar(stub);

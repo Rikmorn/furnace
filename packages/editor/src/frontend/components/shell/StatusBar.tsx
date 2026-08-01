@@ -270,20 +270,20 @@ const SELECTION_ACTIONS = ["edit.clearSelection", "edit.reselect"] as const;
  *
  *  A constant rather than a component because the bar's chips split on BEHAVIOUR, not on
  *  looks: two run a verb (`ChipButton`), three open a detail layer (`ChipPopover`), and
- *  one does neither (`JobChip`). No shell can own the appearance without the others
+ *  one does neither (`JobChips`). No shell can own the appearance without the others
  *  copying it — and on a 28 px bar the cost of that drift is the difference between
  *  "these are all chips" and "one of these is text". */
 const CHIP_SHAPE =
 	"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums";
 
-/** The interactive half, split off `CHIP_SHAPE` rather than duplicated without it: hover
- *  tint and a focus ring are promises that clicking does something, and the one chip that
- *  does nothing must not wear them. */
-const CHIP_CLASS = `${CHIP_SHAPE} transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring`;
+/** `CHIP_SHAPE` plus the affordances of something you can CLICK. Split rather than
+ *  duplicated, and named for what it adds: hover tint and a focus ring are promises that
+ *  clicking does something, so the one chip that does nothing wears the shape alone. */
+const INTERACTIVE_CHIP_CLASS = `${CHIP_SHAPE} transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring`;
 
 /** A status chip that RUNS something on click — the ⚠ chip summons the log, `undo N`
  *  summons the History palette. Chips that open detail instead go through
- *  `ChipPopover`; both wear `CHIP_CLASS`. */
+ *  `ChipPopover`; both wear `INTERACTIVE_CHIP_CLASS`. */
 function ChipButton({
 	onClick,
 	label,
@@ -302,7 +302,7 @@ function ChipButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			className={cn(CHIP_CLASS, className)}
+			className={cn(INTERACTIVE_CHIP_CLASS, className)}
 		>
 			{children}
 		</button>
@@ -322,7 +322,7 @@ function ChipButton({
  *  trigger already renders its own button, and composes its ref into the POPPER ANCHOR
  *  that positions the content. Routing that through a plain function component of ours
  *  would silently drop the ref under React 19 and leave the popover unanchored. The
- *  look, which is the thing that actually drifts, is shared through `CHIP_CLASS`
+ *  look, which is the thing that actually drifts, is shared through `INTERACTIVE_CHIP_CLASS`
  *  regardless.
  *
  *  `open`/`onOpenChange` are optional: pass them when the chip's own presence depends on
@@ -342,7 +342,7 @@ function ChipPopover({
 }) {
 	return (
 		<Popover open={open} onOpenChange={onOpenChange}>
-			<PopoverTrigger aria-label={label} className={CHIP_CLASS}>
+			<PopoverTrigger aria-label={label} className={INTERACTIVE_CHIP_CLASS}>
 				{children}
 			</PopoverTrigger>
 			{/* Radix gives the content `role="dialog"` and no name to go with it. The chip
@@ -484,13 +484,15 @@ function AnalyzerDetail({ pending }: { pending: number }) {
 	);
 }
 
-/** What each world verb is CALLED while it runs. A table rather than a template over the
- *  tag, because "opening" is not the gerund of "open" the way the other two are of theirs,
- *  and a bake is not a save with a flag on it as far as the reader is concerned. */
+/** What each world verb is CALLED while it runs. `WorldJob` names the verb, not the
+ *  readout — so this is the one place a state tag becomes a string on screen, and the
+ *  place to change when the wording does. `Record<WorldJob, …>` is EXHAUSTIVE: a fourth
+ *  world job has no label here and stops compiling, rather than shipping a chip that
+ *  reads "undefined". */
 const JOB_LABELS: Record<WorldJob, string> = {
-	saving: "saving…",
-	baking: "baking…",
-	opening: "opening…",
+	save: "saving…",
+	bake: "baking…",
+	open: "opening…",
 };
 
 /** The X-ray's whole-world worker job (D-F3-15) — the field-side long job, named the way
@@ -512,26 +514,21 @@ function longJobs(job: WorldJob | null, castPending: boolean): string[] {
 
 /** The long-job readout (D-19), and the one chip on this bar with NOTHING to click.
  *
- *  D-F4.5-19 asks for "progress + cooperative cancel (the job polls; no cancel theater)".
- *  It is the second clause that applies, because neither of the editor's two long jobs can
- *  poll. A world write's first phase is `bakeFieldWorld`, a synchronous function in
- *  `packages/core` with no yield in its per-chunk loop, and its second is `fetch` with no
- *  `AbortSignal` against a daemon that clears the world directory before rewriting it; the
- *  void cast's per-chunk loop lives inside a worker handler that runs to completion per
- *  message, so a cancel `postMessage` queues behind the work it means to stop. Each site
- *  carries the long version and what would have to change (`useWorld`'s `write`,
- *  `field-host`'s `requestVoidCast`).
+ *  D-F4.5-19 wants "progress + cooperative cancel (the job polls; no cancel theater)", and
+ *  it is the second clause that applies: NEITHER long job can poll. The two mechanical
+ *  reasons, and the conditions under which each stops holding, are owned by the sites that
+ *  would have to change — `useWorld.tsx`'s `write` and `field-host.ts`'s `requestVoidCast`.
+ *  Do not restate them here; a third copy is a third thing to keep true.
  *
  *  So it is INDETERMINATE and it is a `<span>`: no ✕, no percentage, and none of
- *  `CHIP_CLASS`'s hover tint or focus ring, which are promises that a click does
- *  something. What it does claim is the one thing a user needs during a main-thread freeze
- *  — a verb is running and the editor has not hung.
+ *  `INTERACTIVE_CHIP_CLASS`'s hover tint or focus ring, which are promises that a click
+ *  does something. What it does claim is the one thing a user needs during a main-thread
+ *  freeze — a verb is running and the editor has not hung.
  *
- *  FIRST in the right-anchored cluster. The chips after the spacer are anchored to the
- *  bar's right edge, so an arrival displaces only what is to its LEFT: anywhere else and
- *  this one would shove `ops` — a click target — sideways under a cursor on its way to it.
- *  The bar's own height is untouched either way (`h-7`, and this wears the chip shape the
- *  permanent chips already wear). */
+ *  FIRST in the right-anchored cluster, which is the ordering argument `AnalyzerChip`'s
+ *  own mount below spells out in full: an arrival displaces only what is to its LEFT, and
+ *  this is the chip that comes and goes most often. Being first means nothing on this bar
+ *  moves for it — not even the analyzer chip, which is merely first among the STATS. */
 function JobChips({ labels }: { labels: string[] }) {
 	if (labels.length === 0) return null;
 	return (
@@ -574,11 +571,16 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 			<ErrorChip />
 			{stats && (
 				<span className="flex items-center gap-3 tabular-nums">
-					{/* FIRST in a right-anchored cluster, and that ordering is the point: this
-              is the only chip here that comes and goes, and it now carries a border
-              and padding the bare span it replaced did not. Anywhere further right and
-              its arrival would shove `ops` — newly a click target — sideways under a
-              cursor already on its way there. */}
+					{/* THE ordering rule for this whole bar, stated once, here — everything
+              after the spacer is anchored to the bar's RIGHT edge, so an element
+              appearing at index i pushes only the elements BEFORE it leftward and
+              leaves everything after it exactly where it was. Every chip that comes
+              and goes therefore has to be first in its group or it shoves a click
+              target sideways under a cursor already on its way there.
+              This one is first among the STATS: it carries a border and padding the
+              bare span it replaced did not, and `ops` sits immediately right of it.
+              `JobChips` is first in the whole cluster, for the same reason one level
+              up. Neither can change the bar's HEIGHT — `h-7` is fixed. */}
 					<AnalyzerChip pending={stats.analyzerPending} />
 					{/* The op count is the HANDLE on the op-cost meter (D-19): the number on
               the bar is the one everybody reads, and the five fields that explain it

@@ -63,12 +63,18 @@ const DEFAULT_LAYERS: FieldLayers = {
 };
 
 /** The X-ray, held out of the persisted set — ONE exclusion, which both the writer and
- *  the reader below work from, so the two sides cannot disagree about it. Destructured
- *  rather than filtered by name: a `voidCast` that was renamed in `FieldLayers` stops
- *  compiling here, which a string comparison against a key list would not.
+ *  the reader below work from, so the two sides cannot disagree about it.
  *
- *  Why it is held out is `serializeView`'s to explain. */
-const { voidCast: _sessionOnlyLayer, ...PERSISTED_LAYERS } = DEFAULT_LAYERS;
+ *  DESTRUCTURED rather than filtered by name, and the reason is the TYPE, not the syntax:
+ *  this gives `PERSISTED_LAYERS` the type `Omit<FieldLayers, "voidCast">`, so the key list
+ *  derived from it CANNOT contain the key and `serializeView` cannot emit it even by
+ *  mistake. A runtime `.filter(k => k !== "voidCast")` over the full key list leaves the
+ *  type as `keyof FieldLayers` and the exclusion as something the code merely happens to
+ *  do. (It is rename-safe too — destructuring a property `FieldLayers` no longer declares
+ *  is a compile error — but so is the filter, so that is not what decides it.)
+ *
+ *  Why it is held out at all is `serializeView`'s to explain. */
+const { voidCast: _voidCast, ...PERSISTED_LAYERS } = DEFAULT_LAYERS;
 
 /** The layer names a persisted blob may speak about. */
 // Boundary cast: `Object.keys` is typed `string[]` because a VALUE can structurally carry

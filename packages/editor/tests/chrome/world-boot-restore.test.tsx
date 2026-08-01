@@ -260,7 +260,7 @@ test("boot reopens the world the last session left, through the ordinary Open", 
 	// WHILE it loads, the user sees what a user-driven Open shows: the controls are busy,
 	// and the state names the verb the status bar puts on its progress chip. (D-19 —
 	// in-flight is said at the controls and on the bar, never in a toast.)
-	expect(screen.getByText("job:opening")).toBeTruthy();
+	expect(screen.getByText("job:open")).toBeTruthy();
 
 	daemon.releaseLoad();
 	await waitFor(() => screen.getByText("world:cavern"));

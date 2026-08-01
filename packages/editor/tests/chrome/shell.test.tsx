@@ -3597,12 +3597,11 @@ test("both stats popovers are portal LAYERS — the bar and the canvas cell keep
 
 // --- (m2) the long-job chips (D-19) ------------------------------------------
 //
-// D-F4.5-19 asks for "progress + cooperative cancel (the job polls; no cancel theater)".
-// NEITHER of the editor's two long jobs can poll, so what ships is the second clause:
-// an indeterminate readout and NO ✕. The mechanical reasons are recorded at the three
-// sites that would have to change (`StatusBar`'s `JobChips`, `useWorld`'s `write`,
-// `field-host`'s `requestVoidCast`); what these cases pin is the CONTRACT — the chip
-// appears while the job stands, goes when it lands, and offers nothing to click.
+// NEITHER long job can poll, so D-F4.5-19 ships as its second clause: an indeterminate
+// readout and NO ✕. The mechanical reasons and their re-check triggers are owned by
+// `useWorld.tsx`'s `write` / `open` and `field-host.ts`'s `requestVoidCast` — not
+// restated here. What these cases pin is the CONTRACT: the chip appears while the job
+// stands, goes when it lands, and offers nothing to click.
 
 /** The VISIBLE long-job readout, scoped to the bar. By TEXT rather than by label: these
  *  are the one kind of chip that is not a control, so unlike the ops/analyzer/undo chips
@@ -3635,10 +3634,10 @@ test("a void cast in flight puts an uncancellable chip on the bar", async () => 
 	const chip = jobChip("void cast…");
 	if (chip === null)
 		throw new Error("no void-cast chip while one was in flight");
-	// NO cancel affordance, and no click target at all: `discardVoidCast` bumps a
-	// generation and DROPS the answer — the worker goes on computing either way — so a ✕
-	// here would be the cancel theater D-F4.5-19 names.
-	expect(within(chip).queryByRole("button") === null).toBe(true);
+	// NO cancel affordance: `discardVoidCast` bumps a generation and DROPS the answer —
+	// the worker goes on computing either way — so a ✕ here would be the cancel theater
+	// D-F4.5-19 names. `closest` rather than a search INSIDE the chip, which is the
+	// innermost text node and could not contain a button whatever the implementation did.
 	expect(chip.closest("button") === null).toBe(true);
 
 	// …and it goes when the cast lands, rather than needing a click to dismiss.
@@ -3648,6 +3647,20 @@ test("a void cast in flight puts an uncancellable chip on the bar", async () => 
 	expect(jobChip("void cast…") === null).toBe(true);
 });
 
+/** The bar's two polite live regions, told apart the way the code tells them apart. */
+const liveRegions = (): { job: HTMLElement; error: HTMLElement } => {
+	const all = [
+		...screen.getByRole("contentinfo").querySelectorAll('[aria-live="polite"]'),
+	];
+	const job = all.find((el) => el.hasAttribute("data-long-job"));
+	const error = all.find((el) => !el.hasAttribute("data-long-job"));
+	if (!(job instanceof HTMLElement) || !(error instanceof HTMLElement))
+		throw new Error(
+			`the bar should carry a long-job region and an error region; found ${all.length} polite region(s)`,
+		);
+	return { job, error };
+};
+
 test("the bar announces a long job through a PERSISTENT live region", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -3655,23 +3668,49 @@ test("the bar announces a long job through a PERSISTENT live region", async () =
 	// The region exists before there is anything to say — the error line's rule, for the
 	// error line's reason: a live region added to the DOM already holding its text is one
 	// VoiceOver/Safari can miss entirely.
-	const region = screen
-		.getByRole("contentinfo")
-		.querySelector('[aria-live="polite"][data-long-job]');
-	if (!(region instanceof HTMLElement))
-		throw new Error("the bar has no long-job live region");
-	expect(region.textContent).toBe("");
+	const { job } = liveRegions();
+	expect(job.textContent).toBe("");
 
 	act(() => {
 		stub.fire.stats(makeStats({ voidCastPending: true }));
 	});
-	expect(region.textContent).toBe("void cast…");
+	expect(job.textContent).toBe("void cast…");
+});
+
+test("an error arriving mid-job does not overwrite the job announcement", async () => {
+	// THE case the second region exists for. One shared node would hold whichever text
+	// won, and its whole contract is "my text changing is the announcement" — so an
+	// esbuild failure landing during a cast would either silence the job or re-announce
+	// the error as though it had just happened. Neither is a thing that occurred.
+	fetch404();
+	const stub = makeStubHost();
+	render(
+		<EditorContext.Provider
+			value={makeEditorContext({
+				fieldHostRef: { current: stub.host },
+				state: { error: "esbuild: it did not build" },
+			})}
+		>
+			<Shell />
+		</EditorContext.Provider>,
+	);
+	await flushCatalog();
+	act(() => {
+		stub.fire.stats(makeStats({ voidCastPending: true }));
+	});
+	const { job, error } = liveRegions();
+	expect(job.textContent).toBe("void cast…");
+	expect(error.textContent).toBe("esbuild: it did not build");
 });
 
 /** Serve the world commands with every `generation.bake` after the FIRST held open, so a
  *  case can name a world (that first save settles) and then sit inside the second write
- *  for as long as it needs to. The drawer's catalog GETs 404 as usual. */
-function stubHeldWorldDaemon(): { release: () => void } {
+ *  for as long as it needs to. The drawer's catalog GETs 404 as usual.
+ *
+ *  `posted` is what lets a case reach a SETTLED point without counting microtasks: the
+ *  editor's await chain has no pinned length, so "the next upload has gone out" is the
+ *  only honest signal that the previous one has fully landed. */
+function stubHeldWorldDaemon(): { release: () => void; posted: () => number } {
 	const held: ((r: Response) => void)[] = [];
 	let bakes = 0;
 	const ok = () => new Response(JSON.stringify({ files: 7 }), { status: 200 });
@@ -3697,26 +3736,29 @@ function stubHeldWorldDaemon(): { release: () => void } {
 		release: () => {
 			for (const settle of held.splice(0)) settle(ok());
 		},
+		posted: () => bakes,
 	};
 }
 
-/** Let a world verb walk its await chain: `world.list`, then the upload. */
-const settleWorldVerb = () =>
-	act(async () => {
-		await Promise.resolve();
-		await Promise.resolve();
-		await Promise.resolve();
-	});
-
-/** Settle every held upload and let the verb move on. Called TWICE for a bake, which
- *  posts two: the world's files, then `worlds/index.json` — and the second is issued only
- *  once the first has landed, so one release leaves the verb mid-flight. */
-const releaseUpload = (daemon: { release: () => void }) =>
+/** Settle every held upload. ONE microtask turn, and it is derivable rather than tuned:
+ *  releasing resolves the `fetch` promise, and a turn is what lets its continuation start.
+ *  Everything after that is the verb's own chain, which the `waitFor`s below wait on
+ *  instead of guessing at. */
+const releaseUploads = (daemon: { release: () => void }) =>
 	act(async () => {
 		daemon.release();
 		await Promise.resolve();
-		await Promise.resolve();
-		await Promise.resolve();
+	});
+
+/** The long-job readout, once it says `text` — `waitFor` rather than a microtask count,
+ *  because the verb's await chain (`world.list`, then one or two uploads, each through
+ *  `fetch` + `res.json`) is a length nothing pins and a magic number here would be a
+ *  guess re-derived on every edit. */
+const awaitJobChip = (text: string): Promise<HTMLElement> =>
+	waitFor(() => {
+		const chip = jobChip(text);
+		if (chip === null) throw new Error(`no "${text}" chip on the status bar`);
+		return chip;
 	});
 
 test("a world write in flight names the VERB on the bar, and offers no way out", async () => {
@@ -3735,11 +3777,8 @@ test("a world write in flight names the VERB on the bar, and offers no way out",
 	act(() => {
 		fireEvent.change(field, { target: { value: "cavern" } });
 	});
-	await act(async () => {
+	act(() => {
 		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await Promise.resolve();
-		await Promise.resolve();
-		await Promise.resolve();
 	});
 	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
 	// Settled: the bar says nothing. The chip is a readout of a job, not of a world.
@@ -3750,17 +3789,14 @@ test("a world write in flight names the VERB on the bar, and offers no way out",
 	act(() => {
 		fireEvent.keyDown(window, { key: "s", metaKey: true });
 	});
-	await settleWorldVerb();
-	const chip = jobChip("saving…");
-	if (chip === null) throw new Error("no chip while a write was in flight");
+	const chip = await awaitJobChip("saving…");
 	// Nothing to click: a mid-flight abort has the same semantics as a failure (the
 	// daemon cleanDir's the world directory before rewriting it), and `saveWorld` already
 	// refuses to characterise that state.
 	expect(chip.closest("button") === null).toBe(true);
-	expect(within(chip).queryByRole("button") === null).toBe(true);
 
-	await releaseUpload(daemon);
-	expect(jobChip("saving…") === null).toBe(true);
+	await releaseUploads(daemon);
+	await waitFor(() => expect(jobChip("saving…") === null).toBe(true));
 
 	// A BAKE is the same code path with `makeDefault`, and it says so: one label per
 	// verb, so the word on the bar is not a coincidence of the save case above. It is
@@ -3768,50 +3804,65 @@ test("a world write in flight names the VERB on the bar, and offers no way out",
 	act(() => {
 		fireEvent.click(screen.getByRole("button", { name: "Bake" }));
 	});
-	await settleWorldVerb();
-	expect(jobChip("baking…")).toBeTruthy();
+	await awaitJobChip("baking…");
 	expect(jobChip("saving…") === null).toBe(true);
-	// Still baking after the FIRST upload lands — `worlds/index.json` is a second call the
-	// verb has not made yet, and a readout that cleared here would go quiet mid-job.
-	await releaseUpload(daemon);
+
+	// A bake posts TWO uploads — the world's files, then `worlds/index.json`, the second
+	// issued only once the first has landed. Releasing the first must NOT clear the
+	// readout, and the honest settled point for asserting that is the second upload
+	// having gone out: uploads 1–2 were the naming save and the ⌘S above, so #4 is the
+	// index.json call this bake has yet to make.
+	await releaseUploads(daemon);
+	await waitFor(() => expect(daemon.posted()).toBe(4));
 	expect(jobChip("baking…")).toBeTruthy();
-	await releaseUpload(daemon);
-	expect(jobChip("baking…") === null).toBe(true);
+
+	await releaseUploads(daemon);
+	await waitFor(() => expect(jobChip("baking…") === null).toBe(true));
 });
 
-test("a job chip arrives at the FRONT of the right cluster — nothing beside it moves", async () => {
+test("a job chip arrives at the FRONT of the right cluster — every click target follows it", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
 	act(() => {
 		stub.fire.stats(makeStats({ ...METER, voidCastPending: false }));
 	});
+	// A SELECTION is part of the fixture, and it is what gives this case teeth: the
+	// selection chip is the click target nearest the readout, so without one on screen
+	// `SelectionChip` renders null and the whole left half of the cluster is missing from
+	// what is being checked. (Measured: with an empty selection, moving `JobChips` between
+	// `SelectionChip` and `ErrorChip` — the exact regression this test names — passed.)
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 12 }));
+	});
 	const bar = screen.getByRole("contentinfo");
-	// The chips right of the spacer are RIGHT-anchored, so an arrival only displaces what
-	// is to its LEFT. A chip that comes and goes therefore has to be first in that group
-	// or it shoves `ops` — a click target — sideways under a cursor on its way to it.
-	const chips = () =>
-		[...bar.querySelectorAll("button")].map((b) =>
-			b.getAttribute("aria-label"),
-		);
-	const before = chips();
 	act(() => {
 		stub.fire.stats(makeStats({ ...METER, voidCastPending: true }));
 	});
-	// The interactive chips are unchanged in identity AND in order: the readout is not
-	// one of them and did not push into the middle of them.
-	expect(chips()).toEqual(before);
 	const chip = jobChip("void cast…");
 	if (chip === null)
 		throw new Error("no void-cast chip while one was in flight");
-	const opsChip = statusChip(/op-cost meter/);
-	// Boundary cast: `compareDocumentPosition` returns a bitmask, and FOLLOWING is the
-	// bit that answers "is `ops` after the readout in document order?".
-	expect(
-		(chip.compareDocumentPosition(opsChip) &
-			Node.DOCUMENT_POSITION_FOLLOWING) !==
-			0,
-	).toBe(true);
+
+	// The chips right of the spacer are RIGHT-anchored, so an element appearing at index i
+	// pushes only what is BEFORE it and leaves everything after it exactly where it was.
+	// A readout that comes and goes must therefore precede EVERY click target on the bar —
+	// asserted over all of them rather than over `ops` alone, because the failure this
+	// guards is "it landed one position too far right", and any single named chip leaves
+	// the positions on its own left unchecked.
+	const targets = [...bar.querySelectorAll("button")];
+	expect(targets.length).toBeGreaterThan(0);
+	for (const target of targets) {
+		// `compareDocumentPosition` returns a bitmask; FOLLOWING is the bit that answers
+		// "is this chip after the readout in document order?".
+		const follows =
+			(chip.compareDocumentPosition(target) &
+				Node.DOCUMENT_POSITION_FOLLOWING) !==
+			0;
+		if (!follows)
+			throw new Error(
+				`"${target.getAttribute("aria-label")}" sits LEFT of the long-job readout — it will be shoved when a job starts`,
+			);
+	}
 });
 
 // --- (c10) the gate's target predicate: which controls swallow a bare key -----

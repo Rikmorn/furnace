@@ -45,15 +45,19 @@ import { useFieldHostState } from "./useFieldHostState.tsx";
  *  it at first save" rather than a modal prompt bolted onto the chord. */
 export type DrawerMode = "browse" | "save-as";
 
-/** Which long world verb is in flight — the WORD the status bar shows, not a second flag
- *  beside a boolean. One field says both "is one running" and "which", because two would
- *  need a rule for what a `true` with no name means.
+/** Which long world verb is in flight, or `null`. One field says both "is one running"
+ *  and "which", because two would need a rule for what a `true` with no name means.
  *
- *  Three rather than two: `saving` and `baking` are the same code path (`write`, with and
+ *  Named for the VERB, not for what a readout calls it while it runs: these are state
+ *  tags, and the label belongs to whatever surface is doing the labelling (today the
+ *  status bar's `JOB_LABELS`). A tag spelled "saving" would be a UI string living in
+ *  state, which is the coupling that table exists to break.
+ *
+ *  Three rather than two: `save` and `bake` are the same code path (`write`, with and
  *  without `makeDefault`) and the same wait, but they are not the same promise — a bake
  *  also repoints `worlds/index.json` at the world, i.e. changes what the GAME loads, and a
  *  user who pressed Bake is owed that word rather than the milder one. */
-export type WorldJob = "saving" | "baking" | "opening";
+export type WorldJob = "save" | "bake" | "open";
 
 export type WorldState = {
 	/** The world on disk this session is editing, or null for an untitled scratch —
@@ -257,7 +261,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			const host = fieldHostRef.current;
 			if (!host || inFlight.current) return;
 			inFlight.current = true;
-			setJob(makeDefault ? "baking" : "saving");
+			setJob(makeDefault ? "bake" : "save");
 			// The SSE bundle-outdated guard reads this: a hard reload mid-write would kill
 			// the upload. App owns the reload; the ref is how this reaches it.
 			bakeBusyRef.current = true;
@@ -316,12 +320,17 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 
 		/** The other long job, and uncancellable for a simpler reason than `write`'s: it is
 		 *  a single `fetch` with no `AbortSignal`, and it ends in `loadWorld`, which
-		 *  replaces the host's world outright. There is no half-way state to return to. */
+		 *  replaces the host's world outright. There is no half-way state to return to.
+		 *
+		 *  Re-check if the api client gains an `AbortSignal`: unlike `write`, an aborted
+		 *  read leaves NOTHING half-done — the session simply stays on the world it was
+		 *  already in — so this is the one of the three that a cancel could honestly serve
+		 *  the day the seam exists. */
 		const open = async (target: string): Promise<void> => {
 			const host = fieldHostRef.current;
 			if (!host || inFlight.current) return;
 			inFlight.current = true;
-			setJob("opening");
+			setJob("open");
 			try {
 				const outcome = await loadWorldInto({ api, host }, { name: target });
 				if (outcome.status !== "loaded") return;
@@ -463,7 +472,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			// verbs closed over the same one, so an op landing while `world.list` was in
 			// flight is invisible to both — the live count is the only witness.
 			if ((seenOps.current ?? 0) !== opsAtDecision) return;
-			// The ORDINARY verb, never a second load path: `busy`, the toast and the
+			// The ORDINARY verb, never a second load path: the `job` tag, the toast and the
 			// rebaseline are the ones a user-driven Open produces, by construction. Its
 			// discard confirm cannot fire from here — a clean session proceeds straight
 			// through.

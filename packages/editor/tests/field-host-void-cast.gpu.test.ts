@@ -265,14 +265,15 @@ test.skipIf(!bunWebGpuAvailable())(
     // `requestVoidCast` for why neither end of this job can poll).
     const f = await fieldHostFixture();
     try {
-      // Requests are counted by KIND here, unlike the case above: a frame drains the
-      // dirty set, so every tick posts remesh jobs into the same pipe.
-      const casts = () => f.sent.filter((r) => r.kind === "void-cast").length;
       f.tick(16);
       expect(f.stats.at(-1)?.voidCastPending).toBe(false);
 
+      // The latch IS the "a cast went out" signal, so nothing counts requests here — a
+      // `setLayers` that silently refused would show up as this assertion, not beside it.
+      // (Which is also why `f.sent` is not counted at all in this case, unlike the one
+      // above: a frame drains the dirty set, so every tick posts remesh jobs into the
+      // same pipe.)
       f.host.setLayers(layers(true));
-      expect(casts()).toBe(1);
       f.tick(32);
       expect(f.stats.at(-1)?.voidCastPending).toBe(true);
 
