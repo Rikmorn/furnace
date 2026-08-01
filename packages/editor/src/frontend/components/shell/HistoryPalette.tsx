@@ -21,13 +21,30 @@
 // Time runs downward into the past, which is the inverse of Photoshop's list and the
 // right way round for a panel whose top line answers "what did I just do?".
 import { History } from "lucide-react";
+import type { ReactNode } from "react";
 import { useFieldHistory } from "../../hooks/useFieldHostState.tsx";
+import { useRowGrid } from "../../hooks/useRovingList.ts";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
 
 /** One row. `steps` is what clicking it costs — always ≥ 1, always in the direction the
  *  row's side names. Rendered as a button rather than a list item with a handler so the
- *  keyboard reaches it, and so a disabled state (during the engine boot) is expressible. */
+ *  keyboard reaches it, and so a disabled state (during the engine boot) is expressible.
+ *
+ *  A `role="row"` holding ONE `role="gridcell"` — a one-column grid. That is a real shape
+ *  and not a stretched one: `useRowGrid`'s header carries the argument, and the part that
+ *  decides it here is that three sibling lists in one shell must answer the keyboard
+ *  identically. A `listbox` would be the wrong promise for a different reason than in the
+ *  other two — these rows are COMMANDS ("undo 3 steps"), not a selection — and this list
+ *  has no persistent `aria-selected` to offer, because the current position is the
+ *  DIVIDER between rows rather than any row. */
+/** Inert, on every row and cell — the APG grid construction, never focused through.
+ *  EntitiesList's constant of the same name says why in full. */
+const CELL_TABINDEX = -1;
+
+/** One column: the step button. */
+const COLUMNS = 1;
+
 function Row({
 	label,
 	steps,
@@ -44,34 +61,63 @@ function Row({
 }) {
 	const verb = direction === "undo" ? "Undo" : "Redo";
 	return (
-		<li>
-			<button
-				type="button"
-				onClick={() => onStep(direction, steps)}
-				// The full sentence lives on the accessible name, because the visible row is
-				// two columns of shorthand and the number of steps is the part a user would
-				// most want to be sure of before clicking.
-				aria-label={`${verb} ${steps} step${steps === 1 ? "" : "s"} — ${label}`}
-				className={cn(
-					"flex w-full items-baseline gap-2 px-2 py-1 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-					// The redo side is the FUTURE — undone work that is still reachable. Muted,
-					// the way an undone state greys in every history panel that has one.
-					direction === "redo" && "text-muted-foreground",
-				)}
+		// biome-ignore lint/a11y/useSemanticElements: role="row"/"gridcell" on a div is the ARIA grid pattern for a non-table layout — see `useRowGrid`
+		<div role="row" tabIndex={CELL_TABINDEX}>
+			{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see above */}
+			<div role="gridcell" aria-colindex={1} tabIndex={CELL_TABINDEX}>
+				{/* NO `tabIndex` here on purpose: this button is the row STOP, and the roving
+			    hook writes its tabIndex imperatively. A React-owned one would be re-applied
+			    on every render and clobber the stop (rule 1 in `useRovingList`). */}
+				<button
+					type="button"
+					onClick={() => onStep(direction, steps)}
+					// The full sentence lives on the accessible name, because the visible row is
+					// two columns of shorthand and the number of steps is the part a user would
+					// most want to be sure of before clicking.
+					aria-label={`${verb} ${steps} step${steps === 1 ? "" : "s"} — ${label}`}
+					className={cn(
+						"flex w-full items-baseline gap-2 px-2 py-1 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+						// The redo side is the FUTURE — undone work that is still reachable. Muted,
+						// the way an undone state greys in every history panel that has one.
+						direction === "redo" && "text-muted-foreground",
+					)}
+				>
+					<span className="w-6 shrink-0 text-right tabular-nums text-muted-foreground">
+						{direction === "redo" ? "+" : ""}
+						{steps}
+					</span>
+					<span className="min-w-0 flex-1 truncate">{label}</span>
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** A grid row that is a NOTE rather than a step: the bound's two "not listed" lines. */
+function Note({ children }: { children: ReactNode }) {
+	return (
+		// biome-ignore lint/a11y/useSemanticElements: role="row"/"gridcell" on a div — see `useRowGrid`
+		<div role="row" tabIndex={CELL_TABINDEX}>
+			{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see above */}
+			<div
+				role="gridcell"
+				aria-colindex={1}
+				tabIndex={CELL_TABINDEX}
+				className="px-2 py-1 text-muted-foreground italic"
 			>
-				<span className="w-6 shrink-0 text-right tabular-nums text-muted-foreground">
-					{direction === "redo" ? "+" : ""}
-					{steps}
-				</span>
-				<span className="min-w-0 flex-1 truncate">{label}</span>
-			</button>
-		</li>
+				{children}
+			</div>
+		</div>
 	);
 }
 
 export function HistoryPalette() {
 	const { history } = useFieldHistory();
 	const { state, fieldHostRef } = useEditor();
+	// The same two-axis model the entities and flags grids run. No `onRowChange`: a
+	// history row is a COMMAND, and arrowing onto one must not step the log — ⏎ or a click
+	// is what takes the steps.
+	const rows = useRowGrid<HTMLDivElement>();
 
 	// Reaches the host for its VERBS the way every other shell surface does —
 	// `fieldHostRef` off EditorContext (EntitiesPalette's rationale). Fire-and-forget:
@@ -158,11 +204,24 @@ export function HistoryPalette() {
 					Every dig, stamp and edit lands here. Click a row to step back to it.
 				</p>
 			) : (
-				<ul className="max-h-64 overflow-y-auto">
+				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid — see `useRowGrid`
+				<div
+					ref={rows.ref}
+					role="grid"
+					aria-label="history"
+					aria-colcount={COLUMNS}
+					onKeyDown={rows.onKeyDown}
+					onFocus={rows.onFocus}
+					className="max-h-64 overflow-y-auto"
+				>
+					{/* The two "not listed" lines and the divider are rows of the grid that
+					    carry no control. They are rows rather than loose text because a
+					    `role="grid"` may hold rows and nothing else — and the stop skips them
+					    for free, since it moves between BUTTONS. */}
 					{further > 0 && (
-						<li className="px-2 py-1 text-muted-foreground italic">
+						<Note>
 							{further} further redo step{further === 1 ? "" : "s"} not listed
-						</li>
+						</Note>
 					)}
 					{/* The REDO side — undone work, still reachable forward — above the divider
 					    so the whole list reads as one timeline running downward into the past,
@@ -176,9 +235,10 @@ export function HistoryPalette() {
 							onStep={step}
 						/>
 					))}
-					{/* WHERE YOU ARE. A line rather than a row: it is not a step, so it must not
-					    look like something clickable that happens to do nothing. */}
-					<li aria-hidden className="my-1 border-primary border-t-2" />
+					{/* WHERE YOU ARE. A line rather than a step, so it must not look like
+					    something clickable that happens to do nothing — `aria-hidden` keeps it
+					    out of the grid's row count as well as off the keyboard. */}
+					<div aria-hidden className="my-1 border-primary border-t-2" />
 					{undoRows.map((row) => (
 						<Row
 							key={row.key}
@@ -189,16 +249,16 @@ export function HistoryPalette() {
 						/>
 					))}
 					{older > 0 && (
-						<li className="px-2 py-1 text-muted-foreground italic">
+						<Note>
 							{/* Named rather than hidden, the message log's rule: the bound dropped
 							    these from the SCREEN, not from the history, and ⌘Z still walks
 							    them. A list that silently ended at 50 would read as "that is all
 							    there is". */}
 							{older} older step{older === 1 ? "" : "s"} not listed — ⌘Z still
 							reaches {older === 1 ? "it" : "them"}
-						</li>
+						</Note>
 					)}
-				</ul>
+				</div>
 			)}
 		</div>
 	);

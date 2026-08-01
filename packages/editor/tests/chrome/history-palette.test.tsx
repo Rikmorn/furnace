@@ -92,7 +92,9 @@ test("an untouched session says so, and offers no rows", () => {
 	renderPalette(stub);
 	expect(screen.getByText("nothing yet")).toBeTruthy();
 	// Not a list with a divider in it: an empty history has no current position to mark.
-	expect(screen.queryByRole("listitem")).toBe(null);
+	// By ROW since F4.5c Task 9 — the palette is a one-column `role="grid"` now, so a
+	// `listitem` query would be satisfied by there being no list anywhere ever again.
+	expect(screen.queryByRole("row")).toBe(null);
 });
 
 // --- the rows ---------------------------------------------------------------
@@ -220,3 +222,67 @@ test("the undone count appears only while something is undone", () => {
 // item) and the two NAMED menu items live in shell.test.tsx: each needs the real Shell —
 // four writes across two providers, and a palette that is unmounted while closed — plus
 // that file's canvas-measurement and catalog-fetch environment.
+
+// --- F4.5c Task 9 (D-26): the row grid --------------------------------------
+
+const historyGrid = (): HTMLElement =>
+	screen.getByRole("grid", { name: "history" });
+
+const historyStops = (): HTMLButtonElement[] =>
+	Array.from(
+		historyGrid().querySelectorAll<HTMLButtonElement>(
+			'[role="row"] > [role="gridcell"]:first-child button',
+		),
+	);
+
+// THREE rows, because "one tab stop" is vacuous on a one-row list and an arrow that
+// lands where it started proves nothing.
+test("the history list is ONE tab stop, walked with ↑/↓, stepped with ⏎", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	push(stub, ["stamp Hall", "dig", "segment fill"]);
+
+	const tabbable = () => historyGrid().querySelectorAll('[tabindex="0"]');
+	expect(historyStops().length).toBe(3);
+	expect(tabbable().length).toBe(1);
+	expect(tabbable()[0] === historyStops()[0]).toBe(true);
+
+	// ↓ moves focus and NOTHING else: a history row is a command, and arrowing onto one
+	// must not step the log. This is the assertion that would redden if this list were
+	// given the entities grid's selection-follows-cursor rule by copy-paste.
+	historyStops()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(historyGrid(), { key: "ArrowDown" });
+	});
+	expect(document.activeElement === historyStops()[1]).toBe(true);
+	expect(stub.calls.undo.mock.calls.length).toBe(0);
+
+	// ⏎ is what takes the steps — and it has to be performed by the grid, because
+	// `session.confirm` claims ⏎ on the window and preventDefaults a focused button's
+	// native activation before it can happen.
+	act(() => {
+		fireEvent.keyDown(historyGrid(), { key: "Enter" });
+	});
+	// The SECOND row from the top is `dig`, which is two ⌘Z away.
+	expect(stub.calls.undo.mock.calls.length).toBe(2);
+});
+
+// The bound's two "not listed" lines are rows of the grid that carry no control. The
+// stop must skip them — it moves between BUTTONS — or ↑/↓ would stall on a note.
+test("a 'not listed' note is a row the stop walks past", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	push(stub, ["dig", "fill"], ["paint"], { undoDepth: 9, redoDepth: 4 });
+	expect(screen.getByText(/7 older steps not listed/)).toBeTruthy();
+	expect(screen.getByText(/3 further redo steps not listed/)).toBeTruthy();
+	// Five rows on screen, three of them steps.
+	expect(screen.getAllByRole("row").length).toBe(5);
+	expect(historyStops().length).toBe(3);
+
+	historyStops()[2]?.focus();
+	act(() => {
+		fireEvent.keyDown(historyGrid(), { key: "ArrowDown" });
+	});
+	// WRAPPED to the first step, not stranded on the note below it.
+	expect(document.activeElement === historyStops()[0]).toBe(true);
+});

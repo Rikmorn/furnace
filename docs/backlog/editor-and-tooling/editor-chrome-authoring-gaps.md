@@ -249,6 +249,28 @@ imperatively. `components/field/EntitiesList.tsx` was not touched — it contain
 unchanged. The rail is now the in-repo precedent to copy from, which is the one thing that
 got cheaper. Trigger is F4.5c.
 
+**CLOSED 2026-08-01 (F4.5c Task 9, D-26) — retire this section at the F4.5 seal.** The rail's
+mechanism was extracted to `frontend/hooks/useRovingList.ts` and the two-axis keyboard model
+built on it as `useRowGrid`; `EntitiesList` is now a `role="grid"` with ONE tab stop (↑/↓
+rows + host selection, → into the row's verb cluster, ← / Esc back, ⏎ = the row's own click),
+and `FlagsPalette` and `HistoryPalette` run the same model. The three questions this entry
+said were unsettled are settled and recorded in code: Enter is the row's CLICK (so key and
+mouse cannot drift); the expanded `<dl>` is its own `role="row"` holding one spanning cell,
+so its focusables never sit inside a cell row; and the palette is a **grid**, not a
+`treegrid` or a `listbox` — `useRowGrid`'s header carries the argument (a `listbox` option's
+content must be text, so rows that carry buttons cannot be options).
+
+Two rulings that go beyond what was asked, both stated where they live:
+- **`LogPalette` deliberately got NO roving.** Its rows carry no controls, and making each a
+  focusable option would turn a list a screen reader reads straight through into a widget
+  the user must arrow through. What it actually lacked — a keyboard route to its own
+  scrollbar, WCAG 2.1.1 — is fixed with one tab stop on the scroller.
+- **Tooltips are vetoed on the ROW axis and only there** (`vetoTipDuringTravel` in
+  `components/tips.tsx`). Radix opens a tooltip on FOCUS with no delay, so D-25's conversion
+  would have popped a box on every arrow press; the veto rides Radix's own
+  `composeEventHandlers` seam rather than a controlled `open`. Stepping a row's VERBS still
+  opens each one — that axis is inspection, not travel.
+
 **Reference:** `packages/editor/src/frontend/components/field/EntitiesList.tsx` (the row's
 button cluster and the `RowVerb` wrapper each verb renders through);
 `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (`useFieldEntitySelection` —

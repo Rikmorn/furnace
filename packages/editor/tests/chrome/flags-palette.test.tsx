@@ -351,11 +351,15 @@ test("a marker clicked in the VIEWPORT lights up its row here", () => {
 			]),
 		);
 	});
+	// Scoped by the ROW ROLE since F4.5c Task 9: the list is a `role="grid"` now and the
+	// <li> went with the conversion (WorldDrawer's rule — grid roles REPLACE list
+	// semantics rather than layering on them). The throw is kept for the reason it was
+	// written: without a row scope these assertions would silently widen to the palette.
 	const row = (name: string): HTMLElement => {
-		const li = screen.getByLabelText(name).closest("li");
-		if (!(li instanceof HTMLElement))
-			throw new Error("flag rows are no longer <li> — the row scope is gone");
-		return li;
+		const el = screen.getByLabelText(name).closest('[role="row"]');
+		if (!(el instanceof HTMLElement))
+			throw new Error("flag rows carry no role=row — the row scope is gone");
+		return el;
 	};
 	const first = "select candidate narrow @ (2.5, 0.0, -8.0)";
 	const second = "select candidate narrow @ (40.0, 0.0, 0.0)";
@@ -562,12 +566,14 @@ test("candidates sort above info, and a demoted row says so", () => {
 	// there — otherwise widening the filter just grows the list.
 	const demoted = screen
 		.getByLabelText("select candidate narrow @ (0.0, 0.0, 0.0)")
-		.closest("li");
+		.closest('[role="row"]');
 	if (!(demoted instanceof HTMLElement))
-		throw new Error("flag rows are no longer <li> — the row scope is gone");
+		throw new Error("flag rows carry no role=row — the row scope is gone");
 	expect(within(demoted).getByText("unreachable")).toBeTruthy();
 	const info = screen.getByLabelText("select info ledge @ (0.0, 0.0, 0.0)");
-	expect(info.closest("li")?.textContent).not.toContain("unreachable");
+	expect(info.closest('[role="row"]')?.textContent).not.toContain(
+		"unreachable",
+	);
 	// The band reaches a reader through THREE channels, and the assertions above
 	// already cover the third (it is in each accessible name). The other two are the
 	// dot's hue — alarm for what to act on, amber for context, the viewport's
@@ -577,9 +583,9 @@ test("candidates sort above info, and a demoted row says so", () => {
 	const dot = (row: HTMLElement, glyph: string): HTMLElement =>
 		within(row).getByText(glyph);
 	expect(dot(demoted, "●").className).toContain("text-destructive");
-	const infoRow = info.closest("li");
+	const infoRow = info.closest('[role="row"]');
 	if (!(infoRow instanceof HTMLElement))
-		throw new Error("flag rows are no longer <li> — the row scope is gone");
+		throw new Error("flag rows carry no role=row — the row scope is gone");
 	expect(dot(infoRow, "○").className).toContain("text-warning");
 	// …and the two glyphs are not interchangeable: a filled dot in the info row
 	// would mean the shape channel had collapsed back onto colour alone.
@@ -919,4 +925,77 @@ test("before the engine bundle lands the palette makes no claim about the world"
 	// host-reading palette carries.
 	expect(screen.getByText(/waits for the engine bundle/)).toBeTruthy();
 	expect(screen.queryByText(/candidates/) === null).toBe(true);
+});
+
+// --- F4.5c Task 9 (D-26): the row grid --------------------------------------
+
+const THREE_ROWS: FlagRow[] = [
+	NARROW,
+	rowOf("b", flagAt("narrow", "candidate", [40, 0, 0])),
+	rowOf("c", flagAt("narrow", "candidate", [80, 0, 0])),
+];
+
+const flagGrid = (): HTMLElement =>
+	screen.getByRole("grid", { name: "flag findings" });
+
+const flagStops = (): HTMLButtonElement[] =>
+	Array.from(
+		flagGrid().querySelectorAll<HTMLButtonElement>(
+			'[role="row"] > [role="gridcell"]:first-child button',
+		),
+	);
+
+// THREE rows, far enough apart not to cluster: "one tab stop" is vacuous on a one-row
+// list, and "↓ moved the focus" cannot fail when there is one place to move to.
+test("the flags list is ONE tab stop, and ↑/↓ walk it without selecting", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(THREE_ROWS));
+	});
+	// Two controls per row (select, verify) × three rows, and exactly one of the six is
+	// in the tab order.
+	expect(flagGrid().querySelectorAll("button").length).toBe(6);
+	const tabbable = () => flagGrid().querySelectorAll('[tabindex="0"]');
+	expect(tabbable().length).toBe(1);
+	expect(tabbable()[0] === flagStops()[0]).toBe(true);
+
+	flagStops()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "ArrowDown" });
+	});
+	expect(document.activeElement === flagStops()[1]).toBe(true);
+	expect(tabbable().length === 1 && tabbable()[0] === flagStops()[1]).toBe(
+		true,
+	);
+	// The DISCRIMINATING half, and the reason this list differs from the entities grid:
+	// selecting a finding FLIES THE CAMERA and can be refused with a toast, so arrowing
+	// past ten rows must not take ten camera trips. ⏎ is what commits.
+	expect(stub.calls.selectFlag.mock.calls.length).toBe(0);
+
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "Enter" });
+	});
+	expect(stub.calls.selectFlag.mock.calls).toEqual([["b"]]);
+});
+
+test("→ reaches the row's OWN Verify, and ← comes back", () => {
+	const stub = makeStubHost();
+	renderPalette(stub);
+	act(() => {
+		stub.fire.flags(summaryOf(THREE_ROWS));
+	});
+	flagStops()[1]?.focus();
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "ArrowRight" });
+	});
+	// Row b's Verify, not row a's or c's.
+	expect(
+		document.activeElement ===
+			screen.getByLabelText("verify narrow @ (40.0, 0.0, 0.0)"),
+	).toBe(true);
+	act(() => {
+		fireEvent.keyDown(flagGrid(), { key: "ArrowLeft" });
+	});
+	expect(document.activeElement === flagStops()[1]).toBe(true);
 });

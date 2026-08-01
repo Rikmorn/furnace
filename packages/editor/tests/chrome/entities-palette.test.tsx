@@ -741,3 +741,253 @@ test("a world switch that changes ONLY a param still re-renders the expanded row
 	expect(screen.getByText("12")).toBeTruthy();
 	expect(screen.queryByText("4")).toBeNull();
 });
+
+// --- F4.5c Task 9 (D-26): the grid, and its ONE tab stop --------------------
+//
+// THREE rows in every case below, never one. "The list is one tab stop" is vacuously
+// true of a one-row list, and "↑ moved the focus" is unfalsifiable when the element it
+// moved from and the element it moved to are the same one.
+
+const THREE: FieldEntityInfo[] = [
+	ENTITY,
+	{ ...ENTITY, entityId: 5 },
+	{ ...ENTITY, entityId: 9 },
+];
+
+const grid = (): HTMLElement =>
+	screen.getByRole("grid", { name: "committed stamps" });
+
+/** The row STOPS — the first cell's button on each row, which is the control the
+ *  roving tabindex moves between. Resolved through the GRID STRUCTURE rather than by
+ *  label, so a test that passed while the cells were mis-nested cannot exist. */
+const stops = (): HTMLButtonElement[] =>
+	Array.from(
+		grid().querySelectorAll<HTMLButtonElement>(
+			'[role="row"] > [role="gridcell"]:first-child button',
+		),
+	);
+
+/** Everything inside the list that Tab can reach — the number D-26 is about. */
+const tabbable = (): Element[] =>
+	Array.from(grid().querySelectorAll('[tabindex="0"]'));
+
+test("the entities list is ONE tab stop, not five per row (D-26)", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	// Five controls per row (select, open, freeze, sever, delete — six on a drifted
+	// one), and every one of them was its own tab stop before this: ~6N tabs to reach
+	// the last row of an N-entity world, with no way to move DOWN the list at all.
+	expect(grid().querySelectorAll("button").length).toBe(15);
+	expect(tabbable().length).toBe(1);
+	expect(tabbable()[0] === stops()[0]).toBe(true);
+});
+
+test("↑/↓ move the stop, the focus and the HOST selection together", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowDown" });
+	});
+	// Compared as BOOLEANS, never as elements: a happy-dom node carries React's fiber
+	// graph, so a failing element comparison serialises tens of megabytes and reads as a
+	// hung run rather than a failed assertion (the tool-rail house rule).
+	expect(document.activeElement === stops()[1]).toBe(true);
+	// The stop FOLLOWS the focus — one that did not would send the next Tab back to the
+	// top of the list.
+	expect(tabbable().length === 1 && tabbable()[0] === stops()[1]).toBe(true);
+	// Selection follows the cursor (the Finder/Photoshop behaviour), and it is the
+	// HOST's selection — the same write a viewport pick makes, not a second one.
+	expect(stub.calls.selectEntity.mock.calls).toEqual([[5]]);
+	// …and the row lights up only when the host echoes it back, which is what makes
+	// this the read half of the existing sync rather than a local highlight.
+	act(() => {
+		stub.fire.entitySelection(5);
+	});
+	expect(stops()[1]?.getAttribute("aria-current")).toBe("true");
+	expect(stops()[0]?.getAttribute("aria-current")).toBe(null);
+
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowUp" });
+	});
+	expect(document.activeElement === stops()[0]).toBe(true);
+	expect(stub.calls.selectEntity.mock.calls.at(-1)).toEqual([1]);
+});
+
+test("→ enters the ROW's own verb cluster, and ← walks back out of it", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[1]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+	});
+	// Entity 5's verbs, not entity 1's or 9's: the cluster is row-scoped, which is the
+	// half a flat "next focusable" walk would get wrong on every row but the first.
+	expect(document.activeElement === rowButton("open", 5)).toBe(true);
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+	});
+	expect(document.activeElement === rowButton("sever", 5)).toBe(true);
+	// The stop never moves INTO the cluster: the list stays one tab stop, and Tab from
+	// a verb therefore leaves the whole grid rather than walking the next row's verbs.
+	expect(tabbable().length === 1 && tabbable()[0] === stops()[1]).toBe(true);
+
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowLeft" });
+		fireEvent.keyDown(grid(), { key: "ArrowLeft" });
+		fireEvent.keyDown(grid(), { key: "ArrowLeft" });
+	});
+	expect(document.activeElement === stops()[1]).toBe(true);
+});
+
+test("Esc leaves the verb cluster WITHOUT stepping the cancel ladder", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[1]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+	});
+
+	const seen: string[] = [];
+	const spy = (e: KeyboardEvent) => seen.push(e.key);
+	window.addEventListener("keydown", spy);
+	try {
+		act(() => {
+			fireEvent.keyDown(grid(), { key: "Escape" });
+		});
+		expect(document.activeElement === stops()[1]).toBe(true);
+		// `session.escape` is the ONE cancel entry point and it is never disabled — it
+		// unwinds gesture → session → selection off a WINDOW listener. A dismissal scoped
+		// to a verb cluster must not step that ladder, so this Esc is stopped here.
+		expect(seen.includes("Escape")).toBe(false);
+		// NOT vacuous: an unclaimed key still travels, so the line above is a claim about
+		// stopPropagation rather than about fireEvent failing to bubble out of the grid.
+		act(() => {
+			fireEvent.keyDown(grid(), { key: "q" });
+		});
+		expect(seen).toEqual(["q"]);
+		// …and an Esc pressed ON THE ROW is not the grid's: there is no cluster to leave,
+		// so it belongs to the ladder and has to reach it.
+		act(() => {
+			fireEvent.keyDown(grid(), { key: "Escape" });
+		});
+		expect(seen).toEqual(["q", "Escape"]);
+	} finally {
+		window.removeEventListener("keydown", spy);
+	}
+});
+
+// Rule 3 of the roving mechanism, from the side that would break it. `preventDefault` on
+// a key the grid did NOT act on is the focus-trap class the window dispatcher exists to
+// kill, and TAB is the sharp case: prevent it and the one tab stop this task built becomes
+// a place the keyboard can enter and never leave. `fireEvent` returns `dispatchEvent`'s
+// own boolean — false when the event was cancelled — so this reads the actual default,
+// not a proxy for it.
+test("the grid claims ONLY the keys it acts on — Tab still leaves it", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[1]?.focus();
+	// A key it DOES claim, so the assertion below is not merely "fireEvent returns true".
+	expect(fireEvent.keyDown(grid(), { key: "ArrowDown" })).toBe(false);
+	expect(fireEvent.keyDown(grid(), { key: "Tab" })).toBe(true);
+	// …and an ordinary character, which on a canvas-focused editor is somebody's tool key.
+	expect(fireEvent.keyDown(grid(), { key: "b" })).toBe(true);
+	// Esc ON THE ROW is the cancel ladder's, not the grid's — the case that matters most,
+	// since Esc is the app's one cancel entry point.
+	//
+	// This line also catches the tooltip veto from a second direction, which is how the
+	// coupling was found rather than reasoned: an OPEN Radix tooltip mounts a
+	// `DismissableLayer`, and that layer puts a CAPTURE-phase keydown listener on
+	// `document` which calls `preventDefault()` on Escape (verified in
+	// @radix-ui/react-dismissable-layer 1.1.19). Drop the veto and the ArrowDown above
+	// opens a tip, so the Escape after it arrives already prevented — and because
+	// `useGlobalKeybindings` never consults `defaultPrevented`, the ladder ALSO fires. One
+	// Esc doing two things is precisely what the ladder's one-thing-at-a-time contract is.
+	expect(fireEvent.keyDown(grid(), { key: "Escape" })).toBe(true);
+});
+
+test("the stop CLAMPS when the list shrinks out from under it", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "End" });
+	});
+	expect(document.activeElement === stops()[2]).toBe(true);
+
+	// Two ⌘Z, or two deletes: the stop is now past the end of the list. Without the
+	// clamp it stays there, no control carries tabindex 0, and the whole list drops out
+	// of the tab order with nothing thrown and nothing logged.
+	pushEntities(stub, [ENTITY]);
+	expect(stops().length).toBe(1);
+	expect(tabbable().length === 1 && tabbable()[0] === stops()[0]).toBe(true);
+});
+
+test("⏎ on the row is the row's own click — and the session ladder never sees it", () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[1]?.focus();
+
+	const seen: string[] = [];
+	const spy = (e: KeyboardEvent) => seen.push(e.key);
+	window.addEventListener("keydown", spy);
+	try {
+		act(() => {
+			fireEvent.keyDown(grid(), { key: "Enter" });
+		});
+		// The row's click, exactly: select on the host AND expand, which is what makes ⏎
+		// and a mouse click the same act rather than two that could drift.
+		expect(stub.calls.selectEntity.mock.calls).toEqual([[5]]);
+		expect(stops()[1]?.getAttribute("aria-expanded")).toBe("true");
+		// `session.confirm` claims ⏎ on the window and preventDefaults it BEFORE its own
+		// `enabled` is consulted — so a focused button's native activation never runs and
+		// the grid has to claim the key itself. Letting it through would apply the live
+		// session instead of opening the row.
+		expect(seen.includes("Enter")).toBe(false);
+	} finally {
+		window.removeEventListener("keydown", spy);
+	}
+});
+
+// The hazard F4.5c Task 8 handed forward: `ActionTip` is a Radix tooltip that opens on
+// FOCUS, and Radix's focus path calls `onOpen()` with NO delay (`delayDuration` governs
+// the hover path only — verified in @radix-ui/react-tooltip 1.2.16). So without a veto
+// every arrow press pops a box, which is exactly why BurgerMenu's titles were exempted
+// from the conversion.
+test("arrow TRAVEL pops no tooltip; a focus that arrives any other way still does", async () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[0]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowDown" });
+	});
+	expect(screen.queryByRole("tooltip") === null).toBe(true);
+
+	// D-25 is intact: the SAME control still documents itself when focus arrives by Tab
+	// or by a click. The tip stopped chasing the cursor; it did not go away.
+	act(() => {
+		fireEvent.focus(stops()[1] as HTMLElement);
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			"select this stamp and show its recipe",
+		),
+	).toBeTruthy();
+});
+
+// The other axis, and the reason the veto is per-axis rather than global: stepping the
+// verbs of ONE row is inspection, and each verb's sentence is the answer being looked
+// for. Travelling the rows is navigation, and every row's sentence is the same one.
+test("stepping the verb cluster DOES document each verb", async () => {
+	const stub = makeStubHost();
+	showEntities(stub, THREE);
+	stops()[1]?.focus();
+	act(() => {
+		fireEvent.keyDown(grid(), { key: "ArrowRight" });
+	});
+	expect(
+		within(await screen.findByRole("tooltip")).getByText(
+			"reconfigure this stamp",
+		),
+	).toBeTruthy();
+});

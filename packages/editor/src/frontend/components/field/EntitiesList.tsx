@@ -81,8 +81,15 @@
 // documentation on this row's three destructive verbs is no longer mouse-only. The
 // keycap on delete is READ off the action registry rather than written here, and
 // only on the selected row, because that is the only row ⌫ would act on.
+//
+// F4.5c Task 9 closes the LAST of it (D-26). Every one of the controls above used to be
+// its own tab stop — ~6N tabs to reach the last row of an N-entity world, and no way to
+// move DOWN the list at all, because Tab walks a row and never crosses one. The list is
+// now ONE tab stop: see the grid's own header below for which APG pattern it is and why
+// that one.
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
+import { useRowGrid } from "../../hooks/useRovingList.ts";
 import { cn } from "../../lib/cn.ts";
 // The committed-entity policy vocabulary: one blocked-reason rule per row verb,
 // plus the param renderer the provider's push guard also compares through. A
@@ -125,6 +132,27 @@ const rowSummary = (e: FieldEntityInfo): string =>
 
 const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
 
+/** The grid's column count: the row's own control, the Δ badge, then open / freeze /
+ *  sever / delete.
+ *
+ *  Declared as `aria-colcount` and restated per cell as `aria-colindex` because the Δ
+ *  column is CONDITIONAL — it renders only on a row the standing drift report touches.
+ *  Without the pair, a reader walking → would be told "column 3 of 5" on one row and
+ *  "column 3 of 6" on the next for the same verb. This is exactly what ARIA 1.2 provides
+ *  the two attributes for; the alternative (an always-rendered empty cell) would put a
+ *  `gap-1` of dead space on every undrifted row. */
+const COLUMNS = 6;
+
+/** Every row and cell carries this, and NOTHING is ever focused through it.
+ *
+ *  It is the APG grid examples' own construction — a grid's structure is programmatically
+ *  focusable so an implementation MAY put focus on a cell — and here it is inert, because
+ *  each of these cells holds exactly one widget and APG lets focus live on the widget in
+ *  that case. What it buys is that the structure is not a lie to a tool: `-1` says "reach
+ *  me by script, never by Tab", which is exactly true, and it is what lets the
+ *  one-tab-stop assertion stay a count of `[tabindex="0"]`. */
+const CELL_TABINDEX = -1;
+
 /** One row verb's control, in whichever of the two documentation channels its state
  *  can actually use. One component so the four verbs cannot drift apart on this again
  *  (they did: ❄ and ⬇ shipped bare, and bake's tooltip still promised to sever a recipe
@@ -156,6 +184,10 @@ function RowVerb(props: {
 	/** The registry action whose KEY does this same thing to this same row, when one does.
 	 *  Absent on a row the key would not reach — see the delete verb's call below. */
 	actionId?: string;
+	/** Which grid column this verb occupies ({@link COLUMNS}). Passed per verb rather
+	 *  than counted, because the Δ cell is conditional — a counted index would report a
+	 *  different column for `freeze` depending on whether the row happened to drift. */
+	colIndex: number;
 	className?: string;
 	onClick: () => void;
 }) {
@@ -165,6 +197,11 @@ function RowVerb(props: {
 			type="button"
 			size="sm"
 			variant="ghost"
+			// OUT of the tab order, always. The grid is ONE tab stop and → is how a row's
+			// verbs are reached; a verb that kept its own stop would put the ~6N cost
+			// straight back. React owning this `tabIndex` is safe precisely because the
+			// roving hook writes only the first cell's control and never this one.
+			tabIndex={-1}
 			className={cn(ROW_BUTTON_CLASS, props.className)}
 			disabled={blocked !== null}
 			aria-label={
@@ -181,12 +218,21 @@ function RowVerb(props: {
 			)}
 		</Button>
 	);
-	return blocked === null ? (
-		<ActionTip hint={props.hint} actionId={props.actionId}>
-			{control}
-		</ActionTip>
-	) : (
-		<ReasonTip reason={blocked}>{control}</ReasonTip>
+	return (
+		// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div is the ARIA grid pattern for a non-table layout; a <td> would drag <table>/<tr> markup into a flex row whose whole geometry is CSS
+		<div
+			role="gridcell"
+			aria-colindex={props.colIndex}
+			tabIndex={CELL_TABINDEX}
+		>
+			{blocked === null ? (
+				<ActionTip hint={props.hint} actionId={props.actionId}>
+					{control}
+				</ActionTip>
+			) : (
+				<ReasonTip reason={blocked}>{control}</ReasonTip>
+			)}
+		</div>
 	);
 }
 
@@ -228,6 +274,22 @@ export function EntitiesList(props: {
 	const { entities, selectedId, driftedIds } = props;
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const selectedRow = useRef<HTMLDivElement | null>(null);
+	// The two-axis keyboard model, shared with the flags and history grids — see
+	// `useRowGrid` for which APG pattern this is and why `listbox` is not available to a
+	// row that carries buttons.
+	//
+	// SELECTION FOLLOWS THE CURSOR here, which is the Finder / Photoshop / Blender-outliner
+	// behaviour and is what the backlog entry that asked for this named: the state being
+	// roved over already exists and is already bidirectional (`subscribeEntitySelection`),
+	// so arrowing is that same write on a keyboard rather than a new concept. It costs one
+	// host call per press, and that is the right trade because `selectEntity` is CHEAP and
+	// REVERSIBLE — it draws the footprint box and nothing else. The DOM order of the stops
+	// is the render order of `entities`, so the index IS the entity and no id has to be
+	// threaded through the markup to find it again.
+	const grid = useRowGrid<HTMLDivElement>((i) => {
+		const landed = entities[i];
+		if (landed !== undefined) props.onSelect(landed.entityId);
+	});
 
 	// A refresh can remove the expanded entity (⌘Z undoes the whole commit,
 	// 🗑 removes it outright): drop the expansion so it does not outlive its row.
@@ -272,148 +334,209 @@ export function EntitiesList(props: {
 			// either way: no persistence.
 			defaultOpen={false}
 		>
-			<div className="flex flex-col gap-0.5">
-				{entities.length === 0 && (
-					<p className="px-1 text-xs text-muted-foreground">
-						no committed stamps yet
-					</p>
-				)}
-				{entities.map((e) => {
-					const expanded = e.entityId === expandedId;
-					const baked = e.baked === true;
-					const frozen = e.frozen === true;
-					const selected = e.entityId === selectedId;
-					return (
-						<div key={e.entityId} ref={selected ? selectedRow : null}>
-							<div className="flex items-center gap-1">
-								<ActionTip hint="select this stamp and show its recipe">
-									<button
-										type="button"
-										aria-expanded={expanded}
-										// The selected state, in the markup rather than only in a
-										// class: "the current item in this list" is exactly what
-										// aria-current means, and it is what makes the sync assertable
-										// without reaching for a Tailwind string.
-										aria-current={selected ? "true" : undefined}
-										// ONE click, two effects, and they are not redundant: the
-										// selection is HOST state (it draws the footprint box and is
-										// what the viewport's own pick writes), the expansion is this
-										// list's display state. Collapsing therefore leaves the entity
-										// selected — un-expanding a row is not a statement about what
-										// is being worked on.
-										onClick={() => {
-											props.onSelect(e.entityId);
-											setExpandedId(expanded ? null : e.entityId);
-										}}
-										className={cn(
-											"flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50",
-											expanded && "bg-muted",
-											selected && "bg-primary/15 ring-1 ring-primary/40",
-										)}
+			{entities.length === 0 ? (
+				// OUTSIDE the grid, not a row in it: a `role="grid"` may hold rows and
+				// nothing else, and an empty list has no row to put this on.
+				<p className="px-1 text-xs text-muted-foreground">
+					no committed stamps yet
+				</p>
+			) : (
+				// A `role="grid"`, and `useRowGrid`'s header carries the whole argument for
+				// that choice over `listbox` / `tree` / no role at all. The short version: these
+				// rows hold five widgets each, and `grid` is the only APG pattern whose cells
+				// may. Focus lives on the WIDGET inside the cell rather than the cell, which APG
+				// permits when a cell holds one.
+				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid; a <table> would drag row/cell markup into a layout whose geometry is entirely flexbox
+				<div
+					ref={grid.ref}
+					role="grid"
+					aria-label="committed stamps"
+					aria-colcount={COLUMNS}
+					onKeyDown={grid.onKeyDown}
+					onFocus={grid.onFocus}
+					className="flex flex-col gap-0.5"
+				>
+					{entities.map((e) => {
+						const expanded = e.entityId === expandedId;
+						const baked = e.baked === true;
+						const frozen = e.frozen === true;
+						const selected = e.entityId === selectedId;
+						return (
+							<Fragment key={e.entityId}>
+								{/* biome-ignore lint/a11y/useSemanticElements: role="row" on a div — see the grid above */}
+								<div
+									role="row"
+									tabIndex={CELL_TABINDEX}
+									ref={selected ? selectedRow : null}
+									className="flex items-center gap-1"
+								>
+									{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
+									<div
+										role="gridcell"
+										aria-colindex={1}
+										tabIndex={CELL_TABINDEX}
+										className="flex min-w-0 flex-1"
 									>
-										<span aria-hidden="true">▦</span>
-										<span
-											className={cn(
-												"min-w-0 flex-1 truncate font-mono",
-												// A frozen row reads as protected rather than active.
-												frozen && "text-muted-foreground",
-											)}
+										<ActionTip hint="select this stamp and show its recipe">
+											<button
+												type="button"
+												aria-expanded={expanded}
+												// The selected state, in the markup rather than only in a
+												// class: "the current item in this list" is exactly what
+												// aria-current means, and it is what makes the sync assertable
+												// without reaching for a Tailwind string.
+												aria-current={selected ? "true" : undefined}
+												// ONE click, two effects, and they are not redundant: the
+												// selection is HOST state (it draws the footprint box and is
+												// what the viewport's own pick writes), the expansion is this
+												// list's display state. Collapsing therefore leaves the entity
+												// selected — un-expanding a row is not a statement about what
+												// is being worked on. ⏎ on the row routes through this same
+												// handler (the grid clicks the control), so the key and the
+												// mouse cannot come to mean different things.
+												onClick={() => {
+													props.onSelect(e.entityId);
+													setExpandedId(expanded ? null : e.entityId);
+												}}
+												className={cn(
+													"flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/50",
+													expanded && "bg-muted",
+													selected && "bg-primary/15 ring-1 ring-primary/40",
+												)}
+											>
+												<span aria-hidden="true">▦</span>
+												<span
+													className={cn(
+														"min-w-0 flex-1 truncate font-mono",
+														// A frozen row reads as protected rather than active.
+														frozen && "text-muted-foreground",
+													)}
+												>
+													{rowSummary(e)}
+												</span>
+												{frozen && <StateBadge label="frozen" glyph="🔒" />}
+												{baked && <StateBadge label="baked" />}
+											</button>
+										</ActionTip>
+									</div>
+									{driftedIds.has(e.entityId) && (
+										// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above
+										<div
+											role="gridcell"
+											aria-colindex={2}
+											tabIndex={CELL_TABINDEX}
 										>
-											{rowSummary(e)}
-										</span>
-										{frozen && <StateBadge label="frozen" glyph="🔒" />}
-										{baked && <StateBadge label="baked" />}
-									</button>
-								</ActionTip>
-								{driftedIds.has(e.entityId) && (
-									<ActionTip hint="the last reconfigure disturbed something here — show the drift report">
-										<Button
-											type="button"
-											size="sm"
-											variant="ghost"
-											className={cn(ROW_BUTTON_CLASS, "text-amber-500")}
-											aria-label={`show drift near entity ${e.entityId}`}
-											onClick={props.onShowDrift}
+											<ActionTip hint="the last reconfigure disturbed something here — show the drift report">
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													tabIndex={-1}
+													className={cn(ROW_BUTTON_CLASS, "text-amber-500")}
+													aria-label={`show drift near entity ${e.entityId}`}
+													onClick={props.onShowDrift}
+												>
+													Δ
+												</Button>
+											</ActionTip>
+										</div>
+									)}
+									<RowVerb
+										entityId={e.entityId}
+										verb="open"
+										label="Open"
+										colIndex={3}
+										blocked={openBlockedReason(e)}
+										hint="reconfigure this stamp"
+										onClick={() => props.onReconfigure(e.entityId)}
+									/>
+									<RowVerb
+										entityId={e.entityId}
+										verb={frozen ? "unfreeze" : "freeze"}
+										glyph={frozen ? "🔓" : "❄"}
+										colIndex={4}
+										blocked={freezeBlockedReason(e)}
+										// The freeze consequence is stated UNCONDITIONALLY rather than
+										// only on the row that has a session open, and it costs nothing
+										// to do so: the sentence is true of every unfrozen row (the host
+										// cancels a session on the entity it freezes), so the wider
+										// phrasing makes the warning no weaker while leaving this list
+										// uncoupled from the session. That coupling IS available since
+										// F4.5b Task 2 — the session is a shell context (`useFieldStamp`)
+										// any surface may read — and is declined rather than unreachable:
+										// a tooltip that re-renders on every nudge of an unrelated stamp
+										// is a poor trade for one word.
+										hint={
+											frozen
+												? "allow this stamp to be reconfigured again"
+												: "protect this stamp from reconfigure — ends any reconfigure session open on it"
+										}
+										onClick={() => props.onFreeze(e.entityId, !frozen)}
+									/>
+									{/* ⬇ is D-14's bake glyph, not duplicate — see the header. The VERB
+									    is "sever", not "bake", because the bar's Bake button and
+									    `world.makeDefault` are two other operations under that word and
+									    neither has anything to do with this one: those write the world
+									    and point the game at it, this severs ONE stamp's recipe. The
+									    resulting entity STATE is still `baked` — that word is core's,
+									    and the badge keeps it — so the hint names both halves. */}
+									<RowVerb
+										entityId={e.entityId}
+										verb="sever"
+										glyph="⬇"
+										colIndex={5}
+										blocked={bakeBlockedReason(e)}
+										hint="sever this stamp's recipe — permanent; it becomes a baked entity"
+										onClick={() => props.onSever(e.entityId)}
+									/>
+									<RowVerb
+										entityId={e.entityId}
+										verb="delete"
+										glyph="🗑"
+										colIndex={6}
+										blocked={deleteBlockedReason(e)}
+										hint="remove this stamp and its ops"
+										// The ONE row verb a KEY also does — and only on the SELECTED row.
+										// `edit.delete` acts on `ctx.selectedEntity`, so ⌫ pressed while
+										// another row is selected does not touch this one; annotating every
+										// row with the keycap would be a claim about the keyboard that is
+										// false on all but one of them. The keycap itself is never spelled
+										// here — `ActionTip` reads it off the registry, so a rebind moves it.
+										actionId={selected ? "edit.delete" : undefined}
+										onClick={() => props.onDelete(e.entityId)}
+									/>
+								</div>
+								{expanded && (
+									// The params <dl> is its OWN row rather than a block inside the row
+									// above: a `role="row"` may hold cells and nothing else, and a <dl>
+									// smuggled in beside five gridcells is the shape that makes a screen
+									// reader announce a sixth, empty column. It holds no control, so the
+									// roving stop never lands here.
+									// biome-ignore lint/a11y/useSemanticElements: role="row" on a div — see the grid above
+									<div role="row" tabIndex={CELL_TABINDEX}>
+										{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
+										<div
+											role="gridcell"
+											aria-colindex={1}
+											aria-colspan={COLUMNS}
+											tabIndex={CELL_TABINDEX}
 										>
-											Δ
-										</Button>
-									</ActionTip>
+											<dl className="grid grid-cols-[auto_1fr] gap-x-3 px-6 py-1 text-xs text-muted-foreground">
+												{Object.entries(e.params).map(([k, v]) => (
+													<Fragment key={k}>
+														<dt className="font-mono">{k}</dt>
+														<dd className="tabular-nums">{formatParam(v)}</dd>
+													</Fragment>
+												))}
+											</dl>
+										</div>
+									</div>
 								)}
-								<RowVerb
-									entityId={e.entityId}
-									verb="open"
-									label="Open"
-									blocked={openBlockedReason(e)}
-									hint="reconfigure this stamp"
-									onClick={() => props.onReconfigure(e.entityId)}
-								/>
-								<RowVerb
-									entityId={e.entityId}
-									verb={frozen ? "unfreeze" : "freeze"}
-									glyph={frozen ? "🔓" : "❄"}
-									blocked={freezeBlockedReason(e)}
-									// The freeze consequence is stated UNCONDITIONALLY rather than
-									// only on the row that has a session open, and it costs nothing
-									// to do so: the sentence is true of every unfrozen row (the host
-									// cancels a session on the entity it freezes), so the wider
-									// phrasing makes the warning no weaker while leaving this list
-									// uncoupled from the session. That coupling IS available since
-									// F4.5b Task 2 — the session is a shell context (`useFieldStamp`)
-									// any surface may read — and is declined rather than unreachable:
-									// a tooltip that re-renders on every nudge of an unrelated stamp
-									// is a poor trade for one word.
-									hint={
-										frozen
-											? "allow this stamp to be reconfigured again"
-											: "protect this stamp from reconfigure — ends any reconfigure session open on it"
-									}
-									onClick={() => props.onFreeze(e.entityId, !frozen)}
-								/>
-								{/* ⬇ is D-14's bake glyph, not duplicate — see the header. The VERB
-								    is "sever", not "bake", because the bar's Bake button and
-								    `world.makeDefault` are two other operations under that word and
-								    neither has anything to do with this one: those write the world
-								    and point the game at it, this severs ONE stamp's recipe. The
-								    resulting entity STATE is still `baked` — that word is core's,
-								    and the badge keeps it — so the hint names both halves. */}
-								<RowVerb
-									entityId={e.entityId}
-									verb="sever"
-									glyph="⬇"
-									blocked={bakeBlockedReason(e)}
-									hint="sever this stamp's recipe — permanent; it becomes a baked entity"
-									onClick={() => props.onSever(e.entityId)}
-								/>
-								<RowVerb
-									entityId={e.entityId}
-									verb="delete"
-									glyph="🗑"
-									blocked={deleteBlockedReason(e)}
-									hint="remove this stamp and its ops"
-									// The ONE row verb a KEY also does — and only on the SELECTED row.
-									// `edit.delete` acts on `ctx.selectedEntity`, so ⌫ pressed while
-									// another row is selected does not touch this one; annotating every
-									// row with the keycap would be a claim about the keyboard that is
-									// false on all but one of them. The keycap itself is never spelled
-									// here — `ActionTip` reads it off the registry, so a rebind moves it.
-									actionId={selected ? "edit.delete" : undefined}
-									onClick={() => props.onDelete(e.entityId)}
-								/>
-							</div>
-							{expanded && (
-								<dl className="grid grid-cols-[auto_1fr] gap-x-3 px-6 py-1 text-xs text-muted-foreground">
-									{Object.entries(e.params).map(([k, v]) => (
-										<Fragment key={k}>
-											<dt className="font-mono">{k}</dt>
-											<dd className="tabular-nums">{formatParam(v)}</dd>
-										</Fragment>
-									))}
-								</dl>
-							)}
-						</div>
-					);
-				})}
-			</div>
+							</Fragment>
+						);
+					})}
+				</div>
+			)}
 		</CollapsibleSection>
 	);
 }

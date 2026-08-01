@@ -28,6 +28,7 @@ import type {
 	FlagRow,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useFieldFlags } from "../../hooks/useFieldHostState.tsx";
+import { useRowGrid } from "../../hooks/useRovingList.ts";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
 import { ActionTip, ReasonTip } from "../tips.tsx";
@@ -37,6 +38,13 @@ import { Button } from "../ui/button.tsx";
  *  ANY member — single-linkage, so a run of pinches along a corridor chains into
  *  one row instead of splitting at an arbitrary midpoint. */
 const CLUSTER_RADIUS_M = 2;
+
+/** The grid's columns: the row's own select control, then Verify. */
+const COLUMNS = 2;
+
+/** Inert, on every row and cell — the APG grid construction, and never focused through.
+ *  EntitiesList's constant of the same name says why in full. */
+const CELL_TABINDEX = -1;
 const CLUSTER_RADIUS_SQ = CLUSTER_RADIUS_M * CLUSTER_RADIUS_M;
 
 /** Why a `pit` cannot be verified in v1 (the D-F4-13 spec amendment): stage 2
@@ -384,6 +392,9 @@ function VerifyVerb({
 			type="button"
 			size="sm"
 			variant="ghost"
+			// OUT of the tab order: the list is ONE tab stop and → is how this column is
+			// reached. See `useRowGrid`.
+			tabIndex={-1}
 			className="h-5 px-1.5 text-xs"
 			// DERIVED from the refusal, never restated: the two must agree, and a third
 			// reason added to verifyRefusal would otherwise leave the button live while its
@@ -395,12 +406,17 @@ function VerifyVerb({
 			{running ? "Verifying…" : "verify ▸"}
 		</Button>
 	);
-	return unavailable ? (
-		<ReasonTip reason={refusal ?? undefined}>{control}</ReasonTip>
-	) : (
-		<ActionTip hint={`drive the project's mover at ${scope}`}>
-			{control}
-		</ActionTip>
+	return (
+		// biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div is the ARIA grid pattern for a non-table layout — see `useRowGrid`
+		<div role="gridcell" aria-colindex={2} tabIndex={CELL_TABINDEX}>
+			{unavailable ? (
+				<ReasonTip reason={refusal ?? undefined}>{control}</ReasonTip>
+			) : (
+				<ActionTip hint={`drive the project's mover at ${scope}`}>
+					{control}
+				</ActionTip>
+			)}
+		</div>
 	);
 }
 
@@ -408,7 +424,13 @@ export function FlagsPalette() {
 	const { state, fieldHostRef } = useEditor();
 	const { flags, filters, setFilters, verifying, verify } = useFieldFlags();
 	const clusters = useMemo(() => clusterRows(flags.visible), [flags.visible]);
-	const selectedRow = useRef<HTMLLIElement | null>(null);
+	// A <div>, not an <li>: the grid roles below REPLACE list semantics, and layering them
+	// on <ul>/<li> gives an element two contradictory role sets — the rule WorldDrawer's
+	// listbox already states for the same reason.
+	const selectedRow = useRef<HTMLDivElement | null>(null);
+	// The same two-axis model the entities grid runs, minus the selection write — see the
+	// list's own comment below for why this one does not select on arrow.
+	const rows = useRowGrid<HTMLDivElement>();
 
 	// A marker click in the VIEWPORT selects a finding that may be a hundred rows
 	// down. Scrolling to it is what makes the two surfaces one selection rather
@@ -470,7 +492,27 @@ export function FlagsPalette() {
 			{empty !== null ? (
 				<p className="px-1 py-2 text-muted-foreground">{empty}</p>
 			) : (
-				<ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+				// A `role="grid"` on the <ul>, which REPLACES its list semantics rather than
+				// layering on them: `useRowGrid`'s header carries the argument for the
+				// pattern, and the short version is that these rows hold two widgets each,
+				// which an `option` may not. A <div> rather than <ul>/<li>, for WorldDrawer's
+				// stated reason: these roles REPLACE list semantics, and layering them on a
+				// list element gives it two contradictory role sets.
+				//
+				// The ROW axis moves focus and nothing else here, deliberately — unlike the
+				// entities grid, whose selection follows the cursor. Selecting a finding
+				// FLIES THE CAMERA (and can be refused with a toast), so arrowing past ten
+				// rows would take ten camera trips nobody asked for. ⏎ is what commits.
+				// biome-ignore lint/a11y/useSemanticElements: role="grid" on a div is the ARIA pattern for a non-table grid; a <table> would drag row/cell markup into a flex column
+				<div
+					ref={rows.ref}
+					role="grid"
+					aria-label="flag findings"
+					aria-colcount={COLUMNS}
+					onKeyDown={rows.onKeyDown}
+					onFocus={rows.onFocus}
+					className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+				>
 					{clusters.map((c) => {
 						const { flag } = c.anchor;
 						const label = rowLabel(c);
@@ -487,8 +529,11 @@ export function FlagsPalette() {
 							flags.selected !== null &&
 							c.members.some((m) => m.key === flags.selected);
 						return (
-							<li
+							// biome-ignore lint/a11y/useSemanticElements: role="gridcell"/"row" on a div — see the grid above
+							<div
 								key={c.anchor.key}
+								role="row"
+								tabIndex={CELL_TABINDEX}
 								ref={selected ? selectedRow : null}
 								className={cn(
 									"flex items-center gap-1 rounded",
@@ -500,38 +545,49 @@ export function FlagsPalette() {
                     would reach a screen reader only if the label repeated it. Out
                     here the chip's own TEXT is the channel — which is why the
                     verdict's scope lives in that text (verdictLabel) and not only
-                    in a tooltip. */}
-								<ActionTip hint="select this finding and go to it">
-									<button
-										type="button"
-										aria-label={selectName(label, flag.severity)}
-										aria-current={selected ? "true" : undefined}
-										onClick={() =>
-											fieldHostRef.current?.selectFlag(c.anchor.key)
-										}
-										className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted/50"
-									>
-										{/* Decoration to a reader — selectName carries the band as a
-                        word, so announcing a bullet too would be noise. */}
-										<span
-											aria-hidden="true"
-											className={DOT_CLASS[flag.severity]}
+                    in a tooltip. They stay inside this CELL, though: a cell may
+                    hold a widget plus text, and giving two decorations their own
+                    column would make the grid's shape depend on whether a row
+                    happened to be demoted or verified. */}
+								{/* biome-ignore lint/a11y/useSemanticElements: role="gridcell" on a div — see the grid above */}
+								<div
+									role="gridcell"
+									aria-colindex={1}
+									tabIndex={CELL_TABINDEX}
+									className="flex min-w-0 flex-1 items-center gap-1"
+								>
+									<ActionTip hint="select this finding and go to it">
+										<button
+											type="button"
+											aria-label={selectName(label, flag.severity)}
+											aria-current={selected ? "true" : undefined}
+											onClick={() =>
+												fieldHostRef.current?.selectFlag(c.anchor.key)
+											}
+											className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted/50"
 										>
-											{DOT_GLYPH[flag.severity]}
-										</span>
-										<span className="min-w-0 flex-1 truncate font-mono tabular-nums">
-											{label}
-										</span>
-									</button>
-								</ActionTip>
-								{flag.unreachable === true && <Tag label="unreachable" />}
-								{c.anchor.verdict !== undefined && (
-									<Tag
-										label={verdictLabel(c.anchor.verdict.outcome, clustered)}
-										title={`stage 2's verdict on ${anchorScope(clustered)}`}
-										className={VERDICT_CLASS[c.anchor.verdict.outcome]}
-									/>
-								)}
+											{/* Decoration to a reader — selectName carries the band as a
+                        word, so announcing a bullet too would be noise. */}
+											<span
+												aria-hidden="true"
+												className={DOT_CLASS[flag.severity]}
+											>
+												{DOT_GLYPH[flag.severity]}
+											</span>
+											<span className="min-w-0 flex-1 truncate font-mono tabular-nums">
+												{label}
+											</span>
+										</button>
+									</ActionTip>
+									{flag.unreachable === true && <Tag label="unreachable" />}
+									{c.anchor.verdict !== undefined && (
+										<Tag
+											label={verdictLabel(c.anchor.verdict.outcome, clustered)}
+											title={`stage 2's verdict on ${anchorScope(clustered)}`}
+											className={VERDICT_CLASS[c.anchor.verdict.outcome]}
+										/>
+									)}
+								</div>
 								<VerifyVerb
 									refusal={refusal}
 									running={running}
@@ -539,10 +595,10 @@ export function FlagsPalette() {
 									name={verifyName(label, clustered, refusal)}
 									onClick={() => verify(c.anchor.key)}
 								/>
-							</li>
+							</div>
 						);
 					})}
-				</ul>
+				</div>
 			)}
 		</div>
 	);

@@ -16,10 +16,50 @@
 // card's two sections and both list rows. `SELECT_CLASS` stayed behind in
 // `field/form-bits.tsx`: it is a native-<select> Tailwind string with two consumers and
 // nothing to do with any of this.
-import type { ReactElement, ReactNode } from "react";
+import type { FocusEvent, ReactElement, ReactNode } from "react";
+import { isRovingTravel } from "../hooks/useRovingList.ts";
 import { byId } from "../lib/actions.ts";
 import { cn } from "../lib/cn.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
+
+/** Keep a tooltip shut while a roving traversal is moving focus PAST its trigger (D-26).
+ *
+ *  The problem, and why the delay does not cover it: `delayDuration` governs the HOVER
+ *  path only. Radix's trigger calls `context.onOpen()` from `onFocus` with no timer at
+ *  all — `onFocus: composeEventHandlers(props.onFocus, () => { if (!isPointerDownRef)
+ *  context.onOpen() })` in @radix-ui/react-tooltip 1.2.16 — so once ↑/↓ move focus
+ *  through a list, every arrow press pops a box instantly. That is exactly the reason
+ *  BurgerMenu's row titles were left as titles when the rest of the chrome converted.
+ *
+ *  Radix's own `isPointerDownRef` suppression does not help: it only covers focus that
+ *  ARRIVED from a pointerdown on the trigger, which a key traversal is not.
+ *
+ *  What Radix DOES provide is this veto. `composeEventHandlers` runs the consumer's
+ *  handler first and skips its own when the event came back `defaultPrevented`, so one
+ *  `onFocus` on the trigger is the whole mechanism — no controlled `open`, and none of
+ *  Radix's close/hover/dismiss behaviour reimplemented.
+ *
+ *  IT IS PER-AXIS, and that is the ruling rather than an accident of where the flag is
+ *  raised. Travelling the ROWS of a list is navigation: you are going somewhere, and every
+ *  row's tip says the same sentence, so the box is pure noise. Stepping the VERBS of one
+ *  row is inspection: each sentence is different and is the answer being looked for, so
+ *  those still open — the row-axis mover raises the flag and the cell-axis mover does not.
+ *
+ *  D-25 is intact either way: the same control still documents itself the moment focus
+ *  arrives by Tab, by a click, or by settling anywhere that is not a traversal step. The
+ *  tip stopped chasing the cursor; it did not become mouse-only again.
+ *
+ *  THE SECOND REASON, found by sabotaging the first: an open tooltip is not merely visual
+ *  noise, it TAKES A KEY. Radix's content mounts a `DismissableLayer`, which registers a
+ *  CAPTURE-phase `keydown` listener on `document` and calls `preventDefault()` on Escape
+ *  (@radix-ui/react-dismissable-layer 1.1.19). So a tip left open by arrow travel makes
+ *  the next Esc do two things at once — dismiss the tip AND run `session.escape`, because
+ *  `useGlobalKeybindings` never consults `defaultPrevented` — which is exactly what the
+ *  cancel ladder's one-thing-at-a-time contract exists to prevent. Pinned in
+ *  tests/chrome/entities-palette.test.tsx, "the grid claims ONLY the keys it acts on". */
+export function vetoTipDuringTravel(e: FocusEvent<HTMLElement>): void {
+	if (isRovingTravel()) e.preventDefault();
+}
 
 /** Wrap a DISABLED control so its explanation is still reachable: shadcn's Button sets
  *  `disabled:pointer-events-none` (ui/button.tsx), so a `title` on the button itself
@@ -115,7 +155,12 @@ export function ActionTip(props: {
 }) {
 	return (
 		<Tooltip>
-			<TooltipTrigger asChild>{props.children}</TooltipTrigger>
+			{/* The veto rides the TRIGGER, not the child: `composeEventHandlers` gates
+			    Radix's own focus-open on this handler's `defaultPrevented`, and a child that
+			    had to remember to call it would be N call sites deep. */}
+			<TooltipTrigger asChild onFocus={vetoTipDuringTravel}>
+				{props.children}
+			</TooltipTrigger>
 			<TooltipContent>
 				<KeyTip
 					keys={

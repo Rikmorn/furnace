@@ -55,7 +55,7 @@ import { cn } from "../../lib/cn.ts";
 // The tooltip BODY, shared with `ActionTip` (D-25) rather than spelled twice: this file
 // keeps its own trigger — a roving-tabindex button whose props cannot move to a wrapper,
 // opening to the `side` a 44 px column needs — and takes only the keycap-and-hint layout.
-import { KeyTip } from "../tips.tsx";
+import { KeyTip, vetoTipDuringTravel } from "../tips.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
@@ -236,7 +236,10 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 	return (
 		<div className="flex flex-col items-center">
 			<Tooltip>
-				<TooltipTrigger asChild>
+				{/* The same veto every `ActionTip` carries, spelled here because this file keeps
+				    its own trigger: seven controls in a roving column is seven tooltips popped
+				    on the way down it. See `vetoTipDuringTravel`. */}
+				<TooltipTrigger asChild onFocus={vetoTipDuringTravel}>
 					<button
 						type="button"
 						aria-pressed={row.armed}

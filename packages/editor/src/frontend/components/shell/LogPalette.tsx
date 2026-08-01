@@ -196,7 +196,26 @@ export function LogPalette() {
 				// Newest first, as the store keeps it: the last thing that happened is the
 				// thing being looked for. Capped height so a 200-entry log scrolls inside
 				// the palette rather than growing it to the full height of the cell.
-				<ul className="max-h-64 overflow-y-auto">
+				//
+				// NO ROVING HERE, and that is a ruling rather than an omission (F4.5c Task 9,
+				// D-26). Roving tabindex exists to collapse many CONTROLS into one tab stop;
+				// a log row is static text with no verb on it, and making each one a focusable
+				// "option" would take a list a screen reader can already read straight through
+				// and turn it into a widget the user has to arrow through — worse than what it
+				// replaced. The three lists that DID get the treatment all carry buttons per
+				// row; this one carries none.
+				//
+				// What it lacked instead is the thing a scroll box with no focusable content
+				// always lacks: any way to scroll it from the keyboard (WCAG 2.1.1 — Chrome
+				// and Safari will not focus such a container, so ↑/↓ reach it never). One tab
+				// stop on the SCROLLER fixes that, and the browser's own arrow handling does
+				// the rest — no key code here at all.
+				<ul
+					// biome-ignore lint/a11y/noNoninteractiveTabindex: a tab stop on a non-interactive element is the POINT here — it is the only keyboard route to a scroll box that holds no focusable content. The list keeps its list semantics; nothing claims to be a widget.
+					tabIndex={0}
+					aria-label="message log"
+					className="max-h-64 overflow-y-auto focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				>
 					{log.map((message) => (
 						<Row key={message.id} message={message} now={now} />
 					))}

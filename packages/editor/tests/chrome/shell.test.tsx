@@ -1106,6 +1106,46 @@ test("the ⚠ chip counts unread errors and summons the message log", async () =
 	expect(within(log).getByText("no messages")).toBeTruthy();
 });
 
+// F4.5c Task 9 (D-26), and the RULING as much as the fix: the log is the one row list
+// that did NOT get a roving grid, because its rows carry no controls — making each a
+// focusable "option" would turn a list a screen reader reads straight through into a
+// widget you have to arrow through. What it lacked instead was any keyboard route to
+// its own scrollbar, which a `max-h-64 overflow-y-auto` box with nothing focusable
+// inside it never has (Chrome and Safari will not focus such a container).
+test("the message log is keyboard-scrollable, and its rows are NOT roving options", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.toolError("the void-cast budget is exhausted");
+		stub.fire.toolError("selection found no matching cells");
+	});
+	act(() => {
+		fireEvent.click(
+			screen.getByLabelText("2 unread errors — open the message log"),
+		);
+	});
+	const log = logPalette();
+	if (!(log instanceof HTMLElement)) throw new Error("the log did not open");
+
+	const scroller = within(log).getByRole("list", { name: "message log" });
+	expect(scroller.classList.contains("overflow-y-auto")).toBe(true);
+	// ONE tab stop, and it is the SCROLLER — the browser's own arrow handling does the
+	// rest, so there is no key code in that component at all.
+	expect((scroller as HTMLElement).tabIndex).toBe(0);
+	// …and the rows stayed plain list items: no stop of their own, and no grid roles
+	// borrowed from the three lists that earned them. Three entries here (both refusals
+	// plus the catalog report), so this is quantified rather than read off one row.
+	const entries = within(log).getAllByRole("listitem");
+	expect(entries.length).toBe(3);
+	expect(entries.map((el) => el.getAttribute("tabindex"))).toEqual([
+		null,
+		null,
+		null,
+	]);
+	expect(within(log).queryByRole("grid") === null).toBe(true);
+});
+
 test("an advisor-idle WARN leaves the status bar quiet and reads amber", async () => {
 	fetch404();
 	const stub = makeStubHost();
