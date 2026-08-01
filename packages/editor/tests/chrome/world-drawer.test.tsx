@@ -152,8 +152,10 @@ async function renderTopBar(
 			{/* The bar's View popover and the burger's view items read this — the real shell
 			    mounts it one level above the world state, and so does this. */}
 			<ViewProvider host={stub.host} engineReady store={undefined}>
-				<WorldProvider>
-					<CatalogProvider>
+				{/* Above the world state, exactly as the shell mounts it: the boot restore
+				    waits for the materials settle this provider owns. */}
+				<CatalogProvider>
+					<WorldProvider>
 						<WorkspaceProvider store={undefined}>
 							{/* The burger's groups and the shortcut overlay are rendered FROM the
 							    action registry, so the bar needs the context that assembles it —
@@ -162,8 +164,8 @@ async function renderTopBar(
 								<TopBar />
 							</ActionContextProvider>
 						</WorkspaceProvider>
-					</CatalogProvider>
-				</WorldProvider>
+					</WorldProvider>
+				</CatalogProvider>
 			</ViewProvider>
 		</FieldHostStateProvider>,
 		makeEditorContext({

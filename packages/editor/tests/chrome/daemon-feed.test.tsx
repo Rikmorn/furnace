@@ -192,8 +192,10 @@ function Feed({
 		>
 			<FieldHostStateProvider host={stub.host} engineReady>
 				<ViewProvider host={stub.host} engineReady store={undefined}>
-					<WorldProvider>
-						<CatalogProvider>
+					{/* Above the world state, as the shell mounts it (the boot restore waits
+					    for this provider's materials settle). */}
+					<CatalogProvider>
+						<WorldProvider>
 							<WorkspaceProvider store={undefined}>
 								{/* The burger's groups and the shortcut overlay render FROM the
 								    action registry, so the bar needs the context that assembles it. */}
@@ -201,8 +203,8 @@ function Feed({
 									<TopBar />
 								</ActionContextProvider>
 							</WorkspaceProvider>
-						</CatalogProvider>
-					</WorldProvider>
+						</WorldProvider>
+					</CatalogProvider>
 				</ViewProvider>
 			</FieldHostStateProvider>
 		</EditorContext.Provider>

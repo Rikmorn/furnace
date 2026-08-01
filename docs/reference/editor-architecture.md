@@ -622,7 +622,7 @@ The foundation pass that turned the M3–3.1 prototype into a usable tool, drive
 
 ### 14.3 UI persistence + generation-session lift
 
-`frontend/lib/persist.ts` persists per-project UI state, scoped by the project root from `project.get`. *(Historical: it held the dockview layout + view flags + inspector section open-state, and closed panels reopened via **View ▸ Panels** from a `PANELS` registry. `panels.ts` is deleted; the blob is now `workspace` / `view` / `lastWorld` / `recentWorlds` at **v2**, and a v1 blob is orphaned rather than migrated — §20.2.)* The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
+`frontend/lib/persist.ts` persists per-project UI state, scoped by the project root from `project.get`. *(Historical: it held the dockview layout + view flags + inspector section open-state, and closed panels reopened via **View ▸ Panels** from a `PANELS` registry. `panels.ts` is deleted; the blob is now `workspace` / `view` / `flagFilters` / `lastWorld` at **v2**, and a v1 blob is orphaned rather than migrated — §20.2. F4.5b deleted the write-only `recentWorlds` and made `lastWorld` READ at boot — §21.9.)* The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
 
 ### 14.4 Viewport reference layer + navigation
 
@@ -1487,8 +1487,8 @@ very often already open and merely buried.
 
 **Persistence is v2** (`lib/persist.ts`). The serialized dock `layout` key died with the
 dock library, so `VERSION` bumped and a **v1 blob is orphaned, never migrated** — nothing
-in the v1 shape has a v2 meaning. The live keys are `workspace`, `view`, `lastWorld`,
-`recentWorlds`, each with exactly one writer, and `set` rebuilds the blob from `load()`
+in the v1 shape has a v2 meaning. The live keys are `workspace`, `view`, `flagFilters`
+and `lastWorld`, each with exactly one writer, and `set` rebuilds the blob from `load()`
 so the keys stay independent. A corrupt blob reads as empty; a quota failure is
 swallowed. Persistence is best-effort and must never break the editor.
 

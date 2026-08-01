@@ -17,6 +17,7 @@ import {
   saveWorld,
   type WorldApi,
   type WorldHost,
+  worldToRestore,
 } from "../src/frontend/lib/world-actions.ts";
 
 // The store is a module singleton (one editor, one log), so a message raised by one
@@ -311,7 +312,11 @@ test("a load failure reports and leaves the host untouched", async () => {
   expect(lastText()).toBe("load failed: no such world");
 });
 
-// --- the recents list --------------------------------------------------------
+// --- lastWorld: the world the next boot reopens -------------------------------
+//
+// The WRITE half and the read half's DECISION. What the chrome does with that decision
+// — the one-shot, the pristine-session gate, the in-flight readout — is behaviour with a
+// provider behind it, and lives in tests/chrome/world-boot-restore.test.tsx.
 
 function fakeStore(initial: UiState = {}): UiStore {
   const data: UiState = { ...initial };
@@ -325,15 +330,67 @@ function fakeStore(initial: UiState = {}): UiStore {
   };
 }
 
-test("remembering a world writes lastWorld and dedupes it to the front of recents", () => {
-  const store = fakeStore({ recentWorlds: ["grotto", "cavern", "mine"] });
+test("remembering a world writes lastWorld", () => {
+  const store = fakeStore();
   rememberWorld(store, "cavern");
   expect(store.get("lastWorld")).toBe("cavern");
-  expect(store.get("recentWorlds")).toEqual(["cavern", "grotto", "mine"]);
+  rememberWorld(store, "grotto");
+  expect(store.get("lastWorld")).toBe("grotto");
 });
 
 test("remembering with no store is a no-op, not a crash", () => {
   // Persistence is best-effort: the store is undefined until `project.get` resolves,
   // and forever if it fails. A save must still work then.
   expect(() => rememberWorld(undefined, "cavern")).not.toThrow();
+});
+
+test("the boot restore names the persisted world when the daemon still lists it", async () => {
+  const { api } = stubApi({
+    rows: [row({ name: "cavern" }), row({ name: "grotto" })],
+  });
+  expect(
+    await worldToRestore({ api }, fakeStore({ lastWorld: "grotto" })),
+  ).toBe("grotto");
+});
+
+test("the boot restore names nothing when there is nothing to reopen", async () => {
+  const { api } = stubApi({ rows: [row({ name: "cavern" })] });
+  let lists = 0;
+  const counting = {
+    worldList: () => {
+      lists++;
+      return api.worldList();
+    },
+  };
+
+  // A first-ever boot, and a project whose `project.get` never resolved. Both mean "stay
+  // on the untitled scratch" — and neither costs a round trip to find that out.
+  expect(await worldToRestore({ api: counting }, fakeStore())).toBeNull();
+  expect(await worldToRestore({ api: counting }, undefined)).toBeNull();
+  expect(lists).toBe(0);
+});
+
+test("the boot restore refuses a world that is gone, legacy, or unreachable", async () => {
+  const { api } = stubApi({
+    rows: [row({ name: "cavern" }), row({ name: "old-cave", kind: "legacy" })],
+  });
+  // Deleted, renamed, or gone with a branch switch between sessions.
+  expect(
+    await worldToRestore({ api }, fakeStore({ lastWorld: "grotto" })),
+  ).toBeNull();
+  // v1: `field.load` only speaks v2, so opening one would fail somewhere in the daemon —
+  // an error toast at boot for a world nobody asked to open. The drawer disables its Open
+  // button on the same fact.
+  expect(
+    await worldToRestore({ api }, fakeStore({ lastWorld: "old-cave" })),
+  ).toBeNull();
+  // The daemon went away mid-boot. Same answer, and the same silence: an unrequested
+  // open that cannot happen has nothing to say.
+  const failing = stubApi({ listThrows: new Error("daemon gone") });
+  expect(
+    await worldToRestore(
+      { api: failing.api },
+      fakeStore({ lastWorld: "cavern" }),
+    ),
+  ).toBeNull();
 });

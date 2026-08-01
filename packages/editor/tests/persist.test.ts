@@ -72,21 +72,21 @@ test("a v1 blob is ignored, not migrated", () => {
 test("the keys are independent — a write to one leaves the others alone", () => {
   const store = createUiStore(fakeStorage(), "/p");
   store.set("lastWorld", "cavern");
-  store.set("recentWorlds", ["cavern", "grotto"]);
+  store.set("flagFilters", { blocked: true });
   store.set("workspace", WORKSPACE);
   expect(store.get("lastWorld")).toBe("cavern");
-  expect(store.get("recentWorlds")).toEqual(["cavern", "grotto"]);
+  expect(store.get("flagFilters")).toEqual({ blocked: true });
   expect(store.get("workspace")).toEqual(WORKSPACE);
 
   // Update one of them; the other two are untouched.
   store.set("lastWorld", "grotto");
   expect(store.get("lastWorld")).toBe("grotto");
-  expect(store.get("recentWorlds")).toEqual(["cavern", "grotto"]);
+  expect(store.get("flagFilters")).toEqual({ blocked: true });
   expect(store.get("workspace")).toEqual(WORKSPACE);
 
   // …and so is clearing one (the `undefined` delete is a merge too).
-  store.set("recentWorlds", undefined);
-  expect(store.get("recentWorlds")).toBeUndefined();
+  store.set("flagFilters", undefined);
+  expect(store.get("flagFilters")).toBeUndefined();
   expect(store.get("lastWorld")).toBe("grotto");
   expect(store.get("workspace")).toEqual(WORKSPACE);
 });

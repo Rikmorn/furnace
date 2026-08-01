@@ -64,9 +64,11 @@ export function Shell() {
 
 /** The provider stack, in dependency order: the host-state mirror first (a single
  *  subscription slot, claimed once), then the view state that pushes into the same host,
- *  then the world state that derives its dirty bit from the mirror's stats, then the
- *  project catalogs. The chrome itself is one level further down — the action context
- *  reads all four, and a hook cannot read a provider its own JSX renders. */
+ *  then the project catalogs, then the world state — which reads BOTH of the two above
+ *  it, the mirror's stats for its dirty bit and the catalogs' materials settle for its
+ *  boot restore (a world must not remesh against the wrong table). The chrome itself is
+ *  one level further down — the action context reads all four, and a hook cannot read a
+ *  provider its own JSX renders. */
 function ShellFrame() {
 	const { state, fieldHostRef, store } = useEditor();
 	// Reading the ref during render is safe HERE, and this is the ONE place that does it:
@@ -79,11 +81,11 @@ function ShellFrame() {
 	return (
 		<FieldHostStateProvider host={host} engineReady={engineReady} store={store}>
 			<ViewProvider host={host} engineReady={engineReady} store={store}>
-				<WorldProvider>
-					<CatalogProvider>
+				<CatalogProvider>
+					<WorldProvider>
 						<ShellChrome host={host} engineReady={engineReady} />
-					</CatalogProvider>
-				</WorldProvider>
+					</WorldProvider>
+				</CatalogProvider>
 			</ViewProvider>
 		</FieldHostStateProvider>
 	);
@@ -150,11 +152,15 @@ function ShellChrome({
                   elements above on every session push. */}
 							<SessionCardPresence />
 							{/* Above the palette layer in DOM order, the Toasts rule and for the
-                  same reason with a sharper case: the DEFAULT arrangement docks the
-                  controls palette to the right edge at top 0, which covers exactly the
-                  corner the triad sits in — mounted before the layer it would ship
-                  invisible out of the box. Gated on the host like the canvas, because a
-                  pose readout with no camera behind it is a decoration. Its own absolute
+                  same reason: the triad's corner is not reserved, only left clear by
+                  the shipped defaults, so ANY palette the user docks right or drags
+                  into the top-right covers it — and mounted under the layer it would
+                  disappear the first time they did. (It used to ship invisible out of
+                  the box, because the `controls` palette docked right at top 0 by
+                  default; that id retired in F4.5b and nothing docks by default now,
+                  which makes this a rule about what the user can do rather than about
+                  the defaults.) Gated on the host like the canvas, because a pose
+                  readout with no camera behind it is a decoration. Its own absolute
                   box inside the SAME cell (D-1): it takes nothing from the canvas. */}
 							{engineReady && host && <AxisTriadMount />}
 							{/* Above the palette layer in DOM order, so a toast is never buried

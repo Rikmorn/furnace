@@ -9,7 +9,14 @@
  *
  *  v1 → v2 (the overlay shell): the serialized dock `layout` key died with the dock
  *  library. A v1 blob keeps its key and is simply orphaned — a deliberate clean break,
- *  not a migration: nothing in the v1 shape has a v2 meaning. */
+ *  not a migration: nothing in the v1 shape has a v2 meaning.
+ *
+ *  RETIRING a key is NOT a bump, and F4.5b's deleted `recentWorlds` is the worked
+ *  example. The reader takes NAMED keys only, so an orphaned one in a live blob costs
+ *  nothing but its bytes; a bump would throw away the workspace arrangement, the view
+ *  state and the flag filters of everyone who ever ran the editor, to retire one unused
+ *  array. Bump only when a key that is still READ changes meaning or shape — that is the
+ *  case a stale blob can actually corrupt. */
 const VERSION = 2;
 
 /** One floating palette's placement: viewport-relative position, which edge it is
@@ -28,8 +35,8 @@ export type PaletteState = {
  *  - `workspace` — the palette store (drag/snap/collapse/hide-all).
  *  - `view` — the view popover's display state (`hooks/useView.tsx`).
  *  - `flagFilters` — the advisor's triage bands (`hooks/useFieldHostState.tsx`).
- *  - `lastWorld` + `recentWorlds` — the world save/load flows (`world-actions.ts`'s
- *    `rememberWorld`). */
+ *  - `lastWorld` — the world save/load flows (`world-actions.ts`'s `rememberWorld`),
+ *    read back once per boot by `hooks/useWorld.tsx`'s restore. */
 export type UiState = {
   /** The floating-palette arrangement. `hidden` is the ⌘\ hide-all latch: restoring
    *  must return the EXACT prior arrangement, so the per-palette records survive it
@@ -59,22 +66,12 @@ export type UiState = {
    *  host-state provider's, which is where the state and its push to the host live.
    *  Sharing a key would be two writers racing a debounce. */
   flagFilters?: Record<string, boolean>;
-  /** The world the editor had open when it last closed. */
+  /** The world the editor had open when it last closed — the one the next boot reopens
+   *  (`world-actions.ts`'s `worldToRestore`). A NAME, not a promise: the directory it
+   *  points at may be gone by the time it is read, which is the reader's problem to
+   *  handle, not this blob's to prevent. */
   lastWorld?: string;
-  /** Most-recently-opened world names, newest first. */
-  recentWorlds?: string[];
 };
-
-/** Prepend `item` to a most-recent-first list, dropping any prior occurrence and capping
- *  the length. Pure — the recents list is a value, so its rules are testable without a
- *  store. */
-export function pushRecent(
-  list: readonly string[],
-  item: string,
-  cap: number,
-): string[] {
-  return [item, ...list.filter((x) => x !== item)].slice(0, cap);
-}
 
 /** A namespaced, versioned, schema-tolerant view over a `Storage` for ONE project. */
 export type UiStore = {

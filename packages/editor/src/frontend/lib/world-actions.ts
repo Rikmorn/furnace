@@ -23,7 +23,7 @@ import {
 } from "./generation.ts";
 import { errorMessage } from "./humanize.ts";
 import { notify } from "./notify-store.ts";
-import { pushRecent, type UiStore } from "./persist.ts";
+import type { UiStore } from "./persist.ts";
 
 /** The host surface these verbs touch — the two methods that read and write a world,
  *  and nothing else. Narrow on purpose: it is what makes the test double three lines
@@ -52,12 +52,6 @@ export type LoadOutcome =
   | { status: "loaded"; chunks: number }
   | { status: "invalid-name" }
   | { status: "failed"; message: string };
-
-/** How many world names the recents list keeps. `rememberWorld` writes
- *  `lastWorld`/`recentWorlds` on save and open; nothing reads either back yet — the
- *  drawer sorts off `world.list` alone. A future drawer ordering or a boot auto-load
- *  wires them, or deletes them; that call is F4.5b's. */
-export const RECENT_WORLDS_CAP = 8;
 
 // base64 → bytes: the inverse of toWireFiles' encoder, decoding the density chunk files
 // the daemon returns. Per-chunk atob is fine for v0 sizes (each chunk is a 4KiB file).
@@ -183,14 +177,41 @@ export async function loadWorldInto(
   }
 }
 
-/** Record `name` as the world this project was last in, and push it to the front of the
- *  recents. A no-op without a store: persistence is best-effort (the store is undefined
- *  until `project.get` resolves, and forever if it fails). */
+/** Record `name` as the world this project was last in — what {@link worldToRestore}
+ *  reads back on the next boot. A no-op without a store: persistence is best-effort (the
+ *  store is undefined until `project.get` resolves, and forever if it fails). */
 export function rememberWorld(store: UiStore | undefined, name: string): void {
   if (!store) return;
   store.set("lastWorld", name);
-  store.set(
-    "recentWorlds",
-    pushRecent(store.get("recentWorlds") ?? [], name, RECENT_WORLDS_CAP),
-  );
+}
+
+/**
+ * The world a boot should reopen, or `null` for "stay on the untitled scratch".
+ *
+ * `lastWorld` is a HINT about a previous session, not a claim about the disk: the
+ * directory it names can be renamed, deleted or swapped by a checkout between runs. So
+ * it is checked against `world.list` before anything is loaded, and every miss —
+ * unlisted, `legacy` (only v2 worlds have the oplog `field.load` reads, which is why the
+ * drawer disables their Open too), or a list call that failed outright — answers `null`
+ * SILENTLY. Nobody asked for this open; an error about a world the user themselves
+ * deleted would spend one of three toast slots on a non-event, at the one moment the
+ * editor is coming up. The untitled scratch on screen says what happened.
+ *
+ * No `lastWorld` (a first-ever boot) and no store at all (a `project.get` that never
+ * resolved) short-circuit before the round trip: a boot with nothing to reopen must not
+ * pay for a list it has nothing to look up in.
+ */
+export async function worldToRestore(
+  deps: { api: Pick<WorldApi, "worldList"> },
+  store: UiStore | undefined,
+): Promise<string | null> {
+  const last = store?.get("lastWorld");
+  if (!last) return null;
+  try {
+    const { worlds } = await deps.api.worldList();
+    const row = worlds.find((w) => w.name === last);
+    return row?.kind === "field" ? last : null;
+  } catch {
+    return null;
+  }
 }

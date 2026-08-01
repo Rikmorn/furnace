@@ -35,7 +35,9 @@ import {
 	loadWorldInto,
 	rememberWorld,
 	saveWorld,
+	worldToRestore,
 } from "../lib/world-actions.ts";
+import { useCatalog } from "./useCatalogs.tsx";
 import { useFieldHostState } from "./useFieldHostState.tsx";
 
 /** How the drawer was summoned. `browse` is the list; `save-as` is the same list with
@@ -108,6 +110,7 @@ export function useWorldActions(): WorldActions {
 export function WorldProvider({ children }: { children: ReactNode }) {
 	const { fieldHostRef, openConfirm, store, bakeBusyRef } = useEditor();
 	const { stats } = useFieldHostState();
+	const { catalogSettled } = useCatalog();
 	const [name, setName] = useState<string | null>(null);
 	const [dirty, setDirty] = useState(false);
 	const [drawer, setDrawer] = useState<DrawerMode | null>(null);
@@ -384,6 +387,50 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 		// session (silent data loss) or raise it on a clean one. It flips at most twice per
 		// save cycle, so rebuilding the verbs on it costs nothing.
 	}, [name, dirty, fieldHostRef, openConfirm, store, bakeBusyRef, rebaseline]);
+
+	// THE BOOT RESTORE. `lastWorld` is written on every save and every open; this is the
+	// one thing that reads it back, and the posture is the desktop app's — reopen what you
+	// were in, without asking.
+	//
+	// It fires ONCE per boot (`restored`, the useView/useWorkspace one-shot ref) and only
+	// into a session with nothing to lose: untitled AND unedited. Both halves are reachable
+	// before this runs, because the store arrives from an async `project.get` and the
+	// catalog settles on its own schedule — so the user can dig, or name a world, first.
+	// Live intent beats what was on disk, and the restore is then DROPPED rather than
+	// confirmed: an unrequested prompt at boot asking whether to discard work the user did
+	// seconds ago is a worse answer than leaving them where they are.
+	//
+	// Gated on `catalogSettled`, which is the STRONGER gate rather than a stand-in for
+	// engine-ready. A v2 world remeshes against the material table it was baked with, so a
+	// load racing the catalog fetch is the grey-world bug the drawer's own Load gate exists
+	// to prevent — and at boot that race is certain, not rare. It covers engine-ready in
+	// passing: CatalogProvider does not start the fetch until `state.status === "ready"`
+	// with the host assigned, so a settled catalog means both have happened. (`open`
+	// refuses without a host regardless — that is the backstop, not the gate.) It is also
+	// why the shell mounts CatalogProvider ABOVE this provider.
+	const restored = useRef(false);
+	useEffect(() => {
+		if (!catalogSettled || !store || restored.current) return;
+		restored.current = true;
+		// `name !== null` is the save-as that landed before `project.get` resolved: the blob
+		// still names the PREVIOUS session's world, and adopting it would swap the world out
+		// from under one the user has just named.
+		if (name !== null || dirty) return;
+		const opsAtDecision = seenOps.current ?? 0;
+		void (async () => {
+			const target = await worldToRestore({ api }, store);
+			if (target === null) return;
+			// Re-read across the round trip. The `dirty` above is this render's value and the
+			// verbs closed over the same one, so an op landing while `world.list` was in
+			// flight is invisible to both — the live count is the only witness.
+			if ((seenOps.current ?? 0) !== opsAtDecision) return;
+			// The ORDINARY verb, never a second load path: `busy`, the toast and the
+			// rebaseline are the ones a user-driven Open produces, by construction. Its
+			// discard confirm cannot fire from here — a clean session proceeds straight
+			// through.
+			actions.open(target);
+		})();
+	}, [catalogSettled, store, name, dirty, actions]);
 
 	const value = useMemo<WorldState>(
 		() => ({ name, dirty, drawer, busy }),
