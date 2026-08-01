@@ -9,6 +9,13 @@
 > and are still stage input: anything about a control's affordance, wording, feedback or
 > gesture survived the rebuild unless it named a surface that no longer exists. This
 > file is consumed at the F4.5 seal, not before — do not delete it.
+>
+> **F4.5b update (2026-08-01).** Item 1 is resolved (Tasks 8 and 9) and joins items 2
+> and 3, which F4.5b Task 9 had already resolved. Items 4 and 5 STAND, and were checked
+> against source rather than assumed: nothing in F4.5b touched the ghost-vs-committed
+> proxy sizing (`field-placements.proxyCorners` / `proxyScale`), and the void cast's
+> `VOID_CAST_CHUNK_BUDGET = 512` refusal and `compare: "always"` X-ray dominance are
+> unchanged. Both are gate observations that only a gate can close.
 
 Findings from the F3b Safari gate round 1 (2026-07-25) that are interaction-model
 work, not mechanism bugs. The two mechanism bugs found the same round were fixed
@@ -17,12 +24,34 @@ status line). Siblings: `field-f3a-gate-ux-findings.md`,
 `field-f2b-gate-ux-findings.md`, `editor-interaction-model-redesign.md` — this set
 joins them as **F4 recharter** ("seeing & the cockpit pass") input.
 
-## 1. Tool arming is invisible
+## 1. ~~Tool arming is invisible~~
 
-With brush effects, the `segment` gesture, and a pending stamp session all live at
-once, nothing in the viewport says which click does what ("dig + segment + cave —
-hard to know which one is actually selected"). The ToolPalette buttons carry
-pressed states, but the cursor/viewport itself gives no affordance. Wants: a
+**RESOLVED in F4.5b Tasks 8 and 9 (2026-08-01, D-F4.5-6/7/8)** — with four channels
+rather than the one this item asked for, and the module that owns two of them says so in
+its own header (`viewport-host/viewport-cursor.ts`):
+
+- the **rail** presses the armed family (`aria-pressed` per row, `shell/ToolRail.tsx`);
+- the **top strip** names the armed effect and shows only ITS params
+  (`shell/ToolStrip.tsx` over `shell/tool-params.tsx`);
+- the **status keymap** says what LMB does right now, per armed state — `armedKeymap` in
+  `shell/StatusBar.tsx` has a line for the brush (naming the effect and its live
+  modifiers), one for each gesture, one for a pending stamp (naming the generator) and
+  one for a live session;
+- the **cursor** answers under the pointer: `viewportCursor` picks the CSS keyword
+  (`crosshair` commits at a point, `cell` spans between two, `default` selects or is
+  suspended, `grab`/`grabbing` during a move) and `cursorAffordance` decides the
+  world-space mark drawn before the first click (a radius ring for the segment, an anchor
+  cross for the box and the pending stamp's region).
+
+The exact case the item names — brush plus segment plus a pending cave at once — is also
+answered mechanically rather than only visually: a live session SUSPENDS both
+field-writing arms (`suspendedByStamp`, see item 2), and the cursor drops to `default`
+for them so it stops promising a click the host is going to swallow.
+
+*Original finding.* With brush effects, the `segment` gesture, and a pending stamp
+session all live at once, nothing in the viewport says which click does what ("dig +
+segment + cave — hard to know which one is actually selected"). The ToolPalette buttons
+carry pressed states, but the cursor/viewport itself gives no affordance. Wants: a
 cursor/HUD statement of the armed tool, likely alongside the F4 pointer tool.
 
 ## 2. ~~The stamp-session dual-operation model reads as "2 operations at once"~~

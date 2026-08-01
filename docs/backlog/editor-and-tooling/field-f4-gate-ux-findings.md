@@ -9,6 +9,11 @@
 > and are still stage input: anything about a control's affordance, wording, feedback or
 > gesture survived the rebuild unless it named a surface that no longer exists. This
 > file is consumed at the F4.5 seal, not before — do not delete it.
+>
+> **F4.5b update (2026-08-01).** Item 1 is resolved (Task 13). Item 2's structural
+> blocker was cleared at F4.5a. Item 3 STANDS and its trigger's conditional resolved
+> NEGATIVE — the action registry landed without the six views in it, so the cheap close
+> it was waiting on did not happen by itself.
 
 Findings from the F4 Safari gate (2026-07-27) that are interaction-model work, not
 mechanism bugs. Joins the sibling sets (`field-f2b-gate-ux-findings.md`,
@@ -51,6 +56,15 @@ entry adds only the datum that a GATE step was blocked by it. The quiet-by-defau
 property itself was accepted on the machine evidence (P-F4-3b: 0 pits in 12/12
 walked configs, worst 3 candidates; camera-independent).
 
+**The BLOCKER itself was cleared at F4.5a (recorded 2026-08-01).** All three causes named
+above are gone rather than re-filed: `shell/WorldDrawer.tsx` is a world PICKER listing
+every world in the project, committed and scratch alike, with badges — so scratch worlds
+are no longer gitignored-invisible — over the `world.list` daemon verb, refetched on every
+`worlds-changed` tick; and the scene-open menu item cannot be "locked in the field
+context" any more because the whole scene-editing surface was deleted at F4.5a (the editor
+is field-only). What survives here is the DATUM this entry was filed to carry — that an F4
+gate step was structurally unrunnable — plus the P-F4-3b verdict, which is untouched.
+
 **Trigger to revisit:** the UX/polish stage charter (rides in with the sibling
 sets).
 
@@ -76,8 +90,20 @@ which is the cheapest and is very likely what T7's action registry delivers anyw
 Note this is target SIZE only. The tips are otherwise accessible: real buttons, fixed
 tab order, per-view `aria-label`, a hover ring and a `title`.
 
-**Trigger to revisit:** the F4.5c polish stage, alongside T7's action registry — if the
-registry exposes the six views, option three closes this at no cost.
+**STANDS after F4.5b — the trigger's conditional fired and resolved NEGATIVE (checked
+2026-08-01).** Task 7's action registry shipped (`frontend/lib/actions.ts`, 30 actions —
+6 world, 8 edit, 8 tool, 3 session, 5 view) and it does NOT expose the six views:
+there is no `view.snap*` id, and `FieldHost.snapView` has exactly one caller in the whole
+frontend — `shell/AxisTriadMount.tsx`, i.e. the tips themselves. So option three is not
+available: the tips remain the SOLE route to the six axis views, which is what keeps them
+controls under SC 2.5.8 rather than a redundant affordance. The item is otherwise
+unchanged, and `AxisTriad.tsx`'s own `HIT`/`NEG_HIT` comment still points here.
+
+**Trigger to revisit:** the F4.5c polish stage. The cheapest close is still option three,
+and it is now a KNOWN piece of work rather than a hope — six `view.snapXPos`-shaped
+registry actions (which would also put the views in the burger's View group and the
+shortcuts overlay for free), after which the tips are redundant and the SC stops
+applying.
 
 **Reference:** `packages/editor/src/frontend/components/AxisTriad.tsx` (`HIT` /
 `NEG_HIT`, and the comment that states the constraint); `docs/reference/editor-architecture.md`

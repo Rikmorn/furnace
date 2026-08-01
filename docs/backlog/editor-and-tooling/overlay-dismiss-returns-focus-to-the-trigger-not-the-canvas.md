@@ -61,6 +61,38 @@ click is a much smaller loss (they all have panel equivalents or repeat harmless
 The line above about ⌘Z is still accurate as written: both listeners bind it, and the
 canvas's `stopPropagation` is what keeps one press from stepping the log twice.
 
+## Costed and DECLINED for F4.5b Task 14 — the budget was ~30 LOC, the shape is ~3× that
+
+Task 14 was to implement the conditional canvas-refocus **if it fits ~30 LOC on the shared
+overlay close path**. It does not, and the reason is that **there is no shared overlay
+close path** — measured rather than assumed. `grep -rn "onOpenChange"` over
+`src/frontend/components` (excluding the shadcn `ui/` primitives) returns eight
+independent owners, each with its own open state and its own handler: `TopBar` →
+`ViewPopover`, `ToolRail`'s member flyout, `WorldDrawer`, `BurgerMenu` (its own
+`DropdownMenu`, plus it owns `ShortcutsDialog`'s), `AdvancedSection`, and `ConfirmDialog`.
+
+The second half of the cost is that **the canvas is not reachable from any of them**:
+`CanvasHost.tsx` holds its `useRef<HTMLCanvasElement>` privately (line 34) and exposes no
+focus verb, so "restore focus to the canvas" has no callable form today.
+
+The honest shape, so the next pass does not re-derive it:
+
+1. **Expose the focus verb.** A canvas-focus seam out of `CanvasHost` — either a small
+   context or a field on the existing editor context. ~10 LOC plus the provider edit.
+2. **One hook, `useViewportFocusReturn()`.** On the false→true edge record
+   `document.activeElement === canvas`; on the true→false edge refocus only if it was.
+   Keeping the record per-overlay rather than one shell-level memory is what makes two
+   overlays open at once (the burger over the drawer) well-defined. ~20 LOC.
+3. **Six call sites**, ~4 LOC each. ~24 LOC.
+4. **Tests** at each site, both polarities — refocus when the canvas had it, DO NOT
+   refocus when the user tabbed in. The second half is the one that matters: it is the
+   WCAG 2.4.3 behaviour the naive fix breaks, and it is what makes this conditional rather
+   than a one-liner.
+
+Roughly 60–90 LOC across eight files plus tests, against a ~30 LOC budget. Recorded rather
+than half-done: a version wired into two of the six overlays would be worse than none,
+because the inconsistency is exactly what makes a focus rule unlearnable.
+
 ## Trigger to revisit
 
 The F4.5c polish stage, or sooner if the slice slider (a control a user drags repeatedly

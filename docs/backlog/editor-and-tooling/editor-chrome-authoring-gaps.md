@@ -7,6 +7,18 @@ deferred as out of scope for the task that surfaced it. Merged so there is **one
 check whenever you touch `packages/editor/src/frontend/components/` or
 `src/frontend/inspector/`**. Sections keep their original content.
 
+> **State of this file after F4.5b (2026-08-01).** The refresh-guard section this file's
+> preamble names ("An entity row's expanded params can show the PREVIOUS world's values
+> after a load") was RESOLVED and removed at F4.5b Task 4 — verified: `sameParams` in
+> `frontend/lib/field-host-mirrors.ts` compares the RENDERED projection of each param
+> (`formatParam`, the same function the row's `<dl>` uses) and `sameEntities` calls it, so
+> the class is closed rather than merely deleted. The EnumField section is resolved
+> editor-side (F4.5b Task 11) and keeps its note for the CORE half. Three sections —
+> entity add/delete/duplicate, textures+effects authoring, light-edit preview — are STALE
+> rather than resolved: their daemon/core facts still hold, but the chrome they were
+> measured against was deleted at F4.5a. Each says so in place; retiring them is a seal
+> decision, not a doc-pass one.
+
 ## Entity add / delete / duplicate UI in the editor chrome
 
 The daemon exposes `scene.addEntity` / `scene.removeEntity` (editor-architecture §4 command
@@ -39,6 +51,17 @@ needed — the procedural-authoring editor pass (Slice 3.2.5 / the interaction-m
 `packages/editor/src/frontend/components/EntitiesPanel.tsx`,
 `docs/reference/editor-architecture.md` §4, sibling `editor-interaction-model-redesign.md`.
 
+**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon half is
+intact and still registered: `scene.addEntity` and `scene.removeEntity` are in
+`daemon/handlers.ts`. The CHROME half named above is not — `components/EntitiesPanel.tsx`
+was deleted with the whole scene-editing surface at F4.5a, and the editor is field-only
+today, so the Reference line above points at a file that no longer exists. Nothing here was
+fixed; the surface the gap was measured against went away. Note also that the FIELD editor
+now has its own entity verbs (`FieldHost.deleteEntity` / `duplicateEntity`, F4.5b Task 4,
+D-14), which is a different object model — generator entities, not scene entities — so it
+does not discharge this. Whether this entry retires or re-targets is a call for the F4.5
+seal, not for a doc pass.
+
 ## Editor authoring of the `textures` + `effects` resource tables
 
 The core scene format now has five resource tables — `geometries, textures, shaders, materials, effects` (`packages/core/src/scene/t.ts` `TABLE_ORDER`). The editor can **load, validate, render, and reflect** all five: a scene using textures/effects opens fine, renders in the viewport (lights/ambient; post deferred — see the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`), and the inspector's resources panel lists texture/effect resources with their fields.
@@ -63,6 +86,14 @@ This was an accepted, documented scope boundary of the M1-slices batch (the batc
 **Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely the editor redesign for procgen authoring — see `editor-interaction-model-redesign.md`), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
 
 **Reference:** `packages/editor/src/daemon/handlers.ts` (`tableEnum`, `scene.setResource`, `scene.removeResource`), `packages/core/src/scene/t.ts` (`TABLE_ORDER`), `docs/reference/editor-architecture.md §12`, sibling entry: the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`.
+
+**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon-side fact is
+verbatim true and unchanged: `tableEnum` in `daemon/handlers.ts` is still
+`z.enum(["geometries", "shaders", "materials"])` and both resource verbs still gate on it.
+What is gone is the other end — the M5A inspector's resources panel and every scene surface
+that would have edited a texture or effect were deleted at F4.5a (field-only editor). So the
+command-layer gap is real and the surface that would use it is absent; same
+retire-or-re-target call as the section above, at the F4.5 seal.
 
 ## EnumField stringifies enum members and never coerces back — numeric enums are dead on arrival
 
@@ -99,10 +130,21 @@ Once it lands, `rotation` can become a numeric enum and the coercion note in the
 **RESOLVED EDITOR-SIDE 2026-07-31 (F4.5b Task 11); the CORE half is still open.** The field
 half shipped: `inspector/lib/enum-options.ts` carries each member beside its label and
 transports it by INDEX, and both enum controls (`EnumField`'s Select and the new
-`SegmentedField`) commit the member. `tests/inspector/enum-field.test.tsx` pins
-`{ enum: [0, 90] }` committing the number `90`, sabotage-proven red against a
-`String(member)` mapping. `StampInspector` was deleted at Task 10; the boundary cast now
-lives in `SessionCard.tsx` and is unchanged (it casts the params RECORD, not the member).
+`SegmentedField`) commit the member. `StampInspector` was deleted at Task 10; the boundary
+cast now lives in `SessionCard.tsx` and is unchanged (it casts the params RECORD, not the
+member).
+
+*Coverage, corrected against the tests themselves (2026-08-01) — the sentence this replaces
+said `enum-field.test.tsx` pins the COMMIT, and it does not.* That file pins the pure
+mapping (`enumOptions` carries the member; `memberAt("1")` is the number `90` with
+`typeof === "number"`; the transport is the INDEX so `[1, "1"]` stays distinguishable) and
+`EnumField`'s DISPLAY binding. The end-to-end COMMIT is pinned through the other control —
+`segmented-field.test.tsx`, "picking a segment COMMITS the schema member, not its label",
+asserting `toBe(90)` and `typeof === "number"` after a real click — which consumes the same
+`lib/enum-options.ts`. What stays uncovered, and is disclosed in the test file's own header:
+`EnumField`'s wiring of `memberAt` into `onValueChange`, because a Radix `Select` item
+cannot be clicked under happy-dom (probed — the portaled content never mounts). A
+browser-driven gate is what closes that.
 
 What has NOT changed is core: stamp `rotation` is still `["0", "90", "180", "270"]` and the
 `ROTATIONS` TSDoc still records the dependency. That migration is a persisted-data change —
@@ -163,6 +205,13 @@ section had no trigger and would never surface from a trigger grep.)
 `packages/core/src/scene/loader.ts` `setEntityTransform`/`rebuildEntity`;
 `packages/core/src/scene/builtins.ts` `buildLight`.
 
+**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved; the editor half of the
+Reference above is dead.** `preview-gate.ts` no longer exists and `previewEntity` returns no
+hits anywhere in `packages/editor/src` — the scene host went with the scene-editing surface
+at F4.5a. The core-side references still resolve. The reproduction matrix this section exists
+for names "the SCENE editor", which the editor no longer has, so its trigger can never fire
+as written. Retire-or-re-target at the F4.5 seal.
+
 ## The entities palette has no roving focus, and D-14 just made that expensive
 
 **Context.** F4.5b Task 4 promoted `EntitiesList` from a reference read-out to the
@@ -188,9 +237,17 @@ verb task: it wants a decision about what Enter does on a row (expand? open?), w
 happens to the expanded `<dl>`'s own focusables, and whether the palette becomes a
 `treegrid` or stays a list of buttons — none of which this task had cause to settle.
 
-**Trigger to revisit:** Task 8's palette-layout pass (which decides what the controls
-column opens on, and is where this palette's ergonomics get looked at as a whole), or
+**Trigger to revisit:** ~~Task 8's palette-layout pass (which decides what the controls
+column opens on, and is where this palette's ergonomics get looked at as a whole), or~~
 F4.5c if Task 8 stays layout-only.
+
+**STANDS — the trigger fired and did not close it (checked 2026-08-01).** Task 8 shipped and
+did build roving focus, but for the TOOL RAIL, not this palette: `shell/ToolRail.tsx` is a
+`role="toolbar"` that moves a single tab stop with Arrow/Home/End and writes `tabIndex`
+imperatively. `components/field/EntitiesList.tsx` was not touched — it contains no
+`tabIndex` at all, so every row verb is still its own tab stop and the ~6N cost above is
+unchanged. The rail is now the in-repo precedent to copy from, which is the one thing that
+got cheaper. Trigger is F4.5c.
 
 **Reference:** `packages/editor/src/frontend/components/field/EntitiesList.tsx` (the row's
 button cluster and the `RowVerb` wrapper each verb renders through);
