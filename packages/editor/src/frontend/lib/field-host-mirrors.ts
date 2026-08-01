@@ -42,6 +42,7 @@ export function statsEqual(a: FieldStats, b: FieldStats): boolean {
     redoDepth,
     lastReconfigureMs,
     analyzerPending,
+    voidCastPending,
     ...rest
   } = a;
   void (rest satisfies Record<string, never>);
@@ -55,7 +56,12 @@ export function statsEqual(a: FieldStats, b: FieldStats): boolean {
     undoDepth === b.undoDepth &&
     redoDepth === b.redoDepth &&
     lastReconfigureMs === b.lastReconfigureMs &&
-    analyzerPending === b.analyzerPending
+    analyzerPending === b.analyzerPending &&
+    // The one BOOLEAN in the readout, and the one the fields above cannot cover for:
+    // dropping this term does not stale a number, it costs the status bar a whole chip.
+    // A cast that starts and ends between two otherwise-identical readings would compare
+    // equal, the mirror would keep `prev`, and the long-job readout would never appear.
+    voidCastPending === b.voidCastPending
   );
 }
 

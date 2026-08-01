@@ -62,12 +62,22 @@ const DEFAULT_LAYERS: FieldLayers = {
 	voidCast: false,
 };
 
+/** The X-ray, held out of the persisted set — ONE exclusion, which both the writer and
+ *  the reader below work from, so the two sides cannot disagree about it. Destructured
+ *  rather than filtered by name: a `voidCast` that was renamed in `FieldLayers` stops
+ *  compiling here, which a string comparison against a key list would not.
+ *
+ *  Why it is held out is `serializeView`'s to explain. */
+const { voidCast: _sessionOnlyLayer, ...PERSISTED_LAYERS } = DEFAULT_LAYERS;
+
 /** The layer names a persisted blob may speak about. */
 // Boundary cast: `Object.keys` is typed `string[]` because a VALUE can structurally carry
-// keys its type never declared — but the argument here is an object literal checked
-// against `FieldLayers`, which cannot. Deriving the list (rather than writing it out)
-// is what keeps a new layer restorable without a second edit here.
-const LAYER_KEYS = Object.keys(DEFAULT_LAYERS) as (keyof FieldLayers)[];
+// keys its type never declared — but the argument here is a rest object off a literal
+// checked against `FieldLayers`, which cannot. Deriving the list (rather than writing it
+// out) is what keeps a new layer restorable without a second edit here.
+const PERSISTED_LAYER_KEYS = Object.keys(
+	PERSISTED_LAYERS,
+) as (keyof typeof PERSISTED_LAYERS)[];
 
 /** The FALLBACK park for the slice plane, used only when the world can offer nothing
  *  better: mid-slider, high enough to cut a typical kit hall.
@@ -142,6 +152,19 @@ const defaultView = (): ViewState => ({
  *  cold start to honour a switch the user last touched days ago. AA is a session choice
  *  until that ordering is worth solving.
  *
+ *  `layers.voidCast` is absent for the SAME reason, one step worse. The host boots with
+ *  the X-ray off and `setLayers` acts on the false→true EDGE, so a restored `true` always
+ *  presents that edge — and what the edge does depends on an unpinned race between this
+ *  store and the catalog-gated world restore. Win it and the user gets a spurious
+ *  "nothing to cast yet — dig something first" toast at boot over a world they have not
+ *  touched, followed by a silent discard that leaves the checkbox ticked over nothing
+ *  (precisely the reading the host's own report exists to prevent); lose it and they get
+ *  an unrequested whole-world worker job on a world they did not ask to X-ray. The X-ray
+ *  is a look-at-this-now tool, not an arrangement: it is a session choice.
+ *
+ *  Retiring the key needs no VERSION bump — the reader takes NAMED keys only, so an
+ *  orphaned `voidCast` in a live blob costs nothing but its bytes (`persist.ts`).
+ *
  *  `slice` is ASYMMETRIC and knowingly so: `{ enabled: false, y: 12 }` persists as `null`,
  *  so a depth the user chose survives them toggling the plane off and on again WITHIN a
  *  session but not across a restart — the next run re-parks at `SLICE_DEFAULT_Y`. Storing
@@ -151,20 +174,25 @@ const defaultView = (): ViewState => ({
 function serializeView(state: ViewState): UiState["view"] {
 	return {
 		shading: state.shading,
-		layers: { ...state.layers },
+		layers: Object.fromEntries(
+			PERSISTED_LAYER_KEYS.map((key) => [key, state.layers[key]]),
+		),
 		slice: state.slice.enabled ? state.slice.y : null,
 	};
 }
 
 /** Schema-tolerant restore: anything missing or unrecognised falls back to the default,
  *  so a hand-edited or older blob degrades to the shipped view rather than throwing. Only
- *  KNOWN layer keys are adopted — a stale key from a renamed layer must not travel into
- *  the object the host is handed. */
+ *  PERSISTED layer keys are adopted — a stale key from a renamed layer must not travel
+ *  into the object the host is handed, and neither must the retired `voidCast` a blob
+ *  written before it became session-only still carries. That last one is the whole
+ *  migration: the key survives in old blobs, the reader simply never looks at it, and the
+ *  X-ray comes up off (see `serializeView` for what a restored `true` would do). */
 function deserializeView(stored: UiState["view"]): ViewState {
 	const base = defaultView();
 	if (!stored) return base;
 	const layers = { ...base.layers };
-	for (const key of LAYER_KEYS) {
+	for (const key of PERSISTED_LAYER_KEYS) {
 		const value = stored.layers?.[key];
 		if (typeof value === "boolean") layers[key] = value;
 	}

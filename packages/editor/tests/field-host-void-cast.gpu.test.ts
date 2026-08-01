@@ -8,7 +8,7 @@
 // — with no `/field-worker.js` in sight. Necessary, not tidy: a job posted to a
 // Worker spawned from that browser URL never settles under bun (measured: still
 // pending after 1 s), so with a real one nothing past the request would run.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
   CHUNK_SAMPLES,
   chunkKey,
@@ -17,6 +17,7 @@ import {
   type FieldManifest,
   SOLID,
 } from "@furnace/core/field";
+import { consoleSink, setSink } from "@furnace/core/log";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
@@ -29,11 +30,23 @@ import type {
 } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldLayers } from "../src/viewport-host/index.ts";
+import type { FieldLayers, FieldStats } from "../src/viewport-host/index.ts";
 import { makeHostCanvas } from "./_helpers/host-canvas.ts";
-import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
+import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
+
+// One case below runs FRAMES (the in-flight latch is published on the per-frame stats
+// push and nowhere else), and under bun-webgpu that render is INVALID — the host requests
+// its context without `surfaceFormat: "linear"`, so the view it creates fails validation.
+// It fails ASYNCHRONOUSLY, as uncaptured device errors rather than a throw, which is why
+// the tick still returns and the stats push before it still happens. `setSink(null)` is
+// `field-host-analyzer.gpu.test.ts`'s answer, verbatim and for its reason: it silences
+// CORE's routing of those errors and nothing else, leaving a clean core log for whatever
+// asserts on one next. bun-webgpu's own native `JS Device Error Callback` wall is beyond
+// any test-side mute, so this file is noisy either way.
+beforeAll(() => setSink(null));
+afterAll(() => setSink(consoleSink));
 
 const MANIFEST: FieldManifest = {
   version: 2,
@@ -111,10 +124,13 @@ const flush = (): Promise<void> =>
  *  injected worker and an error log. Callers own `teardown`. */
 async function fieldHostFixture() {
   const restoreRo = installMockResizeObserver();
-  // The NO-OP rAF variant, and the canvas with no listener map: these tests drive
-  // the host through its methods (setLayers → worker → response), so nothing under
-  // test lives in a frame or behind an input event.
-  const restoreRaf = stubAnimationFrameNoop();
+  // The CAPTURED rAF variant, and the canvas with no listener map: these tests drive
+  // the host through its methods (setLayers → worker → response), so nothing under test
+  // lives behind an input event — but one thing does live inside a FRAME. `voidCastPending`
+  // is published on the per-frame FieldStats push and nowhere else, so a case that wants to
+  // see the in-flight latch has to run a frame. The loop still never runs on its own; the
+  // three cases that do not call `tick` behave exactly as they did under the no-op stub.
+  const raf = stubAnimationFrameCaptured();
   const fake = handlerWorker();
   const host = createFieldHost({ spawnWorker: () => fake.worker });
   host.loadWorld({
@@ -125,13 +141,19 @@ async function fieldHostFixture() {
   await host.init(await makeHostCanvas());
   const errors: string[] = [];
   host.subscribeToolError((m) => errors.push(m));
+  const stats: FieldStats[] = [];
+  host.subscribeStats((s) => stats.push(s));
   return {
     host,
     errors,
+    stats,
+    /** Run ONE frame of the host's own loop — the stats push happens inside it, before
+     *  the render, which is what makes {@link FieldStats} observable at all. */
+    tick: raf.tick,
     ...fake,
     teardown: () => {
       host.dispose();
-      restoreRaf();
+      raf.restore();
       restoreRo();
     },
   };
@@ -226,6 +248,47 @@ test.skipIf(!bunWebGpuAvailable())(
       f.host.setLayers(layers(true));
       expect(f.sent.length).toBe(1); // the queue was drained by deliver()
       expect(f.sent[0]?.kind).toBe("void-cast");
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the stats push carries the in-flight latch, so the chrome can SHOW a cast building",
+  async () => {
+    // The refusal the case above pins names a state nothing on screen used to show:
+    // "a void cast is still building — re-tick the void layer once it lands". Toggling
+    // off and on is exactly what a user with no in-flight signal does, so the refusal
+    // was the FIRST they heard of the job. `voidCastPending` is what the status bar's
+    // long-job readout reads (D-19 progress; there is no cancel to offer — see
+    // `requestVoidCast` for why neither end of this job can poll).
+    const f = await fieldHostFixture();
+    try {
+      // Requests are counted by KIND here, unlike the case above: a frame drains the
+      // dirty set, so every tick posts remesh jobs into the same pipe.
+      const casts = () => f.sent.filter((r) => r.kind === "void-cast").length;
+      f.tick(16);
+      expect(f.stats.at(-1)?.voidCastPending).toBe(false);
+
+      f.host.setLayers(layers(true));
+      expect(casts()).toBe(1);
+      f.tick(32);
+      expect(f.stats.at(-1)?.voidCastPending).toBe(true);
+
+      // STILL pending across a discard, and truthfully: the strand bumps a generation so
+      // the ANSWER is dropped — it does not reach the worker, which goes on computing.
+      // A readout that cleared here would say the editor was idle while the one thread
+      // that meshes chunks was still sweeping the world.
+      f.host.setLayers(layers(false));
+      f.tick(48);
+      expect(f.stats.at(-1)?.voidCastPending).toBe(true);
+
+      // …and it clears when the job lands, whether or not anything was drawn from it.
+      f.deliver();
+      await flush();
+      f.tick(64);
+      expect(f.stats.at(-1)?.voidCastPending).toBe(false);
     } finally {
       f.teardown();
     }

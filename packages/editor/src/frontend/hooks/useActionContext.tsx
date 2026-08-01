@@ -186,7 +186,11 @@ export function ActionContextProvider({
 					: (entities.find((e) => e.entityId === selectedEntityId) ?? null),
 			selection,
 			stats,
-			world: { name: world.name, dirty: world.dirty, busy: world.busy },
+			// `busy` is the registry's question, not the bar's: every action that reads it
+			// asks "is a world verb running", never which one. Projected here rather than
+			// carried through as the word, so the three `enabled` clauses stay a boolean
+			// test and only the surface that SHOWS the verb has to know its name.
+			world: { name: world.name, dirty: world.dirty, busy: world.job !== null },
 			view,
 			workspace: { hidden },
 			generators,
@@ -216,7 +220,7 @@ export function ActionContextProvider({
 			stats,
 			world.name,
 			world.dirty,
-			world.busy,
+			world.job,
 			view,
 			hidden,
 			generators,

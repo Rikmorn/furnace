@@ -264,7 +264,11 @@ type Form =
 
 export function WorldDrawer() {
 	const { worldsVersion } = useEditor();
-	const { name, drawer, busy } = useWorldState();
+	const { name, drawer, job } = useWorldState();
+	// Every gate in here asks the yes/no question; the WORD is the status bar's business
+	// (it names the verb on its progress chip). Derived once so the gates below stay a
+	// boolean rather than each re-deciding what counts as busy.
+	const busy = job !== null;
 	const actions = useWorldActions();
 	const { catalogSettled } = useCatalog();
 	const [rows, setRows] = useState<WorldRow[]>([]);

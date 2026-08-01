@@ -1558,8 +1558,16 @@ silently steal the status bar's).
   between a prompt they read and one they click through.
 - A world swap re-establishes the baseline through a `seenOps: null` sentinel, so adopting
   the new world's op count does not read as an edit.
-- `busy` gates the verbs. In-flight is said AT the controls (they disable) rather than in a
-  toast — a toast slot spent on "saving…" is a slot the OUTCOME then cannot have.
+- `job` (`"saving" | "baking" | "opening" | null`) gates the verbs AND names them. One
+  field rather than a flag beside a label: the registry only ever asks "is one running"
+  (`ActionCtx` projects `busy: job !== null`), while the status bar shows the word. In-flight
+  is said at the controls (they disable) and on the bar's long-job chip — never in a toast,
+  because a toast slot spent on "saving…" is a slot the OUTCOME then cannot have. There is
+  **no cancel** on that chip and D-F4.5-19's own second clause is why ("the job polls; no
+  cancel theater"): `bakeFieldWorld` is synchronous core with no yield in its per-chunk
+  loop, and the uploads carry no `AbortSignal` against a daemon that clears the world
+  directory before rewriting it — so a ✕ could only lie. The reasons and their re-check
+  triggers live at `useWorld.tsx`'s `write` and `field-host.ts`'s `requestVoidCast`.
 - **The tracked guard is a round trip, not a precheck**: a save issues with
   `confirmedTracked: false`, and a `needs-tracked-confirm` outcome comes back and raises
   the confirm naming the path. The upload is an await, so a separate check-then-write

@@ -352,6 +352,22 @@ export type FieldStats = {
    *  installed, where nothing is ever posted (see
    *  {@link FieldHost.setAgentProfile}). */
   analyzerPending: number;
+  /** Whether a void cast (D-F3-15) is posted and unanswered — the X-ray's whole-world
+   *  worker job, which is the only edit-loop job long enough for a user to wonder about.
+   *  A BOOLEAN rather than a count: `requestVoidCast` refuses a second one while the
+   *  first stands, so there is never more than one.
+   *
+   *  It rides the stats push rather than a subscription of its own for two reasons. The
+   *  seams are single-slot, so a thirteenth would be a thirteenth thing to claim exactly
+   *  once — and this fact has no consumer that does not already read stats. What it
+   *  BUYS is legibility for a refusal that already ships: "a void cast is still building
+   *  — re-tick the void layer once it lands" names a state nothing on screen showed,
+   *  and toggling off-and-on is exactly the sequence a user with no in-flight signal
+   *  performs.
+   *
+   *  Stays true across a `discardVoidCast`, and truthfully: the discard strands the
+   *  RESULT, it does not call the worker off. */
+  voidCastPending: boolean;
 };
 
 /** Per-layer render visibility. `field` = the per-class bucket surface meshes;
@@ -3872,6 +3888,25 @@ export function createFieldHost(deps?: {
   // behind a second full sweep of the world — and a discard cannot call it off,
   // only agree to ignore it. Toggling off and on again is therefore NOT free,
   // and it is the sequence that would otherwise stack them.
+  //
+  // The same synchronous handler is why this job gets D-F4.5-19's PROGRESS and not
+  // its "cooperative cancel" — "the job polls; no cancel theater", and there is
+  // nothing here that can poll. The per-chunk loop lives in the worker
+  // (`field-protocol.ts`'s handleVoidCast), whose handler runs to completion per
+  // message: a cancel `postMessage` sent mid-job is not delivered, it QUEUES behind
+  // the very work it means to stop. The only real interrupt is `worker.terminate()`,
+  // which would take every chunk remesh and every stamp preview down with it. What
+  // exists instead is strand-not-cancel (`discardVoidCast`), and the honest chrome
+  // for that is the readout `voidCastPending` feeds, with no ✕ on it.
+  //
+  // Re-check if the worker ever gains a mid-handler yield, or the client a second
+  // worker the cast could own alone.
+  //
+  // Determinate progress IS available and is deliberately declined: the worker can
+  // `post` mid-handler (posting does not block) and the total is `store.chunks.size`.
+  // It would cost a new worker→host message and its plumbing to put a percentage on
+  // a job whose CEILING is ~1.3 s (see VOID_CAST_CHUNK_BUDGET). Indeterminate is
+  // honest at that length.
   const requestVoidCast = (): void => {
     if (voidCastJobGen !== null) {
       reportToolError(
@@ -5520,6 +5555,7 @@ export function createFieldHost(deps?: {
         redoDepth: ls.redoDepth,
         lastReconfigureMs,
         analyzerPending: analyzerPendingCount(),
+        voidCastPending: voidCastJobGen !== null,
       });
       renderScene(c, cam);
     }

@@ -87,6 +87,7 @@ export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
     redoDepth: 0,
     lastReconfigureMs: 0,
     analyzerPending: 0,
+    voidCastPending: false,
     ...overrides,
   };
 }

@@ -12,7 +12,7 @@
 // Split into STATE and ACTIONS contexts, the useWorkspace pattern. Be precise about what
 // that buys, because the obvious claim is wrong: the verbs close over `name` and `dirty`,
 // so they DO rebuild when either changes, and a consumer of the actions context re-renders
-// then too. What the split isolates is the rest of the state — `drawer` and `busy` — which
+// then too. What the split isolates is the rest of the state — `drawer` and `job` — which
 // churn on a different order of magnitude: every summon, every dismiss, and twice per save.
 // ShellChrome (which builds the palette bodies, and so re-renders every palette whenever
 // it re-renders) reads verbs only, and is therefore off all of that.
@@ -45,6 +45,16 @@ import { useFieldHostState } from "./useFieldHostState.tsx";
  *  it at first save" rather than a modal prompt bolted onto the chord. */
 export type DrawerMode = "browse" | "save-as";
 
+/** Which long world verb is in flight — the WORD the status bar shows, not a second flag
+ *  beside a boolean. One field says both "is one running" and "which", because two would
+ *  need a rule for what a `true` with no name means.
+ *
+ *  Three rather than two: `saving` and `baking` are the same code path (`write`, with and
+ *  without `makeDefault`) and the same wait, but they are not the same promise — a bake
+ *  also repoints `worlds/index.json` at the world, i.e. changes what the GAME loads, and a
+ *  user who pressed Bake is owed that word rather than the milder one. */
+export type WorldJob = "saving" | "baking" | "opening";
+
 export type WorldState = {
 	/** The world on disk this session is editing, or null for an untitled scratch —
 	 *  never prefilled (the W3/W4 gate-clobber lesson: a stale default silently
@@ -57,11 +67,14 @@ export type WorldState = {
 	dirty: boolean;
 	/** Non-null while the drawer is open, carrying how it was summoned. */
 	drawer: DrawerMode | null;
-	/** A world write or read is in flight. In-flight is said AT the controls (they
-	 *  disable) rather than in a toast — D-19's mechanism for a long job is a progress
-	 *  chip with a cooperative cancel (F4.5c), and a toast slot spent on "saving…" is a
-	 *  slot the OUTCOME then can't have. */
-	busy: boolean;
+	/** The world write or read in flight, or `null`. Said in TWO places and neither is a
+	 *  toast: at the controls (they disable) and on the status bar (D-19's progress chip,
+	 *  which is what this word is for). A toast slot spent on "saving…" is a slot the
+	 *  OUTCOME then can't have.
+	 *
+	 *  There is no cancel to go with it, and that is D-F4.5-19's own second clause — "the
+	 *  job polls; no cancel theater". Nothing here can poll: see `write`. */
+	job: WorldJob | null;
 };
 
 export type WorldActions = {
@@ -99,7 +112,7 @@ export function useWorldState(): WorldState {
 /** Read the world verbs; throws outside the provider. Rebuilt when `name` or `dirty`
  *  changes — both are real inputs (the verbs write to the named world; `confirmDiscard`
  *  reads the flag), so a stale capture would be a correctness bug, not a saved render.
- *  What a reader of this context does NOT pick up is `drawer` and `busy`, which move far
+ *  What a reader of this context does NOT pick up is `drawer` and `job`, which move far
  *  more often: every drawer summon and dismiss, and twice per save. */
 export function useWorldActions(): WorldActions {
 	const value = useContext(WorldActionsContext);
@@ -114,7 +127,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 	const [name, setName] = useState<string | null>(null);
 	const [dirty, setDirty] = useState(false);
 	const [drawer, setDrawer] = useState<DrawerMode | null>(null);
-	const [busy, setBusy] = useState(false);
+	const [job, setJob] = useState<WorldJob | null>(null);
 
 	// The op count the last stats push carried. `null` means the baseline is being
 	// re-established — a load or a New just replaced the world, and the count the chrome
@@ -146,8 +159,8 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 		setDirty(false);
 	}, []);
 
-	// The re-entrancy guard for the three long verbs. `busy` is what the CONTROLS read
-	// (they disable), but ⌘S has no disabled state to wear — held down it would start a
+	// The re-entrancy guard for the three long verbs. `job` is what the CONTROLS and the
+	// status bar read, but ⌘S has no disabled state to wear — held down it would start a
 	// second upload over the first, each with its own cleanDir pass over the same
 	// directory. A ref rather than the state, so the verbs can read it without being
 	// rebuilt (and going stale) on every flip.
@@ -213,6 +226,29 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			}
 		};
 
+		/** THE long job, and the one D-F4.5-19's "cooperative cancel" was written for. It
+		 *  does not get one, and the reason is mechanical rather than a matter of taste —
+		 *  recorded here because this is where the ✕ would have to be wired.
+		 *
+		 *  Phase 1 is `bakeFieldWorld` inside `exportArtifact`, a non-`async` function in
+		 *  `packages/core` with no `await` anywhere in its per-chunk loop. A flag polled
+		 *  there could be set and never read: no event, no rAF and no paint happens between
+		 *  the loop's first chunk and its last, because the whole thing runs to completion
+		 *  on the main thread. Making it pollable means changing a signature inside core.
+		 *  Phase 2 is one or two `fetch` POSTs with no `AbortSignal` in sight, and the
+		 *  daemon `rmSync`s the world directory before rewriting it — so an abort lands in
+		 *  the same state as a failure, which `world-actions.ts` deliberately refuses to
+		 *  characterise ("by here the first call may have cleanDir'd the directory and
+		 *  written part of it"). A ✕ over that is theatre.
+		 *
+		 *  Re-check if either premise moves: an async or chunk-yielding `bakeFieldWorld`,
+		 *  or an `AbortSignal` on the api client with a daemon that writes atomically.
+		 *
+		 *  The job is announced BEFORE the first `await`, and that ordering is what makes
+		 *  the chip worth anything: `saveWorld` awaits `world.list` before it reaches the
+		 *  synchronous bake, so React commits and paints this word while the main thread is
+		 *  still free. Reverse those two and the chip would appear only after the freeze it
+		 *  exists to explain. */
 		const write = async (
 			target: string,
 			makeDefault: boolean,
@@ -221,7 +257,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			const host = fieldHostRef.current;
 			if (!host || inFlight.current) return;
 			inFlight.current = true;
-			setBusy(true);
+			setJob(makeDefault ? "baking" : "saving");
 			// The SSE bundle-outdated guard reads this: a hard reload mid-write would kill
 			// the upload. App owns the reload; the ref is how this reaches it.
 			bakeBusyRef.current = true;
@@ -273,16 +309,19 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				setDrawer(null);
 			} finally {
 				inFlight.current = false;
-				setBusy(false);
+				setJob(null);
 				bakeBusyRef.current = false;
 			}
 		};
 
+		/** The other long job, and uncancellable for a simpler reason than `write`'s: it is
+		 *  a single `fetch` with no `AbortSignal`, and it ends in `loadWorld`, which
+		 *  replaces the host's world outright. There is no half-way state to return to. */
 		const open = async (target: string): Promise<void> => {
 			const host = fieldHostRef.current;
 			if (!host || inFlight.current) return;
 			inFlight.current = true;
-			setBusy(true);
+			setJob("opening");
 			try {
 				const outcome = await loadWorldInto({ api, host }, { name: target });
 				if (outcome.status !== "loaded") return;
@@ -292,7 +331,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				setDrawer(null);
 			} finally {
 				inFlight.current = false;
-				setBusy(false);
+				setJob(null);
 			}
 		};
 
@@ -433,8 +472,8 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 	}, [catalogSettled, store, name, dirty, actions]);
 
 	const value = useMemo<WorldState>(
-		() => ({ name, dirty, drawer, busy }),
-		[name, dirty, drawer, busy],
+		() => ({ name, dirty, drawer, job }),
+		[name, dirty, drawer, job],
 	);
 
 	return (

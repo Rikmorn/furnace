@@ -48,7 +48,10 @@ export type UiState = {
   /** Viewport display state — what the field looks like, not what is in it. The grid is
    *  a LAYER (`layers.grid`), not a key of its own: two ways to spell one toggle is two
    *  things to keep in agreement. `slice` is the clip plane in metres, `null` = off.
-   *  Viewport AA is deliberately absent — see `serializeView`. */
+   *  Two view controls are deliberately absent from what is stored — viewport AA, and
+   *  `layers.voidCast` (the X-ray), both session choices for the same late-store reason.
+   *  See `serializeView`. A blob written before the X-ray was retired still carries the
+   *  key; `Record<string, boolean>` is wide enough to hold it and the reader ignores it. */
   view?: {
     shading?: "studio" | "normals";
     layers?: Record<string, boolean>;

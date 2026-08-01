@@ -31,8 +31,10 @@ import type {
   PlacedArchetype,
 } from "../src/viewport-host/index.ts"; // type-only: erased
 
-/** Every field `statsEqual` compares, all numeric — the list the loop below walks
- *  so no compared field is trusted on the strength of its neighbours passing. */
+/** Every NUMERIC field `statsEqual` compares — the list the loop below walks so no
+ *  compared field is trusted on the strength of its neighbours passing. The one
+ *  non-numeric member (`voidCastPending`) cannot ride this loop, which increments, and
+ *  gets its own case underneath. */
 const STATS_FIELDS = [
   "chunks",
   "lastRemeshMs",
@@ -57,6 +59,7 @@ const stats = (over: Partial<FieldStats> = {}): FieldStats => ({
   redoDepth: 10,
   lastReconfigureMs: 11,
   analyzerPending: 1,
+  voidCastPending: false,
   ...over,
 });
 
@@ -96,6 +99,26 @@ test("statsEqual answers false on EVERY field it compares", () => {
     b[key] = a[key] + 1;
     expect(statsEqual(a, b)).toBe(false);
   }
+});
+
+test("statsEqual answers false when the void-cast latch flips", () => {
+  // The one boolean in the readout, and the one the numeric loop above cannot reach.
+  // Missing it is not a stale NUMBER but a chip that never appears: the latch flips
+  // true, the comparator calls the reading unchanged, the mirror keeps `prev`, and the
+  // status bar shows nothing for the whole job. Both directions — the clear at the end
+  // of a cast is the half that would leave the chip up forever.
+  expect(
+    statsEqual(
+      stats({ voidCastPending: false }),
+      stats({ voidCastPending: true }),
+    ),
+  ).toBe(false);
+  expect(
+    statsEqual(
+      stats({ voidCastPending: true }),
+      stats({ voidCastPending: false }),
+    ),
+  ).toBe(false);
 });
 
 // ---------------------------------------------------------------- samePlaced

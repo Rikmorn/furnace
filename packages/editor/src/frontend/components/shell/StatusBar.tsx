@@ -1,10 +1,11 @@
 // The shell's status bar: 28 px, opaque, fixed height — the other half of the canvas
 // cell's inset budget (see TopBar).
 //
-// It carries four things: the viewport keymap (left), the engine/error report, the ⚠
-// chip that summons the message log, and the live host chips (right). The chips come
-// from `useFieldHostState`, NOT from an own subscription — subscribeStats is a single
-// slot and a second subscriber would silently steal the first's callback.
+// It carries five things: the viewport keymap (left), the engine/error report, the ⚠
+// chip that summons the message log, the long-job readout, and the live host chips
+// (right). The chips come from `useFieldHostState`, NOT from an own subscription —
+// subscribeStats is a single slot and a second subscriber would silently steal the
+// first's callback.
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useSyncExternalStore } from "react";
@@ -23,6 +24,7 @@ import {
 	useFieldTool,
 } from "../../hooks/useFieldHostState.tsx";
 import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
+import { useWorldState, type WorldJob } from "../../hooks/useWorld.tsx";
 import { ACTIONS } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
@@ -267,12 +269,17 @@ const SELECTION_ACTIONS = ["edit.clearSelection", "edit.reselect"] as const;
 /** THE one place that decides what a status chip looks like.
  *
  *  A constant rather than a component because the bar's chips split on BEHAVIOUR, not on
- *  looks: two run a verb (`ChipButton`) and three open a detail layer (`ChipPopover`).
- *  Neither shell can own the appearance without the other copying it — and on a 28 px
- *  bar the cost of that drift is the difference between "these are all buttons" and
- *  "one of these is text". */
-const CHIP_CLASS =
-	"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+ *  looks: two run a verb (`ChipButton`), three open a detail layer (`ChipPopover`), and
+ *  one does neither (`JobChip`). No shell can own the appearance without the others
+ *  copying it — and on a 28 px bar the cost of that drift is the difference between
+ *  "these are all chips" and "one of these is text". */
+const CHIP_SHAPE =
+	"flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums";
+
+/** The interactive half, split off `CHIP_SHAPE` rather than duplicated without it: hover
+ *  tint and a focus ring are promises that clicking does something, and the one chip that
+ *  does nothing must not wear them. */
+const CHIP_CLASS = `${CHIP_SHAPE} transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring`;
 
 /** A status chip that RUNS something on click — the ⚠ chip summons the log, `undo N`
  *  summons the History palette. Chips that open detail instead go through
@@ -477,11 +484,78 @@ function AnalyzerDetail({ pending }: { pending: number }) {
 	);
 }
 
+/** What each world verb is CALLED while it runs. A table rather than a template over the
+ *  tag, because "opening" is not the gerund of "open" the way the other two are of theirs,
+ *  and a bake is not a save with a flag on it as far as the reader is concerned. */
+const JOB_LABELS: Record<WorldJob, string> = {
+	saving: "saving…",
+	baking: "baking…",
+	opening: "opening…",
+};
+
+/** The X-ray's whole-world worker job (D-F3-15) — the field-side long job, named the way
+ *  the View popover names the control that starts it. */
+const VOID_CAST_LABEL = "void cast…";
+
+/** The long jobs standing RIGHT NOW, in the order they are shown. Both can be live at once
+ *  (a ⌘S while a cast builds), so this is a list and not a winner: a chip that hid the
+ *  other job would be a readout that lies by omission at exactly the busiest moment.
+ *
+ *  ONE derivation, feeding both the visible chips and the announcement — two would be two
+ *  things to keep saying the same thing. */
+function longJobs(job: WorldJob | null, castPending: boolean): string[] {
+	const live: string[] = [];
+	if (job !== null) live.push(JOB_LABELS[job]);
+	if (castPending) live.push(VOID_CAST_LABEL);
+	return live;
+}
+
+/** The long-job readout (D-19), and the one chip on this bar with NOTHING to click.
+ *
+ *  D-F4.5-19 asks for "progress + cooperative cancel (the job polls; no cancel theater)".
+ *  It is the second clause that applies, because neither of the editor's two long jobs can
+ *  poll. A world write's first phase is `bakeFieldWorld`, a synchronous function in
+ *  `packages/core` with no yield in its per-chunk loop, and its second is `fetch` with no
+ *  `AbortSignal` against a daemon that clears the world directory before rewriting it; the
+ *  void cast's per-chunk loop lives inside a worker handler that runs to completion per
+ *  message, so a cancel `postMessage` queues behind the work it means to stop. Each site
+ *  carries the long version and what would have to change (`useWorld`'s `write`,
+ *  `field-host`'s `requestVoidCast`).
+ *
+ *  So it is INDETERMINATE and it is a `<span>`: no ✕, no percentage, and none of
+ *  `CHIP_CLASS`'s hover tint or focus ring, which are promises that a click does
+ *  something. What it does claim is the one thing a user needs during a main-thread freeze
+ *  — a verb is running and the editor has not hung.
+ *
+ *  FIRST in the right-anchored cluster. The chips after the spacer are anchored to the
+ *  bar's right edge, so an arrival displaces only what is to its LEFT: anywhere else and
+ *  this one would shove `ops` — a click target — sideways under a cursor on its way to it.
+ *  The bar's own height is untouched either way (`h-7`, and this wears the chip shape the
+ *  permanent chips already wear). */
+function JobChips({ labels }: { labels: string[] }) {
+	if (labels.length === 0) return null;
+	return (
+		<span className="flex items-center gap-2">
+			{labels.map((label) => (
+				<span key={label} className={cn(CHIP_SHAPE, "text-foreground")}>
+					{label}
+				</span>
+			))}
+		</span>
+	);
+}
+
 export function StatusBar({ viewportError }: { viewportError: string | null }) {
 	const { state } = useEditor();
 	const { stats } = useFieldHostState();
+	const { job } = useWorldState();
 	const summon = usePaletteSummon();
 	const error = state.error ?? viewportError;
+	// Read HERE rather than in a leaf of its own, unlike `KeymapLine`: that one is split
+	// out because the session context churns at pointer rate, while a world verb and a
+	// cast start and stop at human rate. Reading them here is what lets the chips and the
+	// live region below come from one derivation.
+	const jobs = longJobs(job, stats?.voidCastPending === true);
 
 	return (
 		<footer className="flex h-7 shrink-0 items-center gap-4 border-t border-border bg-card px-3 text-xs text-muted-foreground">
@@ -495,6 +569,7 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 				</span>
 			)}
 			<div className="flex-1" />
+			<JobChips labels={jobs} />
 			<SelectionChip />
 			<ErrorChip />
 			{stats && (
@@ -535,6 +610,17 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
           decoupled from the conditional visible span above. */}
 			<div className="sr-only" aria-live="polite">
 				{error ?? ""}
+			</div>
+			{/* The long-job announcement, and its OWN persistent region rather than a share
+          of the error line's: an error arriving mid-save would otherwise swap one
+          sentence for the other in a node whose whole contract is "my text changing is
+          the announcement". Persistent for the error line's reason — a live region added
+          to the DOM already holding its text is one VoiceOver/Safari can miss entirely,
+          and these chips mount and unmount by definition. `data-long-job` is the test's
+          handle: there are two polite regions in this bar now, and picking the right one
+          by its content is picking it by the thing under test. */}
+			<div className="sr-only" aria-live="polite" data-long-job="">
+				{jobs.join(" · ")}
 			</div>
 		</footer>
 	);

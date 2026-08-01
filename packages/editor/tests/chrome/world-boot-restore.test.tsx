@@ -150,13 +150,13 @@ function stubDaemon(
  *  here is the restore, and the chip's own rendering is pinned in world-drawer.test.tsx.
  *  The button is how a case names the session the way a user does. */
 function WorldProbe() {
-	const { name, dirty, busy } = useWorldState();
+	const { name, dirty, job } = useWorldState();
 	const { saveAs } = useWorldActions();
 	return (
 		<>
 			<span>{`world:${name ?? "untitled"}`}</span>
 			<span>{`dirty:${dirty}`}</span>
-			<span>{`busy:${busy}`}</span>
+			<span>{`job:${job ?? "none"}`}</span>
 			<button type="button" onClick={() => saveAs("scratch")}>
 				save as scratch
 			</button>
@@ -257,13 +257,14 @@ test("boot reopens the world the last session left, through the ordinary Open", 
 	await waitFor(() =>
 		expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" }),
 	);
-	// WHILE it loads, the user sees what a user-driven Open shows: the controls are busy.
-	// (D-19 — in-flight is said AT the controls, never in a toast.)
-	expect(screen.getByText("busy:true")).toBeTruthy();
+	// WHILE it loads, the user sees what a user-driven Open shows: the controls are busy,
+	// and the state names the verb the status bar puts on its progress chip. (D-19 —
+	// in-flight is said at the controls and on the bar, never in a toast.)
+	expect(screen.getByText("job:opening")).toBeTruthy();
 
 	daemon.releaseLoad();
 	await waitFor(() => screen.getByText("world:cavern"));
-	expect(screen.getByText("busy:false")).toBeTruthy();
+	expect(screen.getByText("job:none")).toBeTruthy();
 	expect(logText()).toContain("loaded cavern (2 chunks)");
 
 	// REBASELINED like any other Open: the next stats push carries the LOADED world's op

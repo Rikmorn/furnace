@@ -1753,7 +1753,6 @@ test("the view survives a restart: the popover writes UiState.view and a stored 
 			selection: true,
 			grid: false,
 			flags: true,
-			voidCast: false,
 		},
 		slice: null,
 	});
@@ -1775,6 +1774,73 @@ test("the view survives a restart: the popover writes UiState.view and a stored 
 	expect(next.calls.init.mock.calls).toEqual([
 		[screen.getByLabelText("field viewport"), { sampleCount: 4 }],
 	]);
+});
+
+test("the X-ray is a SESSION choice — ticking it writes nothing, and a stale blob cannot re-arm it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore();
+	await renderShell(stub, store);
+	await openViewPopover();
+	// Tick the X-ray AND a plain layer, so the write that follows is one the debounce
+	// definitely fired — an assertion over a blob that was never written proves nothing.
+	act(() => {
+		fireEvent.click(screen.getByLabelText("void cast"));
+	});
+	act(() => {
+		fireEvent.click(screen.getByLabelText("grid"));
+	});
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 250));
+	});
+	const written = store.get("view");
+	expect(written?.layers).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: false,
+		flags: true,
+	});
+	// Said twice on purpose: `toEqual` above would still pass an implementation that
+	// wrote `voidCast: undefined`, which JSON.stringify drops on the way to storage but
+	// which a `store.get` off an in-memory fake hands straight back.
+	expect("voidCast" in (written?.layers ?? {})).toBe(false);
+
+	// THE MIGRATION CASE. A blob written before this rule — or hand-edited — still
+	// carries the key, and the host boots with the X-ray OFF: `setLayers` fires the cast
+	// on the false→true EDGE, so a restored `true` always presents that edge. Depending on
+	// an unpinned race between the store and the catalog-gated world restore that is
+	// either a spurious "nothing to cast yet" toast over a world nobody has dug, or an
+	// unrequested whole-world worker job at boot. Neither is something the user asked for.
+	store.set("view", {
+		shading: "studio",
+		layers: { grid: false, voidCast: true },
+		slice: null,
+	});
+	cleanup();
+	const next = makeStubHost();
+	await renderShell(next, store);
+	await act(async () => {
+		await Promise.resolve();
+	});
+	// Restored, not thrown on — and the X-ray is off, so nothing fires the edge.
+	expect(next.calls.setLayers.mock.calls.at(-1)?.[0]).toEqual({
+		field: true,
+		kit: true,
+		props: true,
+		ghost: true,
+		selection: true,
+		grid: false,
+		flags: true,
+		voidCast: false,
+	});
+	// …and the control agrees with the host, rather than showing a tick over nothing.
+	await openViewPopover();
+	expect((screen.getByLabelText("void cast") as HTMLInputElement).checked).toBe(
+		false,
+	);
 });
 
 test("the burger's View group drives the same view state, and reads it back", async () => {
@@ -3527,6 +3593,225 @@ test("both stats popovers are portal LAYERS — the bar and the canvas cell keep
 	const analyzerBody = screen.getByText("passes owed");
 	expect(bar.contains(analyzerBody)).toBe(false);
 	expect(cell.contains(analyzerBody)).toBe(false);
+});
+
+// --- (m2) the long-job chips (D-19) ------------------------------------------
+//
+// D-F4.5-19 asks for "progress + cooperative cancel (the job polls; no cancel theater)".
+// NEITHER of the editor's two long jobs can poll, so what ships is the second clause:
+// an indeterminate readout and NO ✕. The mechanical reasons are recorded at the three
+// sites that would have to change (`StatusBar`'s `JobChips`, `useWorld`'s `write`,
+// `field-host`'s `requestVoidCast`); what these cases pin is the CONTRACT — the chip
+// appears while the job stands, goes when it lands, and offers nothing to click.
+
+/** The VISIBLE long-job readout, scoped to the bar. By TEXT rather than by label: these
+ *  are the one kind of chip that is not a control, so unlike the ops/analyzer/undo chips
+ *  they carry no `aria-label` — a name on a roleless span is a name most screen readers
+ *  drop on the floor, and the bar's persistent live region is what announces instead.
+ *
+ *  Which is exactly why the live region has to be filtered out here: it carries the SAME
+ *  string by design, so an unfiltered query finds two nodes and throws. TWO nodes for one
+ *  fact is the error line's shape as well — see the case below that asserts the region
+ *  directly. */
+const jobChip = (text: string): HTMLElement | null =>
+	within(screen.getByRole("contentinfo"))
+		.queryAllByText(text)
+		.find((el) => el.closest("[aria-live]") === null) ?? null;
+
+test("a void cast in flight puts an uncancellable chip on the bar", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Idle: nothing. A chip that is always there for a state with nothing to say is a
+	// chip people stop seeing (the analyzer chip's rule, same bar).
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, voidCastPending: false }));
+	});
+	expect(jobChip("void cast…") === null).toBe(true);
+
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, voidCastPending: true }));
+	});
+	const chip = jobChip("void cast…");
+	if (chip === null)
+		throw new Error("no void-cast chip while one was in flight");
+	// NO cancel affordance, and no click target at all: `discardVoidCast` bumps a
+	// generation and DROPS the answer — the worker goes on computing either way — so a ✕
+	// here would be the cancel theater D-F4.5-19 names.
+	expect(within(chip).queryByRole("button") === null).toBe(true);
+	expect(chip.closest("button") === null).toBe(true);
+
+	// …and it goes when the cast lands, rather than needing a click to dismiss.
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 6, voidCastPending: false }));
+	});
+	expect(jobChip("void cast…") === null).toBe(true);
+});
+
+test("the bar announces a long job through a PERSISTENT live region", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The region exists before there is anything to say — the error line's rule, for the
+	// error line's reason: a live region added to the DOM already holding its text is one
+	// VoiceOver/Safari can miss entirely.
+	const region = screen
+		.getByRole("contentinfo")
+		.querySelector('[aria-live="polite"][data-long-job]');
+	if (!(region instanceof HTMLElement))
+		throw new Error("the bar has no long-job live region");
+	expect(region.textContent).toBe("");
+
+	act(() => {
+		stub.fire.stats(makeStats({ voidCastPending: true }));
+	});
+	expect(region.textContent).toBe("void cast…");
+});
+
+/** Serve the world commands with every `generation.bake` after the FIRST held open, so a
+ *  case can name a world (that first save settles) and then sit inside the second write
+ *  for as long as it needs to. The drawer's catalog GETs 404 as usual. */
+function stubHeldWorldDaemon(): { release: () => void } {
+	const held: ((r: Response) => void)[] = [];
+	let bakes = 0;
+	const ok = () => new Response(JSON.stringify({ files: 7 }), { status: 200 });
+	globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+		void init;
+		const url = String(input);
+		if (!url.startsWith("/api/"))
+			return Promise.resolve(new Response("", { status: 404 }));
+		const command = url.slice("/api/".length);
+		if (command === "world.list")
+			return Promise.resolve(
+				new Response(JSON.stringify({ defaultName: null, worlds: [] }), {
+					status: 200,
+				}),
+			);
+		if (command !== "generation.bake")
+			return Promise.resolve(new Response("{}", { status: 200 }));
+		bakes += 1;
+		if (bakes === 1) return Promise.resolve(ok());
+		return new Promise<Response>((res) => held.push(res));
+	}) as unknown as typeof fetch;
+	return {
+		release: () => {
+			for (const settle of held.splice(0)) settle(ok());
+		},
+	};
+}
+
+/** Let a world verb walk its await chain: `world.list`, then the upload. */
+const settleWorldVerb = () =>
+	act(async () => {
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+/** Settle every held upload and let the verb move on. Called TWICE for a bake, which
+ *  posts two: the world's files, then `worlds/index.json` — and the second is issued only
+ *  once the first has landed, so one release leaves the verb mid-flight. */
+const releaseUpload = (daemon: { release: () => void }) =>
+	act(async () => {
+		daemon.release();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+test("a world write in flight names the VERB on the bar, and offers no way out", async () => {
+	const daemon = stubHeldWorldDaemon();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// Name it the way a user does — and that first save SETTLES, which is what leaves a
+	// named world for the two hung writes below to run against.
+	act(() => {
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+	});
+	const field = await waitFor(() =>
+		screen.getByLabelText("save as world name"),
+	);
+	act(() => {
+		fireEvent.change(field, { target: { value: "cavern" } });
+	});
+	await act(async () => {
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
+	// Settled: the bar says nothing. The chip is a readout of a job, not of a world.
+	expect(jobChip("saving…") === null).toBe(true);
+
+	// ⌘S on the named world — the write the editor performs all day. It hangs at the
+	// upload, which is where the chip has to be.
+	act(() => {
+		fireEvent.keyDown(window, { key: "s", metaKey: true });
+	});
+	await settleWorldVerb();
+	const chip = jobChip("saving…");
+	if (chip === null) throw new Error("no chip while a write was in flight");
+	// Nothing to click: a mid-flight abort has the same semantics as a failure (the
+	// daemon cleanDir's the world directory before rewriting it), and `saveWorld` already
+	// refuses to characterise that state.
+	expect(chip.closest("button") === null).toBe(true);
+	expect(within(chip).queryByRole("button") === null).toBe(true);
+
+	await releaseUpload(daemon);
+	expect(jobChip("saving…") === null).toBe(true);
+
+	// A BAKE is the same code path with `makeDefault`, and it says so: one label per
+	// verb, so the word on the bar is not a coincidence of the save case above. It is
+	// also the verb that changes what the GAME loads, which is worth its own word.
+	act(() => {
+		fireEvent.click(screen.getByRole("button", { name: "Bake" }));
+	});
+	await settleWorldVerb();
+	expect(jobChip("baking…")).toBeTruthy();
+	expect(jobChip("saving…") === null).toBe(true);
+	// Still baking after the FIRST upload lands — `worlds/index.json` is a second call the
+	// verb has not made yet, and a readout that cleared here would go quiet mid-job.
+	await releaseUpload(daemon);
+	expect(jobChip("baking…")).toBeTruthy();
+	await releaseUpload(daemon);
+	expect(jobChip("baking…") === null).toBe(true);
+});
+
+test("a job chip arrives at the FRONT of the right cluster — nothing beside it moves", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stats(makeStats({ ...METER, voidCastPending: false }));
+	});
+	const bar = screen.getByRole("contentinfo");
+	// The chips right of the spacer are RIGHT-anchored, so an arrival only displaces what
+	// is to its LEFT. A chip that comes and goes therefore has to be first in that group
+	// or it shoves `ops` — a click target — sideways under a cursor on its way to it.
+	const chips = () =>
+		[...bar.querySelectorAll("button")].map((b) =>
+			b.getAttribute("aria-label"),
+		);
+	const before = chips();
+	act(() => {
+		stub.fire.stats(makeStats({ ...METER, voidCastPending: true }));
+	});
+	// The interactive chips are unchanged in identity AND in order: the readout is not
+	// one of them and did not push into the middle of them.
+	expect(chips()).toEqual(before);
+	const chip = jobChip("void cast…");
+	if (chip === null)
+		throw new Error("no void-cast chip while one was in flight");
+	const opsChip = statusChip(/op-cost meter/);
+	// Boundary cast: `compareDocumentPosition` returns a bitmask, and FOLLOWING is the
+	// bit that answers "is `ops` after the readout in document order?".
+	expect(
+		(chip.compareDocumentPosition(opsChip) &
+			Node.DOCUMENT_POSITION_FOLLOWING) !==
+			0,
+	).toBe(true);
 });
 
 // --- (c10) the gate's target predicate: which controls swallow a bare key -----
