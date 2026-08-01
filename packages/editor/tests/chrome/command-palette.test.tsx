@@ -15,7 +15,11 @@ import "../inspector/_register.ts";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
-import { ACTIONS, TOOL_FAMILIES } from "../../src/frontend/lib/actions.ts";
+import {
+	ACTION_GROUPS,
+	ACTIONS,
+	TOOL_FAMILIES,
+} from "../../src/frontend/lib/actions.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { StampSession } from "../../src/viewport-host/index.ts";
 import {
@@ -319,15 +323,31 @@ test("keycaps come from the registry, and so does the footer's own", async () =>
 	expect(within(footer).getByText("esc close")).toBeTruthy();
 });
 
-test("rows are grouped, and the headings are the registry's group titles", async () => {
+test("rows are grouped, and the headings are the registry's group titles IN ORDER", async () => {
 	const stub = stubWithGenerators();
 	await renderShell(stub);
 	pressCommandK();
-	for (const title of ["World", "Edit", "Tools", "Session", "View"])
-		expect({ title, shown: screen.queryAllByText(title).length > 0 }).toEqual({
-			title,
-			shown: true,
-		});
+	const box = palette();
+	if (box === null) throw new Error("the palette is not open");
+	// ORDER, not just membership — `ACTION_GROUPS`' own doc makes it load-bearing ("two
+	// different orders is two different mental maps"), and this is the surface where the
+	// user meets all five at once. Read off the DOM rather than compared title by title,
+	// so a group that moved fails here rather than passing five presence checks.
+	const headings = Array.from(box.querySelectorAll("[cmdk-group-heading]")).map(
+		(h) => h.textContent,
+	);
+	expect(headings).toEqual(ACTION_GROUPS.map((g) => g.title));
+});
+
+test("a query nothing answers says so, rather than showing an empty box", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	typeQuery("zzzzzzzz");
+	expect(rows().length).toBe(0);
+	const box = palette();
+	if (box === null) throw new Error("the palette is not open");
+	expect(within(box).getByText("No action matches.")).toBeTruthy();
 });
 
 test("the selection key is the action ID, not the label", async () => {
@@ -365,6 +385,29 @@ test("the visible LABEL is searchable, not only the id", async () => {
 	expect(rowNames()).toContain("Undo dig ⌘Z");
 });
 
+test("a MEMBER row is findable by the words it shows", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	// A member row displays a COMPOSED label — the family's name and the member's. The
+	// composition has to be searchable as one string, or the family half is findable only
+	// where it happens to echo the action id: `tool.select` is called "Cell select", so
+	// typing what that row visibly says used to miss it entirely. Every family here, not
+	// just the one that broke, because the next family name to diverge from its id would
+	// break exactly the same way and silently.
+	for (const [query, name] of [
+		["cellselectroom", "Cell select · Room"],
+		["brushsegment", "Brush · Segment"],
+		["stampmaze", "Stamp · Maze"],
+	] as const) {
+		typeQuery(query);
+		expect({ query, names: rowNames() }).toEqual({
+			query,
+			names: expect.arrayContaining([name]),
+		});
+	}
+});
+
 // --- (d) refusal: disabled rows and gated rows -------------------------------
 
 test("a disabled action is RENDERED, marked, and does not fire", async () => {
@@ -379,8 +422,18 @@ test("a disabled action is RENDERED, marked, and does not fire", async () => {
 	// …and Enter over it does nothing. Filter until it is the only survivor, then press.
 	typeQuery("world.bake");
 	expect(rows().length).toBe(1);
+	// Boot noise ("no catalog — rock only") off the record first, so the assertion below
+	// is "the press said NOTHING AT ALL" rather than a check against one string.
+	act(() => notify.clear());
 	pressKey("Enter");
-	// Still open, and no world verb ran.
+	// The verb provably never ran. `world.bake` over an untitled world has a backstop of its
+	// own (`notify.error("name the world first (⌘S)")` in `useWorld`), so a row that fired
+	// would leave that in the log — asserted rather than assumed, because "the palette is
+	// still up" is also true of a run that did nothing visible. FIRST, because it is the
+	// claim: a firing row also closes the palette, and that would redden the line below and
+	// leave this one unread.
+	expect(notify.getSnapshot().log).toEqual([]);
+	// …and it is still up, since nothing consumed the press.
 	expect(paletteInput()).toBeTruthy();
 });
 

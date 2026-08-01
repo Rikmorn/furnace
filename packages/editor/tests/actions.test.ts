@@ -9,10 +9,13 @@ import { expect, type mock, test } from "bun:test";
 import {
   ACTION_GROUPS,
   ACTIONS,
+  type ActionGroup,
+  byId,
+  groupTitle,
   TOOL_FAMILIES,
 } from "../src/frontend/lib/actions.ts";
 import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
-import { byId, makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
+import { makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
 
 const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
   ({
@@ -56,6 +59,23 @@ test("every group an action names is in ACTION_GROUPS — nothing renders headle
       listed: true,
     });
   for (const g of ACTION_GROUPS) expect(g.title).toBeTruthy();
+});
+
+test("the two lookups THROW rather than answer nullably", () => {
+  // Both exist so a surface naming one action or one group fails LOUDLY when the name
+  // moves, instead of rendering an empty keycap or a heading-less menu section. Pinned
+  // because a guard nothing exercises is a guard nobody knows is wrong: the previous
+  // round shipped `ACTIONS.find(...)?.keys` and `ACTION_GROUPS.find(...)?.title`, both of
+  // which render blank on a miss.
+  expect(byId("view.commandPalette").id).toBe("view.commandPalette");
+  expect(() => byId("view.nope")).toThrow(/no action "view.nope"/);
+  expect(groupTitle("tool")).toBe("Tools");
+  // A group outside the union is the case the type system cannot reach and the array
+  // cannot prove — the cast IS the scenario (a group added to `ActionGroup` and forgotten
+  // in `ACTION_GROUPS` looks exactly like this at runtime).
+  expect(() => groupTitle("nope" as ActionGroup)).toThrow(
+    /not in ACTION_GROUPS/,
+  );
 });
 
 test("the command palette is a registry action, not a surface with its own key", () => {

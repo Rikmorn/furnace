@@ -47,8 +47,7 @@ import { makeStubHost } from "./_stub-host.ts";
 
 /** The ⌘K opener the real shell supplies. These cases mount the TopBar alone, where
  *  nothing opens the command palette, so the funnel is inert. */
-// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
-const noopOpenPalette = () => {};
+const noopOpenPalette = () => undefined;
 
 afterEach(cleanup);
 afterEach(() => notify.clear());

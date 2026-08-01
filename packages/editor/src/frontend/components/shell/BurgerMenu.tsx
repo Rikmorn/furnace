@@ -22,7 +22,7 @@ import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
-import { ACTION_GROUPS, ACTIONS, type ActionGroup } from "../../lib/actions.ts";
+import { ACTIONS, type ActionGroup, groupTitle } from "../../lib/actions.ts";
 import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
 import {
 	DropdownMenu,
@@ -49,9 +49,10 @@ function RegistryGroup({ group }: { group: ActionGroup }) {
 	const ctx = useActionContext();
 	const labelId = `burger-group-${group}`;
 	// The registry's own name for the set — the same string the shortcuts overlay and the
-	// command palette head their sections with. `find` cannot miss: `ACTION_GROUPS` covers
-	// every member of the union (asserted in tests/actions.test.ts).
-	const title = ACTION_GROUPS.find((g) => g.id === group)?.title;
+	// command palette head their sections with. Through `groupTitle`, which THROWS: a group
+	// missing from `ACTION_GROUPS` must fail loudly, not render a menu section with rows and
+	// no heading.
+	const title = groupTitle(group);
 	return (
 		<DropdownMenuGroup aria-labelledby={labelId}>
 			<DropdownMenuLabel id={labelId}>{title}</DropdownMenuLabel>

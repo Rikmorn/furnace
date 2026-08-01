@@ -35,17 +35,21 @@
 //
 // While a session is live every family is REFUSED, with the registry's own gate sentence.
 // That is not a rule this file owns — it is `gateAction`'s `armsTool` clause, reached
-// through `refusalOf`, so the button, the key and the command palette's row refuse for the
-// same reason in the same words. Refused controls carry `aria-disabled`, never `disabled`: a `disabled` button
-// leaves the tab order entirely, and the refusal sentence rides the accessible NAME
-// precisely so a keyboard user gets it.
+// through `controlVerdict`, so the button, the key and the command palette's row refuse for
+// the same reason in the same words. Refused controls carry `aria-disabled`, never
+// `disabled`: a `disabled` button leaves the tab order entirely, and the refusal sentence
+// rides the accessible NAME precisely so a keyboard user gets it.
 import type { LucideIcon } from "lucide-react";
 import { Brush, MousePointer2, SquareDashed, Stamp } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
-import type { ToolFamily, ToolFamilyMember } from "../../lib/actions.ts";
-import { refusalOf, TOOL_FAMILIES } from "../../lib/actions.ts";
+import type {
+	ControlVerdict,
+	ToolFamily,
+	ToolFamilyMember,
+} from "../../lib/actions.ts";
+import { controlVerdict, TOOL_FAMILIES } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
@@ -65,11 +69,13 @@ const FAMILY_ICON: Record<ToolFamily["id"], LucideIcon> = {
 const BUTTON_CLASS =
 	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-/** What one family row needs to render, with every field a PRIMITIVE or a stable
- *  reference. The point of the shape is `memo`: the ctx object changes identity on every
- *  push the provider receives (stats per op, the session per pointermove during a grab),
- *  and four families × a Radix `Tooltip.Root` + `Popover.Root` each is a lot of tree to
- *  rebuild for an output that did not move. */
+/** What one family row needs to render, derived ONCE in the `useMemo` below. The point of
+ *  the shape is `memo`: the ctx object changes identity on every push the provider receives
+ *  (stats per op, the session per pointermove during a grab), and four families × a Radix
+ *  `Tooltip.Root` + `Popover.Root` each is a lot of tree to rebuild for an output that did
+ *  not move. What makes that work is that the whole row is rebuilt only when the memo's
+ *  listed ctx FACTS move — so a fresh nested object here (the verdict, the members) costs
+ *  nothing that a fresh row object did not already cost. */
 type RailModel = {
 	id: ToolFamily["id"];
 	/** The family's name for the flyout — stable, from the table. */
@@ -80,8 +86,8 @@ type RailModel = {
 	hint: string | undefined;
 	cycleKeys: string | undefined;
 	armed: boolean;
-	/** The gate's sentence, or null when the control is live. */
-	refusal: string | null;
+	/** May this family be armed right now, and what to say when it may not. */
+	verdict: ControlVerdict;
 	members: readonly ToolFamilyMember[];
 	run: () => void;
 	armMember: (member: ToolFamilyMember) => void;
@@ -111,7 +117,7 @@ export function ToolRail() {
 					// The registry's own three-way (live / inert / refused, and the sentence).
 					// It lives there rather than here because the command palette renders the
 					// same verbs and must refuse them in the same words.
-					refusal: refusalOf(family.arm, ctx),
+					verdict: controlVerdict(family.arm, ctx),
 					members: family.members(ctx),
 					run: () => family.arm.run(ctx),
 					armMember: (member: ToolFamilyMember) => member.arm(ctx),
@@ -241,14 +247,12 @@ function RovingToolbar({ children }: { children: ReactNode }) {
 
 const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 	const Icon = FAMILY_ICON[row.id];
-	const refused = row.refusal !== null;
+	const refused = !row.verdict.runnable;
 	// The reason rides the accessible NAME rather than only a tooltip, and that is
 	// mechanical: a control the user cannot act on is exactly where a hover tooltip is least
 	// reliable, and the name is the one channel every input method gets.
-	const name =
-		row.refusal === null || row.refusal === ""
-			? row.label
-			: `${row.label} (${row.refusal})`;
+	const reason = row.verdict.runnable ? null : row.verdict.reason;
+	const name = reason === null ? row.label : `${row.label} (${reason})`;
 
 	return (
 		<div className="flex flex-col items-center">
@@ -301,7 +305,7 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
  *  through. */
 function MemberFlyout({ row }: { row: RailModel }) {
 	const [open, setOpen] = useState(false);
-	const refused = row.refusal !== null;
+	const refused = !row.verdict.runnable;
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>

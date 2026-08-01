@@ -2,10 +2,10 @@
 // the WHOLE table at once.
 //
 // It is a VIEW, not a surface with verbs of its own. Every label is `def.label(ctx)`,
-// every keycap is `def.keys`, every refusal is `refusalOf` — so a row cannot say something
-// the burger, the rail or the keyboard would not. Nothing here decides what a verb is
-// called or when it may run; if it ever does, that is the D-12 violation this file exists
-// to make obvious.
+// every keycap is `def.keys`, every refusal is `controlVerdict` — so a row cannot say
+// something the burger, the rail or the keyboard would not. Nothing here decides what a
+// verb is called or when it may run; if it ever does, that is the D-12 violation this file
+// exists to make obvious.
 //
 // WHY IT EXISTS (D-F4.5-12): the burger's View group is one unseparated run of seventeen
 // rows. Menu depth is a UX ceiling, and random access by name is the standard answer —
@@ -15,16 +15,27 @@
 // does not hide it and it has no geometry to drag — it is modal, transient, and gone the
 // moment it has done its one job. That is why `ctx.run.openCommandPalette` is its own verb
 // beside `summonPalette` rather than a sixth member of the arrangement.
+//
+// WHAT THE MOCK (frame 5) HAS AND THIS DOES NOT, and why:
+//   - a per-row GLYPH. Nothing in the registry carries an icon, and there is no authored
+//     set to draw from — a per-action `icon?` field would be perfectly single-homed, so
+//     this is a cost-and-scope call rather than a principled refusal, and it stays open.
+//   - a per-row GROUP TAG. Superseded rather than dropped: the mock's list is flat, so
+//     each row had to name its own group; these are grouped, with a heading each.
+//   - world and entity rows ("Bake world 'mine-01'"). Aspirational in the mock — this
+//     renders `ACTIONS` and the tool families, and nothing else.
 import { useCallback } from "react";
 import { flushSync } from "react-dom";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
+import type { ControlVerdict } from "../../lib/actions.ts";
 import {
 	ACTION_GROUPS,
 	ACTIONS,
 	type ActionCtx,
 	type ActionDef,
 	type ActionGroup,
-	refusalOf,
+	byId,
+	controlVerdict,
 	TOOL_FAMILIES,
 } from "../../lib/actions.ts";
 import {
@@ -39,8 +50,11 @@ import {
 
 /** The palette's own chord, read off the table it renders. A hand-typed "⌘K" in the
  *  footer is a keycap that outlives its binding — the exact defect the registry exists to
- *  make impossible, committed by the surface that advertises the registry. */
-const SELF = ACTIONS.find((a) => a.id === "view.commandPalette");
+ *  make impossible, committed by the surface that advertises the registry.
+ *
+ *  Through `byId`, which THROWS at module init: a renamed action must fail the import, not
+ *  render an empty `<kbd>` that nobody notices. */
+const SELF = byId("view.commandPalette");
 
 /** One row, resolved against the current state. Every field comes from the registry. */
 type Row = {
@@ -51,8 +65,8 @@ type Row = {
 	group: ActionGroup;
 	label: string;
 	keys: string | undefined;
-	/** `null` = live, `""` = inert with nothing more to say, else the gate's sentence. */
-	refusal: string | null;
+	/** May this row run, and what to say when it may not. */
+	verdict: ControlVerdict;
 	/** What ELSE this row answers to. The visible label has to be here explicitly: cmdk
 	 *  scores `value` + `keywords`, and `value` is the id — without this, "Undo dig"
 	 *  would be findable by "undo" (the id says so) but not by "dig". */
@@ -65,8 +79,9 @@ type Row = {
  *  control puts its reason in the name, because a name is the one channel every input
  *  method gets), with the keycap kept because a palette is where people learn chords. */
 function rowName(row: Row): string {
-	return [row.label, row.keys, row.refusal ? `(${row.refusal})` : null]
-		.filter((part) => part !== null && part !== "" && part !== undefined)
+	const reason = row.verdict.runnable ? null : row.verdict.reason;
+	return [row.label, row.keys, reason === null ? null : `(${reason})`]
+		.filter((part) => part !== undefined && part !== null)
 		.join(" ");
 }
 
@@ -77,7 +92,7 @@ function actionRow(def: ActionDef, ctx: ActionCtx): Row {
 		group: def.group,
 		label,
 		keys: def.keys,
-		refusal: refusalOf(def, ctx),
+		verdict: controlVerdict(def, ctx),
 		keywords: def.hint === undefined ? [label] : [label, def.hint],
 		run: () => def.run(ctx),
 	};
@@ -102,14 +117,20 @@ function memberRows(ctx: ActionCtx): Row[] {
 	return TOOL_FAMILIES.flatMap((family) => {
 		const members = family.members(ctx);
 		if (members.length < 2) return [];
-		const refusal = refusalOf(family.arm, ctx);
+		const verdict = controlVerdict(family.arm, ctx);
 		return members.map((member) => ({
 			value: `${family.arm.id}.${member.id}`,
 			group: family.arm.group,
 			label: `${family.name} · ${member.label}`,
 			keys: undefined,
-			refusal,
-			keywords: [member.label, member.hint],
+			verdict,
+			// The COMPOSED label first, and it is the whole rule `Row.keywords` states:
+			// cmdk scores `value` + `keywords`, `value` is the id, so the family half is
+			// searchable only where the name echoes the id. `tool.select` is called "Cell
+			// select" — typing what that row visibly says found nothing at all, while
+			// partial queries appeared to work through a subsequence inside the HINT.
+			// Without the separator: `·` is not a character anyone types.
+			keywords: [`${family.name} ${member.label}`, member.label, member.hint],
 			run: () => member.arm(ctx),
 		}));
 	});
@@ -195,23 +216,7 @@ function CommandBody({ close }: { close: () => void }) {
 					return (
 						<CommandGroup key={group.id} heading={group.title}>
 							{inGroup.map((row) => (
-								<CommandItem
-									key={row.value}
-									value={row.value}
-									keywords={row.keywords}
-									aria-label={rowName(row)}
-									// cmdk enforces this rather than trusting the handler: a disabled
-									// item registers no select listener and takes no click, and is
-									// skipped by the arrows and by auto-selection — so ⏎ can never
-									// land on one and find nothing there.
-									disabled={row.refusal !== null}
-									onSelect={() => pick(row)}
-								>
-									<span className="truncate">{row.label}</span>
-									{row.keys !== undefined && (
-										<CommandShortcut>{row.keys}</CommandShortcut>
-									)}
-								</CommandItem>
+								<PaletteRow key={row.value} row={row} onPick={pick} />
 							))}
 						</CommandGroup>
 					);
@@ -222,8 +227,28 @@ function CommandBody({ close }: { close: () => void }) {
 				<span>↑↓ navigate</span>
 				<span>⏎ run</span>
 				<span>esc close</span>
-				<kbd className="ml-auto font-mono">{SELF?.keys}</kbd>
+				<kbd className="ml-auto font-mono">{SELF.keys}</kbd>
 			</div>
 		</>
+	);
+}
+
+/** One row: what the verb is called, what runs it, and — refused — why, all from the
+ *  registry. The whole of what this task is judged on, so it has a name. */
+function PaletteRow({ row, onPick }: { row: Row; onPick: (row: Row) => void }) {
+	return (
+		<CommandItem
+			value={row.value}
+			keywords={row.keywords}
+			aria-label={rowName(row)}
+			// cmdk enforces this rather than trusting the handler: a disabled item registers
+			// no select listener and takes no click, and is skipped by the arrows and by
+			// auto-selection — so ⏎ can never land on one and find nothing there.
+			disabled={!row.verdict.runnable}
+			onSelect={() => onPick(row)}
+		>
+			<span className="truncate">{row.label}</span>
+			{row.keys !== undefined && <CommandShortcut>{row.keys}</CommandShortcut>}
+		</CommandItem>
 	);
 }

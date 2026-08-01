@@ -989,13 +989,34 @@ export type ToolFamily = {
   armed: (ctx: ActionCtx) => boolean;
 };
 
-/** The action with this id. Resolved at module init and THROWS on a miss, so an id
- *  renamed in the table above cannot leave a rail button wired to nothing — the editor
- *  fails to import rather than shipping a dead column. */
-function byId(id: string): ActionDef {
+/** The action with this id, THROWING on a miss — so an id renamed in the table above
+ *  cannot leave a control wired to nothing.
+ *
+ *  Exported because every surface that names ONE action needs it and the alternative is
+ *  `ACTIONS.find(...)` returning `ActionDef | undefined`, which reads as a nullable and gets
+ *  papered over with `?.`: a renamed action then renders a blank keycap instead of failing.
+ *  `TOOL_FAMILIES` calls it at MODULE INIT, where the throw takes the whole editor down at
+ *  import rather than shipping a dead column; a caller reaching for it during render gets
+ *  the same guarantee one render later. */
+export function byId(id: string): ActionDef {
   const def = ACTIONS.find((a) => a.id === id);
   if (def === undefined) throw new Error(`actions: no action "${id}"`);
   return def;
+}
+
+/** What this group is called, THROWING on a group missing from {@link ACTION_GROUPS}.
+ *
+ *  The list is an array (its ORDER is data), so TypeScript cannot prove it covers the
+ *  union the way a `Record<ActionGroup, string>` would. This is that proof, moved to
+ *  runtime: without it a group added to `ActionGroup` and forgotten here renders an EMPTY
+ *  heading — a menu section with rows and no name — instead of failing.
+ *  `tests/actions.test.ts` asserts the covering case, so this throw is the backstop rather
+ *  than the first thing to notice. */
+export function groupTitle(group: ActionGroup): string {
+  const found = ACTION_GROUPS.find((g) => g.id === group);
+  if (found === undefined)
+    throw new Error(`actions: group "${group}" is not in ACTION_GROUPS`);
+  return found.title;
 }
 
 /** Turn a static family into resolved members. `armed` comes from the same `armedIndex`
@@ -1131,21 +1152,35 @@ export function clickGate(def: ActionDef, ctx: ActionCtx): GateVerdict {
   });
 }
 
-/** What a CONTROL for this action must say instead of running it: `null` when it may run,
- *  `""` when it is merely inert, and the gate's own sentence when the gate refuses.
+/** Whether a CONTROL for this action may run it, and what to say when it may not.
  *
- *  The empty string is a third state rather than a shrug. `enabled` false with the gate
- *  open means the verb has nothing to ACT on — the stamp family over an empty registry,
- *  Bake with no world on disk — and those labels already carry the reason, so there is no
- *  second sentence to give and a control that invented one would be guessing. Callers show
- *  the control as refused either way; only the wording differs.
+ *  THREE states in two cases, which is why it is a union rather than a string: runnable;
+ *  refused WITH a sentence (the gate's); and refused with NOTHING to add. The last is not a
+ *  shrug — `enabled` false with the gate open means the verb has nothing to ACT on (the
+ *  stamp family over an empty registry, Bake with no world on disk), and those labels
+ *  already carry the reason, so a control that invented a second sentence would be
+ *  guessing. Every caller shows the control as refused either way; only the wording moves.
+ *
+ *  A UNION rather than the `string | null` (with `""` for the middle state) it was first
+ *  written as, because that shape was already being read two different ways by its only two
+ *  callers — one three-way explicit, one truthy, which collapses inert into runnable. Both
+ *  happened to be correct; neither was obviously so, and a third caller writing
+ *  `if (reason)` to mean "is it refused" gets inert wrong. The discriminant makes that read
+ *  unwriteable. */
+export type ControlVerdict =
+  | { runnable: true }
+  | { runnable: false; reason: string | null };
+
+/** {@link ControlVerdict} for this action, right now.
  *
  *  In the registry rather than in each surface because two copies of this three-way is
  *  precisely how a rail button and a palette row come to disagree about one verb. */
-export function refusalOf(def: ActionDef, ctx: ActionCtx): string | null {
+export function controlVerdict(def: ActionDef, ctx: ActionCtx): ControlVerdict {
   const verdict = clickGate(def, ctx);
-  if (!verdict.ok) return verdict.hint ?? "";
-  return def.enabled(ctx) ? null : "";
+  if (!verdict.ok) return { runnable: false, reason: verdict.hint };
+  return def.enabled(ctx)
+    ? { runnable: true }
+    : { runnable: false, reason: null };
 }
 
 /** The one refusal that is about STATE rather than about keys: an action that re-arms what

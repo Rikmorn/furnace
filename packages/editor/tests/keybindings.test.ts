@@ -11,11 +11,12 @@ import { expect, test } from "bun:test";
 import {
   ACTIONS,
   type ActionDef,
+  byId,
   type GateEnv,
   gateAction,
   matchAction,
 } from "../src/frontend/lib/actions.ts";
-import { byId, makeCtx } from "./_actions-fixture.ts";
+import { makeCtx } from "./_actions-fixture.ts";
 
 /** A synthetic keydown. The four modifier flags are FILLED, never left undefined: a real
  *  `KeyboardEvent` always carries all four as booleans, and a matcher that compared

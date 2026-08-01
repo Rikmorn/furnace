@@ -23,7 +23,7 @@
 // closed menu, dialog or popover would rebuild its rows on every stats push — and at
 // pointer rate during a grab, since the session is a ctx dep.
 //
-// A fourth is `TopBar`'s `BakeButton`, a leaf for the same reason: it is a single control
+// The fifth is `TopBar`'s `BakeButton`, a leaf for the same reason: it is a single control
 // whose enabled state is a ctx read, and reading the ctx in `TopBarStrip` instead would
 // re-render the whole strip at that rate.
 //

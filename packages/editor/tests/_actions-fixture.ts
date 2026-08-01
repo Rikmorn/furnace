@@ -6,7 +6,6 @@
 // suite's cases too.
 import { mock } from "bun:test";
 import type { ActionCtx } from "../src/frontend/lib/actions.ts";
-import { ACTIONS } from "../src/frontend/lib/actions.ts";
 import type { FieldHost } from "../src/viewport-host/index.ts";
 
 export function makeHostSpy() {
@@ -109,9 +108,3 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
     ...over,
   };
 }
-
-export const byId = (id: string) => {
-  const def = ACTIONS.find((a) => a.id === id);
-  if (def === undefined) throw new Error(`test: no action "${id}"`);
-  return def;
-};
