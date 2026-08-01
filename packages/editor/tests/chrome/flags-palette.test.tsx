@@ -373,6 +373,50 @@ test("a marker clicked in the VIEWPORT lights up its row here", () => {
 	expect(row(first).className).not.toContain("bg-primary");
 });
 
+test("a viewport selection SCROLLS its row into view", () => {
+	// The other half of "the palette row highlights + scrolls". A marker click lands on
+	// a finding that may be a hundred rows down a list with its own scroll box, so the
+	// highlight alone is a state change nobody can see. happy-dom runs no layout, so
+	// what is observable is the CALL — which is the whole of what this component does
+	// (the scrolling itself is the browser's).
+	const stub = makeStubHost();
+	const calls: ScrollIntoViewOptions[] = [];
+	const real = Element.prototype.scrollIntoView;
+	Element.prototype.scrollIntoView = function scrollIntoView(
+		arg?: boolean | ScrollIntoViewOptions,
+	) {
+		calls.push(typeof arg === "object" && arg !== null ? arg : {});
+	};
+	try {
+		renderPalette(stub);
+		act(() => {
+			stub.fire.flags(summaryOf([NARROW, FAR_ROW]));
+		});
+		// Nothing selected: nothing scrolls. Without this the assertion below could be
+		// satisfied by a component that scrolls on every push — which is the defect the
+		// effect's `[flags.selected]` dep exists to prevent (the seam fires on every
+		// analyzer response, and a list that jumped each time would be unreadable).
+		expect(calls.length).toBe(0);
+
+		act(() => {
+			stub.fire.flags(summaryOf([NARROW, FAR_ROW], { selected: "b" }));
+		});
+		expect(calls.length).toBe(1);
+		// `block: "nearest"` and not `"center"`: a row already on screen must stay
+		// exactly where it is, or a ROW CLICK would make the list jump under the cursor
+		// that clicked it (the DriftReport badge's idiom).
+		expect(calls[0]?.block).toBe("nearest");
+
+		// …and an unrelated push does not re-scroll: same selection, new rows.
+		act(() => {
+			stub.fire.flags(summaryOf([NARROW, FAR_ROW], { selected: "b" }));
+		});
+		expect(calls.length).toBe(1);
+	} finally {
+		Element.prototype.scrollIntoView = real;
+	}
+});
+
 test("a selected CLUSTER MEMBER lights the row it was folded into", () => {
 	const stub = makeStubHost();
 	renderPalette(stub);

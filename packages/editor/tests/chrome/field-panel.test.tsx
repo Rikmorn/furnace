@@ -171,9 +171,6 @@ async function renderPanel(stub: ReturnType<typeof makeStubHost>) {
 	return result;
 }
 
-const _button = (name: string): HTMLButtonElement =>
-	screen.getByRole("button", { name }) as HTMLButtonElement;
-
 /** A toast row's text, SCOPED to the stack. The toast layer also publishes two
  *  persistent announcement regions carrying the same string (the house live-region
  *  pattern — see Toasts), so an unscoped `getByText` is ambiguous by design. */

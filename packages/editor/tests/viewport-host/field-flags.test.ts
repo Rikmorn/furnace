@@ -460,7 +460,13 @@ test("a re-analysis that retires the selected finding publishes no selection", (
 
   // The chunk re-analyses to nothing — the advisor changed its mind, which is the
   // one way a finding really disappears. Unlike the filter case there is nothing
-  // to come back to, and `selected` stays null for the rest of the session.
+  // to come back TO, so the seam stops claiming it.
+  //
+  // Precisely what is claimed: `selected` is null for as long as nothing VISIBLE
+  // answers to that key. NOT "for the rest of the session" — the key is retained,
+  // so a later re-analysis finding the same kind at the same cell republishes it.
+  // That is the design rather than a hole in it (the key IS the finding's identity)
+  // and it is the same retention the filter case above depends on.
   store.applyFlags([{ key: "0,0,0", flags: [] }]);
   expect(store.summary().selected).toBeNull();
 });
@@ -497,7 +503,13 @@ test("selection pops the marker's SIZE and leaves its colour alone", () => {
   // the host's metre constant rather than a second metre constant of its own.
   expect(flagMarkerStyle(row, true).scale).toBe(FLAG_SELECTED_SCALE);
   expect(flagMarkerStyle(row, false).scale).toBe(1);
-  expect(FLAG_SELECTED_SCALE).toBeGreaterThan(1);
+  // The VALUE, not just the direction. `> 1` alone leaves the constant free to
+  // become 1.01 — a pop nobody can see — with this file still green, which is the
+  // unpinned-constant class this slice has now caught four times (STEPPER_MAX_STEPS,
+  // HISTORY_TAIL, MAX_SEGMENT_M, SELECTION_DISPLAY_CAP). 1.6 is a deliberate choice:
+  // big enough to read at a glance against its neighbours, small enough that a
+  // selected marker in a dense cluster does not swallow the ones beside it.
+  expect(FLAG_SELECTED_SCALE).toBe(1.6);
 });
 
 test("flagCellBox is the marker's own cell — the box the pick, the frame and the outline share", () => {

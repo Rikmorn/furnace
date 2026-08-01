@@ -9,7 +9,13 @@
 // takes a spec, deliberately (the gestures are the API).
 //
 // What is asserted here is the WIRING — which selections get cubes, how many, and
-// what the seam then says about it. The ORDERING rule (shell before interior) is
+// what the seam then says about it. NOT that they are VISIBLE: nothing here reads a
+// pixel, and this repo's own shadow-mapping lesson is that a renders-clean GPU test
+// cannot catch wrong output (docs/learnings/shadow-mapping-stage4-silent-bugs.md).
+// The f2b finding's actual words — "invisible from inside" — are an eyeball claim and
+// belong to the gate. What this file CAN do about it is assert the premise the gate
+// then checks, which the cap case below does: the camera really is inside the flooded
+// volume, so the cubes it draws are the ones that were missing. The ORDERING rule (shell before interior) is
 // pure and pinned in tests/viewport-host/field-selection-cells.test.ts at
 // fixture-sized numbers; the CAP is exercised for real here, because the fixture
 // is big enough to cross it.
@@ -134,6 +140,24 @@ async function fixture() {
   };
 }
 
+/** Read `cameraEye()` back out of the artifact manifest — field-host-camera's probe,
+ *  and still the only window onto the orbit target and distance (the pose seam
+ *  publishes yaw/pitch alone). */
+function readCameraEye(
+  host: ReturnType<typeof createFieldHost>,
+): [number, number, number] {
+  const manifestFile = host
+    .exportArtifact("probe")
+    .find((f) => f.path === "worlds/probe/manifest.json");
+  if (manifestFile === undefined || typeof manifestFile.contents !== "string")
+    throw new Error("test: no manifest.json in the artifact");
+  return (
+    JSON.parse(manifestFile.contents) as {
+      playerStart: [number, number, number];
+    }
+  ).playerStart;
+}
+
 const lastSelection = (
   selections: readonly (SelectionInfo | null)[],
 ): SelectionInfo => {
@@ -185,6 +209,18 @@ test.skipIf(!bunWebGpuAvailable())(
       const info = lastSelection(f.selections);
       expect(info.spec.kind).toBe("flood-void");
       expect(info.count).toBeGreaterThan(SELECTION_DISPLAY_CAP);
+      // THE PREMISE, asserted rather than left to the fixture's comment: the eye is
+      // inside the volume that was just selected. Without it this case would prove
+      // "a big flood draws cubes" while the finding it closes is specifically about
+      // a flood the camera is STANDING IN, where the AABB outline is behind the
+      // near plane on every side and shows nothing.
+      const eye = readCameraEye(f.host);
+      const box = info.aabb;
+      if (box === null) throw new Error("test: the flood reported no bounds");
+      for (let i = 0; i < 3; i++) {
+        expect(eye[i] as number).toBeGreaterThan(box.min[i] as number);
+        expect(eye[i] as number).toBeLessThan(box.max[i] as number);
+      }
       expect(f.host.selectionCellCount()).toBe(SELECTION_DISPLAY_CAP);
       expect(info.displayed).toBe(SELECTION_DISPLAY_CAP);
       // The two limits are INDEPENDENT and the fixture keeps them apart: the

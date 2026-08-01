@@ -168,6 +168,24 @@ test("the cap cuts, and it cuts the INTERIOR first", () => {
   expect(tuples(hard.cells).every((c) => isSurface(mat, c))).toBe(true);
 });
 
+// The cap's VALUE, and the reason it needs its own line: every other case here
+// passes `cap` explicitly at a fixture-sized number (which is what makes the cut
+// testable at all), and the two that use the real constant IMPORT it — so mutating
+// 65 536 to 1 000 left all nine green. A budget nothing pins is a budget that can
+// drift to a number nobody chose, and this is the fourth instance of that class in
+// this slice alone (STEPPER_MAX_STEPS, HISTORY_TAIL, MAX_SEGMENT_M).
+//
+// Both halves are the claim. The literal catches drift; the RELATION is what the
+// number means — the cap has to sit strictly below the host's flood budget
+// (SELECTION_UI_BUDGET = 200 000, field-host.ts), or it could never fire and the
+// whole shell-first ordering would be dead code. That constant is host-private, so
+// it is restated here as the plain integer it is, with its home named.
+test("the display cap is 65 536, and it is strictly below the flood budget", () => {
+  expect(SELECTION_DISPLAY_CAP).toBe(65_536);
+  const SELECTION_UI_BUDGET = 200_000; // field-host.ts, host-private
+  expect(SELECTION_DISPLAY_CAP).toBeLessThan(SELECTION_UI_BUDGET);
+});
+
 test("an empty selection draws nothing rather than throwing", () => {
   const out = selectionDisplayCells(new Map(), SELECTION_DISPLAY_CAP);
   expect([out.displayed, out.surface, out.cells.length]).toEqual([0, 0, 0]);

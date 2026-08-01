@@ -1071,9 +1071,13 @@ export type FieldHost = {
    *
    * Two things happen beyond the state write. The selected marker is drawn bigger
    * and its anchor CELL gets a `--primary` outline, and the camera FRAMES that
-   * cell — 0.5 m of world, where the route this replaces framed the finding's
-   * whole 4 m chunk and left the user hunting inside the box (the F4 gate's first
-   * item). The viewport's own marker click deliberately does NOT frame: the user
+   * cell — ONE `store.cellSize` on a side (0.25 m at the default lattice), where
+   * the route this replaces framed the finding's whole chunk, sixteen cells across
+   * (4 m at that same default), and left the user hunting inside the box (the F4
+   * gate's first item). Both figures are lattice-relative and neither is fixed:
+   * `cellSize` is a per-world manifest value, which is exactly why
+   * {@link flagCellBox} derives the box rather than naming a number.
+   * The viewport's own marker click deliberately does NOT frame: the user
    * is already looking at what they clicked, and a camera that jumped on every
    * marker press would be unusable.
    *
@@ -4282,7 +4286,8 @@ export function createFieldHost(deps?: {
   // derived from — `flagCellBox` and `flagMarkerStyle` are pure and covered in
   // tests/viewport-host/field-flags.test.ts, and `summary.selected`'s own resolution
   // is covered there and in tests/field-host-flag-select.test.ts. An accessor added
-  // for one assertion is not worth the surface; the gate is the eyeball check.
+  // for one assertion is not worth the surface; the gate is the eyeball check. The
+  // third of the three is the cell layer's `selection` gate — see renderScene.
   const rebuildFlagSelection = (summary: FlagsSummary): void => {
     const row =
       summary.selected === null
@@ -5216,6 +5221,16 @@ export function createFieldHost(deps?: {
     // outlines below (hiding the layer hides the DISPLAY; the selection itself
     // stays live and keeps masking ops). Premultiplied and depth-write-free, so
     // it sorts into frame.render's blended group with the ghosts.
+    //
+    // DISCLOSED AS UNPINNED, the third of this task's three (see
+    // `rebuildFlagSelection` for the other two): THIS GATE is unobservable. The
+    // only window onto the layer is `selectionCellCount()`, which reports what the
+    // rebuild DECIDED and not what the frame drew — by design, since it is the
+    // markerCount twin and settles before the context guard. So switching
+    // `selection` off while a flood is selected is an eyeball check, not a test.
+    // A `drawnSelectionCells()` accessor would be a second count whose only
+    // consumer is one assertion, and two counts that can disagree is worse than
+    // one that is honest about its scope.
     if (layers.selection && selectionCells) instanced.push(selectionCells.im);
     // The void cast goes in FIRST of the three translucents on purpose. All
     // three sort after every opaque (frame.render's blended group), so this
