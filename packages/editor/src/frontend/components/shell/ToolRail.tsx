@@ -42,8 +42,9 @@
 import type { LucideIcon } from "lucide-react";
 import { Brush, MousePointer2, SquareDashed, Stamp } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
+import { useRovingList } from "../../hooks/useRovingList.ts";
 import type {
 	ControlVerdict,
 	ToolFamily,
@@ -175,73 +176,47 @@ export function ToolRail() {
  *  tab stops for one mode selector is what the pattern exists to prevent, and
  *  `role="toolbar"` without it is a promise to a screen reader that nothing keeps.
  *
- *  The stop is written onto the DOM in a layout effect rather than passed down as a
- *  `tabIndex` prop, and that is what keeps `RailFamily` memoizable: a prop would change on
- *  every focus move and defeat the memo for a reason that has nothing to do with what the
- *  row draws. React never sets `tabIndex` on these buttons (it is not in their JSX), so it
- *  cannot clobber the write. The control list is read from the DOM because its LENGTH is
- *  data — a one-member family contributes one button, a multi-member family two.
+ *  The MECHANISM moved to `hooks/useRovingList.ts` at F4.5c Task 9 — this file was its
+ *  first home and is now one of five consumers. What stayed here is what is the rail's
+ *  own: the KEYS it claims and the role it claims them under. In particular the stop is
+ *  still written onto the DOM in a layout effect rather than passed down as a `tabIndex`
+ *  prop, which is what keeps `RailFamily` memoizable — a prop would change on every focus
+ *  move and defeat the memo for a reason that has nothing to do with what the row draws.
+ *  React never sets `tabIndex` on these buttons (it is not in their JSX), so it cannot
+ *  clobber the write.
  *
  *  `role="toolbar"`, not `<nav>`: a nav landmark advertises navigation, and this arms
  *  tools. It also matches the top strip, which is the other half of one control surface. */
 function RovingToolbar({ children }: { children: ReactNode }) {
-	const ref = useRef<HTMLDivElement | null>(null);
-	const active = useRef(0);
-
-	const controls = (): HTMLButtonElement[] =>
-		Array.from(ref.current?.querySelectorAll("button") ?? []);
-
-	useLayoutEffect(() => {
-		const items = controls();
-		if (items.length === 0) return;
-		// Clamped, because the list shrinks: a family losing its flyout (a registry that
-		// drops to one generator) must not strand the stop past the end, which would leave
-		// the rail unreachable by Tab entirely.
-		const i = Math.min(active.current, items.length - 1);
-		active.current = i;
-		for (const [n, el] of items.entries()) el.tabIndex = n === i ? 0 : -1;
-	});
-
-	const focusAt = (next: number): void => {
-		const items = controls();
-		if (items.length === 0) return;
-		const i = ((next % items.length) + items.length) % items.length;
-		active.current = i;
-		for (const [n, el] of items.entries()) el.tabIndex = n === i ? 0 : -1;
-		items[i]?.focus();
-	};
+	// `"button"` as the selector because every button INSIDE this column is one of its
+	// controls — a one-member family contributes one, a multi-member one two, and the
+	// flyout's own members are portaled out of the container so they are never matched.
+	// The row grids cannot use that selector (a row's verbs are buttons the stop must not
+	// land on) and pass a structural one instead.
+	const roving = useRovingList<HTMLDivElement, HTMLButtonElement>("button");
 
 	return (
 		// `role="toolbar"` is the ARIA pattern for a control strip; HTML has no element for
 		// it, and <nav> would advertise navigation. Biome does not flag it, so there is no
 		// suppression here (unlike the `role="group"` in the flyout below).
 		<div
-			ref={ref}
+			ref={roving.ref}
 			role="toolbar"
 			aria-orientation="vertical"
 			aria-label="tools"
 			onKeyDown={(e) => {
-				const items = controls();
-				const from = items.indexOf(document.activeElement as HTMLButtonElement);
-				const at = from === -1 ? active.current : from;
-				if (e.key === "ArrowDown") focusAt(at + 1);
-				else if (e.key === "ArrowUp") focusAt(at - 1);
-				else if (e.key === "Home") focusAt(0);
-				else if (e.key === "End") focusAt(items.length - 1);
+				const at = roving.cursor();
+				if (e.key === "ArrowDown") roving.focusAt(at + 1);
+				else if (e.key === "ArrowUp") roving.focusAt(at - 1);
+				else if (e.key === "Home") roving.focusAt(0);
+				else if (e.key === "End") roving.focusAt(roving.items().length - 1);
 				else return;
 				// Only after a key we CLAIMED: the arrows are also the stamp-region nudge on the
 				// canvas, and swallowing a key this toolbar did not act on would be the
 				// focus-trap class the app-level dispatcher exists to kill.
 				e.preventDefault();
 			}}
-			onFocus={(e) => {
-				// Keep the stop where the user actually is — clicking a control mid-column must
-				// not send Tab back to the top of the rail next time.
-				// `e.target` is whatever inside the toolbar took focus; only a button can BE a
-				// control here, so a miss simply leaves the stop where it was.
-				const i = controls().indexOf(e.target as unknown as HTMLButtonElement);
-				if (i !== -1) active.current = i;
-			}}
+			onFocus={roving.onFocus}
 			className="flex w-11 shrink-0 flex-col items-center gap-1 border-border border-r bg-card py-2"
 		>
 			{children}
