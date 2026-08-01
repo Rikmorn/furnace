@@ -1,4 +1,4 @@
-import { projectAxisTriad } from "../lib/axis-triad.ts";
+import { axisViewLabel, projectAxisTriad } from "../lib/axis-triad.ts";
 
 // Semantic axis colours — X red, Y green, Z blue — matching the viewport translate gizmo.
 // These hexes are the SOURCE of the host's `AXIS_COLOR`, which is the same three in
@@ -16,9 +16,17 @@ const RADIUS = 22; // axis line length from centre
 const CAP = 7; // labelled +axis end-cap radius
 const NEG_CAP = 5; // the −axis cap: smaller and unlabelled, the way a ViewCube reads
 // Hit targets, wider than the caps they cover. Still under the 24 px WCAG 2.2 SC 2.5.8
-// minimum, and unavoidably so at this size — six tips share a 64 px box. Filed with the
-// options (grow it, or make the six views reachable another way and let these be a
-// redundant affordance): `docs/backlog/editor-and-tooling/field-f4-gate-ux-findings.md` §3.
+// minimum, and unavoidably so at this size — six tips share a 64 px box.
+//
+// That is a REDUNDANT AFFORDANCE now rather than a shortfall, and the option the finding
+// named as cheapest is the one that was taken (F4.5c Task 5): SC 2.5.8 does not apply to a
+// control whose function is available another way on the same page, and the six views are
+// registry actions since that task — `view.snapPosX` … `view.snapNegZ` in
+// `frontend/lib/actions.ts`, which puts them in the burger's View group. (Not in the
+// shortcuts overlay: they claim no `keys`, and that overlay lists only actions that do.)
+// The dependency runs one way and is worth stating: DELETE those six defs and these two
+// constants are a live finding again
+// (`docs/backlog/editor-and-tooling/field-f4-gate-ux-findings.md` §3).
 const HIT = 18;
 const NEG_HIT = 14;
 
@@ -133,7 +141,9 @@ export function AxisTriad({
 			{tips.map((tip) => {
 				const { x: ex, y: ey } = at(tip);
 				const size = tip.sign === 1 ? HIT : NEG_HIT;
-				const label = `View from ${tip.sign === 1 ? "+" : "-"}${tip.axis.toUpperCase()}`;
+				// The registry's six View rows are called this too, out of this one
+				// function — see HIT/NEG_HIT above for why the agreement is load-bearing.
+				const label = axisViewLabel(tip.axis, tip.sign);
 				return (
 					<button
 						key={`${tip.axis}${tip.sign}`}

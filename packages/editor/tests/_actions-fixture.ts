@@ -21,6 +21,7 @@ export function makeHostSpy() {
     commitSession: mock(),
     rotateStamp: mock(),
     escape: mock(),
+    snapView: mock(),
     clearSelection: mock(),
     reselect: mock(),
     isLooking: mock(() => false),

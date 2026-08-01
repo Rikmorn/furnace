@@ -321,6 +321,76 @@ test("the view toggles report their own checked state and flip it", () => {
   ).toMatchObject({ grid: false });
 });
 
+// --- the six axis views (F4.5c Task 5) ---------------------------------------
+
+/** Each view's id beside the pair it MUST pass, written out longhand. Deliberately NOT
+ *  derived the way the table derives them: a generator that got a sign backwards would
+ *  hand this file a matching expectation, and the one thing these cases exist to do is
+ *  disagree with the table when the table is wrong. */
+const AXIS_VIEWS: readonly (readonly [string, "x" | "y" | "z", 1 | -1])[] = [
+  ["view.snapPosX", "x", 1],
+  ["view.snapNegX", "x", -1],
+  ["view.snapPosY", "y", 1],
+  ["view.snapNegY", "y", -1],
+  ["view.snapPosZ", "z", 1],
+  ["view.snapNegZ", "z", -1],
+];
+
+test("each axis view snaps to ITS OWN axis and sign", () => {
+  // The whole table in ONE expectation, one STRING per action. Six defs differing only by
+  // two arguments is precisely the shape where a slip survives a loop that just asserts
+  // "snapView was called" — and neither a per-row `expect` nor a row of tuples is enough
+  // here, because the diff carries a single line of context and elides the id, leaving a
+  // reader to count rows to find out WHICH of the six fired wrong. Flattened, the id and
+  // the bad pair land on the same diff line. Rendering the whole CALL LIST rather than its
+  // first entry is what also reddens a def that snapped twice, or not at all.
+  const shows = (id: string, calls: unknown): string =>
+    `${id} → ${JSON.stringify(calls)}`;
+  const observed = AXIS_VIEWS.map(([id]) => {
+    const ctx = makeCtx();
+    const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+    byId(id).run(ctx);
+    return shows(id, host.snapView.mock.calls);
+  });
+  expect(observed).toEqual(
+    AXIS_VIEWS.map(([id, axis, sign]) => shows(id, [[axis, sign]])),
+  );
+});
+
+test("the six axis views are the triad's own words, and claim no key", () => {
+  for (const [id] of AXIS_VIEWS) {
+    const def = byId(id);
+    // NO chord, and it is a design constraint rather than an omission: six keycaps the
+    // charter's binding table never allocated, on a keyboard this editor keeps sparse.
+    // The menu (and the command palette, which reads this same table) is the route, and
+    // that route is the whole reason the triad's undersized tips stop being the sole one.
+    expect({ id, group: def.group, keys: def.keys, match: def.match }).toEqual({
+      id,
+      group: "view",
+      keys: undefined,
+      match: undefined,
+    });
+    // Live with no engine at all, like `view.frame` beside it: a view verb needs no
+    // selection and no world, and a menu row greyed for no visible reason reads as broken.
+    expect({ id, enabled: def.enabled(makeCtx({ host: null })) }).toEqual({
+      id,
+      enabled: true,
+    });
+  }
+  // The literal vocabulary, pinned once. `AxisTriad` renders these same strings as each
+  // tip's `aria-label` (both call `axisViewLabel`); that the two SURFACES agree is
+  // `shell.test.tsx`'s case, and this is what either of them would have to change to.
+  const ctx = makeCtx();
+  expect(AXIS_VIEWS.map(([id]) => byId(id).label(ctx))).toEqual([
+    "View from +X",
+    "View from -X",
+    "View from +Y",
+    "View from -Y",
+    "View from +Z",
+    "View from -Z",
+  ]);
+});
+
 // --- the pending stamp arm shadows every other family (F4.5b Task 9, D-F4.5-7) --
 
 test("a pending stamp presses the STAMP family and un-presses the arm underneath it", () => {

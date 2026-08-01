@@ -14,6 +14,11 @@
 > blocker was cleared at F4.5a. Item 3 STANDS and its trigger's conditional resolved
 > NEGATIVE — the action registry landed without the six views in it, so the cheap close
 > it was waiting on did not happen by itself.
+>
+> **F4.5c update (2026-08-01).** Item 3 is CLOSED (Task 5) — the six `view.snap*` registry
+> actions the item pre-named as its cheapest remedy now exist, so the triad's undersized
+> tips are a redundant affordance rather than the sole route. All three items are now
+> answered in code; the file is a record awaiting the seal sweep, not open work.
 
 Findings from the F4 Safari gate (2026-07-27) that are interaction-model work, not
 mechanism bugs. Joins the sibling sets (`field-f2b-gate-ux-findings.md`,
@@ -71,7 +76,7 @@ sets).
 **Reference:** `docs/reference/editor-architecture.md` §19 (markers, Flags panel,
 frameChunks); the F4 seal entry in `docs/learnings/seal-log.md`.
 
-## 3. The axis triad's snap tips are under the 24 px target-size minimum (F4.5b Task 6)
+## 3. The axis triad's snap tips are under the 24 px target-size minimum (F4.5b Task 6) ✅ CLOSED (F4.5c Task 5)
 
 The corner triad became a control: six `<button>`s on the axis ends, calling
 `FieldHost.snapView`. Their hit targets are **18 px** (the labelled +axis caps) and
@@ -99,11 +104,27 @@ available: the tips remain the SOLE route to the six axis views, which is what k
 controls under SC 2.5.8 rather than a redundant affordance. The item is otherwise
 unchanged, and `AxisTriad.tsx`'s own `HIT`/`NEG_HIT` comment still points here.
 
-**Trigger to revisit:** the F4.5c polish stage. The cheapest close is still option three,
-and it is now a KNOWN piece of work rather than a hope — six `view.snapXPos`-shaped
-registry actions (which would also put the views in the burger's View group and the
-shortcuts overlay for free), after which the tips are redundant and the SC stops
-applying.
+**CLOSED IN CODE 2026-08-01 (F4.5c Task 5) — option three, exactly as pre-named.** The six
+registry actions landed: `view.snapPosX` / `NegX` / `PosY` / `NegY` / `PosZ` / `NegZ` in
+`frontend/lib/actions.ts`, group `view`, `enabled: () => true`, each running
+`ctx.host?.snapView(axis, sign)` — the same verb the tips call. They sit in the table
+between `view.frame` and the display toggles, so the burger's View group renders the seven
+camera verbs as one run. The tips are a REDUNDANT AFFORDANCE now and SC 2.5.8's
+equivalent-affordance exception applies; `HIT`/`NEG_HIT`'s comment says so, and says which
+six defs it depends on, so deleting them re-opens this.
+
+Two riders on what actually shipped, against the wording above:
+- **No `keys`.** Six chords were not taken — the charter's binding table allocates none, and
+  this editor keeps its keyboard sparse. So the views reach the menu, but NOT the shortcuts
+  overlay, which renders only actions with a `keys` (`ShortcutsDialog`'s own filter). The
+  "for free" in the sentence above was half right. The command palette (Task 7) is the
+  keyboard route, and it reads this same table.
+- **One naming source.** `axisViewLabel` in `frontend/lib/axis-triad.ts` now spells "View
+  from +X" once; the tip's `aria-label`/`title` and the menu row both call it. Two surfaces
+  wording one view differently would be two controls to a reader, and the exception would
+  not hold.
+
+The item is DONE; the file itself still deletes at the F4.5 seal sweep with its siblings.
 
 **Reference:** `packages/editor/src/frontend/components/AxisTriad.tsx` (`HIT` /
 `NEG_HIT`, and the comment that states the constraint); `docs/reference/editor-architecture.md`

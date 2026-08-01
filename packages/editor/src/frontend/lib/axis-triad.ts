@@ -15,6 +15,16 @@ export type ProjectedAxis = {
   depth: number;
 };
 
+/** How a snap view is NAMED, everywhere it is named — each triad tip's `aria-label` and
+ *  `title`, and the burger's six View rows (`view.snapPosX` … in `lib/actions.ts`). One
+ *  spelling because they are one control reached two ways: the tips are under the WCAG 2.2
+ *  SC 2.5.8 target-size floor and rest on that SC's equivalent-affordance exception, and
+ *  two surfaces wording one view differently would be two controls to a reader rather than
+ *  one with a second route. `sign: 1` is the POSITIVE side of the axis, matching
+ *  `FieldHost.snapView`'s own convention. */
+export const axisViewLabel = (axis: "x" | "y" | "z", sign: 1 | -1): string =>
+  `View from ${sign === 1 ? "+" : "-"}${axis.toUpperCase()}`;
+
 const dot = (a: Vec3, b: Vec3): number =>
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 

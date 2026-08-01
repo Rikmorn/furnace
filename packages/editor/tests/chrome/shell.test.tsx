@@ -1872,6 +1872,76 @@ test("the burger's View group drives the same view state, and reads it back", as
 	expect(item("Normals shading").getAttribute("aria-checked")).toBe("true");
 });
 
+test("the burger's View group carries the triad's six axis views, in the triad's own words", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// The TIPS first, before anything is portalled over them: an open Radix menu marks the
+	// app behind it `aria-hidden`, which takes the tips out of the tree `getAllByRole`
+	// walks. Their order is the triad's fixed tab order (x+, x−, y+, y−, z+, z−).
+	const drawing = screen.getByRole("img", { name: "camera orientation axes" });
+	const triad = drawing.parentElement;
+	if (!(triad instanceof HTMLElement)) throw new Error("triad has no wrapper");
+	const tipNames = within(triad)
+		.getAllByRole("button")
+		// A tip with no `aria-label` is its own defect, and the sentinel matches no menu
+		// row — so it reddens the comparison below rather than typing as `string | null`.
+		.map((t) => t.getAttribute("aria-label") ?? "(tip with no aria-label)");
+
+	// Each row reaches the SAME host verb the tip beside it does, with its own pair. The
+	// arguments are the assertion: a row wired to the wrong sign looks perfect in a DOM test
+	// and sends the camera to the far side of the world on screen. Two DIFFERENT pairs, so
+	// a table where every row snapped to one view would still redden here.
+	pickMenuItem("View from -Y");
+	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["y", -1]);
+	pickMenuItem("View from +Z");
+	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["z", 1]);
+
+	// THE claim of this whole item: the six views are reachable somewhere other than the
+	// tips, and named identically there. The tips are 18 px / 14 px hit targets inside a
+	// 64 px box — under WCAG 2.2 SC 2.5.8's 24 px floor, and unfixable at that size — so
+	// they rest on the SC's equivalent-affordance exception, which these rows are. Two
+	// surfaces wording one view differently would be two controls to a reader, and the
+	// exception would not hold.
+	//
+	// ORDER is asserted too, and it is a real claim: the group renders in table position,
+	// so the six sit with `view.frame` (the other camera verb) rather than trailing the
+	// display toggles and the workspace verbs, which are a different kind of thing.
+	//
+	// Last, because selecting an item CLOSES the menu — and `openBurger` toggles, so
+	// opening around a `pickMenuItem` shuts the menu instead of leaving it up.
+	openBurger();
+	const group = screen.getByText("View").closest("[role='group']");
+	if (!(group instanceof HTMLElement)) throw new Error("no View group");
+	// Both item roles — the toggles render as `menuitemcheckbox`, and a selector that saw
+	// only `menuitem` would leave where the six sit RELATIVE to them unpinned, which is
+	// the half of the ordering claim that is actually a judgement.
+	//
+	// The item's TEXT children only. `textContent` would drag in the `F` and `⌘\` keycaps
+	// (a chord is a trailing `<span>`) and, on a checkbox item, its tick indicator — and
+	// stripping those out with a regex would have to know every keycap in the table, which
+	// is exactly the coupling the registry exists to remove. The label is the one bare
+	// text node either shape has.
+	const TEXT_NODE = 3;
+	const labels = [
+		...group.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox']"),
+	].map((el) =>
+		[...el.childNodes]
+			.filter((n) => n.nodeType === TEXT_NODE)
+			.map((n) => n.textContent)
+			.join(""),
+	);
+	expect(labels).toEqual([
+		"Frame selection",
+		...tipNames,
+		"Normals shading",
+		"Grid",
+		"Hide palettes",
+		"Reset workspace",
+	]);
+});
+
 // --- (c3b) the rest of the burger tree: Edit, the popover door, Help ----------
 
 /** A burger item by the start of its label. Disabled items are still in the tree —

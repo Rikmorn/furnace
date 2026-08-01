@@ -1,8 +1,12 @@
 // The editor's ONE action registry (D-10/D-11/D-12): every verb the chrome can run,
 // declared once, with the key that runs it, the label that names it and the rule that
-// refuses it. Three surfaces read this table — the window key dispatcher
-// (`useGlobalKeybindings`), the burger menu, and the Help▸Keyboard shortcuts overlay —
-// so a binding cannot be live and undocumented, or documented and dead.
+// refuses it. SIX surfaces read this table — the window key dispatcher
+// (`useGlobalKeybindings`), the burger menu, the Help▸Keyboard shortcuts overlay, the top
+// bar (Bake and the palette toggle), the status bar's selection chip, and the tool rail
+// (through `TOOL_FAMILIES` at the foot of this file) — so a binding cannot be live and
+// undocumented, or documented and dead, and no surface works out an enabled state or a
+// label of its own. The count was three when this file was written and stayed written down
+// as three through F4.5b, which added the last three readers.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
 // (`viewport-host/field-host.ts`) and this registry's, on `window`. The rule:
@@ -38,6 +42,9 @@ import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
 import type { WorldActions } from "../hooks/useWorld.tsx";
+// The one VALUE import here, and it stays inside `frontend/lib` — the triad's naming
+// function, shared so the gizmo and the menu spell a view once (see AXIS_VIEWS).
+import { axisViewLabel } from "./axis-triad.ts";
 import type { PaletteId } from "./palette-store.ts";
 
 /** Everything an action can read or call, assembled once per render by
@@ -341,6 +348,49 @@ function stampMember(ctx: ActionCtx): { id: string; name: string } | null {
  *  places a user has to work out they are looking at one object. */
 export const entityName = (e: FieldEntityInfo): string =>
   `${e.generator} #${e.entityId}`;
+
+// --- the six axis views (F4.5c Task 5) ---------------------------------------
+
+/** The corner triad's six tips, as registry rows. Generated from one statement of each
+ *  axis and each sign rather than written out six times, deliberately: six defs differing
+ *  only by two arguments is exactly the shape a copy-paste slip survives in, and a `NegZ`
+ *  that passes `+1` reads perfectly in review while sending the camera to the far side of
+ *  the world. Here `axis` and `sign` are each named once and flow into the id, the label
+ *  and the call together.
+ *
+ *  WHY THEY EXIST — this is an accessibility remedy, not a convenience. `AxisTriad`'s six
+ *  tips are 18 px / 14 px hit targets inside a 64 px box, under WCAG 2.2 SC 2.5.8's 24 px
+ *  floor and unfixable at that size (six tips, one box). That SC does not apply to a
+ *  control whose function is reachable another way on the same page; these rows are that
+ *  other way, so the tips became a redundant affordance the moment this list landed.
+ *  Deleting it re-opens the finding — `field-f4-gate-ux-findings.md` §3, and the comment on
+ *  those two constants says the same thing from the other end.
+ *
+ *  NO `keys`, and that is a decision rather than an omission: six chords would be six
+ *  claims on a keyboard this editor keeps sparse, and the charter's binding table allocates
+ *  none of them. The menu is the route. It follows — and is worth stating, because it reads
+ *  like an oversight otherwise — that these six do NOT appear in the shortcuts overlay,
+ *  which renders only actions carrying a `keys`. The command palette Task 7 adds reads this
+ *  same table and will list them without any of them claiming a keycap.
+ *
+ *  The labels come from `axisViewLabel`, which is also what each TIP is called. One
+ *  spelling, so the gizmo and the menu cannot come to name one view two ways: that drift is
+ *  what D-12 exists to prevent, and here it would break the exception above, since two
+ *  differently-worded controls are two controls rather than one reachable twice. */
+const AXIS_VIEWS: readonly ActionDef[] = (["x", "y", "z"] as const).flatMap(
+  (axis) =>
+    ([1, -1] as const).map(
+      (sign): ActionDef => ({
+        id: `view.snap${sign === 1 ? "Pos" : "Neg"}${axis.toUpperCase()}`,
+        group: "view",
+        label: () => axisViewLabel(axis, sign),
+        // Live with no selection and no engine, like `view.frame` beside it: a view verb
+        // needs neither, and a row greyed with no visible reason reads as broken.
+        enabled: () => true,
+        run: (ctx) => ctx.host?.snapView(axis, sign),
+      }),
+    ),
+);
 
 // --- the table --------------------------------------------------------------
 
@@ -752,6 +802,14 @@ export const ACTIONS: readonly ActionDef[] = [
     gate: "typed",
     run: (ctx) => ctx.host?.frameSelection(),
   },
+  // HERE, between the other camera verb and the display toggles, because the burger renders
+  // a group in table order: seven camera rows then read as one run, where appending them
+  // would file six of them behind two workspace verbs. FLAT rather than behind a submenu —
+  // this group is the ACCESSIBLE route to a control too small to click reliably, and one
+  // hover-intent step deeper would make the alternative harder to reach than the thing it
+  // stands in for. Eleven rows is a long group; the command palette, not a submenu, is what
+  // makes it short again.
+  ...AXIS_VIEWS,
   {
     id: "view.normals",
     group: "view",
