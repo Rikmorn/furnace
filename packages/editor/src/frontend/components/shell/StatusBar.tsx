@@ -6,16 +6,13 @@
 // (right). The chips come from `useFieldHostState`, NOT from an own subscription —
 // subscribeStats is a single slot and a second subscriber would silently steal the
 // first's callback.
+//
+// The keymap line's STRINGS live next door in `status-keymap.ts` — pure, React-free, and
+// tested directly. What is left here is rendering.
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useSyncExternalStore } from "react";
-import type {
-	FieldStats,
-	FieldTool,
-	PendingStamp,
-	StampSession,
-	ViewportGesture,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+import type { FieldStats } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
 	useFieldHostState,
@@ -27,12 +24,12 @@ import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
 import { useWorldState, type WorldJob } from "../../hooks/useWorld.tsx";
 import { ACTIONS } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
-import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
 import { Button } from "../ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
+import { armedKeymap } from "./status-keymap.ts";
 
 function engineLabel(state: EditorState): string {
 	if (state.status === "engine-error") return "engine: BUILD FAILED";
@@ -53,90 +50,6 @@ const grouped = (n: number): string => n.toLocaleString();
  *  a readout whose whole question is "how heavy has this got?". Rounding lives here,
  *  once, rather than at each call site. */
 const ms = (n: number): string => `${grouped(Math.round(n))} ms`;
-
-/** One line per armed state — what the keys do RIGHT NOW. It answers the question a modal
- *  editor makes people ask constantly ("what does clicking do in this mode?") at the
- *  moment they ask it, which the static line it replaces could not.
- *
- *  Enumerated here rather than derived from the action table, and deliberately so: the
- *  registry knows what a key RUNS, not which four of two dozen bindings matter in a given
- *  mode — and the canvas-owned keys (`[`/`]`, ⇧, ⌃, the arrows) are half of what belongs
- *  on this line and are not in the table at all.
- *
- *  Keycaps are written the way the rest of the editor writes them — ⌘ ⇧ ⌃ ⌥ ⏎ ⌫ and
- *  `Esc`, matching the overlay and the menu. Two spellings of one key is drift that reads
- *  as two different keys, and it is part of how this line's old static clause got away
- *  with naming three keys the host does not bind.
- *
- *  Exported for its test: these strings ARE the claim, and asserting them through the DOM
- *  would be asserting the same thing twice. */
-export function armedKeymap(
-	tool: FieldTool,
-	gesture: ViewportGesture | null,
-	session: StampSession | null,
-	pendingStamp: PendingStamp | null,
-): string {
-	// A live session owns the interaction — the family keys refuse while it stands, so
-	// what is left to say is how it ENDS. The two end verbs come from `SESSION_VERBS`,
-	// the one table the card and the session strip also read: a user working a stamp has
-	// all three surfaces on screen at once, and this line used to re-derive the pair from
-	// `moving` alone, which collapsed STAMP into RECONFIGURE. What stays a branch here is
-	// the STEERING half, which genuinely differs — a move is dragged, everything else is
-	// nudged — and that is a fact about `moving`, not about the state tag.
-	if (session !== null) {
-		const verbs = SESSION_VERBS[sessionStateTag(session)];
-		const steer = session.moving === true ? "drag ghost move" : "← → ↑ ↓ nudge";
-		return `${steer} · R rotate ¼ · ⏎ ${verbs.primary} · Esc ${verbs.secondary}`;
-	}
-	// A pending stamp SHADOWS the armed gesture: LMB is drawing that stamp's region,
-	// whatever the gesture slot still says underneath (usually `pointer`, the arm most
-	// stamps are picked from). It is checked before `gesture` for exactly that reason —
-	// and it NAMES the generator, because "a region" alone leaves the user to remember
-	// which stamp they pressed.
-	//
-	// "click ×2", NOT "drag": the mechanism is the box gesture's, and it takes two
-	// separate presses — `onPointerUp` has no region branch at all, so a press-drag-
-	// release anchors at the PRESS and throws the release away, making the user's next
-	// click anywhere corner two. The box line three cases below says "click ×2" for the
-	// same mechanism; one mechanism with two verbs on one status line, with the wrong
-	// verb on the flow D-F4.5-7 exists to make discoverable, is worse than either.
-	if (pendingStamp !== null)
-		return `click ×2 to span a region for ${pendingStamp.name} · Esc cancels`;
-	if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
-	if (gesture === "box") return "click ×2 spans a region · Esc clears";
-	if (gesture === "material")
-		return "LMB floods the clicked material · Esc clears";
-	if (gesture === "void") return "LMB floods an air pocket · Esc clears";
-	if (gesture === "segment")
-		return "click ×2 sweeps the brush · [ ] radius · Esc drops the point";
-	// The brush itself, with the armed effect NAMED: it is what LMB is about to do, and
-	// the four read very differently. Joined from parts rather than interpolated, so an
-	// effect with no live modifiers ends at the radius instead of a dangling separator.
-	return [
-		`LMB ${tool.effect}`,
-		"[ ] radius",
-		...modifierParts(tool.effect),
-	].join(" · ");
-}
-
-/** Which momentary/sticky overrides are LIVE under `effect`, derived rather than stated.
- *
- *  A static clause was wrong three ways at once, and none of them was catchable by a test
- *  that pinned the string: `deriveMomentary` swaps dig↔fill SYMMETRICALLY, so under fill
- *  ⌃ gives *dig*, not fill; under paint and smooth ⌃ passes through entirely and
- *  `tool.swapEffect` is disabled, so both "⌃ fill" and "X swap" named dead keys; and
- *  "⇧ smooth" under smooth names a no-op. Verified against `field-host.ts`'s
- *  `deriveMomentary` and the registry's own `enabled`. */
-function modifierParts(effect: FieldTool["effect"]): string[] {
-	const parts: string[] = [];
-	// ⇧ derives smooth from whatever is armed — nothing to say when it already is.
-	if (effect !== "smooth") parts.push("⇧ smooth");
-	// ⌃ is the momentary half of the swap `X` makes sticky, and both are live only on the
-	// two carving effects. The swap is SYMMETRIC, so each names what it would give.
-	if (effect === "dig") parts.push("⌃ fill", "X swap");
-	if (effect === "fill") parts.push("⌃ dig", "X swap");
-	return parts;
-}
 
 /** The keymap line, in its own component so only IT re-renders: the session context pushes
  *  a clone on every nudge and every preview — pointer rate while a move is live — and the

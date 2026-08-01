@@ -21,7 +21,7 @@ import type { ReactElement } from "react";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
-import { armedKeymap } from "../../src/frontend/components/shell/StatusBar.tsx";
+import { armedKeymap } from "../../src/frontend/components/shell/status-keymap.ts";
 import {
 	FieldHostStateProvider,
 	useFieldHostState,

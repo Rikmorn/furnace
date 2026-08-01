@@ -2284,7 +2284,9 @@ for a live move, `cell` for the two-click gestures, `crosshair` for the one-clic
 before the first click (`ring` for the segment brush, whose sweep really is `digRadius` thick;
 `cross` for a box corner and a pending stamp's region corner, neither of which has a radius).
 
-The status bar's `armedKeymap` is the fourth channel and is **hand-enumerated rather than derived
+The status bar's `armedKeymap` (`shell/status-keymap.ts` — pure and React-free, so its strings
+are tested directly rather than through the DOM) is the fourth channel and is **hand-enumerated
+rather than derived
 from the registry**, deliberately: the registry knows what a key RUNS, not which four of two dozen
 bindings matter in a given mode, and half of what belongs on that line is canvas-owned keys the
 table does not carry at all. Its modifier clause is derived (`modifierParts`) rather than static,
