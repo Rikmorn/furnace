@@ -179,6 +179,25 @@ export function Toasts() {
 				// rows must not eat a viewport drag that passes under them.
 				<ol
 					aria-label="notifications"
+					// The TTL stops while a reader is in the stack, and it is the STACK that
+					// carries the handlers rather than each row: hovering one toast holds all
+					// three, so working down a column is not a race against the rows not
+					// reached yet (WCAG 2.2.1 — an auto-dismiss is a time limit on reading, and
+					// this is the extension). The keyboard gets the same hold through the same
+					// pair, because focus events bubble: tabbing to a × is a reader arriving,
+					// and a row that expired mid-Tab would drop the focus.
+					//
+					// Safe against the churn this layout fires by itself. The column is
+					// pointer-events-none, so the GAP between two rows belongs to the canvas
+					// behind it: sliding from one toast to the next raises a leave and then an
+					// enter, and so does a dismiss, as focus leaves the removed × for its
+					// neighbour. Neither pair costs anything, because the store holds each
+					// toast's REMAINING time — a resume followed immediately by a pause puts
+					// back exactly what it took.
+					onMouseEnter={() => notify.pause()}
+					onMouseLeave={() => notify.resume()}
+					onFocus={() => notify.pause()}
+					onBlur={() => notify.resume()}
 					className="pointer-events-none absolute right-3 bottom-3 flex flex-col items-end gap-2"
 				>
 					{toasts.map((message) => (

@@ -16,7 +16,7 @@ import "../inspector/_register.ts";
 // flex sibling that would take width off it, and the two bars are shrink-0 siblings
 // OUTSIDE the cell. Sabotage-proven: making the panel a flex sibling, or dropping the
 // canvas's aria-label, each fails a case below.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { ReactElement } from "react";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
@@ -28,7 +28,7 @@ import {
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { ACTIONS } from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
-import { notify } from "../../src/frontend/lib/notify-store.ts";
+import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import type {
 	FieldTool,
@@ -848,6 +848,76 @@ test("dismissing a toast keeps focus in the stack while one is left", async () =
 	expect(document.activeElement?.getAttribute("aria-label")).toBe(
 		"dismiss: second",
 	);
+});
+
+test("the stack holds while the pointer — or the keyboard — is in it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const HELD = "kit layer dropped — re-toggle to refresh";
+
+	// Fake timers from HERE, after the render: the TTL this case is about has to be a
+	// number the test moves rather than four real seconds of wall clock, and the message
+	// it drives has to be the one scheduled under them.
+	jest.useFakeTimers();
+	try {
+		act(() => {
+			stub.fire.toolError(HELD, "warn");
+		});
+		const held = () => screen.queryByLabelText(`dismiss: ${HELD}`);
+		const stack = toastStack();
+		if (!(stack instanceof HTMLElement)) throw new Error("no toast stack");
+		const tick = (ms: number) =>
+			act(() => {
+				jest.advanceTimersByTime(ms);
+			});
+
+		// Half of it read, then the pointer arrives ON THE STACK — one handler for the
+		// whole column rather than per row, which is the accessible simple rule: hovering
+		// anything holds everything visible, so a reader working down three rows is not
+		// racing the two they have not reached yet.
+		tick(TOAST_TTL_MS / 2);
+		act(() => {
+			fireEvent.mouseOver(stack);
+		});
+		tick(TOAST_TTL_MS * 2);
+		// Well past its deadline and still up. An auto-dismiss is a time limit on reading
+		// (WCAG 2.2.1) and this is the extension.
+		expect(held()).toBeTruthy();
+
+		// Leaving spends what was LEFT — half — so a resume that restarted the clock
+		// survives the first of these two lines.
+		act(() => {
+			fireEvent.mouseOut(stack);
+		});
+		tick(TOAST_TTL_MS / 2 - 1);
+		expect(held()).toBeTruthy();
+		tick(1);
+		expect(held()).toBeNull();
+
+		// The keyboard gets the same hold, through the same container: tabbing to a
+		// toast's × is a reader arriving, and a row that vanished mid-Tab would move the
+		// focus out from under them.
+		act(() => {
+			stub.fire.toolError(HELD, "warn");
+		});
+		const dismiss = held();
+		if (!(dismiss instanceof HTMLElement)) throw new Error("no dismiss button");
+		act(() => {
+			dismiss.focus();
+		});
+		tick(TOAST_TTL_MS * 2);
+		expect(held()).toBeTruthy();
+		act(() => {
+			dismiss.blur();
+		});
+		tick(TOAST_TTL_MS);
+		expect(held()).toBeNull();
+	} finally {
+		// In a finally, or a failed assertion above leaves every later case in this file
+		// running on a clock nobody advances.
+		jest.useRealTimers();
+	}
 });
 
 test("the ⚠ chip counts unread errors and summons the message log", async () => {

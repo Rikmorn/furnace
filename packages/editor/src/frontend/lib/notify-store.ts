@@ -61,6 +61,16 @@ export type NotifyStore = {
   error(text: string): void;
   /** Take one toast off the screen. It stays in the log. */
   dismiss(id: number): void;
+  /** Hold every counting-down toast where it is: the pointer or the keyboard is IN the
+   *  stack, so someone is reading. An auto-dismiss is a time limit on reading and WCAG
+   *  2.2.1 asks for a way to extend one; pause-on-hover is that way.
+   *
+   *  Idempotent, and deliberately silent — it changes nothing that is on screen, so it
+   *  must not notify (see the implementation for what an emit per crossing would cost). */
+  pause(): void;
+  /** Let the held toasts spend what is LEFT of their TTL. Not a fresh one: three
+   *  seconds spent reading a four-second toast must leave one second, not four. */
+  resume(): void;
   /** Mark everything currently logged as read (the log palette calls this while it is
    *  on screen). A no-op when nothing is new — it must not notify, or a palette that
    *  marks on render would loop. */
@@ -89,8 +99,24 @@ export const LOG_CAP = 200;
 /** How long a toast that leaves ON ITS OWN holds the screen. Long enough to read a
  *  sentence, short enough that a save + a bake do not stack up on each other. Named for
  *  the toast rather than the severity: success and warn fade on the same clock as info,
- *  and errors are the one exemption. */
+ *  and errors are the one exemption.
+ *
+ *  A budget of UNATTENDED time rather than wall clock: `pause`/`resume` hold the
+ *  countdown while the pointer or the keyboard is in the stack, so a toast under the
+ *  reader's cursor never spends it. */
 export const TOAST_TTL_MS = 4000;
+
+/** One toast's countdown. RUNNING carries the canceller and the clock reading it is due
+ *  to leave at; PAUSED carries only what is LEFT of its TTL — which is the whole reason
+ *  the deadline is recorded at all, since a pause has to be able to answer "how much was
+ *  spent" without asking the timer it just cancelled. */
+type ToastTimer =
+  | {
+      readonly state: "running";
+      readonly cancel: () => void;
+      readonly due: number;
+    }
+  | { readonly state: "paused"; readonly remaining: number };
 
 const EMPTY: NotifySnapshot = {
   toasts: [],
@@ -101,8 +127,10 @@ const EMPTY: NotifySnapshot = {
 
 export function createNotifyStore(deps: NotifyDeps): NotifyStore {
   const listeners = new Set<() => void>();
-  /** Cancellers for the toasts still counting down, by message id. */
-  const timers = new Map<number, () => void>();
+  /** The toasts still counting down — or held mid-count — by message id. An `error`
+   *  never appears here, because `push` gives it no timer at all: that is what keeps it
+   *  outside pause/resume by construction rather than by a special case inside them. */
+  const timers = new Map<number, ToastTimer>();
   let toasts: readonly NotifyMessage[] = [];
   let log: readonly NotifyMessage[] = [];
   /** The newest id the user has seen in the log; -1 = nothing seen yet. */
@@ -119,10 +147,10 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
   };
 
   const clearTimer = (id: number): void => {
-    const cancel = timers.get(id);
-    if (!cancel) return;
+    const timer = timers.get(id);
+    if (!timer) return;
     timers.delete(id);
-    cancel();
+    if (timer.state === "running") timer.cancel();
   };
 
   const removeToast = (id: number): void => {
@@ -130,6 +158,16 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
     if (!toasts.some((t) => t.id === id)) return;
     toasts = toasts.filter((t) => t.id !== id);
     emit();
+  };
+
+  /** Start one toast's countdown over `ms`, recording the deadline a later pause reads
+   *  the remainder off. Used by `push` for a full TTL and by `resume` for the rest. */
+  const startTimer = (id: number, ms: number): void => {
+    timers.set(id, {
+      state: "running",
+      due: deps.now() + ms,
+      cancel: deps.schedule(() => removeToast(id), ms),
+    });
   };
 
   const push = (severity: NotifySeverity, text: string): void => {
@@ -151,11 +189,10 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
       // else — a WARNING included — is a report on something that already settled, and
       // reports should leave. A warning that had to be dismissed would be a second
       // demand for attention over a state nobody has to act on.
-      if (severity !== "error")
-        timers.set(
-          message.id,
-          deps.schedule(() => removeToast(message.id), TOAST_TTL_MS),
-        );
+      //
+      // A message that arrives while the stack is HELD still takes its full timer here
+      // rather than joining the hold — see `pause` for why nothing waits on a resume.
+      if (severity !== "error") startTimer(message.id, TOAST_TTL_MS);
     }
     emit();
   };
@@ -184,6 +221,41 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
     warn: (text) => push("warn", text),
     error: (text) => push("error", text),
     dismiss: removeToast,
+    pause: () => {
+      // Held ON THE TIMERS rather than in a store-level "paused" mode, and that is the
+      // load-bearing choice. A mode flag can go stale — the stack unmounts from under
+      // the pointer when its last toast is dismissed and no mouseleave ever follows —
+      // and would then hold every LATER message on screen forever. State that lives on
+      // the timers can only ever affect toasts that are already up, and those take
+      // their entry with them when they are dismissed, expire, or are cleared.
+      //
+      // Idempotent for free: a second enter finds nothing RUNNING, so it cannot compound
+      // (the pointer crossing between two rows, and the resume/pause pair a dismiss fires
+      // as focus leaves the removed × and lands on its neighbour, both land here).
+      //
+      // It does NOT emit: the visible stack is unchanged, and `getSnapshot`'s identity is
+      // what useSyncExternalStore compares — an emit per crossing would re-render all
+      // three subscribers (this stack, the ⚠ chip, the log palette) over an identical
+      // screen. Same reasoning as `markSeen`'s no-op guard.
+      const at = deps.now();
+      for (const [id, timer] of timers) {
+        if (timer.state !== "running") continue;
+        timer.cancel();
+        // Floored at zero: `schedule` is never handed a negative delay, however the
+        // clock behaved between the deadline and the pause.
+        timers.set(id, {
+          state: "paused",
+          remaining: Math.max(0, timer.due - at),
+        });
+      }
+    },
+    resume: () => {
+      // Only what a pause actually held: a toast pushed while the stack was hovered is
+      // already RUNNING on its own full TTL and is skipped. Also silent, and for the
+      // same reason — nothing on screen moved.
+      for (const [id, timer] of timers)
+        if (timer.state === "paused") startTimer(id, timer.remaining);
+    },
     markSeen: () => {
       const newest = log[0]?.id ?? seenId;
       if (newest === seenId) return;
@@ -191,7 +263,11 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
       emit();
     },
     clear: () => {
-      for (const cancel of timers.values()) cancel();
+      // Only the running ones hold a real timer; emptying the map is what takes the HELD
+      // bookkeeping away too, so a resume that arrives after a clear (the pointer leaving
+      // a stack this verb just emptied) revives nothing.
+      for (const timer of timers.values())
+        if (timer.state === "running") timer.cancel();
       timers.clear();
       toasts = [];
       log = [];

@@ -133,6 +133,120 @@ test("a warn fades like an info and never lights the ⚠ chip", () => {
   expect(store.getSnapshot().unreadErrors).toBe(0);
 });
 
+test("hovering holds the countdown; leaving spends only what was LEFT of it", () => {
+  const { store, advance, pending } = makeStore();
+
+  store.info("saved 12 files");
+  // Half the toast's life spent reading it…
+  advance(TOAST_TTL_MS / 2);
+  expect(toastTexts(store)).toEqual(["saved 12 files"]);
+
+  // …and then the pointer arrives. Nothing is counting down while it is there: an
+  // auto-dismiss is a time limit on READING, which WCAG 2.2.1 asks to be extendable.
+  // Asserted through `pending` as well as through the screen, so a "pause" that merely
+  // re-scheduled the same TTL cannot pass this line.
+  store.pause();
+  expect(pending()).toBe(0);
+  advance(TOAST_TTL_MS * 3);
+  expect(toastTexts(store)).toEqual(["saved 12 files"]);
+
+  // Leaving spends the REMAINDER, not a fresh TTL — the difference between an
+  // accessible pause and a toast that gets longer every time it is glanced at. The
+  // two-step advance is the whole assertion: one ms short of the half that was left it
+  // is still there, and the next ms takes it. A resume that restarted survives both.
+  store.resume();
+  expect(pending()).toBe(1);
+  advance(TOAST_TTL_MS / 2 - 1);
+  expect(toastTexts(store)).toEqual(["saved 12 files"]);
+  advance(1);
+  expect(toastTexts(store)).toEqual([]);
+  expect(pending()).toBe(0);
+});
+
+test("hover churn cannot compound, and an error has no countdown to hold", () => {
+  const { store, advance, pending } = makeStore();
+  const SPENT = 1_000;
+
+  store.info("loading cavern…");
+  store.error("bake failed: disk full");
+  // Only the info is ticking. The error never took a timer at all, which is what puts
+  // it outside pause/resume BY CONSTRUCTION rather than by a special case in them.
+  expect(pending()).toBe(1);
+  advance(SPENT);
+
+  // Two enters, a leave/enter PAIR, then two leaves. The middle pair is not a hypothesis:
+  // the column is pointer-events-none, so the gap between two rows belongs to the canvas
+  // behind it and sliding down the stack fires exactly that. None of it may compound —
+  // not the doubled enter, not the round trip, not the doubled leave.
+  store.pause();
+  store.pause();
+  expect(pending()).toBe(0);
+  store.resume();
+  store.pause();
+  expect(pending()).toBe(0);
+  advance(TOAST_TTL_MS * 2);
+  store.resume();
+  store.resume();
+  expect(pending()).toBe(1);
+
+  advance(TOAST_TTL_MS - SPENT - 1);
+  expect(toastTexts(store)).toEqual([
+    "loading cavern…",
+    "bake failed: disk full",
+  ]);
+  advance(1);
+  // What was left when the pointer arrived is exactly what it spent — no more from the
+  // doubled pause, no second timer from the doubled resume…
+  expect(toastTexts(store)).toEqual(["bake failed: disk full"]);
+  // …and the error sat through all four calls untouched.
+  expect(pending()).toBe(0);
+});
+
+test("holding the stack notifies nobody — nothing on screen changed", () => {
+  const { store } = makeStore();
+  store.info("saved 12 files");
+
+  let notified = 0;
+  store.subscribe(() => {
+    notified++;
+  });
+  const before = store.getSnapshot();
+
+  store.pause();
+  store.resume();
+  store.pause();
+  // The snapshot is what useSyncExternalStore compares BY IDENTITY, so an emit per
+  // crossing would hand all three subscribers (the toast stack, the ⚠ chip, the log
+  // palette) a NEW object describing the very same screen every time the pointer moves
+  // over the stack — and the pause/resume pair around a dismiss makes that per keypress.
+  expect(notified).toBe(0);
+  expect(store.getSnapshot()).toBe(before);
+});
+
+test("a toast that arrives while the stack is held still leaves on its own", () => {
+  const { store, advance, pending } = makeStore();
+
+  store.info("loading cavern…");
+  store.pause();
+  store.info("saved 12 files");
+  // The new one takes its full timer AT PUSH rather than joining the hold. A store-level
+  // "paused" mode would do the opposite, and could strand it: the stack can unmount from
+  // under the pointer (its last toast dismissed) with no mouseleave to follow, and every
+  // later message would then sit on screen forever waiting for a resume nothing sends.
+  expect(pending()).toBe(1);
+
+  advance(TOAST_TTL_MS);
+  expect(toastTexts(store)).toEqual(["loading cavern…"]);
+  expect(pending()).toBe(0);
+
+  // Clearing takes the HELD bookkeeping with it, so a resume arriving afterwards — the
+  // pointer leaving a stack the log palette's Clear verb just emptied — revives nothing.
+  store.clear();
+  store.resume();
+  expect(pending()).toBe(0);
+  expect(toastTexts(store)).toEqual([]);
+});
+
 test("the visible stack caps at 3; overflow increments the log-only counter", () => {
   const { store, advance } = makeStore();
 
