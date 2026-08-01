@@ -9,8 +9,8 @@
 
 import type { LucideIcon } from "lucide-react";
 import { Boxes, Flag, History, ScrollText, Settings2 } from "lucide-react";
-import type { ReactNode } from "react";
-import { useCallback, useLayoutEffect, useRef } from "react";
+import type { ReactNode, RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
 	usePaletteOrder,
 	usePaletteRaise,
@@ -20,6 +20,9 @@ import {
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
 import {
+	type CellSize,
+	cellBounds,
+	clampToCell,
 	type OriginBounds,
 	PALETTE_IDS,
 	PALETTES,
@@ -27,37 +30,48 @@ import {
 } from "../../lib/palette-store.ts";
 import { Palette, type PaletteSize } from "./Palette.tsx";
 
-/** Per-palette presentation: the rail glyph and how wide the panel is. Kept out of the
- *  pure store, which stays free of React and of anything that isn't geometry.
- *
- *  Every width below is set by the WIDEST row that palette has to render without
- *  truncating — the figures are quoted against the 300 px `controls` column they all
- *  used to share, which retired with the FieldPanel stack in F4.5b. */
-const PALETTE_CHROME: Record<
-	PaletteId,
-	{ Icon: LucideIcon; widthClass: string }
-> = {
-	// A row is a monospace summary (`scatter · seed 9 · 1 ops · rock · 24 placed`)
-	// followed by three verbs, and at 300 px the summary truncated before it reached
-	// what the stamp actually placed.
-	entities: { Icon: Boxes, widthClass: "w-[360px]" },
-	// The mock's card is a 264 px form; 280 px is that plus the palette's own 8 px of
-	// padding either side. Narrower than every other palette on purpose — it is a
-	// label-column form, not a list, and a wide one puts the labels a long way from the
-	// values they name.
-	session: { Icon: Settings2, widthClass: "w-[280px]" },
-	// Between the entities list and the history: a row is a mono locator
-	// (`narrow ×3 @ (2.5, 0.0, -8.0)`) plus a verdict chip plus a verb, and at 240 px
-	// the locator truncated before its Z coordinate — which is the coordinate that
-	// tells two findings in the same corridor apart.
-	flags: { Icon: Flag, widthClass: "w-[320px]" },
-	// The narrowest of the five, and it can be: a row is a mono index and a two-word
-	// phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
-	history: { Icon: History, widthClass: "w-[240px]" },
-	// The widest of the five: log lines are sentences (a save path, an esbuild
-	// diagnostic), and a narrow box turns every one of them into four wrapped rows.
-	log: { Icon: ScrollText, widthClass: "w-[380px]" },
+/** Per-palette presentation: the rail glyph, and nothing else. How WIDE a palette is used
+ *  to live beside it as a Tailwind class; it moved into the store at F4.5c Task 11, because
+ *  the width is arithmetic (the projection's bounds, the default-arrangement proof) and a
+ *  `w-[360px]` is a number only CSS can read. */
+const PALETTE_ICON: Record<PaletteId, LucideIcon> = {
+	entities: Boxes,
+	session: Settings2,
+	flags: Flag,
+	history: History,
+	log: ScrollText,
 };
+
+/** The cell's size, or `null` until it has one.
+ *
+ *  Its ONE consumer is the projection below, which is why a zero measurement reads as "not
+ *  measured" rather than as a cell with no room in it: before the first layout (and in a
+ *  DOM that runs none) every box is zero, and projecting against that would pin every
+ *  palette to the origin.
+ *
+ *  A `resize` listener rather than a ResizeObserver: the cell's size is a function of the
+ *  window and of nothing else — that is the layout contract at the top of `Shell` — so the
+ *  window event is the whole story, and it costs no observer per mount. */
+function useCellSize(ref: RefObject<HTMLDivElement | null>): CellSize | null {
+	const [cell, setCell] = useState<CellSize | null>(null);
+	useLayoutEffect(() => {
+		const measure = (): void => {
+			const rect = ref.current?.getBoundingClientRect();
+			if (!rect || rect.width === 0 || rect.height === 0) return;
+			setCell((prev) =>
+				prev !== null &&
+				prev.width === rect.width &&
+				prev.height === rect.height
+					? prev
+					: { width: rect.width, height: rect.height },
+			);
+		};
+		measure();
+		window.addEventListener("resize", measure);
+		return () => window.removeEventListener("resize", measure);
+	}, [ref]);
+	return cell;
+}
 
 export function PaletteLayer({
 	content,
@@ -72,6 +86,7 @@ export function PaletteLayer({
 	const order = usePaletteOrder();
 	const raise = usePaletteRaise();
 	const layerRef = useRef<HTMLDivElement | null>(null);
+	const cell = useCellSize(layerRef);
 	const chipRefs = useRef<Partial<Record<PaletteId, HTMLButtonElement | null>>>(
 		{},
 	);
@@ -147,6 +162,18 @@ export function PaletteLayer({
 		[],
 	);
 
+	/** Where a palette is SHOWN, which is its stored geometry projected into the cell as it
+	 *  is right now. The record itself is left alone — see `clampToCell` for why a resize
+	 *  must not rewrite the arrangement — so a window that shrinks and grows again returns
+	 *  every palette to where the user put it.
+	 *
+	 *  Before the first measurement there is nothing to project against and the stored
+	 *  geometry is rendered as-is. That is also the state a DOM with no layout stays in. */
+	const shownGeom = (id: PaletteId) =>
+		cell === null
+			? palettes[id]
+			: clampToCell(palettes[id], cellBounds(cell, id));
+
 	const collapse = (id: PaletteId): void => {
 		focusAfter.current = { id, to: "chip" };
 		actions.setCollapsed(id, true);
@@ -181,11 +208,15 @@ export function PaletteLayer({
 					<Palette
 						key={id}
 						title={PALETTES[id].title}
-						geom={palettes[id]}
-						widthClass={PALETTE_CHROME[id].widthClass}
+						geom={shownGeom(id)}
+						box={{
+							width: PALETTES[id].width,
+							maxHeight: PALETTES[id].maxHeight,
+						}}
 						zIndex={order.indexOf(id) + 1}
 						measureBounds={measureBounds}
 						onMove={(pos, bounds) => actions.move(id, pos, bounds)}
+						onNudge={(delta, bounds) => actions.nudge(id, delta, bounds)}
 						onRaise={() => raise(id)}
 						onCollapse={() => collapse(id)}
 						onClose={() => actions.setOpen(id, false)}
@@ -202,11 +233,11 @@ export function PaletteLayer({
 				// rest of the time.
 				//
 				// BOTTOM-LEFT, and that is the whole of the overlap answer. The rail used to
-				// sit top-right, which is exactly where the default arrangement docks the
-				// controls palette (full height, from y=0) — so collapsing any palette put
-				// its chip on top of another one. Of the four corners the defaults claim
-				// three: controls docks right, entities floats top-left, the triad owns
-				// top-right. Bottom-left is the one strip nothing defaults into.
+				// sit top-right, which was then the top of a full-height docked palette — so
+				// collapsing anything put its chip on top of something else. The shipped
+				// arrangement claims three columns from the top down (entities at x=24, the
+				// session card at 420, history at 720) and the triad owns the top-right
+				// corner; the bottom-left is the one strip nothing defaults into.
 				//
 				// What is left is an OCCUPANCY problem, and it runs the other way round from
 				// the one this corner move fixed: the rail out-stacks every palette (see the
@@ -229,7 +260,7 @@ export function PaletteLayer({
 					className="pointer-events-none absolute bottom-0 left-0 flex w-[34px] flex-col-reverse items-center gap-1.5 pb-2"
 				>
 					{chips.map((id) => {
-						const { Icon } = PALETTE_CHROME[id];
+						const Icon = PALETTE_ICON[id];
 						return (
 							<button
 								key={id}

@@ -16,11 +16,12 @@
 import { ChevronUp, X } from "lucide-react";
 import type {
 	CSSProperties,
+	KeyboardEvent as ReactKeyboardEvent,
 	ReactNode,
 	PointerEvent as ReactPointerEvent,
 	Ref,
 } from "react";
-import { useId, useRef } from "react";
+import { useRef } from "react";
 import { cn } from "../../lib/cn.ts";
 import type { OriginBounds } from "../../lib/palette-store.ts";
 import type { PaletteState } from "../../lib/persist.ts";
@@ -29,6 +30,22 @@ import { Button } from "../ui/button.tsx";
 /** A palette's measured box, handed to the layer with a move so it can turn the cell's
  *  size into bounds for THIS palette's origin. */
 export type PaletteSize = { width: number; height: number };
+
+/** How far one arrow press moves a palette, and how far a ⇧-arrow does. 8 px is the
+ *  chrome's spacing step, so a nudged palette stays on the same rhythm as everything
+ *  around it; 32 px is four of those — far enough to cross a palette in a dozen presses,
+ *  small enough that it never overshoots the cell in one go. */
+const NUDGE_PX = 8;
+const NUDGE_FAR_PX = 32;
+
+/** The four keys the grip claims, as unit vectors. A lookup rather than a chain, so the
+ *  "did we claim this key?" question below has exactly one answer. */
+const NUDGE_KEYS: Record<string, { dx: number; dy: number }> = {
+	ArrowLeft: { dx: -1, dy: 0 },
+	ArrowRight: { dx: 1, dy: 0 },
+	ArrowUp: { dx: 0, dy: -1 },
+	ArrowDown: { dx: 0, dy: 1 },
+};
 
 /** What a pointer-capture drag needs to survive between events: which pointer owns the
  *  gesture, where it started, where the palette was when it did, and the box its origin
@@ -45,31 +62,46 @@ type Drag = {
 };
 
 /** Absolute placement from stored geometry. A docked palette is placed FROM its edge, so
- *  a window resize keeps it welded there; a free one is placed from its x. The
- *  max-height is what makes a tall palette scroll inside the cell instead of running
- *  under the status bar.
+ *  a window resize keeps it welded there; a free one is placed from its x.
+ *
+ *  TWO ceilings on the height, and they answer different questions. `calc(100% - y)` is
+ *  the cell's: a tall palette scrolls inside the cell instead of running under the status
+ *  bar. The declared extent is the ARRANGEMENT's (see `PALETTES[id].maxHeight`): it is what
+ *  stops a growing list from reaching the palette below it, and it is absent for the
+ *  palettes that have nothing below them. The smaller wins, which is what `min` says.
  *
  *  GEOMETRY ONLY. The click-to-front z-index is merged in at the call site rather than
  *  threaded through here: it is not part of the stored record and never will be (see
  *  usePaletteStack), so a function whose whole job is "stored geometry → CSS box" has no
  *  business taking it. */
-function placement(geom: PaletteState): CSSProperties {
-	const box: CSSProperties = {
+function placement(geom: PaletteState, box: PaletteBox): CSSProperties {
+	const toCellBottom = `calc(100% - ${geom.y}px)`;
+	const style: CSSProperties = {
 		top: geom.y,
-		maxHeight: `calc(100% - ${geom.y}px)`,
+		width: box.width,
+		maxHeight:
+			box.maxHeight === undefined
+				? toCellBottom
+				: `min(${box.maxHeight}px, ${toCellBottom})`,
 	};
-	if (geom.edge === "right") return { ...box, right: 0 };
-	if (geom.edge === "left") return { ...box, left: 0 };
-	return { ...box, left: geom.x };
+	if (geom.edge === "right") return { ...style, right: 0 };
+	if (geom.edge === "left") return { ...style, left: 0 };
+	return { ...style, left: geom.x };
 }
+
+/** How big this palette is allowed to be, straight off `PALETTES[id]` — the store owns
+ *  both numbers because both are arithmetic it has to do (the projection's bounds, the
+ *  default-arrangement proof). */
+export type PaletteBox = { width: number; maxHeight?: number };
 
 export function Palette({
 	title,
 	geom,
-	widthClass,
+	box,
 	zIndex,
 	measureBounds,
 	onMove,
+	onNudge,
 	onRaise,
 	onCollapse,
 	onClose,
@@ -78,13 +110,15 @@ export function Palette({
 }: {
 	title: string;
 	geom: PaletteState;
-	widthClass: string;
+	box: PaletteBox;
 	/** Where this palette sits in the layer's click-to-front stack. */
 	zIndex: number;
 	/** Bounds for THIS palette's origin, from the layer that owns the measurement.
 	 *  Null when the layer is not mounted, which refuses the drag rather than guessing. */
 	measureBounds: (size: PaletteSize) => OriginBounds | null;
 	onMove: (pos: { x: number; y: number }, bounds: OriginBounds) => void;
+	/** Step the palette by a keyboard delta, against the same bounds a drag would use. */
+	onNudge: (delta: { dx: number; dy: number }, bounds: OriginBounds) => void;
 	/** Bring this palette to the front — ANY pointer down on it, header or body, so
 	 *  reaching for a control on a buried palette also uncovers it. */
 	onRaise: () => void;
@@ -95,22 +129,36 @@ export function Palette({
 	collapseRef?: Ref<HTMLButtonElement>;
 	children: ReactNode;
 }) {
-	const headingId = useId();
 	const rootRef = useRef<HTMLElement | null>(null);
+	const gripRef = useRef<HTMLButtonElement | null>(null);
 	const drag = useRef<Drag | null>(null);
+
+	/** Bounds for THIS palette's origin, measured NOW. The pointer gesture takes it once at
+	 *  pointerdown and caches it; the keyboard takes it per press, which is the same cost
+	 *  spread over far fewer events. Both go through here, so "the keyboard's clamp is the
+	 *  drag's clamp" is true of the bounds as well as of the store verb. */
+	const boundsNow = (): OriginBounds | null => {
+		const el = rootRef.current;
+		if (!el) return null;
+		const rect = el.getBoundingClientRect();
+		return measureBounds({ width: rect.width, height: rect.height });
+	};
 
 	const onPointerDown = (e: ReactPointerEvent<HTMLElement>): void => {
 		// Left button only, and never from the header's own buttons — collapse and close
-		// are clicks, and a click that also starts a drag makes both feel broken.
+		// are clicks, and a click that also starts a drag makes both feel broken. The GRIP
+		// is the exception, and it has to be: it is a button (so a keyboard can reach it),
+		// and it is also the widest draggable part of the header.
 		// `Element`, not `HTMLElement`: the buttons' icons are SVG, so the pointer's
 		// target inside one is an SVGElement and an HTMLElement check would miss it.
 		if (e.button !== 0) return;
-		if (e.target instanceof Element && e.target.closest("button")) return;
+		const onButton =
+			e.target instanceof Element ? e.target.closest("button") : null;
+		if (onButton !== null && onButton !== gripRef.current) return;
+		const bounds = boundsNow();
+		if (!bounds) return;
 		const el = rootRef.current;
 		if (!el) return;
-		const rect = el.getBoundingClientRect();
-		const bounds = measureBounds({ width: rect.width, height: rect.height });
-		if (!bounds) return;
 		drag.current = {
 			pointerId: e.pointerId,
 			fromX: e.clientX,
@@ -156,10 +204,32 @@ export function Palette({
 		);
 	};
 
+	/** The keyboard half of the move (D-26). MODELESS on purpose, and that decides the two
+	 *  keys it does NOT take.
+	 *
+	 *  Each press is one whole move — there is no "moving" state to enter or leave — so
+	 *  ESCAPE IS NOT OURS. It stays `session.escape`, the editor's one cancel entry point,
+	 *  which unwinds gesture → session → selection; a grip that swallowed it would put a
+	 *  dead spot in that ladder wherever a palette header happened to hold focus. Blur is
+	 *  nothing to handle for the same reason.
+	 *
+	 *  The arrows ARE prevented, but only the four that were claimed (the rule the roving
+	 *  lists state at length): nothing at the window listens for arrows, and the canvas
+	 *  listens on itself, so the only default worth stopping is the page scroll. */
+	const onGripKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
+		const dir = NUDGE_KEYS[e.key];
+		if (dir === undefined) return;
+		const bounds = boundsNow();
+		if (!bounds) return;
+		const step = e.shiftKey ? NUDGE_FAR_PX : NUDGE_PX;
+		onNudge({ dx: dir.dx * step, dy: dir.dy * step }, bounds);
+		e.preventDefault();
+	};
+
 	return (
 		<section
 			ref={rootRef}
-			aria-labelledby={headingId}
+			aria-label={title}
 			hidden={geom.collapsed}
 			// The raise rides the BUBBLE phase of every pointerdown inside the palette, so
 			// one listener on the root serves the header drag, a row click and a form field
@@ -170,12 +240,11 @@ export function Palette({
 			onPointerDown={onRaise}
 			// Session-local depth over stored geometry. It resolves inside the layer's own
 			// stacking context (`isolate`), so no palette can paint over the toasts.
-			style={{ ...placement(geom), zIndex }}
+			style={{ ...placement(geom, box), zIndex }}
 			className={cn(
 				// pointer-events-auto against the layer's -none: the layer covers the whole
 				// canvas, so only the palettes themselves may take pointer input.
 				"pointer-events-auto absolute flex flex-col overflow-hidden border border-border bg-card shadow-lg",
-				widthClass,
 				// A docked palette loses the border it shares with the cell edge (and its
 				// rounding on that side), so it reads as part of the frame rather than a
 				// card that happens to be touching it.
@@ -184,10 +253,7 @@ export function Palette({
 				geom.edge === "left" && "rounded-r-md border-l-0",
 			)}
 		>
-			{/* The drag handle is a pointer affordance on chrome, not a control: no role,
-			    no tabstop, and no keyboard equivalent — moving a palette by keyboard is
-			    F4.5c's (D-26). Its two VERBS are real buttons beside the title, so the
-			    header is never the only way to reach anything. */}
+			{/* The whole header drags, and one element inside it is the KEYBOARD grip. */}
 			<header
 				onPointerDown={onPointerDown}
 				onPointerMove={onPointerMove}
@@ -203,12 +269,28 @@ export function Palette({
 				onLostPointerCapture={endDrag}
 				className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1 border-b border-border px-2 py-1.5 active:cursor-grabbing"
 			>
-				<h2
-					id={headingId}
-					className="min-w-0 flex-1 truncate font-semibold text-foreground text-xs"
+				{/* THE GRIP: the palette's title, and the one thing in the header a keyboard
+				    can move the palette with (D-26). It is a real `button` rather than the
+				    header itself carrying `role="button"`, and that is a constraint rather
+				    than a preference — a `button` role makes its children PRESENTATIONAL, so
+				    a header wearing it would take the collapse and close verbs out of the
+				    accessibility tree entirely.
+				    The `h2` it replaced is not missed: the section is still a named REGION (it
+				    takes its name from `title` directly now instead of from the heading), which
+				    is the landmark a reader navigates palettes by. What is gained is that the
+				    title is now reachable at all — it used to be inert chrome.
+				    The accessible name leads with the VERB and still contains the visible text,
+				    which is what WCAG 2.5.3 asks of a control whose label is a noun. */}
+				<button
+					ref={gripRef}
+					type="button"
+					aria-label={`move ${title} palette`}
+					aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
+					onKeyDown={onGripKeyDown}
+					className="min-w-0 flex-1 cursor-grab truncate text-left font-semibold text-foreground text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing"
 				>
 					{title}
-				</h2>
+				</button>
 				<Button
 					ref={collapseRef}
 					type="button"

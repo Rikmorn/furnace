@@ -29,6 +29,7 @@ import {
 	defaultWorkspace,
 	deserializeWorkspace,
 	movePalette,
+	nudgePalette,
 	type OriginBounds,
 	type PaletteId,
 	serializeWorkspace,
@@ -52,6 +53,15 @@ export type WorkspaceActions = {
 	move: (
 		id: PaletteId,
 		pos: { x: number; y: number },
+		bounds: OriginBounds,
+	) => void;
+	/** Step a palette by a keyboard delta (D-26). A SEPARATE verb rather than a `move` the
+	 *  caller pre-adds a delta to, because the origin a step starts from is not the stored
+	 *  `x` — a docked palette's is its edge — and working that out at every call site is how
+	 *  two callers come to disagree about where a palette is. */
+	nudge: (
+		id: PaletteId,
+		delta: { dx: number; dy: number },
 		bounds: OriginBounds,
 	) => void;
 	/** Roll a palette up or down, ABSOLUTELY. Same caller and same reason as
@@ -195,6 +205,8 @@ export function WorkspaceProvider({
 		};
 		return {
 			move: (id, pos, bounds) => edit((s) => movePalette(s, id, pos, bounds)),
+			nudge: (id, delta, bounds) =>
+				edit((s) => nudgePalette(s, id, delta, bounds)),
 			setCollapsed: (id, collapsed) =>
 				edit((s) => setPaletteCollapsed(s, id, collapsed)),
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),

@@ -4,11 +4,16 @@
 // survives a hide-all. The LAYER only measures the cell and hands the numbers in.
 import { expect, test } from "bun:test";
 import {
+  cellBounds,
+  clampToCell,
+  DESIGN_FLOOR_CELL,
   defaultWorkspace,
   deserializeWorkspace,
   movePalette,
+  nudgePalette,
   PALETTE_IDS,
   PALETTES,
+  type PaletteId,
   SNAP_PX,
   serializeWorkspace,
   setPaletteCollapsed,
@@ -391,6 +396,232 @@ test("the flags palette ships OPEN and floating", () => {
   // geometry AND its open state are the user's to persist (contrast `session` below).
   expect(flags.edge).toBeNull();
   expect(PALETTES.flags.drivenOpen).toBeUndefined();
+});
+
+// --- the shipped defaults, compared to EACH OTHER ----------------------------
+//
+// Every default is chosen one palette at a time, and until now nothing compared them: the
+// F4.5b machine smoke found the consequence on screen (the summoned History palette landed
+// on the live session card's door rows) and the gate found the other by inspection (a long
+// entity list reaches the Flags palette's default). These cases are that comparison, made
+// once, over ALL of them — so the palette added next is measured against the four already
+// here rather than against whichever corner its author remembered.
+
+/** One palette's default claim on the cell: where it starts, how wide it renders, and how
+ *  far down it may grow. `maxHeight: null` means it declares no extent budget — its content
+ *  decides, so it may run to the bottom of the cell, and nothing below it in the same
+ *  column can be proven clear of it. */
+type DefaultClaim = {
+  id: PaletteId;
+  x: number;
+  y: number;
+  width: number;
+  maxHeight: number | null;
+};
+
+const claims: DefaultClaim[] = PALETTE_IDS.map((id) => ({
+  id,
+  x: PALETTES[id].default.x,
+  y: PALETTES[id].default.y,
+  width: PALETTES[id].width,
+  maxHeight: PALETTES[id].maxHeight ?? null,
+}));
+
+/** WHY this pair cannot collide, or `null` when nothing proves it — which is the failure
+ *  the case below exists to produce. The KIND is named rather than a bare boolean because
+ *  the two cases after it pin which proof each rider is paid by: a pair that starts passing
+ *  for a different reason than the one its default was chosen for is worth reading. */
+function separation(a: DefaultClaim, b: DefaultClaim): string | null {
+  if (PALETTES[a.id].sharesCornerWith === b.id) return "declared";
+  if (PALETTES[b.id].sharesCornerWith === a.id) return "declared";
+  // DIFFERENT COLUMNS — the strongest proof available here, because it holds at every
+  // height, and height is content: it is the one fact this module cannot know.
+  if (a.x + a.width <= b.x || b.x + b.width <= a.x) return "columns";
+  // SAME COLUMN, so the upper one has to say how far down it may grow, and stop above the
+  // lower one's origin.
+  const [upper, lower] = a.y <= b.y ? [a, b] : [b, a];
+  if (upper.maxHeight !== null && upper.y + upper.maxHeight <= lower.y)
+    return "extent";
+  return null;
+}
+
+const pairs: (readonly [DefaultClaim, DefaultClaim])[] = claims.flatMap(
+  (a, i) => claims.slice(i + 1).map((b) => [a, b] as const),
+);
+
+const proofFor = (a: PaletteId, b: PaletteId): string | null => {
+  const [x, y] = [
+    claims.find((c) => c.id === a),
+    claims.find((c) => c.id === b),
+  ];
+  if (!x || !y) throw new Error(`no default claim for ${a} / ${b}`);
+  return separation(x, y);
+};
+
+test("no two shipped defaults claim the same space", () => {
+  // Computed from the shipped numbers rather than restated: a default moved onto another
+  // reddens this, and the message NAMES the pair. Sabotage-proven by moving `history`
+  // back into the session card's column, which reports `history × session`.
+  const collisions = pairs
+    .filter(([a, b]) => separation(a, b) === null)
+    .map(([a, b]) => `${a.id} × ${b.id}`);
+  expect(collisions).toEqual([]);
+});
+
+test("every shipped default fits the 1280×800 design floor", () => {
+  // The pairwise case above is scale-free (both proofs are comparisons between defaults),
+  // so this is the half that pins them to a real window: a third column is only a column
+  // if the cell is wide enough to hold it.
+  const overflow = claims
+    .filter(
+      (c) =>
+        c.x + c.width > DESIGN_FLOOR_CELL.width ||
+        c.y + (c.maxHeight ?? 0) >= DESIGN_FLOOR_CELL.height,
+    )
+    .map((c) => c.id);
+  expect(overflow).toEqual([]);
+});
+
+test("the two gate riders are paid by the proof each default was chosen for", () => {
+  // R21 — a long entity list reaching the Flags palette. They share the left column, so
+  // the payment is an EXTENT: the entities list stops (and scrolls) above flags' origin
+  // rather than growing through it.
+  expect(proofFor("entities", "flags")).toBe("extent");
+  // R27 — the summoned History palette landing on the live session card. Paid by COLUMNS
+  // on purpose, and that is the whole design decision: the card's height is a form with an
+  // expanding Advanced section, so any proof that depended on knowing it would be a guess.
+  expect(proofFor("history", "session")).toBe("columns");
+  // The one deliberate overlap in the arrangement, and the only pair allowed to answer
+  // "declared": the log is summoned into the entities corner because a summon that lands
+  // somewhere visible beats one tucked into whatever corner is free (it raises, and it
+  // keeps the ⚠ chip lit while buried).
+  expect(
+    pairs
+      .filter(([a, b]) => separation(a, b) === "declared")
+      .map(([a, b]) => `${a.id} × ${b.id}`),
+  ).toEqual(["entities × log"]);
+});
+
+// --- the keyboard move (D-26) and the resize projection ----------------------
+
+test("a nudge steps by the delta and takes the DRAG's clamp with it", () => {
+  const start = floatingAt(400, 200);
+
+  expect(
+    nudgePalette(start, "entities", { dx: 8, dy: 0 }, BOUNDS).palettes.entities
+      .x,
+  ).toBe(408);
+  expect(
+    nudgePalette(start, "entities", { dx: 0, dy: -32 }, BOUNDS).palettes
+      .entities.y,
+  ).toBe(168);
+
+  // THE CLAMP, and it is the drag's rather than a second copy: a palette already against
+  // the bottom cannot be stepped out of the cell. Without this a keyboard user walks a
+  // palette off the screen one press at a time, with no drag to bring it back.
+  const atBottom = movePalette(start, "entities", { x: 400, y: 4000 }, BOUNDS);
+  expect(atBottom.palettes.entities.y).toBe(BOUNDS.maxY);
+  expect(
+    nudgePalette(atBottom, "entities", { dx: 0, dy: 32 }, BOUNDS).palettes
+      .entities.y,
+  ).toBe(BOUNDS.maxY);
+
+  // …and the drag's EDGE SNAP with it: a step into the gutter docks, exactly as shoving
+  // it there with the pointer does. One rule, so the keyboard cannot reach placements the
+  // pointer cannot.
+  const docked = nudgePalette(
+    floatingAt(SNAP_PX + 4, 200),
+    "entities",
+    { dx: -8, dy: 0 },
+    BOUNDS,
+  );
+  expect(docked.palettes.entities.edge).toBe("left");
+  expect(docked.palettes.entities.x).toBe(0);
+});
+
+test("a nudge starts from where the palette IS, not from a stale stored x", () => {
+  // Docked right against a WIDER cell than we are now in — a window that shrank between
+  // sessions, or a dock performed before a resize. The renderer places a docked palette
+  // FROM its edge and ignores the stored x, so that x is the one number on the record that
+  // can disagree with the screen.
+  const docked = movePalette(
+    floatingAt(400, 200),
+    "entities",
+    { x: 900, y: 200 },
+    { maxX: 900, maxY: 500 },
+  );
+  expect(docked.palettes.entities.edge).toBe("right");
+  expect(docked.palettes.entities.x).toBe(900);
+
+  // Now step it off that edge in a 700-wide cell. From the EDGE it is 700 − 40 = 660 and
+  // it un-docks; from the stale 900 it is 860, which clamps to 700 and stays docked — the
+  // palette would swallow the keypress and look broken.
+  const stepped = nudgePalette(
+    docked,
+    "entities",
+    { dx: -40, dy: 0 },
+    { maxX: 700, maxY: 500 },
+  );
+  expect(stepped.palettes.entities.x).toBe(660);
+  expect(stepped.palettes.entities.edge).toBeNull();
+});
+
+test("a shrunken cell projects a palette back into reach WITHOUT moving it", () => {
+  // The F4.5a rider: a window that shrinks (or a blob restored into a smaller one) leaves
+  // a palette outside the cell with no grip to grab. `deserializeWorkspace` cannot fix it
+  // — bounds need a rendered size — so the layer projects at render time.
+  const stranded: PaletteState = {
+    x: 900,
+    y: 400,
+    edge: null,
+    collapsed: false,
+    open: true,
+  };
+  const shown = clampToCell(stranded, { maxX: 200, maxY: 100 });
+  expect([shown.x, shown.y]).toEqual([200, 100]);
+  // A VIEW of the record, not an edit of it. This is the whole mutate-vs-project decision:
+  // storage still holds where the user put it.
+  expect([stranded.x, stranded.y]).toEqual([900, 400]);
+
+  // …so growing the window back returns the palette to where they put it, rather than
+  // leaving it wherever the smallest window of the session happened to shove it. A
+  // clamp that WROTE would have lost 900 permanently at the moment the window shrank.
+  const grown = clampToCell(stranded, { maxX: 1000, maxY: 700 });
+  expect([grown.x, grown.y]).toEqual([900, 400]);
+  // Identity when nothing moved: the layer projects on every render, so a new record per
+  // render would defeat the memo on everything downstream of it.
+  expect(grown).toBe(stranded);
+
+  // A DOCKED palette is placed from its edge, so the projection re-derives x from the
+  // edge instead of clamping the stored one — and never clears `edge`. A projection that
+  // ran the record through `movePalette` would un-dock it the moment the window grew,
+  // because the stored x would then be far from the new right edge.
+  const rightDocked: PaletteState = {
+    x: 900,
+    y: 40,
+    edge: "right",
+    collapsed: false,
+    open: true,
+  };
+  const redocked = clampToCell(rightDocked, { maxX: 500, maxY: 700 });
+  expect(redocked.x).toBe(500);
+  expect(redocked.edge).toBe("right");
+});
+
+test("the projection's bounds keep the GRIP inside the cell, per palette width", () => {
+  // The two axes are bounded by different facts, and the asymmetry is the honest one: the
+  // width is declared (the layer renders it), so x gets the drag's own "the whole box
+  // stays in" rule; the HEIGHT is content, so the most that can be promised is that the
+  // header is still there to grab.
+  const cell = { width: 1000, height: 600 };
+  expect(cellBounds(cell, "entities")).toEqual({
+    maxX: 1000 - PALETTES.entities.width,
+    maxY: 600 - 32,
+  });
+  // Per palette, not one figure for all of them: a 380 px log and a 240 px history have
+  // different right-most origins, and a shared number would strand one or clip the other.
+  expect(cellBounds(cell, "history").maxX).toBe(1000 - PALETTES.history.width);
+  expect(PALETTES.history.width).not.toBe(PALETTES.entities.width);
 });
 
 test("a closed flags palette stays closed across a restore", () => {

@@ -52,18 +52,50 @@ export type PaletteId = (typeof PALETTE_IDS)[number];
  *  that STANDS until the next subject change. `drivenOpen` therefore means "not persisted,
  *  and normally not user-set", not "unreachable by the user".
  *
- *  Nothing docks by default any more, and no default claims the RIGHT edge: `controls`
- *  was the one that did, and it retired with the panel it held. So the open defaults all
- *  live in the LEFT column (entities at the top, flags below it) with the session card
- *  and history in a second column at x = 420. That leaves the top-right clear for the
- *  axis triad and the bottom-left clear for the collapsed-chip rail (see PaletteLayer),
- *  and it leaves the whole right half of the cell — the side a right-handed user orbits
- *  and digs in — unclaimed until the user docks something there. */
+ *  THE ARRANGEMENT IS THREE COLUMNS, and it is arithmetic rather than taste. At the design
+ *  floor (see `DESIGN_FLOOR_CELL`, 1235 px of cell) three palette-widths fit side by side:
+ *  x = 24 (entities, 360 wide), x = 420 (the session card, 280) and x = 720 (history, 240,
+ *  ending at 960). Four palettes must not collide, so exactly ONE column stacks — the left
+ *  one, entities over flags — and that stack is what `entities.maxHeight` pays for. The two
+ *  gate riders are those two facts: R21 was a long entity list growing through the flags
+ *  palette below it (paid by the extent), R27 was the summoned History palette landing on
+ *  the live session card (paid by moving it out of the card's column entirely, because the
+ *  card's height is a form with an expanding section and any proof that assumed it would be
+ *  a guess). `tests/palette-store.test.ts` checks all ten pairs, not these two.
+ *
+ *  Nothing docks by default, and no default claims the RIGHT edge: `controls` was the one
+ *  that did, and it retired with the panel it held. Past history's 960 the cell is clear,
+ *  which leaves the top-right corner to the axis triad (64 px inset 8 from both edges) and
+ *  the strip a right-handed user orbits in unclaimed until they put something there. The
+ *  bottom-left belongs to the collapsed-chip rail (see PaletteLayer). */
 export const PALETTES: Record<
   PaletteId,
   {
     title: string;
     default: PaletteState;
+    /** How wide this palette renders, in px — the layer's inline width, the projection's
+     *  `maxX`, and the rect the default-arrangement check reasons about, all from here.
+     *  ONE number rather than a Tailwind class, because a `w-[360px]` is a number in
+     *  disguise that only CSS can read, and half of this module's job is arithmetic on it.
+     *
+     *  Every figure is set by the WIDEST row that palette must render without truncating;
+     *  each one carries its own argument below. */
+    width: number;
+    /** How far down this palette may grow, in px — `undefined` for one that may run to the
+     *  bottom of the cell.
+     *
+     *  A BUDGET, not a measurement, and the layer enforces it (`max-height`, so the body
+     *  scrolls past it). It exists because the default arrangement has to be PROVABLE: at
+     *  the design floor there are three columns and four palettes that must not collide, so
+     *  one column stacks two of them — and a stack cannot be proven clear when the upper
+     *  palette's height is whatever its content happens to be. The budget is the upper
+     *  one's half of that proof; see `tests/palette-store.test.ts`. */
+    maxHeight?: number;
+    /** This palette's default DELIBERATELY lands on another palette's, and the pairwise
+     *  check is told so here rather than in the check. A declaration, not a suppression:
+     *  it sits beside the default it excuses, and a palette added later inherits nothing
+     *  — it has to clear everything or argue for its own line. */
+    sharesCornerWith?: PaletteId;
     /** This palette's `open` is DRIVEN by the editor, so it is neither persisted nor
      *  restored — `deserializeWorkspace` forces it back to the default above. Everything
      *  else about it (where it sits, whether it is docked or rolled up) is still the
@@ -78,6 +110,22 @@ export const PALETTES: Record<
     // starts collapsed (EntitiesList's own default), so an empty world spends one
     // header row on it rather than a column.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: true },
+    // A row is a monospace summary (`scatter · seed 9 · 1 ops · rock · 24 placed`)
+    // followed by three verbs, and at 300 px the summary truncated before it reached
+    // what the stamp actually placed.
+    width: 360,
+    // THE ONE STACK in the arrangement, and this is its upper half. A world with fifty
+    // stamps would otherwise grow this list straight through the flags palette at y = 380
+    // — the gate saw exactly that (R21). 320 px is the palette header, the section header
+    // and ten rows; past that the list scrolls inside its own box, which is what a
+    // reference surface should do anyway.
+    //
+    // It applies WHEREVER the user drags this palette, not only at its default, because a
+    // cap that switched itself off once the palette moved would be a rule nobody could
+    // predict. The cost is honest: on a tall screen this list shows ten rows and scrolls
+    // where it could have shown twenty. The day palettes can be resized, this becomes the
+    // initial height instead of a ceiling.
+    maxHeight: 320,
   },
   session: {
     title: "Session",
@@ -90,6 +138,11 @@ export const PALETTES: Record<
     // the surface a user reads WHILE looking at the entity list, so overlapping the two
     // by default would make the first drag mandatory.
     default: { x: 420, y: 56, edge: null, collapsed: false, open: false },
+    // The mock's card is a 264 px form; 280 px is that plus the palette's own 8 px of
+    // padding either side. Narrower than every other palette on purpose — it is a
+    // label-column form, not a list, and a wide one puts the labels a long way from the
+    // values they name.
+    width: 280,
     drivenOpen: true,
   },
   flags: {
@@ -100,25 +153,34 @@ export const PALETTES: Record<
     // go looking for is one that never gets read, and it costs nothing on a clean
     // world — an empty list is a header line and one sentence.
     //
-    // Below the entities palette in the same left column (that one floats at
-    // (24, 24)): the two are the REFERENCE surfaces — what the world contains, and
-    // what is wrong with it — and they are read together. A tall entity list will
-    // reach this, which is the ordinary "drag one aside" case the log already
-    // documents for sharing a corner, not a reason to spend the last free quadrant.
+    // Below the entities palette in the same left column (that one floats at (24, 24)):
+    // the two are the REFERENCE surfaces — what the world contains, and what is wrong with
+    // it — and they are read together. y = 380 is 36 px below where the entities list is
+    // allowed to stop growing; the gutter is what the eye reads as two surfaces rather
+    // than one seam.
     default: { x: 24, y: 380, edge: null, collapsed: false, open: true },
+    // Between the entities list and the history: a row is a mono locator
+    // (`narrow ×3 @ (2.5, 0.0, -8.0)`) plus a verdict chip plus a verb, and at 240 px the
+    // locator truncated before its Z coordinate — which is the coordinate that tells two
+    // findings in the same corridor apart.
+    width: 320,
   },
   history: {
     title: "History",
-    // Free-floating, and the one default that had to dodge three occupied corners: the
-    // entities palette and the log share the top-left, the session card sits at (420, 56),
-    // the axis triad owns the top-right, and the collapsed-chip rail owns the bottom-left.
-    // (420, 360) is under the session card in the same column — the two are read at
-    // different moments (what a stamp IS, versus what has been done), and sharing a column
-    // keeps the middle of the canvas clear.
+    // THE THIRD COLUMN, and the reason it exists. This used to sit at (420, 360), under
+    // the session card in the card's own column — and the F4.5b machine smoke caught it
+    // landing ON the card's door rows (R27). The card is a form whose Advanced section
+    // expands, so no y below it is safe; the fix is to stop sharing the column at all.
+    // 720 clears the card's right edge (420 + 280) by 20 px, and 720 + 240 = 960 leaves
+    // the triad's corner and the whole strip past it alone.
     //
-    // A y this far down clamps to the cell's bottom in a short window, which is the right
-    // failure: the chip rail it would then sit beside is at x = 0, and this is not.
-    default: { x: 420, y: 360, edge: null, collapsed: false, open: false },
+    // y = 56 rather than 24, so it lines up with the card it is read alongside: the two
+    // answer different questions at different moments (what a stamp IS, versus what has
+    // been done) and belong on one eye line.
+    default: { x: 720, y: 56, edge: null, collapsed: false, open: false },
+    // The narrowest of the five, and it can be: a row is a mono index and a two-word
+    // phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
+    width: 240,
   },
   log: {
     title: "Messages",
@@ -134,8 +196,40 @@ export const PALETTES: Record<
     // under this palette anyway keeps the ⚠ chip lit instead of swallowing the errors
     // behind it. Dragging either aside is the answer for a user who wants both at once.
     default: { x: 24, y: 24, edge: null, collapsed: false, open: false },
+    // The widest of the five: log lines are sentences (a save path, an esbuild
+    // diagnostic), and a narrow box turns every one of them into four wrapped rows.
+    width: 380,
+    // It shares a corner with `entities`, so it inherits that palette's extent for the
+    // same reason: the flags palette is below both of them, and a long error log growing
+    // through it would be R21 again through the other door.
+    maxHeight: 320,
+    sharesCornerWith: "entities",
   },
 };
+
+/** The smallest cell the shipped defaults are chosen against, in px, and the premise the
+ *  pairwise non-overlap case is asserted at.
+ *
+ *  A 1280×800 window minus the chrome that is never not there (`Shell`): the 40 px top bar
+ *  and its border, the 28 px status bar and its border, the 44 px tool rail and its border.
+ *  A DESIGN PREMISE rather than a measurement — the layer measures the real cell at
+ *  runtime and the projection below uses that. It lives here because the defaults are
+ *  chosen against it, and a premise kept anywhere else is one nobody re-checks when a bar
+ *  changes height. */
+export const DESIGN_FLOOR_CELL = {
+  width: 1280 - (44 + 1),
+  height: 800 - (40 + 1) - (28 + 1),
+} as const;
+
+/** How much of a palette's top edge must stay inside the cell for its grip to be grabbable
+ *  — one header row (a 20 px control plus `py-1.5`, 32 px). The projection's Y bound, and
+ *  deliberately weaker than the drag's: a drag knows the palette's measured height and can
+ *  keep the WHOLE box in, while the projection runs before anything is measured and can
+ *  only promise the handle. */
+const GRIP_REACH_PX = 32;
+
+/** The cell as the layer measured it. */
+export type CellSize = { width: number; height: number };
 
 /** How close (px) a dragged palette's edge must come to the cell's edge to dock there.
  *  24 px is roughly a coarse pointer's slop — close enough that "shove it to the side"
@@ -216,6 +310,78 @@ export function movePalette(
   const geom = state.palettes[id];
   if (geom.x === x && geom.y === y && geom.edge === edge) return state;
   return withPalette(state, id, { ...geom, x, y, edge });
+}
+
+/** Step a palette by a delta — the keyboard's half of D-26, so a palette can be moved
+ *  without a pointer.
+ *
+ *  It is `movePalette` with the origin worked out first, and that is the whole of it: the
+ *  clamp, the edge snap and the identity return are the DRAG's, not a second set. A
+ *  keyboard that could reach placements a pointer cannot (or vice versa) would be two
+ *  geometries to keep in agreement.
+ *
+ *  The origin has to be resolved rather than read, because `geom.x` is the one field on the
+ *  record that can disagree with the screen: a docked palette is placed FROM its edge, so
+ *  after a resize its stored x is wherever the edge used to be. `clampToCell` answers
+ *  "where is it now", which is what a step has to start from. */
+export function nudgePalette(
+  state: WorkspaceState,
+  id: PaletteId,
+  delta: { dx: number; dy: number },
+  bounds: OriginBounds,
+): WorkspaceState {
+  const from = clampToCell(state.palettes[id], bounds);
+  return movePalette(
+    state,
+    id,
+    { x: from.x + delta.dx, y: from.y + delta.dy },
+    bounds,
+  );
+}
+
+/** The origin bounds the LAYER projects against: the cell minus this palette's declared
+ *  width, and minus one grip's worth of height.
+ *
+ *  Asymmetric on purpose. The width is declared (this module owns it and the layer renders
+ *  it), so x gets the drag's own rule — the whole box stays in. The height is content, and
+ *  the projection runs on every render without measuring anything, so the strongest honest
+ *  promise on that axis is that the header is still there to grab. */
+export function cellBounds(cell: CellSize, id: PaletteId): OriginBounds {
+  return {
+    maxX: cell.width - PALETTES[id].width,
+    maxY: cell.height - GRIP_REACH_PX,
+  };
+}
+
+/** Where a stored geometry is actually SHOWN in a cell this size — a projection, applied
+ *  at render, that leaves the record alone.
+ *
+ *  This is the F4.5a rider's answer, and the mutate-vs-project decision is the interesting
+ *  half of it. A window that shrinks (or a blob restored into a smaller window than it was
+ *  written in) leaves a palette outside the cell with no grip to grab. Clamping the STATE
+ *  would fix that and lose the user's position permanently — a shrink they undo a second
+ *  later, a devtools pane, a display change, and the arrangement is silently rewritten to
+ *  wherever the smallest window of the session forced it. Worse here than in general: every
+ *  write to this store also marks the arrangement "touched", which persists it and vetoes
+ *  the restore that may not have arrived yet — so a resize would overwrite a saved
+ *  arrangement the user never touched. Projecting keeps the record as intent and the
+ *  clamp as presentation, and growing the window back brings the palette back with it.
+ *
+ *  Returns the SAME record when nothing moved: the layer projects per render, so a fresh
+ *  object every time would defeat every memo downstream.
+ *
+ *  A docked palette re-derives x from its EDGE and keeps that edge. Running the record
+ *  through `movePalette` instead would re-read the edge off the projected x and un-dock the
+ *  palette the moment the window grew past the snap gutter. */
+export function clampToCell(
+  geom: PaletteState,
+  bounds: OriginBounds,
+): PaletteState {
+  const docked = { left: 0, right: Math.max(0, bounds.maxX) };
+  const x = geom.edge === null ? clamp(geom.x, bounds.maxX) : docked[geom.edge];
+  const y = clamp(geom.y, bounds.maxY);
+  if (x === geom.x && y === geom.y) return geom;
+  return { ...geom, x, y };
 }
 
 /** Roll the palette up to a rail chip, or back down. Geometry is untouched: the chip is

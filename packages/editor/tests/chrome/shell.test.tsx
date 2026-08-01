@@ -2341,7 +2341,7 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	).toBe(true);
 });
 
-test("the entities palette floats clear of the docked controls and the triad", async () => {
+test("the entities palette floats in the left column, clear of the other two", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
@@ -2351,10 +2351,11 @@ test("the entities palette floats clear of the docked controls and the triad", a
 	// Open out of the box: it is the reference surface for everything the dig loop
 	// commits, and the list itself starts collapsed so an empty world costs one row.
 	expect(within(entities).getByText("Entities (0)")).toBeTruthy();
-	// Floating top-left. NOT docked, and that is a layout decision rather than taste:
-	// the default arrangement already spends the right edge on controls (full height)
-	// and the top-right corner on the triad, so a second dock would leave the collapsed-
-	// chip rail nowhere to go.
+	// Floating top-left, the first of the arrangement's three columns (the session card at
+	// x = 420 and history at 720 are the other two — `palette-store.test.ts` proves the
+	// three do not collide). NOT docked, and that is a layout decision rather than taste: a
+	// docked palette takes a full-height edge, and both edges are what the collapsed-chip
+	// rail and the axis triad need left alone.
 	expect(entities.style.left).toBe("24px");
 	expect(entities.style.top).toBe("24px");
 	expect(entities.style.right).toBe("");
@@ -2831,11 +2832,15 @@ test("a card that auto-opens BEFORE the store arrives does not discard the saved
 /** Give the LAYER (a div) a measured box for the duration of `f`. happy-dom measures
  *  everything as zero, and the layer's size is what turns a drag into bounds; the
  *  palette itself keeps measuring zero, which only means its origin may range over the
- *  whole cell. */
-function withLayerBox(f: () => void): void {
+ *  whole cell. The size is a parameter because the resize cases below need TWO of them —
+ *  a cell too small to hold the arrangement, then one big enough again. */
+function withLayerBox(
+	f: () => void,
+	size: { width: number; height: number } = { width: 1000, height: 600 },
+): void {
 	const realRect = HTMLDivElement.prototype.getBoundingClientRect;
 	HTMLDivElement.prototype.getBoundingClientRect = () =>
-		({ x: 0, y: 0, top: 0, left: 0, width: 1000, height: 600 }) as DOMRect;
+		({ x: 0, y: 0, top: 0, left: 0, ...size }) as DOMRect;
 	try {
 		f();
 	} finally {
@@ -2945,6 +2950,122 @@ test("a drag that loses its pointer capture stops, instead of following the curs
 		});
 	});
 	expect(flagsPalette()?.style.left).toBe("120px");
+});
+
+// --- (d2) the keyboard move and the resize projection (D-26, F4.5c Task 11) ---
+
+/** The palette's grip: its title, which is also the one control in the header that moves
+ *  it without a pointer. Named for the VERB — a title that reads "Flags" to the eye has to
+ *  say what it DOES to a reader who cannot see where it sits. */
+const flagsGrip = () =>
+	screen.getByRole("button", { name: "move Flags palette" });
+
+test("the palette title is a keyboard GRIP: arrows step it, \u21e7 steps it further", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const grip = flagsGrip();
+	// It is in the header beside the two verbs, not somewhere else in the palette — the
+	// thing a user drags is the thing a keyboard moves.
+	expect(grip.closest("header")?.parentElement).toBe(flagsPalette());
+
+	// One arrow, one step of the chrome's own 8 px rhythm. Measured off the shipped default
+	// rather than a fixture, so a default that moves keeps this case honest.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.keyDown(grip, { key: "ArrowRight" });
+		});
+	});
+	expect(flagsPalette()?.style.left).toBe("32px");
+
+	// \u21e7 is four of them, and on the other axis — so a handler that ignored `shiftKey`,
+	// or one that wired dy to dx, reddens here rather than passing on symmetry.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.keyDown(grip, { key: "ArrowDown", shiftKey: true });
+		});
+	});
+	expect(flagsPalette()?.style.top).toBe("412px");
+
+	// …and the step takes the DRAG's edge snap with it: stepping into the left gutter docks,
+	// exactly as shoving it there with the pointer does. A keyboard that could reach
+	// placements the pointer cannot would be a second geometry.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.keyDown(grip, { key: "ArrowLeft" });
+			fireEvent.keyDown(grip, { key: "ArrowLeft" });
+		});
+	});
+	expect(flagsPalette()?.style.left).toBe("0px");
+	expect(flagsPalette()?.classList.contains("border-l-0")).toBe(true);
+});
+
+test("the grip does not swallow Esc: the cancel ladder still runs from it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The keyboard move is MODELESS — every press is one whole move — so there is no
+	// "moving" state for Esc to leave, and it stays `session.escape`'s: the editor's one
+	// cancel entry point, which unwinds gesture \u2192 session \u2192 selection. A grip that
+	// claimed it would put a dead spot in that ladder wherever a palette header held focus.
+	act(() => {
+		fireEvent.keyDown(flagsGrip(), { key: "Escape", bubbles: true });
+	});
+	expect(stub.calls.escape.mock.calls.length).toBe(1);
+});
+
+/** A persisted arrangement whose flags palette is far out in a big window — the shape a
+ *  smaller window has to cope with, and the one a bigger one has to give back. */
+const FAR_OUT = {
+	palettes: {
+		flags: { x: 900, y: 500, edge: null, collapsed: false, open: true },
+	},
+	hidden: false,
+};
+
+test("a shrunken window brings a stranded palette back into reach, and growing it back returns it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore({ workspace: FAR_OUT });
+	await renderShell(stub, store);
+	expect(flagsPalette()?.style.left).toBe("900px");
+
+	// A 400\u00d7300 cell cannot hold a palette whose origin is at (900, 500): without this the
+	// restore puts it outside the cell with no grip to grab. x is the cell minus the
+	// palette's declared 320 px width; y leaves one header row inside, because the height is
+	// content and nothing has measured it.
+	withLayerBox(
+		() => {
+			act(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
+		},
+		{ width: 400, height: 300 },
+	);
+	expect(flagsPalette()?.style.left).toBe("80px");
+	expect(flagsPalette()?.style.top).toBe("268px");
+
+	// THE DISCRIMINATOR between a clamp that MOVES the palette and one that only shows it
+	// moved: the record on disk is untouched, so the user's position survived the shrink.
+	// A store-side clamp would also have marked the arrangement "touched" and persisted
+	// 80 over it — silently, in response to an event the user did not aim at the palette.
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 250));
+	});
+	expect(store.get("workspace")?.palettes["flags"]?.x).toBe(900);
+
+	// …so growing the window back puts it where they left it. This is the half a mutating
+	// clamp cannot pass at all: by now it would have forgotten 900 ever existed.
+	withLayerBox(
+		() => {
+			act(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
+		},
+		{ width: 1400, height: 900 },
+	);
+	expect(flagsPalette()?.style.left).toBe("900px");
+	expect(flagsPalette()?.style.top).toBe("500px");
 });
 
 test("a Reset that happens BEFORE the store arrives is not undone by the restore", async () => {

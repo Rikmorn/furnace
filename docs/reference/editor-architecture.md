@@ -2306,11 +2306,31 @@ id to actually exercise the closed union: a blob written by any earlier build st
 `controls` record, and `deserializeWorkspace` drops it on the floor exactly as it drops an id that
 never existed. **Nothing migrates the stored shape**, which is the whole reason the union is closed
 in `lib/palette-store.ts` rather than inferred from whatever the blob happens to contain. No default
-claims an EDGE any more — `controls` was the only one that docked — so the open defaults live in a
-left column (`entities` at the top, `flags` below it) with `session` and `history` in a second at
-x = 420, leaving the top-right clear for the axis triad, the bottom-left clear for the
-collapsed-chip rail, and the whole right half of the cell unclaimed until the user docks something
-there.
+claims an EDGE any more — `controls` was the only one that docked.
+
+The shipped arrangement is **three columns**, re-picked at F4.5c Task 11 against a 1280×800 design
+floor (`DESIGN_FLOOR_CELL`, 1235×730 of cell): `entities` at x = 24 (360 wide) with `flags` below it
+at y = 380, the session card at x = 420 (280), and `history` at x = 720 (240). Four palettes must not
+collide and only three columns fit, so exactly ONE column stacks — and the upper member of that stack
+declares a `maxHeight` extent (`entities`, and `log` which shares its corner) that the layer enforces
+as a `max-height`. That budget is what makes the arrangement PROVABLE: `tests/palette-store.test.ts`
+checks all ten pairs and passes each only on a declared corner-share, disjoint columns, or an extent
+that clears the palette below. It is the check that pays the two F4.5b gate riders — R21 (a long
+entity list growing through the flags palette) and R27 (the summoned History palette landing on the
+live session card). Past history's right edge at 960 the cell is clear, which leaves the top-right to
+the axis triad and the bottom-left to the collapsed-chip rail.
+
+Two other F4.5c Task 11 facts about the same geometry. **A palette moves by keyboard** (D-26): its
+title is the grip — a real `button`, because a `role="button"` header would make the collapse and
+close verbs presentational — and the arrows step it 8 px, ⇧-arrows 32 px, through `nudgePalette`,
+which is `movePalette` with the origin resolved first, so the keyboard inherits the drag's clamp and
+edge snap rather than restating them. Esc is deliberately NOT claimed: the move is modeless, so there
+is nothing to leave, and Esc stays `session.escape`'s. **A resize projects, it does not move**
+(`clampToCell`): the layer measures the cell and clamps stored geometry AT RENDER, leaving the record
+alone — so a window that shrinks brings a stranded palette back into reach and one that grows again
+returns it to where the user put it. Clamping the state would instead have lost the position
+permanently, marked the arrangement `touched`, persisted it, and vetoed a restore that had not yet
+arrived.
 
 `hooks/useFieldHostState.tsx` now carries **all twelve seams through nine contexts** and remains
 the ONE subscription point: every `FieldHost.subscribe*` seam is a single slot, so a second
