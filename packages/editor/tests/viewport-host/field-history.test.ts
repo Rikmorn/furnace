@@ -31,6 +31,7 @@ import {
   logApply,
   reconfigureGenerator,
   setGeneratorFrozen,
+  undo,
 } from "@furnace/core/field";
 import {
   entryLabel,
@@ -325,6 +326,42 @@ test("baking a FROZEN entity labels 'bake', not 'unfreeze'", () => {
 
 // --- the payload ------------------------------------------------------------
 
+/** One more than the tail bounds, so both windows below are genuinely truncated. */
+const OVERFLOW = HISTORY_TAIL + 10;
+
+/** A FOUR-effect cycle, and the length of the cycle is the whole point of the fixture.
+ *  Its first shape alternated dig/fill, which made the oldest 50 and the newest 50 read
+ *  IDENTICALLY (both windows end on an odd index) — so `slice(0, 50)` in place of
+ *  `slice(-50)` passed, and the direction of the bound was pinned by nothing.
+ *  {@link HISTORY_TAIL} is not a multiple of 4, so the two windows now differ. */
+const EFFECTS = ["dig", "fill", "paint", "smooth"] as const;
+const effectAt = (i: number) =>
+  EFFECTS[i % EFFECTS.length] as BrushOp["effect"];
+
+/** Apply `count` brush ops through the log, one per cycle step. */
+function applyCycle(store: FieldStore, log: OpLog, count: number): void {
+  for (let i = 0; i < count; i++)
+    logApply(
+      store,
+      log,
+      sphere(effectAt(i), {
+        smooth: { strength: 16, iterations: 1, mode: "both" },
+        material: 0,
+      }),
+      TABLE,
+    );
+}
+
+test("HISTORY_TAIL is 50 — the bound the palette and the seam are both built on", () => {
+  // The VALUE, not just the symbol. Every other assertion in this file and every chrome
+  // case references the constant or a stub payload, so 50 → 7 left the whole editor
+  // suite green: the display bound could be changed silently, and the panel's "N older
+  // steps not listed" line would start appearing on sessions barely a dozen ops long.
+  // 50 is Photoshop's own default history-state count, which is the precedent the
+  // palette is shaped after.
+  expect(HISTORY_TAIL).toBe(50);
+});
+
 test("fieldHistory orders newest LAST on both sides", () => {
   const { store, log } = world();
   logApply(store, log, sphere("dig"), TABLE);
@@ -341,25 +378,8 @@ test("fieldHistory orders newest LAST on both sides", () => {
 
 test("the tail is bounded per side, and the DEPTHS still tell the whole truth", () => {
   const { store, log } = world();
-  const total = HISTORY_TAIL + 10;
-  // A FOUR-effect cycle against a 50-long window, and the length of the cycle is the
-  // whole point. The first shape of this fixture alternated dig/fill, which made the
-  // oldest 50 and the newest 50 read IDENTICALLY (both windows end on an odd index) —
-  // so `slice(0, 50)` in place of `slice(-50)` passed, and the direction of the bound
-  // was pinned by nothing. 50 is not a multiple of 4, so the two windows now differ.
-  const EFFECTS = ["dig", "fill", "paint", "smooth"] as const;
-  const effectAt = (i: number) =>
-    EFFECTS[i % EFFECTS.length] as BrushOp["effect"];
-  for (let i = 0; i < total; i++)
-    logApply(
-      store,
-      log,
-      sphere(effectAt(i), {
-        smooth: { strength: 16, iterations: 1, mode: "both" },
-        material: 0,
-      }),
-      TABLE,
-    );
+  const total = OVERFLOW;
+  applyCycle(store, log, total);
   const h = fieldHistory(log.undoStack, log.redoStack);
   expect(log.undoStack.length).toBe(total);
   expect(h.undo.length).toBe(HISTORY_TAIL);
@@ -377,4 +397,37 @@ test("the tail is bounded per side, and the DEPTHS still tell the whole truth", 
   // the whole history fits.
   expect(h.undoDepth).toBe(total);
   expect(h.undoDepth).toBeGreaterThan(h.undo.length);
+});
+
+test("the REDO side is bounded from the same end, and its depth is true too", () => {
+  // The mirror of the case above, and it needs to exist rather than be assumed: the
+  // redo bound was implemented and pinned by NOTHING — replacing `slice(-HISTORY_TAIL)`
+  // with a bare `map` on the redo side left the entire editor suite green, because the
+  // palette's own truncation test drives a STUB payload and so cannot see the seam's
+  // bound at all.
+  const { store, log } = world();
+  applyCycle(store, log, OVERFLOW);
+  // Undo everything: each undo pops the undo stack's top and pushes it onto the redo
+  // stack, so the redo stack ends up NEWEST-op-first — its last element is the oldest
+  // op, which is the next thing ⇧⌘Z would replay.
+  for (let i = 0; i < OVERFLOW; i++) undo(store, log);
+  expect(log.undoStack.length).toBe(0);
+  expect(log.redoStack.length).toBe(OVERFLOW);
+
+  const h = fieldHistory(log.undoStack, log.redoStack);
+  expect(h.redo.length).toBe(HISTORY_TAIL);
+  expect(h.redoDepth).toBe(OVERFLOW);
+  expect(h.redoDepth).toBeGreaterThan(h.redo.length);
+
+  // Derived from the cycle rather than from the stack, so the expectation does not read
+  // its answer out of the thing under test: redoStack[j] is the op at index
+  // (OVERFLOW - 1 - j).
+  const stack = Array.from(
+    { length: OVERFLOW },
+    (_, j) => effectAt(OVERFLOW - 1 - j) as string,
+  );
+  expect(log.redoStack.map(entryLabel)).toEqual(stack); // the fixture really is that
+  expect(h.redo).toEqual(stack.slice(-HISTORY_TAIL));
+  // …and the two candidate windows differ, so the assertion above discriminates.
+  expect(stack.slice(0, HISTORY_TAIL)).not.toEqual(stack.slice(-HISTORY_TAIL));
 });

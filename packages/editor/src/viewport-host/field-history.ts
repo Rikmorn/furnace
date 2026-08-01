@@ -103,41 +103,72 @@ const sameParams = (
   b: Record<string, unknown>,
 ): boolean => JSON.stringify(a) === JSON.stringify(b);
 
+/** What the LAST op of an `ops` entry did — the entry's whole span is one undo unit, and
+ *  its last member is what names it (core's contiguity invariant puts a commit's entity
+ *  op at the end of its span).
+ *
+ *  Its own function so the switch below can be TOTAL over `FieldOp` rather than nested
+ *  inside another switch that swallows its fallthrough — which is exactly how the first
+ *  cut of this module ended up claiming an exhaustiveness it did not have. */
+function opsEntryLabel(ops: readonly FieldOp[]): string {
+  const last = ops.at(-1);
+  // An entry with no ops at all is not produced by anything: every push carries at
+  // least the op it applied.
+  if (last === undefined) return "edit";
+  switch (last.kind) {
+    case "entity":
+      // A generator commit — its span plus its entity op, one entry. `duplicate` reads
+      // identically, and that is accepted rather than papered over: a duplicate IS a
+      // fresh commit from the same recipe, and the entry holds nothing that
+      // distinguishes the two.
+      return `stamp ${generatorName(last.entity.generator)}`;
+    case "brush":
+      return brushLabel(last);
+    case "patch":
+      // Semantic compaction, and this row is unreachable in the editor for a STRONGER
+      // reason than "it happens before any subscriber exists": `compactRuns` pushes NO
+      // log entry whatsoever (its own TSDoc — "there is no stack to push onto", and it
+      // refuses outright unless both stacks are already empty), so compaction cannot
+      // produce a history row at all. The only producer of a patch-topped entry is
+      // `logApplyPatch`, which the editor never calls. Labelled anyway, because an
+      // unlabelled row would be worse than an unreachable one if that ever changes.
+      return "compact";
+    case "placement":
+      // Placement ops only ever ride INSIDE a commit's span, so an entry ending in one
+      // is unreachable today. Named rather than defaulted, for the reason above.
+      return "place";
+    default:
+      return unhandled(last);
+  }
+}
+
+/** The exhaustiveness guard both switches end on. A new `FieldOp` or `LogEntry` member
+ *  fails to type-check HERE — the parameter is `never`, so the compiler rejects the call
+ *  the moment the switch above it stops covering its union.
+ *
+ *  Written as a function rather than a `const _: never = x` line because the value has to
+ *  be USED: an unused local is what biome's `noUnusedVariables` removes, and a guard that
+ *  a formatter can delete is not a guard. The return keeps the callers total.
+ *
+ *  This exists because the claim came first and the enforcement did not: the original
+ *  TSDoc asserted the compiler enforced totality while a trailing `return "edit"` quietly
+ *  swallowed both unions. Proven by experiment — a probe member added to each union
+ *  produced errors in four other files and none here. */
+function unhandled(value: never): string {
+  void value;
+  return "edit";
+}
+
 /** What ONE undo/redo step did, as a short lower-case phrase — verb first, subject
  *  second ("dig", "move Hall"), so the menu can read `Undo ${label}` and the palette can
  *  stack them in one column without the rows changing grammatical shape.
  *
- *  Total over `LogEntry` and over `FieldOp`: a new member of either fails to type-check
- *  until it is named here, which is the point of deriving rather than authoring. */
+ *  Total over `LogEntry` and, through {@link opsEntryLabel}, over `FieldOp`: a new member
+ *  of either fails to type-check at {@link unhandled} until it is named here. */
 export function entryLabel(entry: LogEntry): string {
   switch (entry.kind) {
-    case "ops": {
-      const last = entry.ops.at(-1);
-      // An entry with no ops at all is not produced by anything: every push carries at
-      // least the op it applied.
-      if (last === undefined) return "edit";
-      switch (last.kind) {
-        case "entity":
-          // A generator commit — its span plus its entity op, one entry. `duplicate`
-          // reads identically, and that is accepted rather than papered over: a
-          // duplicate IS a fresh commit from the same recipe, and the entry holds
-          // nothing that distinguishes the two.
-          return `stamp ${generatorName(last.entity.generator)}`;
-        case "brush":
-          return brushLabel(last);
-        case "patch":
-          // Semantic compaction. Reachable only at LOAD time (the host compacts inside
-          // `loadWorld`, before any subscriber exists), so no session ever shows this
-          // row — labelled anyway, because an unlabelled row would be worse than an
-          // unreachable one if a later verb starts pushing patches.
-          return "compact";
-        case "placement":
-          // Placement ops only ever ride INSIDE a commit's span, so an entry ending in
-          // one is unreachable today. Named rather than defaulted for the reason above.
-          return "place";
-      }
-      break;
-    }
+    case "ops":
+      return opsEntryLabel(entry.ops);
     case "splice": {
       const before = spanEntity(entry.removed);
       const name = before === null ? "stamp" : generatorName(before.generator);
@@ -174,8 +205,9 @@ export function entryLabel(entry: LogEntry): string {
       // first and push nothing when the request is already satisfied).
       return `update ${name}`;
     }
+    default:
+      return unhandled(entry);
   }
-  return "edit";
 }
 
 /** The named history for a pair of log stacks — the {@link FieldHistory} payload the
