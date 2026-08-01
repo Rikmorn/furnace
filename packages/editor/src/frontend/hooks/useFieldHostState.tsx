@@ -38,6 +38,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import type {
@@ -62,6 +63,7 @@ import type {
 // guard cannot disagree about what "same param" means.
 import { formatParam } from "../lib/field-entity.ts";
 import { notify } from "../lib/notify-store.ts";
+import type { UiState, UiStore } from "../lib/persist.ts";
 
 /** Value-equality for the subscribeStats push guard (the host fires it every rAF; an
  *  idle field must not re-render the shell 60×/s). The destructure is a compiler
@@ -262,11 +264,47 @@ const DEFAULT_FLAG_FILTERS: FlagFilters = {
 	candidates: true,
 	info: false,
 	unreachable: false,
+	// ON, unlike the other two off-by-default bands: a pit carries candidate
+	// severity, so the candidates chip beside it already claims to show it (the
+	// store's own DEFAULT_FLAG_FILTERS says the same thing, and this literal exists
+	// only because the chrome cannot value-import it).
+	pits: true,
 };
+
+/** The band names a persisted blob may speak about (useView's LAYER_KEYS twin). */
+// Boundary cast: `Object.keys` is typed `string[]` because a VALUE can structurally
+// carry keys its type never declared — but the argument here is an object literal
+// checked against `FlagFilters`, which cannot. Deriving the list (rather than writing
+// it out) is what keeps a new band restorable without a second edit here.
+const FILTER_KEYS = Object.keys(DEFAULT_FLAG_FILTERS) as (keyof FlagFilters)[];
+
+/** Schema-tolerant restore (D-F4.5-3): only KNOWN bands are adopted, and anything
+ *  missing or non-boolean keeps its default — so a hand-edited blob, or one written
+ *  before a band existed, degrades to the shipped set rather than handing the host an
+ *  object with a hole in it. */
+function deserializeFilters(stored: UiState["flagFilters"]): FlagFilters {
+	const filters = { ...DEFAULT_FLAG_FILTERS };
+	if (!stored) return filters;
+	for (const key of FILTER_KEYS) {
+		const value = stored[key];
+		if (typeof value === "boolean") filters[key] = value;
+	}
+	return filters;
+}
+
+/** Long enough that a run of chip clicks writes once when it settles rather than once
+ *  per click (every `UiStore.get` re-parses the whole blob) — useView's figure, and
+ *  this is a slower control than its slider. */
+const PERSIST_DEBOUNCE_MS = 200;
 
 /** Nothing found yet — what the flags surface renders between mount and the host's first
  *  push, after which every summary is the host's. */
-const NO_FLAGS: FlagsSummary = { total: 0, byKindSeverity: [], visible: [] };
+const NO_FLAGS: FlagsSummary = {
+	total: 0,
+	byKindSeverity: [],
+	visible: [],
+	selected: null,
+};
 
 /** Nothing done yet. Also the FieldHistoryContext default — see there for why an empty
  *  history is a truthful reading outside the provider rather than a wiring hole. */
@@ -566,10 +604,17 @@ export function useFieldFlags(): FieldFlagsState {
 export function FieldHostStateProvider({
 	host,
 	engineReady,
+	store,
 	children,
 }: {
 	host: FieldHost | undefined;
 	engineReady: boolean;
+	/** The per-project persistence blob, or undefined until the project root
+	 *  resolves. ONE key is read and written here — `flagFilters` — and the reason
+	 *  it is this provider's rather than a palette's is the same reason the state
+	 *  is: the host outlives every palette, and a surface that re-pushed its
+	 *  defaults on each remount would silently untick the user's bands. */
+	store?: UiStore;
 	children: ReactNode;
 }) {
 	const [stats, setStats] = useState<FieldStats | null>(null);
@@ -785,6 +830,54 @@ export function FieldHostStateProvider({
 		host.setFlagFilters(filters);
 	}, [engineReady, host, filters]);
 
+	// D-F4.5-3's half of the same value: the bands are a READING PREFERENCE, and the
+	// one thing the effect above cannot do is remember them across a restart.
+	//
+	// The useView pair, and for its reasons: nothing is written before the first
+	// interaction (so the defaults rendered here can never overwrite a blob this
+	// component has not read yet), and a restore that arrives after the user has
+	// already changed something is dropped rather than yanking their filters out from
+	// under them. The store is keyed by the project root, which comes from a daemon
+	// call that can fail or never resolve — so the chips render their defaults
+	// immediately and adopt the persisted set when (if) the store shows up.
+	//
+	// WHO WINS AT BOOT, since the host also keeps its last set across a world load:
+	// the CHROME does, unconditionally. The restore lands in state, the push effect
+	// above is keyed on that state, so the host is told what the user last chose. The
+	// host's own retention is what keeps the two agreeing across a `loadWorld` — where
+	// nothing here re-pushes — and never contradicts this, because a fresh host starts
+	// on the same defaults these do.
+	const filtersTouched = useRef(false);
+	const filtersRestored = useRef(false);
+	useEffect(() => {
+		if (!store || filtersRestored.current) return;
+		filtersRestored.current = true;
+		if (filtersTouched.current) return;
+		const stored = store.get("flagFilters");
+		// A cold start keeps the state object it already has rather than adopting an
+		// equal-valued new one: `deserializeFilters(undefined)` IS the defaults, and a
+		// fresh identity would re-fire the push effect above for nothing.
+		if (!stored) return;
+		setFilters(deserializeFilters(stored));
+	}, [store]);
+
+	// Debounced by effect cleanup: each change cancels the previous pending write.
+	useEffect(() => {
+		if (!store || !filtersTouched.current) return;
+		const timer = setTimeout(
+			() => store.set("flagFilters", { ...filters }),
+			PERSIST_DEBOUNCE_MS,
+		);
+		return () => clearTimeout(timer);
+	}, [store, filters]);
+
+	/** The ONE writer the chips call: records that the bands are now the user's, so
+	 *  the restore above cannot land on top of a choice they have already made. */
+	const editFilters = useCallback((next: FlagFilters): void => {
+		filtersTouched.current = true;
+		setFilters(next);
+	}, []);
+
 	const setTool = useCallback(
 		(next: FieldTool): void => {
 			setToolState(next);
@@ -864,8 +957,8 @@ export function FieldHostStateProvider({
 		[history],
 	);
 	const flagsValue = useMemo<FieldFlagsState>(
-		() => ({ flags, filters, setFilters, verifying, verify }),
-		[flags, filters, verifying, verify],
+		() => ({ flags, filters, setFilters: editFilters, verifying, verify }),
+		[flags, filters, editFilters, verifying, verify],
 	);
 	return (
 		<FieldHostStateContext.Provider value={value}>

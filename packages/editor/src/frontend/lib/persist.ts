@@ -27,6 +27,7 @@ export type PaletteState = {
  *  own key, and each key has exactly one writer:
  *  - `workspace` — the palette store (drag/snap/collapse/hide-all).
  *  - `view` — the view popover's display state (`hooks/useView.tsx`).
+ *  - `flagFilters` — the advisor's triage bands (`hooks/useFieldHostState.tsx`).
  *  - `lastWorld` + `recentWorlds` — the world save/load flows (`world-actions.ts`'s
  *    `rememberWorld`). */
 export type UiState = {
@@ -46,6 +47,18 @@ export type UiState = {
     layers?: Record<string, boolean>;
     slice?: number | null;
   };
+  /** Which of the advisor's triage bands the Flags palette asks for (D-F4.5-3's
+   *  "widget state (flag filters included)"). A record of booleans rather than the
+   *  `FlagFilters` type itself: this module is pure chrome and must not type-import
+   *  anything under `viewport-host/`, and the restore has to be schema-tolerant
+   *  anyway — a band that was renamed or retired is simply not adopted.
+   *
+   *  Its own key rather than a field inside `workspace`, even though D-3 calls it
+   *  one blob: the blob is the localStorage RECORD, and every key in it has exactly
+   *  one writer (see above). `workspace` is the palette store's; the filters are the
+   *  host-state provider's, which is where the state and its push to the host live.
+   *  Sharing a key would be two writers racing a debounce. */
+  flagFilters?: Record<string, boolean>;
   /** The world the editor had open when it last closed. */
   lastWorld?: string;
   /** Most-recently-opened world names, newest first. */

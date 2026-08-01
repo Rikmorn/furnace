@@ -58,8 +58,9 @@ import {
   type FlagFilters,
   type FlagRow,
   type FlagsSummary,
+  flagCellBox,
   flagMarkerCenter,
-  flagTint,
+  flagMarkerStyle,
   INFO_TINT,
 } from "./field-flags.ts";
 import {
@@ -99,6 +100,10 @@ import {
   touchedParamKeys,
   withArchetypeOptions,
 } from "./field-placements.ts";
+import {
+  SELECTION_DISPLAY_CAP,
+  selectionDisplayCells,
+} from "./field-selection-cells.ts";
 import {
   createPreviewCoalescer,
   previewIsEmpty,
@@ -221,6 +226,13 @@ export type SelectionInfo = {
   count: number;
   truncated: boolean;
   aabb: { min: [number, number, number]; max: [number, number, number] } | null;
+  /** How many of `count` cells the viewport is actually DRAWING as cubes, present
+   *  only when the display was capped (`SELECTION_DISPLAY_CAP`) and therefore only
+   *  on `cells` selections. Absent means "what you see is all of it" — including
+   *  for a region, whose display is its box and is never partial. The chrome says
+   *  so on the status chip; a display that quietly showed a third of a flood would
+   *  be a selection the user cannot trust. */
+  displayed?: number;
 };
 
 /** One registry generator as the panel sees it ({@link FieldHost.listGenerators}):
@@ -1048,6 +1060,29 @@ export type FieldHost = {
    *  A stage-2 failure (no bundle, a mover that threw) is the one ASYNC outcome:
    *  it reports through the same seam and releases the latch. */
   verifyFlag(key: string): void;
+  /**
+   * Selects ONE finding, named by the {@link FlagRow.key} the summary handed out
+   * — or `null` to deselect (D-F4.5-15).
+   *
+   * The selection publishes on the flags seam itself
+   * ({@link FlagsSummary.selected}), not on a seam of its own: a highlight and the
+   * rows it highlights have to arrive together, or a palette can paint a selection
+   * against a list from a different analyzer response.
+   *
+   * Two things happen beyond the state write. The selected marker is drawn bigger
+   * and its anchor CELL gets a `--primary` outline, and the camera FRAMES that
+   * cell — 0.5 m of world, where the route this replaces framed the finding's
+   * whole 4 m chunk and left the user hunting inside the box (the F4 gate's first
+   * item). The viewport's own marker click deliberately does NOT frame: the user
+   * is already looking at what they clicked, and a camera that jumped on every
+   * marker press would be unusable.
+   *
+   * Refuses ONE way, synchronously, on {@link subscribeToolError}: a key that
+   * names no VISIBLE finding (a re-analysis moved on, or the filters hid it since
+   * the row was drawn). A refusal changes nothing — the standing selection
+   * survives it, and no push is made. `null` is the deselect and is never refused.
+   */
+  selectFlag(key: string | null): void;
   /** How many flag markers the LAST rebuild decided to draw — the
    *  {@link propInstanceCounts} twin, and for the same reason: the marker layer
    *  is otherwise write-only GPU state, so this is what a caller (and a test) can
@@ -1055,6 +1090,12 @@ export type FieldHost = {
    *  init and after {@link dispose}, where the number is decided but no draw
    *  exists. */
   flagMarkerCount(): number;
+  /** How many selection CELL cubes the last rebuild decided to draw — the
+   *  {@link flagMarkerCount} twin, for the same reason (the instanced layer is
+   *  otherwise write-only GPU state) and settled before the same context guard.
+   *  0 for a region selection, which keeps its honest AABB box, and 0 with no
+   *  selection at all. */
+  selectionCellCount(): number;
   /** Bakes the current field to the artifact file set (pure, for upload). */
   exportArtifact(name: string): field.BakedFile[];
   /** Subscribes to the live stats readout ({@link FieldStats}), pushed every
@@ -1275,10 +1316,12 @@ const SELECTION_UI_BUDGET = 200_000;
 // rather than restated: both mark CONTEXT the user is not being asked to act on,
 // and two copies of four numbers is how that claim quietly stops being true.
 const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
-// Selected-entity footprint box: the CHROME's primary accent, so "this is what
-// is selected" is one colour across the whole editor — the palette row and the
-// viewport box wear the same steel blue, and neither reads as the amber
-// cell-selection overlay beside it.
+// THE selection accent: the CHROME's `--primary`, so "this is what is selected" is
+// one colour across the whole editor. Two overlays wear it — the selected entity's
+// footprint box and (since F4.5b Task 13, D-F4.5-15's "reuse --primary, no new hue")
+// the selected finding's cell outline — and neither reads as the amber cell-selection
+// overlay beside them. Named for the ROLE rather than for the entity box, because it
+// stopped being the entity box's alone.
 //
 // The theme token is `--primary: oklch(0.62 0.11 240)` (styles.css); these are
 // its LINEAR-sRGB components, which is what a shader writes (engine-conventions
@@ -1288,9 +1331,15 @@ const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
 // chrome cannot value-import anything under `viewport-host/`, so the two agree
 // by review (the MAX_SEGMENT_M / FlagsSection tint-palette precedent): if the
 // token moves, this moves.
-const ENTITY_SELECTED_COLOR: [number, number, number, number] = [
+const SELECTED_COLOR: [number, number, number, number] = [
   0.048, 0.271, 0.536, 1,
 ];
+// How opaque one selected CELL cube is. Low on purpose: the display's job is to
+// show a flood's SHAPE from inside it, and cells stack six deep along any view
+// ray through a solid blob — at a readable single-cube alpha the far side of a
+// room would be an opaque wall of blue. 0.18 keeps a single cell visible against
+// rock while a thick stack still reads through.
+const SELECTION_CELL_ALPHA = 0.18;
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
 
@@ -1302,11 +1351,11 @@ const ANCHOR_CROSS_HALF_M = 0.25;
 // whole point: shaders write LINEAR and the swap chain applies the sRGB encoding
 // on output (engine-conventions §Color space), so shipping the 0-1 hex directly
 // would be double-encoded and the arms would render as pale pastels — "red"
-// around rgb(243,145,148). ENTITY_SELECTED_COLOR is converted the same way.
+// around rgb(243,145,148). SELECTED_COLOR is converted the same way.
 //
 // No test can catch this: the GPU fixtures request `surfaceFormat: "linear"`, so
 // the encode this compensates for never runs there. It is arithmetic plus review,
-// like ENTITY_SELECTED_COLOR, and the hexes are kept in the trailing comments so
+// like SELECTED_COLOR, and the hexes are kept in the trailing comments so
 // the conversion stays checkable.
 const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
   x: [0.7835, 0.0648, 0.0742, 1], // #e5484d
@@ -1563,6 +1612,18 @@ export function createFieldHost(deps?: {
   let flagMarkerBind: binding.Binding | null = null;
   let markerCount = 0;
 
+  // The cell-level selection display (f2b gate item 1): ONE translucent instanced
+  // cube per drawn cell of a `cells` selection, so a flood the camera is standing
+  // inside reads as a shape rather than as an AABB outline the user cannot see
+  // from within. Null for a region selection, for no selection, and before GPU
+  // init. `selectionCellsCount` is the markerCount twin — decided by every
+  // rebuild, uploaded only when a context exists.
+  let selectionCells: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
+    null;
+  let selectionCellMat: material.Material | null = null;
+  let selectionCellBind: binding.Binding | null = null;
+  let selectionCellsCount = 0;
+
   // --- view state (layers + slice plane) ----------------------------------
   let layers: FieldLayers = {
     field: true,
@@ -1661,12 +1722,13 @@ export function createFieldHost(deps?: {
     y: number;
     pointerId: number;
   } | null = null;
-  // NO selected-flag state here yet, deliberately. A pointer click on a marker
-  // already does the one thing it can do without a consumer — it is not treated
-  // as a miss, so it leaves the entity selection standing (see pointerClick) —
-  // and a `selectedFlagKey` nothing reads would be a field written on three
-  // paths and observed on none. The flags palette is what gives the key a
-  // reader, an emphasis and a seam; the state lands with it.
+  // The SELECTED finding's cell outline (D-F4.5-15), rebuilt with every flags
+  // push. The key itself lives in the flag store — beside the findings it names,
+  // so `summary()` can answer "is that row still visible?" without the host
+  // holding a second copy that would have to be invalidated by every filter
+  // change, every analyzer response and every world reset. Null when nothing is
+  // selected, and equally when the selected key no longer resolves.
+  let flagSelectionBatch: LineBatch | null = null;
 
   // --- void cast (the X-ray) ----------------------------------------------
   // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
@@ -1913,6 +1975,27 @@ export function createFieldHost(deps?: {
     flagMarkerMat = await material.create(c, {
       shader: markerShd,
       binding: flagMarkerBind,
+    });
+    // Selection cells: the same UNLIT instanced shader, premultiplied and
+    // depth-write-free like the ghosts — a selection has to read from inside the
+    // volume it encloses, which is the whole point (f2b item 1), and a
+    // depth-writing translucent would hide the cells behind it. The colour is the
+    // material's, not the instances': every cube is the same `--primary` and
+    // `createInstanced` already seeds each tint slot white.
+    selectionCellBind = binding.create(c, markerShd);
+    binding.set(c, selectionCellBind, {
+      color: [
+        SELECTED_COLOR[0] * SELECTION_CELL_ALPHA,
+        SELECTED_COLOR[1] * SELECTION_CELL_ALPHA,
+        SELECTED_COLOR[2] * SELECTION_CELL_ALPHA,
+        SELECTION_CELL_ALPHA,
+      ],
+    });
+    selectionCellMat = await material.create(c, {
+      shader: markerShd,
+      binding: selectionCellBind,
+      blend: material.blend.premultiplied,
+      depth: { write: false },
     });
     await buildLitMaterials(c);
   };
@@ -2512,19 +2595,29 @@ export function createFieldHost(deps?: {
     return { kind: "flood-void", seed: [...s.seed], budget: s.budget };
   };
 
-  const selectionInfo = (s: SelectionState): SelectionInfo => ({
-    spec: cloneSelectionSpec(s.spec),
-    count:
+  const selectionInfo = (s: SelectionState): SelectionInfo => {
+    const count =
       s.materialized.kind === "cells"
         ? s.materialized.count
         : regionSampleCount(
             s.materialized.min,
             s.materialized.max,
             store.cellSize,
-          ),
-    truncated: s.materialized.kind === "cells" && s.materialized.truncated,
-    aabb: selectionAabb(s),
-  });
+          );
+    return {
+      spec: cloneSelectionSpec(s.spec),
+      count,
+      truncated: s.materialized.kind === "cells" && s.materialized.truncated,
+      aabb: selectionAabb(s),
+      // Present only when the display is PARTIAL. A region's `selectionCellsCount`
+      // is 0 by design (it draws a box, not cubes) and reporting that as
+      // "displaying 0 of 400" would be a truthful number describing the wrong
+      // thing, so the test is against the cell layer's own domain.
+      ...(s.materialized.kind === "cells" && selectionCellsCount < count
+        ? { displayed: selectionCellsCount }
+        : {}),
+    };
+  };
 
   const notifySelection = (): void => {
     selectionCb?.(selection === null ? null : selectionInfo(selection));
@@ -2549,6 +2642,65 @@ export function createFieldHost(deps?: {
     const aabb = selection === null ? null : selectionAabb(selection);
     selectionBatch =
       aabb === null ? null : aabbEdgeBatch(aabb, SELECTION_COLOR);
+  };
+
+  const destroySelectionCells = (c: Context): void => {
+    if (!selectionCells) return;
+    mesh.destroyInstanced(c, selectionCells.im);
+    geometry.destroy(c, selectionCells.g);
+    selectionCells = null;
+  };
+
+  // Rebuild the cell-level selection display: ONE translucent instanced cube per
+  // drawn cell, shell first, capped (see field-selection-cells.ts). Runs on
+  // selection COMMIT and never per frame — the enumeration is O(selected cells)
+  // and the cells cannot change without a new selection.
+  //
+  // `cells` materializations ONLY. A REGION keeps the honest AABB outline it has
+  // always had: a region IS its box, so filling it with cubes would draw the same
+  // information at 65 000× the cost. The outline stays for floods too — it is the
+  // extent, and the cubes are the shape.
+  const rebuildSelectionCells = (): void => {
+    const materialized = selection?.materialized;
+    const plan =
+      materialized === undefined || materialized.kind !== "cells"
+        ? null
+        : selectionDisplayCells(materialized.chunks, SELECTION_DISPLAY_CAP);
+    // The count settles FIRST and unconditionally (rebuildFlagMarkers' rule): it
+    // is what the layer IS, and a host with no context has still decided it.
+    selectionCellsCount = plan?.displayed ?? 0;
+    const c = ctx;
+    if (!c || !selectionCellMat) return;
+    destroySelectionCells(c);
+    if (plan === null || plan.displayed === 0) return;
+    const g = geometry.cube(c, { size: 1 });
+    const im = mesh.createInstanced(c, {
+      geometry: g,
+      material: selectionCellMat,
+      count: plan.displayed,
+    });
+    // One cell cube per instance, the flag-marker matrix layout: uniform scale on
+    // the diagonal, position in the last column, no rotation. A cell spans
+    // `[i·h, (i+1)·h)` so its CENTRE is half a cell past its sample corner —
+    // the same offset `selectionAabb` applies when it expands a flood's cell
+    // bounds to whole voxel volumes.
+    const h = store.cellSize;
+    const matrices = new Float32Array(16 * plan.displayed);
+    for (let i = 0; i < plan.displayed; i++) {
+      const o = i * 16;
+      matrices[o] = h;
+      matrices[o + 5] = h;
+      matrices[o + 10] = h;
+      matrices[o + 12] = ((plan.cells[i * 3] as number) + 0.5) * h;
+      matrices[o + 13] = ((plan.cells[i * 3 + 1] as number) + 0.5) * h;
+      matrices[o + 14] = ((plan.cells[i * 3 + 2] as number) + 0.5) * h;
+      matrices[o + 15] = 1;
+    }
+    mesh.setInstanceMatrices(c, im, matrices);
+    // No per-instance tint: `createInstanced` seeds every slot WHITE and the
+    // material's premultiplied `--primary` is the colour, so 65 000 setInstanceTint
+    // calls would each write the same four floats they already hold.
+    selectionCells = { im, g };
   };
 
   const setBoxAnchor = (p: Vec3T | null): void => {
@@ -2593,10 +2745,25 @@ export function createFieldHost(deps?: {
 
   // Install a new current selection (null = clear): park the displaced one in
   // the Reselect slot, rebuild the overlay, notify the panel.
+  // Both halves of what a selection LOOKS like — the extent outline and the cell
+  // cubes — through one call, so no path can refresh one and forget the other.
+  // It exists because a path did: `reselect` does its own swap (setSelection
+  // would overwrite the slot it is restoring) and so had its own pair of rebuild
+  // calls, which is precisely how the cell layer came back empty from a Reselect
+  // while the outline came back correct.
+  //
+  // Always BEFORE a `notifySelection`, because `selectionInfo` reports how many
+  // cells the display settled on (the publishFlags ordering rule: no subscriber
+  // may read a payload whose overlay is still the previous selection's).
+  const refreshSelectionDisplay = (): void => {
+    rebuildSelectionBatch();
+    rebuildSelectionCells();
+  };
+
   const setSelection = (next: SelectionState | null): void => {
     if (selection !== null) lastSelection = selection;
     selection = next;
-    rebuildSelectionBatch();
+    refreshSelectionDisplay();
     notifySelection();
   };
 
@@ -2953,24 +3120,17 @@ export function createFieldHost(deps?: {
     }
 
     if (layers.flags) {
-      // The pick volume is the CELL, centred where the marker is DRAWN
-      // (flagMarkerCenter — the same lift the instanced matrices use, shared so
-      // the two cannot part company). So the box spans `world.y … world.y +
-      // cellSize`, exactly the air cell the finding anchors on. Deliberately NOT
-      // the drawn FLAG_MARKER_SIZE_M: a 0.18 m pin is a hard click target, and
-      // the cell is what the finding is actually about.
-      const half = store.cellSize / 2;
-      for (const row of flagStore.summary().visible) {
-        const [cx, cy, cz] = flagMarkerCenter(row.flag.world, store.cellSize);
+      // The pick volume is the CELL — `flagCellBox`, the same box the camera
+      // frames and the selected-flag outline draws, built on the same half-cell
+      // lift the instanced matrices use, so none of the four can part company.
+      // Deliberately NOT the drawn FLAG_MARKER_SIZE_M: a 0.18 m pin is a hard
+      // click target, and the cell is what the finding is actually about.
+      for (const row of flagStore.summary().visible)
         candidates.push({
           kind: "flag",
           key: row.key,
-          aabb: {
-            min: [cx - half, cy - half, cz - half],
-            max: [cx + half, cy + half, cz + half],
-          },
+          aabb: flagCellBox(row.flag.world, store.cellSize),
         });
-      }
     }
     return candidates;
   };
@@ -3034,15 +3194,13 @@ export function createFieldHost(deps?: {
       // The two are different selections, and clicking a finding is not a
       // statement about which stamp is being worked on.
       //
-      // That is the whole of it today — the key is not stored, because nothing
-      // can read it: there is no flag emphasis and no flag-selection seam until
-      // the flags palette grows one, and a field written here and observed
-      // nowhere is dead state wearing a feature's name (the linter says so too).
-      // The consequence to know: the flag PATH is correspondingly untestable end
-      // to end — the layer gate, `flagMarkerCenter`'s lift and the cell box are
-      // covered only where they are pure (field-pick / field-flags tests), and
-      // no assertion reaches them through a click. A seam is not being added
-      // early to make that possible; it arrives with its consumer.
+      // Straight to `setSelectedFlag`, past the public verb: there is nothing to
+      // refuse (the key came out of the same summary the pick built its
+      // candidates from, one gesture ago) and nothing to frame (the user is
+      // looking at the marker they just pressed). D-F4.5-15's "the viewport is
+      // the primary selection surface" is this line; the palette row lights up
+      // because the seam pushes, not because the two surfaces talk.
+      setSelectedFlag(hit.key);
       return;
     }
     setSelectedEntity(hit.entityId);
@@ -3322,7 +3480,7 @@ export function createFieldHost(deps?: {
       gizmo = null;
       return;
     }
-    entitySelectionBatch = aabbEdgeBatch(box, ENTITY_SELECTED_COLOR);
+    entitySelectionBatch = aabbEdgeBatch(box, SELECTED_COLOR);
     // The gizmo hangs on the SAME box, so it moves and dies with it — one
     // rebuild, one invalidation, and no way for the handles to end up outlining
     // a different volume than the emphasis does. While a move is live only the
@@ -3893,7 +4051,42 @@ export function createFieldHost(deps?: {
   const publishFlags = (): void => {
     const summary = flagStore.summary();
     rebuildFlagMarkers(summary);
+    rebuildFlagSelection(summary);
     flagsCb?.(summary);
+  };
+
+  // Adopt a selected finding and republish. The RAW write, with no validation and
+  // no camera: `selectFlag` refuses first and frames after, and the viewport's own
+  // marker click deliberately does neither — the user is looking at what they just
+  // clicked, so a frame there would be the camera jumping on every press.
+  const setSelectedFlag = (key: string | null): void => {
+    flagStore.setSelected(key);
+    publishFlags();
+  };
+
+  // The public verb. Refuses one way — a key no VISIBLE row answers to — through
+  // the same sentence `verifyFlag` uses for the same situation, and a refusal
+  // leaves the standing selection and publishes nothing.
+  const selectFlagImpl = (key: string | null): void => {
+    if (key === null) {
+      setSelectedFlag(null);
+      return;
+    }
+    const row = flagStore.rowByKey(key);
+    if (row === undefined) {
+      reportToolError("that flag was re-analyzed away");
+      return;
+    }
+    setSelectedFlag(key);
+    // The flag's CELL, not its chunk: `flagCellBox` is the same box the pointer
+    // pick clicks and the outline draws, so the camera lands on exactly what the
+    // user selected. (The chunk-sized frame this replaces is the F4 gate's first
+    // finding — 4 m of world round a 0.18 m pin.)
+    orbitState = frameBox(
+      orbitState,
+      flagCellBox(row.flag.world, store.cellSize),
+    );
+    applyOrbit();
   };
 
   const analyzePump = createAnalyzePump(analyzer, {
@@ -4034,6 +4227,10 @@ export function createFieldHost(deps?: {
   // rebuildProps: instance counts are fixed at creation and a response replaces
   // whole chunks at a time, so there is no partial update to make. Silent no-op
   // before GPU init — init() rebuilds once the materials exist.
+  //
+  // The SELECTED finding's instance is drawn bigger (flagMarkerStyle) and keeps
+  // its own colour; the `--primary` half of D-F4.5-15's emphasis is the cell
+  // outline `rebuildFlagSelection` builds beside this.
   const rebuildFlagMarkers = (summary: FlagsSummary): void => {
     // The count settles FIRST and unconditionally: it is what the layer IS
     // (rebuildProps' rule), and a host with no context has still decided it.
@@ -4058,18 +4255,46 @@ export function createFieldHost(deps?: {
     for (const row of summary.visible) {
       const o = i * 16;
       const [cx, cy, cz] = flagMarkerCenter(row.flag.world, store.cellSize);
-      matrices[o] = FLAG_MARKER_SIZE_M;
-      matrices[o + 5] = FLAG_MARKER_SIZE_M;
-      matrices[o + 10] = FLAG_MARKER_SIZE_M;
+      const style = flagMarkerStyle(row, row.key === summary.selected);
+      const size = FLAG_MARKER_SIZE_M * style.scale;
+      matrices[o] = size;
+      matrices[o + 5] = size;
+      matrices[o + 10] = size;
       matrices[o + 12] = cx;
       matrices[o + 13] = cy;
       matrices[o + 14] = cz;
       matrices[o + 15] = 1;
-      mesh.setInstanceTint(c, im, i, flagTint(row));
+      mesh.setInstanceTint(c, im, i, style.tint);
       i++;
     }
     mesh.setInstanceMatrices(c, im, matrices);
     flagMarkers = { im, g };
+  };
+
+  // The selected finding's cell outline — one cell of `--primary` wireframe round
+  // the marker, drawn under the flags layer gate. Built from `summary.selected`
+  // rather than from a key held here, so it can only ever outline a row the same
+  // push says is visible.
+  //
+  // DISCLOSED AS UNPINNED, the `gizmoVisible` rider: this batch has no seam and
+  // nothing reads instance data back, so no test observes that the outline (or the
+  // marker's size pop) is actually drawn. What IS pinned is everything either can be
+  // derived from — `flagCellBox` and `flagMarkerStyle` are pure and covered in
+  // tests/viewport-host/field-flags.test.ts, and `summary.selected`'s own resolution
+  // is covered there and in tests/field-host-flag-select.test.ts. An accessor added
+  // for one assertion is not worth the surface; the gate is the eyeball check.
+  const rebuildFlagSelection = (summary: FlagsSummary): void => {
+    const row =
+      summary.selected === null
+        ? undefined
+        : summary.visible.find((r) => r.key === summary.selected);
+    flagSelectionBatch =
+      row === undefined
+        ? null
+        : aabbEdgeBatch(
+            flagCellBox(row.flag.world, store.cellSize),
+            SELECTED_COLOR,
+          );
   };
 
   // Post ONE preview job for a session state captured at fire time. Response
@@ -4987,6 +5212,11 @@ export function createFieldHost(deps?: {
     // every visible finding. Their own gate — the findings keep arriving while it
     // is off (the analyzer is not a display layer), this only stops drawing them.
     if (layers.flags && flagMarkers) instanced.push(flagMarkers.im);
+    // The cell-level selection display, under the `selection` layer with the
+    // outlines below (hiding the layer hides the DISPLAY; the selection itself
+    // stays live and keeps masking ops). Premultiplied and depth-write-free, so
+    // it sorts into frame.render's blended group with the ghosts.
+    if (layers.selection && selectionCells) instanced.push(selectionCells.im);
     // The void cast goes in FIRST of the three translucents on purpose. All
     // three sort after every opaque (frame.render's blended group), so this
     // position decides nothing against the field — but within the blended group
@@ -5114,6 +5344,21 @@ export function createFieldHost(deps?: {
           occlude: false,
         });
     }
+    // The selected FINDING's cell outline, in the same primary blue as the entity
+    // box above (D-F4.5-15's "reuse --primary, no new hue") — but under the FLAGS
+    // gate, not the selection one, because it is an emphasis on a marker rather
+    // than a selection overlay of its own. With `flags` off there are no markers,
+    // so an outline here would box empty air; the pick is gated the same way, so
+    // a flag selection cannot even be made while the layer is hidden.
+    // occlude:false like every other selection overlay: a finding inside rock is
+    // exactly the kind the advisor is for.
+    if (layers.flags && flagSelectionBatch)
+      frame.drawLines(c, {
+        vertices: flagSelectionBatch.vertices,
+        colors: flagSelectionBatch.colors,
+        camera: view,
+        occlude: false,
+      });
     // The stamp's PLACEMENT proxies — one merged batch of oriented wireframe
     // boxes, occlude:false like every other ghost overlay so props previewed
     // inside a cave read through its walls. Under the ghost layer gate with the
@@ -5744,7 +5989,9 @@ export function createFieldHost(deps?: {
     setPendingStamp(null);
     selection = null;
     lastSelection = null;
-    selectionBatch = null;
+    // Both display halves through the shared refresh, so the outline and the cell
+    // layer cannot survive a world swap independently of each other.
+    refreshSelectionDisplay();
     notifySelection(); // null — the panel must not show a stale selection
     // A different world invalidates the stamp session (its region + snapshot
     // describe the old field), the entity selection (log entity ids reset) and
@@ -5814,6 +6061,10 @@ export function createFieldHost(deps?: {
       // into draws here.
       rebuildProps();
       rebuildFlagMarkers(flagStore.summary());
+      // The selection survives a dispose (it is CPU state), so its CELL display
+      // has to be rebuilt here too or a re-init — the AA switch, which never
+      // touches the selection — would come back with the outline and no cubes.
+      rebuildSelectionCells();
       // Re-mesh whatever the store already holds. At the FIRST init this is empty
       // and costs nothing; at a re-init (the AA switch) it is the whole world, and
       // without it the field never comes back — `dispose` destroys every chunk mesh
@@ -5870,6 +6121,7 @@ export function createFieldHost(deps?: {
         chunkMeshes.clear();
         destroyProps(c);
         destroyFlagMarkers(c);
+        destroySelectionCells(c);
         destroyStampGhosts();
         discardVoidCast();
         if (normalsMat) material.destroy(c, normalsMat);
@@ -5886,6 +6138,8 @@ export function createFieldHost(deps?: {
         if (voidCastBind) binding.destroy(c, voidCastBind);
         if (flagMarkerMat) material.destroy(c, flagMarkerMat);
         if (flagMarkerBind) binding.destroy(c, flagMarkerBind);
+        if (selectionCellMat) material.destroy(c, selectionCellMat);
+        if (selectionCellBind) binding.destroy(c, selectionCellBind);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
@@ -5902,6 +6156,8 @@ export function createFieldHost(deps?: {
       voidCastBind = null;
       flagMarkerMat = null;
       flagMarkerBind = null;
+      selectionCellMat = null;
+      selectionCellBind = null;
       // Unlike the selection (CPU-only, survives dispose), the stamp session
       // dies with its GPU ghost: a "ready" session with no ghost after a
       // re-init would promise a commit the user can no longer see.
@@ -6052,7 +6308,7 @@ export function createFieldHost(deps?: {
       const restored = lastSelection;
       lastSelection = selection; // may be null: the swap keeps toggle symmetry
       selection = restored;
-      rebuildSelectionBatch();
+      refreshSelectionDisplay();
       notifySelection();
     },
     subscribeSelection(cb) {
@@ -6528,8 +6784,12 @@ export function createFieldHost(deps?: {
       publishFlags();
     },
     verifyFlag: verifyFlagImpl,
+    selectFlag: selectFlagImpl,
     flagMarkerCount() {
       return markerCount;
+    },
+    selectionCellCount() {
+      return selectionCellsCount;
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {

@@ -240,7 +240,12 @@ test("FieldHost.verifyFlag drives the project's real mover end to end", async ()
     host.subscribeFlags((s) => summaries.push(s));
     // Every band, so the row this verifies is whichever one stage 1 finds —
     // the test is about the VERB, not about core's severity assignment.
-    host.setFlagFilters({ candidates: true, info: true, unreachable: true });
+    host.setFlagFilters({
+      candidates: true,
+      info: true,
+      unreachable: true,
+      pits: true,
+    });
     host.setAgentProfile(agent);
 
     const store = steppedCorridor();

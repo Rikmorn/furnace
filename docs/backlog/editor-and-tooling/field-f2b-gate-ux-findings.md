@@ -21,12 +21,17 @@ the standing editor-UX debt: `editor-interaction-model-redesign.md` + this set; 
 world-panel set that stood beside them was resolved at F4.5a — its surface is gone and
 its one live finding moved to `dungeon/world-spec-no-portal-error-is-unactionable.md`):**
 
-1. **Selection feedback overhaul** — flood selections render only an AABB outline; a
-   truncated 200k-cell flood in an open world encloses the camera (invisible from
-   inside). Wants cell/chunk-level display — exactly F4's flags-UI surface-tinting
-   machinery ("cell-level highlight is F4-adjacent" was the executor's v0 acceptance).
-   Box-select got a live preview in-slice; the gesture still reads "a bit odd" — fold
-   ergonomics into the same pass.
+1. **Selection feedback overhaul** — ✅ **the DISPLAY half landed 2026-08-01 (F4.5b
+   Task 13)**; the gesture-ergonomics half stands. A `cells` materialization now draws
+   one translucent `--primary` cube per selected cell (`field-selection-cells.ts` +
+   the host's instanced layer), so a flood the camera is standing inside reads as a
+   shape instead of as an outline nobody can see from within. SHELL-FIRST and capped at
+   `SELECTION_DISPLAY_CAP = 65 536`: cells with all six face neighbours selected are
+   buried and are the first thing the cap discards, and an over-cap draw says so
+   through `SelectionInfo.displayed` (the status chip prints "showing 65,536 of N
+   cells"). Region selections keep the honest AABB box — a region IS its box.
+   Measured: 26–34 ms to enumerate a 196 608-cell flood, on a click-time rebuild.
+   STILL OWED from this item: the box-select gesture that "reads a bit odd".
 2. **Status-bar / messaging IA** — count+truncation live in small footer text; tool
    errors share one line; "yet another bar" verdict. In-viewport messaging wants a
    designed home.

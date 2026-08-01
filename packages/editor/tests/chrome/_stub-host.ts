@@ -93,6 +93,9 @@ export function makeStubHost(
      *  as the real host's busy / no-profile / stale-key / pit guards do — they
      *  are decided and reported before the call returns. */
     verifyRefusal?: string;
+    /** Make `selectFlag` refuse SYNCHRONOUSLY on the tool-error seam, as the real
+     *  host does for a key no VISIBLE row answers to. */
+    selectFlagRefusal?: string;
     /** Make `init` REJECT with this message — the GPU-failure path (no adapter, a
      *  context request refused), which the chrome must survive rather than blank on. */
     initRejection?: string;
@@ -182,6 +185,7 @@ export function makeStubHost(
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
+    selectFlag: mock(),
     // Every subscribe seam records its call, so a test can assert the slot was claimed
     // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
     // machine-checkable form. ALL TWELVE belong to the shell's host-state provider —
@@ -372,7 +376,7 @@ export function makeStubHost(
     subscribeFlags: (cb) => {
       calls.subscribeFlags(cb);
       cbs.flags = cb;
-      cb({ total: 0, byKindSeverity: [], visible: [] });
+      cb({ total: 0, byKindSeverity: [], visible: [], selected: null });
       // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
       // be distinguishable from a clean release).
       return () => {
@@ -384,7 +388,18 @@ export function makeStubHost(
       calls.verifyFlag(key);
       if (opts.verifyRefusal !== undefined) cbs.toolError?.(opts.verifyRefusal);
     },
+    selectFlag: (key) => {
+      calls.selectFlag(key);
+      // The real host REFUSES a key no visible row answers to, on the tool-error
+      // seam and synchronously — the shape a palette row click can hit for real
+      // (a click racing a re-analysis). Modelled here for the same reason
+      // `verifyRefusal` is: the chrome path that reacts to it is otherwise
+      // untestable from a stub that always succeeds.
+      if (key !== null && opts.selectFlagRefusal !== undefined)
+        cbs.toolError?.(opts.selectFlagRefusal);
+    },
     flagMarkerCount: () => 0,
+    selectionCellCount: () => 0,
     exportArtifact: () => [],
     subscribeCameraPose: (cb) => {
       calls.subscribeCameraPose(cb);

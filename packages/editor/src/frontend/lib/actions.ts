@@ -529,6 +529,35 @@ export const ACTIONS: readonly ActionDef[] = [
     },
   },
   {
+    id: "edit.clearSelection",
+    group: "edit",
+    label: (ctx) =>
+      ctx.selection === null
+        ? "Clear selection"
+        : `Clear ${ctx.selection.count} selected cell${ctx.selection.count === 1 ? "" : "s"}`,
+    // Gated on there BEING one, unlike Esc's ladder: Esc is one key that cancels the
+    // most recent thing, so it is never refused, but a named menu item over an empty
+    // selection is a verb with no object.
+    enabled: (ctx) => ctx.selection !== null,
+    // Deliberately NO chord. Esc already clears the cell selection (its ladder's last
+    // rung) and a second key for the same verb is a second thing to keep true; this
+    // exists so the status chip's popover and the menu can name it.
+    menuTitle:
+      "drop the cell selection — the ops that were masked by it stop being masked",
+    run: (ctx) => ctx.host?.clearSelection(),
+  },
+  {
+    id: "edit.reselect",
+    group: "edit",
+    label: () => "Reselect",
+    // ALWAYS live, and the asymmetry with Clear above is the point: Reselect matters
+    // exactly when there is NO selection, because what it restores is what the last
+    // Clear (or replace) displaced. The host no-ops on an empty slot.
+    enabled: () => true,
+    menuTitle: "restore the selection the last Clear or replace displaced",
+    run: (ctx) => ctx.host?.reselect(),
+  },
+  {
     id: "edit.history",
     group: "edit",
     // Named for the surface it opens, and ALWAYS enabled: an empty history is something

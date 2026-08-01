@@ -357,3 +357,61 @@ test("a pending stamp presses the STAMP family and un-presses the arm underneath
   expect(members.find((m) => m.id === "maze")?.armed).toBe(true);
   expect(members.find((m) => m.id === "hall")?.armed).toBe(false);
 });
+
+// --- the selection verbs (F4.5b Task 13) ------------------------------------
+//
+// The Field panel's selection footer dissolved with the panel. Its two verbs are in
+// the table so the status-bar chip's popover and the Edit menu render ONE pair from
+// one place — and so the chip cannot offer a verb the menu does not.
+
+test("Clear names the selection it would drop, and refuses when there is none", () => {
+  const clear = byId("edit.clearSelection");
+  // Gated on there BEING one, unlike Esc's ladder (which is never refused because it
+  // cancels whatever is most recent). A named menu item over an empty selection is a
+  // verb with no object.
+  const empty = makeCtx();
+  expect(clear.enabled(empty)).toBe(false);
+  expect(clear.label(empty)).toBe("Clear selection");
+
+  const ctx = makeCtx({
+    selection: {
+      spec: { kind: "region", min: [0, 0, 0], max: [1, 1, 1] },
+      count: 12,
+      truncated: false,
+      aabb: { min: [0, 0, 0], max: [1, 1, 1] },
+    },
+  });
+  expect(clear.enabled(ctx)).toBe(true);
+  // The count is what the user is about to lose, so it is in the name — the
+  // `Delete hall #4` convention one group over.
+  expect(clear.label(ctx)).toBe("Clear 12 selected cells");
+  clear.run(ctx);
+  expect(
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).clearSelection.mock
+      .calls.length,
+  ).toBe(1);
+});
+
+test("Reselect is ALWAYS live — it is for when nothing is selected", () => {
+  // The asymmetry with Clear is the whole point: Reselect restores what the last Clear
+  // or replace displaced, so the state it matters in is the one Clear refuses in. The
+  // host no-ops on an empty slot.
+  const reselect = byId("edit.reselect");
+  const ctx = makeCtx();
+  expect(reselect.enabled(ctx)).toBe(true);
+  reselect.run(ctx);
+  expect(
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).reselect.mock.calls
+      .length,
+  ).toBe(1);
+});
+
+test("the ids the status chip names are in the table", () => {
+  // `StatusBar` looks its two buttons up by id and renders NOTHING for an id the table
+  // has lost — the honest failure, and an invisible one. This is what makes it loud.
+  for (const id of ["edit.clearSelection", "edit.reselect"])
+    expect({ id, present: ACTIONS.some((a) => a.id === id) }).toEqual({
+      id,
+      present: true,
+    });
+});

@@ -311,6 +311,7 @@ test("serialize/deserialize round-trips through UiState.workspace", () => {
   expect(Object.keys(salvaged.palettes).sort()).toEqual([
     "controls",
     "entities",
+    "flags",
     "history",
     "log",
     "session",
@@ -366,4 +367,31 @@ test("a blob written before a palette existed restores that palette's default", 
   });
   expect(restored.palettes.controls.x).toBe(120);
   expect(restored.palettes.log).toEqual(defaultWorkspace().palettes.log);
+});
+
+// The Flags palette (F4.5b Task 13, D-F4.5-15). Its defaults are a claim about how the
+// cockpit opens, and the two halves matter for different reasons.
+test("the flags palette ships OPEN and floating", () => {
+  const flags = defaultWorkspace().palettes.flags;
+  // OPEN, unlike `log` and `history` beside it: the advisor runs on its own, so its
+  // findings are the one thing on screen the user did not ask for. A palette they have
+  // to go looking for is one that never gets read.
+  expect(flags.open).toBe(true);
+  // FLOATING (edge: null), the mock's arrangement — and not driven, so both its
+  // geometry AND its open state are the user's to persist (contrast `session` below).
+  expect(flags.edge).toBeNull();
+  expect(PALETTES.flags.drivenOpen).toBeUndefined();
+});
+
+test("a closed flags palette stays closed across a restore", () => {
+  // The other half of "not driven": a user who closes it has closed it. `session` is
+  // the one palette whose `open` is forced back to its default here, and a flags entry
+  // that accidentally acquired `drivenOpen` would re-open on every boot.
+  const restored = deserializeWorkspace({
+    palettes: {
+      flags: { x: 10, y: 20, edge: null, collapsed: false, open: false },
+    },
+    hidden: false,
+  });
+  expect(restored.palettes.flags.open).toBe(false);
 });

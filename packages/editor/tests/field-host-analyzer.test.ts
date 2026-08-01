@@ -401,13 +401,23 @@ test("setFlagFilters re-publishes: the view changes, the findings do not", async
       ],
     },
   ]);
-  f.host.setFlagFilters({ candidates: true, info: true, unreachable: false });
+  f.host.setFlagFilters({
+    candidates: true,
+    info: true,
+    unreachable: false,
+    pits: true,
+  });
   expect(f.host.flagMarkerCount()).toBe(2);
   expect(f.pushes.at(-1)?.visible).toHaveLength(2);
 
   // A filter never deletes (D-F4-1): hiding everything empties the VIEW and
   // leaves the findings standing.
-  f.host.setFlagFilters({ candidates: false, info: false, unreachable: false });
+  f.host.setFlagFilters({
+    candidates: false,
+    info: false,
+    unreachable: false,
+    pits: true,
+  });
   expect(f.host.flagMarkerCount()).toBe(0);
   expect(f.pushes.at(-1)?.visible).toEqual([]);
   expect(f.pushes.at(-1)?.total).toBe(2);

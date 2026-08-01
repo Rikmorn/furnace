@@ -16,22 +16,30 @@ import type {
 } from "@furnace/core/field";
 import type { VerifyVerdictWire } from "../frontend/lib/analyzer-protocol.ts";
 
-/** Which triage bands the viewport and the panel show. `candidates`/`info` are
+/** Which triage bands the viewport and the palette show. `candidates`/`info` are
  *  the severity bands; `unreachable` admits the flags the reachability pass
- *  DEMOTED (see {@link passesFilters} for why the test is one-sided). */
+ *  DEMOTED and `pits` admits the whole-world trap findings — both of those are
+ *  one-sided VETOES rather than bands of their own (see {@link passesFilters}). */
 export type FlagFilters = {
   candidates: boolean;
   info: boolean;
   unreachable: boolean;
+  pits: boolean;
 };
 
-/** Candidates only: what is worth a stage-2 verify. `info` is context (terrain
- *  the mover simply handles) and `unreachable` is what the flood could not get
- *  to — both real findings, both noise until asked for. */
+/** Candidates only, pits included: what is worth a stage-2 verify. `info` is
+ *  context (terrain the mover simply handles) and `unreachable` is what the flood
+ *  could not get to — both real findings, both noise until asked for.
+ *
+ *  `pits` starts ON, unlike the other two off-by-default chips, because it is not
+ *  a band the user is opting INTO: a pit carries `severity: "candidate"`, so the
+ *  candidates chip beside it already claims to be showing it. Defaulting the veto
+ *  on would make that claim false for the most serious finding the advisor has. */
 export const DEFAULT_FLAG_FILTERS: FlagFilters = {
   candidates: true,
   info: false,
   unreachable: false,
+  pits: true,
 };
 
 /** RGBA, the shape `mesh.setInstanceTint` takes. */
@@ -90,6 +98,57 @@ export const flagMarkerCenter = (
   world: readonly [number, number, number],
   cellSize: number,
 ): [number, number, number] => [world[0], world[1] + cellSize / 2, world[2]];
+
+/**
+ * The metre box of one finding's ANCHOR CELL — the marker's own cell, spanning
+ * `world.y … world.y + cellSize` in Y and one cell each way in X and Z.
+ *
+ * THREE things need this exact box and none of them may spell it again: the
+ * pointer pick's click volume (a 0.18 m pin is a hard target; the cell is what
+ * the finding is about), the camera frame `selectFlag` runs, and the outline the
+ * host draws round the selected marker. The frame is why this exists at all —
+ * clicking a flag row used to frame its whole CHUNK, four metres of world around
+ * a finding the size of a fist (the F4 gate's first item).
+ */
+export const flagCellBox = (
+  world: readonly [number, number, number],
+  cellSize: number,
+): { min: [number, number, number]; max: [number, number, number] } => {
+  const [cx, cy, cz] = flagMarkerCenter(world, cellSize);
+  const half = cellSize / 2;
+  return {
+    min: [cx - half, cy - half, cz - half],
+    max: [cx + half, cy + half, cz + half],
+  };
+};
+
+/** How much bigger the SELECTED finding's marker is drawn. A multiplier on the
+ *  host's `FLAG_MARKER_SIZE_M` rather than a second metre constant beside it, so
+ *  a change to the marker size cannot leave the emphasis behind. */
+export const FLAG_SELECTED_SCALE = 1.6;
+
+/** What one marker instance is drawn as: its colour, and its size relative to the
+ *  host's base marker constant. */
+export type FlagMarkerStyle = { tint: FlagTint; scale: number };
+
+/**
+ * One marker's per-instance appearance, given whether it is the selected finding.
+ *
+ * The colour is NOT touched by selection, and that is D-15's instruction rather
+ * than an omission: "emphasis tiers on an outline treatment **independent of
+ * surface color**" (the Blender active/selected model). The concrete cost of
+ * doing otherwise is that a re-tinted marker deletes the trapped/clear/candidate
+ * signal from the one row the user is looking at — the row they most need it on.
+ * The `--primary` half of D-15 rides the cell OUTLINE the host draws beside the
+ * marker; this function owns the size pop.
+ */
+export const flagMarkerStyle = (
+  row: FlagRow,
+  selected: boolean,
+): FlagMarkerStyle => ({
+  tint: flagTint(row),
+  scale: selected ? FLAG_SELECTED_SCALE : 1,
+});
 
 /**
  * What one finding is DRAWN as: the stage-2 verdict if there is one, else the
@@ -152,6 +211,18 @@ export type FlagsSummary = {
   byKindSeverity: FlagCount[];
   /** The findings the filters admit, each already carrying its verdict. */
   visible: FlagRow[];
+  /** Which finding is SELECTED — always a key present in {@link visible}, or
+   *  null.
+   *
+   *  Resolved at publish time rather than mirrored, and that is the whole design:
+   *  the store retains whatever key it was handed, but only publishes it while a
+   *  visible row answers to it. So a filter that HIDES the selected row publishes
+   *  null and ticking the band back on brings the selection back, while a
+   *  re-analysis that RETIRES the finding publishes null forever. Those two want
+   *  opposite treatment and are indistinguishable from the key alone, which is why
+   *  nothing here validates passively. The invariant a consumer may rely on: if
+   *  `selected` is non-null, exactly one `visible` row carries it. */
+  selected: string | null;
 };
 
 /** One recorded verdict, with the two facts needed to know when it goes stale:
@@ -176,6 +247,12 @@ type VerdictEntry = {
  */
 const passesFilters = (f: FieldFlag, filters: FlagFilters): boolean => {
   if (f.unreachable === true && !filters.unreachable) return false;
+  // The pit veto, one-sided for the reachability rule's reason and one more of
+  // its own: a pit IS a candidate, so this is a subtraction from that band rather
+  // than a band beside it. Un-ticking `pits` while `candidates` stands leaves
+  // every per-cell candidate showing; ticking `pits` while `candidates` is off
+  // shows nothing, because there is no severity left to admit it.
+  if (f.kind === "pit" && !filters.pits) return false;
   return f.severity === "candidate" ? filters.candidates : filters.info;
 };
 
@@ -260,8 +337,15 @@ export type FlagStore = {
   setVerdict(flag: FieldFlag, verdict: VerifyVerdictWire): void;
   setFilters(filters: FlagFilters): void;
   filters(): FlagFilters;
-  /** Drop every finding, pit and verdict (a world reset). Filters survive — they
-   *  are a view preference, like the layer flags. */
+  /** Remember which finding is selected, or `null` for none. Stored VERBATIM and
+   *  never validated here — {@link FlagsSummary.selected} does the resolving, and
+   *  the host's `selectFlag` does the refusing (through {@link rowByKey}, so an
+   *  unknown key is reported rather than silently stored). */
+  setSelected(key: string | null): void;
+  /** Drop every finding, pit, verdict and the selection (a world reset). Filters
+   *  survive — they are a view preference, like the layer flags. The selection
+   *  does NOT: it names a finding in a world that is gone, and keeping it would
+   *  let the next world's analyzer resurrect it by coincidence. */
   clear(): void;
   summary(): FlagsSummary;
 };
@@ -276,6 +360,7 @@ export function createFlagStore(): FlagStore {
   let pits: readonly FieldFlag[] = [];
   const verdicts = new Map<string, VerdictEntry>();
   let filters: FlagFilters = { ...DEFAULT_FLAG_FILTERS };
+  let selectedKey: string | null = null;
 
   /** The findings to present, deduped and ordered — the one input both
    *  {@link FlagStore.summary} and {@link FlagStore.rowByKey} read, so the two
@@ -336,10 +421,14 @@ export function createFlagStore(): FlagStore {
     filters() {
       return { ...filters };
     },
+    setSelected(key) {
+      selectedKey = key;
+    },
     clear() {
       byChunk.clear();
       pits = [];
       verdicts.clear();
+      selectedKey = null;
     },
     summary() {
       const found = findings();
@@ -353,15 +442,23 @@ export function createFlagStore(): FlagStore {
           tally.set(pair, { kind: f.kind, severity: f.severity, count: 1 });
         else row.count += 1;
       }
+      // The join happens through `rowOf`, the same one `rowByKey` uses — so a
+      // row resolved by key and a row read off the summary are built by one
+      // piece of code and cannot carry different verdicts.
+      const visible = found.filter((f) => passesFilters(f, filters)).map(rowOf);
       return {
         total: found.length,
         byKindSeverity: [...tally]
           .sort(([a], [b]) => compareKeys(a, b))
           .map(([, row]) => row),
-        // The join happens through `rowOf`, the same one `rowByKey` uses — so a
-        // row resolved by key and a row read off the summary are built by one
-        // piece of code and cannot carry different verdicts.
-        visible: found.filter((f) => passesFilters(f, filters)).map(rowOf),
+        visible,
+        // Resolved against the rows just built rather than against the retained
+        // key — see the field's own docblock for why the retention and the
+        // publication are deliberately different things.
+        selected:
+          selectedKey !== null && visible.some((r) => r.key === selectedKey)
+            ? selectedKey
+            : null,
       };
     },
   };

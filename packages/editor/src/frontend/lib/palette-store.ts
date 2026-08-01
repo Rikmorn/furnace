@@ -15,6 +15,7 @@ export const PALETTE_IDS = [
   "controls",
   "entities",
   "session",
+  "flags",
   "history",
   "log",
 ] as const;
@@ -90,6 +91,21 @@ export const PALETTES: Record<
     default: { x: 420, y: 56, edge: null, collapsed: false, open: false },
     drivenOpen: true,
   },
+  flags: {
+    title: "Flags",
+    // Free-floating and OPEN, unlike the two SUMMONED palettes below it, and the
+    // difference is who starts the conversation: the advisor runs on its own, so its
+    // findings are the one thing on screen nobody asked for. A palette you have to
+    // go looking for is one that never gets read, and it costs nothing on a clean
+    // world — an empty list is a header line and one sentence.
+    //
+    // Below the entities palette in the same left column (that one floats at
+    // (24, 24)): the two are the REFERENCE surfaces — what the world contains, and
+    // what is wrong with it — and they are read together. A tall entity list will
+    // reach this, which is the ordinary "drag one aside" case the log already
+    // documents for sharing a corner, not a reason to spend the last free quadrant.
+    default: { x: 24, y: 380, edge: null, collapsed: false, open: true },
+  },
   history: {
     title: "History",
     // Free-floating, and the one default that had to dodge three occupied corners: the
@@ -149,6 +165,7 @@ export function defaultWorkspace(): WorkspaceState {
       controls: { ...PALETTES.controls.default },
       entities: { ...PALETTES.entities.default },
       session: { ...PALETTES.session.default },
+      flags: { ...PALETTES.flags.default },
       history: { ...PALETTES.history.default },
       log: { ...PALETTES.log.default },
     },

@@ -16,7 +16,10 @@ import {
   CANDIDATE_TINT,
   createFlagStore,
   DEFAULT_FLAG_FILTERS,
+  FLAG_SELECTED_SCALE,
+  flagCellBox,
   flagMarkerCenter,
+  flagMarkerStyle,
   flagTint,
   INFO_TINT,
   VERIFIED_CLEAR_TINT,
@@ -82,6 +85,7 @@ test("the default filters show candidates and hide info + demoted flags", () => 
     candidates: true,
     info: false,
     unreachable: false,
+    pits: true,
   });
   expect(DEFAULT_FLAG_FILTERS).toEqual(store.filters());
 
@@ -106,11 +110,26 @@ test("each filter admits exactly its own band", () => {
       flag("narrow", "candidate", [3, 0, 0], "0,0,0", true),
     ]),
   );
-  store.setFilters({ candidates: true, info: true, unreachable: false });
+  store.setFilters({
+    candidates: true,
+    info: true,
+    unreachable: false,
+    pits: true,
+  });
   expect(keysOf(store.summary())).toEqual(["ledge@2,0,0", "narrow@1,0,0"]);
-  store.setFilters({ candidates: true, info: false, unreachable: true });
+  store.setFilters({
+    candidates: true,
+    info: false,
+    unreachable: true,
+    pits: true,
+  });
   expect(keysOf(store.summary())).toEqual(["narrow@1,0,0", "narrow@3,0,0"]);
-  store.setFilters({ candidates: false, info: false, unreachable: true });
+  store.setFilters({
+    candidates: false,
+    info: false,
+    unreachable: true,
+    pits: true,
+  });
   expect(store.summary().visible).toEqual([]);
   // Hiding everything filters the VIEW and nothing else — the findings stand.
   expect(store.summary().total).toBe(3);
@@ -282,7 +301,12 @@ test("clear() empties findings, pits and verdicts but keeps the filters", () => 
     flag("pit", "candidate", [4, 0, 4], "0,0,0"),
   ]);
   store.setVerdict(f, verdict("clear"));
-  store.setFilters({ candidates: true, info: true, unreachable: true });
+  store.setFilters({
+    candidates: true,
+    info: true,
+    unreachable: true,
+    pits: true,
+  });
 
   store.clear();
   const s = store.summary();
@@ -294,6 +318,7 @@ test("clear() empties findings, pits and verdicts but keeps the filters", () => 
     candidates: true,
     info: true,
     unreachable: true,
+    pits: true,
   });
 });
 
@@ -349,7 +374,12 @@ test("rowByKey is scoped to VISIBLE rows — a filtered-out finding is unaddress
   // row that is not on screen to show it.
   const store = createFlagStore();
   const info = flag("ledge", "info", [2, 0, 0], "0,0,0");
-  store.setFilters({ candidates: true, info: true, unreachable: false });
+  store.setFilters({
+    candidates: true,
+    info: true,
+    unreachable: false,
+    pits: true,
+  });
   store.applyFlags([{ key: "0,0,0", flags: [info] }]);
   const key = keysOf(store.summary())[0];
   if (key === undefined) throw new Error("test: no visible row");
@@ -374,4 +404,115 @@ test("flagMarkerCenter LIFTS the marker half a cell out of the floor", () => {
   expect(flagMarkerCenter([2, 1, -3], 0.5)).toEqual([2, 1.25, -3]);
   // Cell-relative, because the lift is: X and Z are untouched, Y scales.
   expect(flagMarkerCenter([2, 1, -3], CELL)).toEqual([2, 1.125, -3]);
+});
+
+// --- the `pits` band (F4.5b Task 13, D-F4.5-15's third chip) ----------------
+
+test("the `pits` filter is a KIND veto, and it is ON by default", () => {
+  const store = createFlagStore();
+  const pit = flag("pit", "candidate", [4, 0, 4], "0,0,0");
+  const narrow = flag("narrow", "candidate", [1, 0, 0], "0,0,0");
+  store.applyFlags(byOwner([narrow]), [pit]);
+
+  // Default-ON, deliberately: a pit is candidate-severity, so the `candidates`
+  // chip already claims to be showing it. A second chip that defaulted OFF would
+  // make the first one lie about the most serious finding the advisor has.
+  expect(DEFAULT_FLAG_FILTERS.pits).toBe(true);
+  expect(keysOf(store.summary()).length).toBe(2);
+
+  store.setFilters({ ...DEFAULT_FLAG_FILTERS, pits: false });
+  // ONE-SIDED like `unreachable`: it removes pits and touches nothing else, so
+  // the narrow finding beside it is unaffected.
+  expect(keysOf(store.summary())).toEqual(["narrow@1,0,0"]);
+  // …and it HIDES rather than deletes — the header still counts it.
+  expect(store.summary().total).toBe(2);
+});
+
+// --- the selected finding (F4.5b Task 13, D-F4.5-15) ------------------------
+
+test("`selected` publishes a key only while it resolves to a VISIBLE row", () => {
+  const store = createFlagStore();
+  const info = flag("ledge", "info", [2, 0, 0], "0,0,0");
+  store.setFilters({ ...DEFAULT_FLAG_FILTERS, info: true });
+  store.applyFlags(byOwner([info]));
+  const key = keysOf(store.summary())[0];
+  if (key === undefined) throw new Error("test: no visible row");
+
+  store.setSelected(key);
+  expect(store.summary().selected).toBe(key);
+
+  // A filter that HIDES the selected row publishes null — nothing on screen may
+  // highlight a row that is not there — but the store keeps the key, so ticking
+  // the band back on restores the selection. The two cases a passive validation
+  // could not tell apart are exactly these: hidden (must come back) and
+  // re-analyzed away (must not), and retaining is what makes the first one work.
+  store.setFilters(DEFAULT_FLAG_FILTERS);
+  expect(store.summary().selected).toBeNull();
+  store.setFilters({ ...DEFAULT_FLAG_FILTERS, info: true });
+  expect(store.summary().selected).toBe(key);
+});
+
+test("a re-analysis that retires the selected finding publishes no selection", () => {
+  const store = createFlagStore();
+  store.applyFlags(byOwner([flag("narrow", "candidate", [1, 0, 0], "0,0,0")]));
+  store.setSelected("narrow@1,0,0");
+  expect(store.summary().selected).toBe("narrow@1,0,0");
+
+  // The chunk re-analyses to nothing — the advisor changed its mind, which is the
+  // one way a finding really disappears. Unlike the filter case there is nothing
+  // to come back to, and `selected` stays null for the rest of the session.
+  store.applyFlags([{ key: "0,0,0", flags: [] }]);
+  expect(store.summary().selected).toBeNull();
+});
+
+test("clear() drops the selection with the findings", () => {
+  const store = createFlagStore();
+  store.applyFlags(byOwner([flag("narrow", "candidate", [1, 0, 0], "0,0,0")]));
+  store.setSelected("narrow@1,0,0");
+  store.clear();
+  // A world reset, unlike a filter change: the key names a finding in a world
+  // that is gone, so retaining it could only resurrect a selection in the NEXT
+  // world if the analyzer happened to find the same kind at the same cell.
+  store.applyFlags(byOwner([flag("narrow", "candidate", [1, 0, 0], "0,0,0")]));
+  expect(store.summary().selected).toBeNull();
+});
+
+// --- what a selected marker looks like (D-F4.5-15) --------------------------
+
+test("selection pops the marker's SIZE and leaves its colour alone", () => {
+  const row: FlagRow = {
+    key: "k",
+    flag: flag("narrow", "candidate", [1, 0, 0], "0,0,0"),
+    verdict: verdict("trapped"),
+  };
+  // The colour is the finding's own — its verdict here, its band otherwise. D-15
+  // asks for "emphasis tiers on an outline treatment INDEPENDENT of surface
+  // color" (the Blender model), and the reason is concrete: re-tinting the marker
+  // would delete the trapped/clear/candidate signal from the one row the user is
+  // looking at, which is the row they most need it on. The `--primary` emphasis
+  // rides the cell OUTLINE the host draws beside it.
+  expect(flagMarkerStyle(row, true).tint).toEqual(VERIFIED_TRAPPED_TINT);
+  expect(flagMarkerStyle(row, false).tint).toEqual(flagTint(row));
+  // The size is the whole of the marker-side emphasis, and it is a MULTIPLIER on
+  // the host's metre constant rather than a second metre constant of its own.
+  expect(flagMarkerStyle(row, true).scale).toBe(FLAG_SELECTED_SCALE);
+  expect(flagMarkerStyle(row, false).scale).toBe(1);
+  expect(FLAG_SELECTED_SCALE).toBeGreaterThan(1);
+});
+
+test("flagCellBox is the marker's own cell — the box the pick, the frame and the outline share", () => {
+  // Centred on the LIFTED marker centre and one cell on a side, so it spans
+  // exactly `world.y … world.y + cellSize`: the air cell the finding anchors on.
+  // Three consumers read it (the pointer pick's click volume, `selectFlag`'s
+  // camera frame, and the selected-flag outline batch) — written three times they
+  // drift, and a frame that lands beside the box the user clicked is the f4 gate
+  // finding this replaces, one order of magnitude smaller.
+  expect(flagCellBox([2, 1, -3], 0.5)).toEqual({
+    min: [1.75, 1, -3.25],
+    max: [2.25, 1.5, -2.75],
+  });
+  const box = flagCellBox([2, 1, -3], CELL);
+  expect(box.min[1]).toBe(1);
+  expect(box.max[1]).toBe(1 + CELL);
+  expect(box.max[0] - box.min[0]).toBeCloseTo(CELL, 12);
 });

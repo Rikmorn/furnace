@@ -15,7 +15,7 @@ mechanism bugs. Joins the sibling sets (`field-f2b-gate-ux-findings.md`,
 `field-f3a-gate-ux-findings.md`, `field-f3b-gate-ux-findings.md`,
 `editor-interaction-model-redesign.md`) as polish-stage charter input.
 
-## 1. Selected-flag identification — the frame box is chunk-sized
+## 1. Selected-flag identification — the frame box is chunk-sized ✅ LANDED (F4.5b Task 13)
 
 Click-to-frame moves the camera, but in a cluster nothing says WHICH flag was
 selected: the amber frame highlight boxes the flag's CHUNK (frameChunks), which is
@@ -27,6 +27,19 @@ panel row follows), with the list as the secondary channel. That is the same
 pointer-tool direction the f3a set already carries; a cheaper interim is a
 selected-marker emphasis (scale/tint pop) + a flag-cell-sized frame box instead of
 the chunk AABB.
+
+**Landed 2026-08-01 (F4.5b Task 13, D-F4.5-15), and it went the FULL way rather than
+the interim one.** `FieldHost.selectFlag(key)` is the verb; the selection publishes on
+the flags seam itself (`FlagsSummary.selected`) so the viewport and the palette read
+one fact. The viewport is the primary surface: a pointer click on a marker selects the
+finding (`applyPointerPick`'s flag branch, which Task 3 left as a bare `return`) and the
+palette row lights up and scrolls to itself. A row click selects AND frames — on
+`flagCellBox`, the finding's own cell, which is the same box the pick clicks, so
+`frameChunks` no longer has a flag caller. Emphasis is the marker scaled ×1.6
+(`flagMarkerStyle`) plus a `--primary` outline on that cell; the marker keeps its
+severity/verdict COLOUR, per D-15's "outline treatment independent of surface color" —
+re-tinting it would delete the trapped/clear signal from the one row the user is looking
+at. The item's own words are what shipped; the file still deletes at the F4.5 seal.
 
 ## 2. Gate item 1 was structurally unrunnable — world management, again
 

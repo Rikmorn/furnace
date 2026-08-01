@@ -324,6 +324,7 @@ test.skipIf(!bunWebGpuAvailable())(
         candidates: true,
         info: true,
         unreachable: true,
+        pits: true,
       });
       expect(f.host.flagMarkerCount()).toBe(summary.total);
       expect(f.errors).toEqual([]);
@@ -334,6 +335,7 @@ test.skipIf(!bunWebGpuAvailable())(
         candidates: false,
         info: false,
         unreachable: false,
+        pits: true,
       });
       expect(f.host.flagMarkerCount()).toBe(0);
       expect(f.errors).toEqual([]);

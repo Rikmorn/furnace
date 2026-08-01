@@ -10,6 +10,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
 	Boxes,
+	Flag,
 	History,
 	ScrollText,
 	Settings2,
@@ -53,6 +54,11 @@ const PALETTE_CHROME: Record<
 	// label-column form, not a list, and a wide one puts the labels a long way from the
 	// values they name.
 	session: { Icon: Settings2, widthClass: "w-[280px]" },
+	// Between the entities list and the history: a row is a mono locator
+	// (`narrow ×3 @ (2.5, 0.0, -8.0)`) plus a verdict chip plus a verb, and at 240 px
+	// the locator truncated before its Z coordinate — which is the coordinate that
+	// tells two findings in the same corridor apart.
+	flags: { Icon: Flag, widthClass: "w-[320px]" },
 	// The narrowest of the five, and it can be: a row is a mono index and a two-word
 	// phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
 	history: { Icon: History, widthClass: "w-[240px]" },

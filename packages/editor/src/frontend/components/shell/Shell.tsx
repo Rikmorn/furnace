@@ -33,6 +33,7 @@ import { TooltipProvider } from "../ui/tooltip.tsx";
 import { AxisTriadMount } from "./AxisTriadMount.tsx";
 import { CanvasHost } from "./CanvasHost.tsx";
 import { EntitiesPalette } from "./EntitiesPalette.tsx";
+import { FlagsPalette } from "./FlagsPalette.tsx";
 import { HistoryPalette } from "./HistoryPalette.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
@@ -77,7 +78,7 @@ function ShellFrame() {
 	const engineReady = state.status === "ready";
 
 	return (
-		<FieldHostStateProvider host={host} engineReady={engineReady}>
+		<FieldHostStateProvider host={host} engineReady={engineReady} store={store}>
 			<ViewProvider host={host} engineReady={engineReady} store={store}>
 				<WorldProvider>
 					<CatalogProvider>
@@ -137,6 +138,7 @@ function ShellChrome({
 									controls: <FieldPanel />,
 									entities: <EntitiesPalette />,
 									session: <SessionCard />,
+									flags: <FlagsPalette />,
 									history: <HistoryPalette />,
 									log: <LogPalette />,
 								}}

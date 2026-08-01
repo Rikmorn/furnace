@@ -14,16 +14,21 @@ import type {
 	StampSession,
 	ViewportGesture,
 } from "../../../viewport-host/index.ts"; // type-only: erased
+import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
 	useFieldHostState,
+	useFieldSelection,
 	useFieldStamp,
 	useFieldTool,
 } from "../../hooks/useFieldHostState.tsx";
 import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
+import { ACTIONS } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
+import { Button } from "../ui/button.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 
 function engineLabel(state: EditorState): string {
 	if (state.status === "engine-error") return "engine: BUILD FAILED";
@@ -149,6 +154,101 @@ function ErrorChip() {
 	);
 }
 
+/** The cell-selection chip, with the verbs the Field panel's footer used to hold.
+ *
+ *  On the STATUS BAR rather than in a palette, and the reason is the count: "how much
+ *  is selected" is a live readout of what the next masked op will hit, and it lived at
+ *  the bottom of a panel that had to be OPEN to be read — while the panel it was in
+ *  has now dissolved entirely (F4.5b Task 13). The two verbs come with it because they
+ *  are what a reader of that number wants to do about it, and a popover is what keeps
+ *  a 28 px bar from growing two more buttons.
+ *
+ *  Absent with nothing selected. Unlike Reselect — which matters exactly when there is
+ *  no selection — the CHIP is a readout, and a chip reading "sel 0 cells" on every
+ *  boot is a permanent affordance for a state with nothing to say. Reselect stays
+ *  reachable from the Edit menu, which is where a verb with no visible object belongs.
+ */
+function SelectionChip() {
+	const { selection } = useFieldSelection();
+	if (selection === null) return null;
+	const { count, truncated, displayed } = selection;
+	const cells = `${count} cell${count === 1 ? "" : "s"}`;
+	return (
+		<Popover>
+			<PopoverTrigger
+				aria-label={`${cells} selected — clear or reselect`}
+				className="flex items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-px tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+			>
+				{`sel ${cells}`}
+			</PopoverTrigger>
+			{/* The body reads the ACTION context, which moves on every op and every drag
+			    frame — and Radix mounts portalled content only while the popover is open,
+			    so a closed chip costs nothing (the RegistryGroup rationale, one bar down). */}
+			<PopoverContent align="end" className="w-64 space-y-2 p-2 text-xs">
+				<SelectionVerbs truncated={truncated} count={count} shown={displayed} />
+			</PopoverContent>
+		</Popover>
+	);
+}
+
+/** The chip's body: what is limiting this selection, and the two verbs for it. */
+function SelectionVerbs({
+	truncated,
+	count,
+	shown,
+}: {
+	truncated: boolean;
+	count: number;
+	shown: number | undefined;
+}) {
+	const ctx = useActionContext();
+	return (
+		<>
+			{/* Two limits a selection can be under, and they are DIFFERENT things — the
+			    first is about what was SELECTED, the second only about what is DRAWN.
+			    Said in full here rather than compressed into the chip, which has one line
+			    and a number's worth of room. */}
+			{truncated && (
+				<p className="text-muted-foreground">
+					{`flood truncated at ${count.toLocaleString()} cells — the budget stopped it, so this is not the whole pocket`}
+				</p>
+			)}
+			{shown !== undefined && (
+				<p className="text-muted-foreground">
+					{`showing ${shown.toLocaleString()} of ${count.toLocaleString()} cells — the rest are selected but not drawn`}
+				</p>
+			)}
+			<div className="flex gap-1">
+				{SELECTION_ACTIONS.map((id) => {
+					const action = ACTIONS.find((a) => a.id === id);
+					// Absent = the registry lost an id this bar names. Rendering nothing is
+					// the honest failure (a dead button would be worse), and the id pair
+					// below is asserted against the table in the suite.
+					if (action === undefined) return null;
+					return (
+						<Button
+							key={id}
+							type="button"
+							size="sm"
+							variant="ghost"
+							className="h-6 px-2 text-xs"
+							disabled={!action.enabled(ctx)}
+							title={action.menuTitle}
+							onClick={() => action.run(ctx)}
+						>
+							{action.label(ctx)}
+						</Button>
+					);
+				})}
+			</div>
+		</>
+	);
+}
+
+/** The two verbs the chip carries, by registry id — the Edit menu renders the same
+ *  two from the same table, so the popover cannot say something the menu does not. */
+const SELECTION_ACTIONS = ["edit.clearSelection", "edit.reselect"] as const;
+
 /** A clickable status chip — the shared shell for the two the bar now has (D-19's
  *  stats-chip popovers are F4.5c). Its own component so the two cannot drift apart
  *  visually, which on a 28 px bar is the difference between "these are both buttons" and
@@ -199,6 +299,7 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 				</span>
 			)}
 			<div className="flex-1" />
+			<SelectionChip />
 			<ErrorChip />
 			{stats && (
 				<span className="flex items-center gap-3 tabular-nums">

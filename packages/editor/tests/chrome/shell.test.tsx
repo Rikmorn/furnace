@@ -29,7 +29,10 @@ import {
 import { ACTIONS } from "../../src/frontend/lib/actions.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
-import type { FieldTool } from "../../src/viewport-host/index.ts";
+import type {
+	FieldTool,
+	SelectionInfo,
+} from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,
@@ -346,7 +349,16 @@ const LIFTED_SEAMS: readonly (readonly [
 	["tool", (s) => s.fire.tool(DIG_TOOL)],
 	["selection", (s) => s.fire.selection(null)],
 	["stamp", (s) => s.fire.stamp(null)],
-	["flags", (s) => s.fire.flags({ total: 0, byKindSeverity: [], visible: [] })],
+	[
+		"flags",
+		(s) =>
+			s.fire.flags({
+				total: 0,
+				byKindSeverity: [],
+				visible: [],
+				selected: null,
+			}),
+	],
 ];
 
 // The path the real editor ALWAYS takes, and the one no other case covers: App mounts the
@@ -1752,11 +1764,17 @@ test("the palette layer floats over the canvas and never swallows viewport input
 	// Docked right by default, and the field controls really are inside it (this is the
 	// field panel, not an empty box that happens to be positioned right).
 	expect(palette.style.right).toBe("0px");
-	// Anchored on the selection footer's Reselect: the brush controls left this palette
-	// for the rail and the top strip (F4.5b Task 8), and Reselect is what is always in it
-	// — the stamp form and the flags section both render only when they have something.
+	// Anchored on the FLAGS palette's chip row rather than on this one's body: since
+	// F4.5b Task 13 the `controls` palette renders nothing at all (its last two organs
+	// went to the flags palette and the status bar), so there is no content of its own
+	// left to prove it is a real palette rather than an empty positioned box. The claim
+	// moves to a palette that HAS a body and always has one — the flag chips render
+	// whether or not the advisor has found anything.
+	const flags = screen.queryByRole("region", { name: "Flags" });
+	if (!(flags instanceof HTMLElement))
+		throw new Error("the flags palette is not open");
 	expect(
-		palette.contains(screen.getByRole("button", { name: "Reselect" })),
+		flags.contains(screen.getByRole("button", { name: "candidates" })),
 	).toBe(true);
 });
 
@@ -1799,15 +1817,17 @@ test("a pointerdown raises a palette above the others, and does not persist", as
 		Number(zOf(controlsPalette())),
 	);
 
-	// A click on the controls palette's BODY (not its header — the raise must not be a
-	// drag-handle privilege) puts it on top.
+	// A click on a palette BODY (not its header — the raise must not be a drag-handle
+	// privilege) puts it on top. The flags palette is the probe because it is the one
+	// with a body that is always there; `controls` renders nothing since Task 13.
+	const flagsPalette = () => screen.queryByRole("region", { name: "Flags" });
 	act(() => {
-		fireEvent.pointerDown(screen.getByRole("button", { name: "Reselect" }), {
+		fireEvent.pointerDown(screen.getByRole("button", { name: "candidates" }), {
 			button: 0,
 			pointerId: 1,
 		});
 	});
-	expect(Number(zOf(controlsPalette()))).toBeGreaterThan(
+	expect(Number(zOf(flagsPalette()))).toBeGreaterThan(
 		Number(zOf(entitiesPalette())),
 	);
 
@@ -1999,9 +2019,12 @@ test("a palette collapses to a rail chip that restores it, keeping its geometry"
 	// Out of the layout AND out of the accessibility tree — but still MOUNTED behind
 	// `hidden`, so the panel's host-subscribed state survives the round trip.
 	// `getByText`, not `getByRole`: `hidden` takes the subtree out of the a11y tree,
-	// which is the very claim above, so a role query would find nothing either way.
+	// which is the very claim above, so a role query would find nothing either way. The
+	// text probed is the ENTITIES palette's, because `controls` renders nothing since
+	// F4.5b Task 13 — a collapse that unmounted its neighbour would be the same defect
+	// and is what this half is really about.
 	expect(controlsPalette()).toBeNull();
-	expect(screen.getByText("Reselect")).toBeTruthy();
+	expect(screen.getByText("Entities (0)")).toBeTruthy();
 	// The button that was just clicked went with the palette, so focus has to be MOVED
 	// or it lands on <body> and a keyboard user restarts from the top of the document.
 	const chip = screen.getByRole("button", { name: "expand Controls" });
@@ -2035,9 +2058,10 @@ test("⌘\\ hides the whole layer and restores the EXACT arrangement (D-3)", asy
 	// as they were, which is the whole point of the layer being a layer.
 	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 	// …and it hides rather than UNMOUNTS: ⌘\ is a peek, and a peek that tears the
-	// palettes down would reset every host-subscribed control inside them.
-	expect(screen.getByText("Reselect")).toBeTruthy();
+	// palettes down would reset every host-subscribed control inside them. Probed on
+	// two palettes with real bodies — `controls` renders nothing since F4.5b Task 13.
 	expect(screen.getByText("Entities (0)")).toBeTruthy();
+	expect(screen.getByText("Flags · 0 candidates")).toBeTruthy();
 
 	act(() => {
 		fireEvent.keyDown(window, { key: "\\", metaKey: true });
@@ -2760,10 +2784,125 @@ test("the burger's Edit group names the stamp its verbs would act on, in table o
 		"Duplicate hall #4",
 		"Delete hall #4",
 		"Move hall #4",
+		// F4.5b Task 13: the Field panel's selection footer dissolved, and its two verbs
+		// landed in the registry so the status chip's popover and this menu render the
+		// same pair from one table. Clear names its object the way the stamp verbs above
+		// it do; with nothing selected it reads "Clear selection" and is disabled.
+		"Clear selection",
+		"Reselect",
 		// Live since F4.5b Task 12 — it summons the palette rather than explaining its
 		// own absence in the label (see the History cases above).
 		"History…",
 	]);
+});
+
+// --- (c9b) the selection chip (F4.5b Task 13) --------------------------------
+//
+// The Field panel's selection footer dissolved with the panel. Its count, its
+// truncation warning and its Clear / Reselect verbs are a status-bar chip now — the
+// coverage below is ported from `field-panel.test.tsx`'s footer case and extended
+// with the two things the footer could not say: the display cap, and the fact that
+// both verbs come from the ONE action table the Edit menu renders.
+
+/** A `SelectionInfo` with `overrides` applied — a region selection by default, which
+ *  is the kind that never carries a `displayed`. */
+const selectionOf = (
+	overrides: Partial<SelectionInfo> = {},
+): SelectionInfo => ({
+	spec: { kind: "region", min: [0, 0, 0], max: [1, 1, 1] },
+	count: 12,
+	truncated: false,
+	aabb: { min: [0, 0, 0], max: [1, 1, 1] },
+	...overrides,
+});
+
+const selectionChip = (name: string | RegExp): HTMLElement =>
+	screen.getByLabelText(name);
+
+test("the selection chip appears with a selection, counts it, and goes with it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// ABSENT with nothing selected. The chip is a readout, and "sel 0 cells" on every
+	// boot is a permanent affordance for a state with nothing to say — Reselect stays
+	// reachable from the Edit menu, which is where a verb with no object belongs.
+	expect(screen.queryByText(/^sel /) === null).toBe(true);
+
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 12 }));
+	});
+	expect(screen.getByText("sel 12 cells")).toBeTruthy();
+	expect(selectionChip("12 cells selected — clear or reselect")).toBeTruthy();
+
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 1 }));
+	});
+	expect(screen.getByText("sel 1 cell")).toBeTruthy();
+
+	act(() => {
+		stub.fire.selection(null);
+	});
+	expect(screen.queryByText(/^sel /) === null).toBe(true);
+});
+
+test("the chip's popover runs Clear and Reselect through the action table", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 12 }));
+	});
+
+	act(() => {
+		fireEvent.click(selectionChip("12 cells selected — clear or reselect"));
+	});
+	// The labels are the REGISTRY's — the Edit menu renders the same two from the same
+	// table, so the popover cannot offer a verb the menu does not.
+	fireEvent.click(
+		screen.getByRole("button", { name: "Clear 12 selected cells" }),
+	);
+	expect(stub.calls.clearSelection.mock.calls.length).toBe(1);
+	fireEvent.click(screen.getByRole("button", { name: "Reselect" }));
+	expect(stub.calls.reselect.mock.calls.length).toBe(1);
+});
+
+test("the chip says which of TWO limits it is under, and they are different limits", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// A flood the budget stopped: what is SELECTED is partial.
+	act(() => {
+		stub.fire.selection(
+			selectionOf({
+				spec: { kind: "flood-void", seed: [0, 0, 0], budget: 200000 },
+				count: 200000,
+				truncated: true,
+			}),
+		);
+	});
+	act(() => {
+		fireEvent.click(selectionChip(/^200000 cells selected/));
+	});
+	expect(screen.getByText(/flood truncated at 200,000 cells/)).toBeTruthy();
+	// …and nothing about the DISPLAY, because this fixture's is complete. The two are
+	// independent: a truncated selection can be drawn in full, and a complete one can
+	// be drawn in part.
+	expect(screen.queryByText(/showing /) === null).toBe(true);
+
+	// The other limit, alone: every selected cell is real, but the viewport is only
+	// drawing 65 536 of them.
+	act(() => {
+		stub.fire.selection(
+			selectionOf({
+				spec: { kind: "flood-void", seed: [0, 0, 0], budget: 200000 },
+				count: 196392,
+				truncated: false,
+				displayed: 65536,
+			}),
+		);
+	});
+	expect(screen.getByText(/showing 65,536 of 196,392 cells/)).toBeTruthy();
+	expect(screen.queryByText(/flood truncated/) === null).toBe(true);
 });
 
 // --- (c10) the gate's target predicate: which controls swallow a bare key -----

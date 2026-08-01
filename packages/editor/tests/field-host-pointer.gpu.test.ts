@@ -32,12 +32,14 @@
 // and the pick is decided by the candidates alone.
 import { expect, test } from "bun:test";
 import {
+  type AgentProfile,
   AIR,
   CHUNK_DIM,
   CHUNK_SAMPLES,
   chunkKey,
   DEFAULT_CELL_SIZE,
   encodeChunkFile,
+  type FieldFlag,
   type FieldManifest,
   type FieldOp,
   SOLID,
@@ -47,11 +49,56 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
+import type { AnalyzerRequest } from "../src/frontend/lib/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import type { FlagsSummary } from "../src/viewport-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
+
+/** The dungeon's shipped capsule as a literal (the analyzer suite's rationale:
+ *  the editor is project-first and pins nobody's numbers). Its only job in this
+ *  file is to make the advisor RUN, so a canned response has somewhere to land. */
+const AGENT: AgentProfile = {
+  capsule: { radius: 0.3, halfHeight: 0.6 },
+  stepHeight: 0.4,
+  climbCeiling: 0.7,
+  clearance: 1.8,
+  slopeLimitDeg: 55,
+  skin: 0.08,
+};
+
+/** A worker whose "thread" is the real protocol handler, so a test can answer the
+ *  host's analyze with a CANNED payload — the marker cases are about what a click
+ *  lands on, not about what the column pass would really have found. */
+function fakeAnalyzer() {
+  let lastJob: number | null = null;
+  const worker: WorkerLike = {
+    onmessage: null,
+    postMessage(msg) {
+      const req = structuredClone(msg) as AnalyzerRequest;
+      if (req.kind === "analyze") lastJob = req.jobId;
+    },
+    terminate() {
+      // no thread to tear down
+    },
+  };
+  const respond = async (flags: FieldFlag[]): Promise<void> => {
+    if (lastJob === null)
+      throw new Error("test: no analyze has been posted to respond to");
+    worker.onmessage?.({
+      data: {
+        kind: "flags",
+        jobId: lastJob,
+        chunks: [{ key: chunkKey(0, 0, 0), flags }],
+      },
+    } as MessageEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  return { worker, respond };
+}
 
 const MANIFEST: FieldManifest = {
   version: 2,
@@ -197,14 +244,28 @@ const loadInto = (
 async function pointerFixture(
   ops: FieldOp[],
   chunks: { key: string; bytes: Uint8Array }[] = [],
+  /** Findings to land on the host before the first click, for the marker cases.
+   *  Injecting the analyzer WORKER is the only way in: `applyFlags` is the flag
+   *  store's, behind the pump, and the store is private to the host. */
+  flags: FieldFlag[] = [],
 ) {
   const restoreRo = installMockResizeObserver();
   // The NO-OP rAF variant: nothing here observes a frame — the pick runs
   // entirely inside the pointerdown handler.
   const restoreRaf = stubAnimationFrameNoop();
   const listeners: HostListeners = new Map();
-  const host = createFieldHost();
+  const analyzer = fakeAnalyzer();
+  const host = createFieldHost({ spawnAnalyzer: () => analyzer.worker });
+  if (flags.length > 0) host.setAgentProfile(AGENT);
   loadInto(host, ops, chunks);
+  const summaries: FlagsSummary[] = [];
+  host.subscribeFlags((s) => summaries.push(s));
+  if (flags.length > 0) {
+    // The pump posts its analyze off a microtask, so the response needs a turn to
+    // have something to answer.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await analyzer.respond(flags);
+  }
   await host.init(await makeHostCanvas(listeners));
   const selected: (number | null)[] = [];
   host.subscribeEntitySelection((id) => selected.push(id));
@@ -216,6 +277,7 @@ async function pointerFixture(
   return {
     host,
     selected,
+    summaries,
     click,
     teardown: () => {
       host.dispose();
@@ -387,6 +449,93 @@ test.skipIf(!bunWebGpuAvailable())(
       // a wall.
       f.click(32, 32);
       expect(f.selected).toEqual([null]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the flag marker as a pick target (F4.5b Task 13, D-F4.5-15) -------------
+//
+// "The viewport is the primary selection surface" is this pair of cases. Task 3
+// built the pick's `flag` candidate but had nowhere to put the key, so the branch
+// it fed was `return` — the whole path was covered only where it is pure. It has a
+// seam now, and this is the only place a real CLICK reaches it.
+//
+// What these two do NOT discriminate, stated rather than implied: the half-cell LIFT
+// inside `flagCellBox`. Removing it leaves both cases green, because at the default
+// 0.25 m lattice the lifted and unlifted boxes still overlap where the centre ray
+// crosses them — the camera looks AT the target, so the ray is inside the column for
+// only a fraction of a cell either way. The lift is pinned in
+// tests/viewport-host/field-flags.test.ts (red when it goes) and is shared BY
+// CONSTRUCTION: the pick, the frame and the outline all call the one function, so
+// there is no second spelling for it to drift from. What these cases own is the seam
+// and the layer gate, and both go red when either is broken.
+
+/** A finding whose anchor cell contains the orbit target `[0, 1, 0]` — the point
+ *  the canvas-centre ray passes through by construction. `flagCellBox` lifts the
+ *  box half a cell in Y, so a `world.y` of 0.875 spans 0.875…1.125 and the target
+ *  sits inside it. */
+const AT_TARGET: FieldFlag = {
+  kind: "narrow",
+  severity: "candidate",
+  cell: [0, 3, 0],
+  world: [0, 0.875, 0],
+  chunk: chunkKey(0, 0, 0),
+};
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a click on a MARKER selects the finding and leaves the entity selection standing",
+  async () => {
+    const f = await pointerFixture(carveOps(), terrainBand(false), [AT_TARGET]);
+    try {
+      // Select the entity first, so the "leaves it standing" half has something to
+      // be about: a marker click that deselected would be the pre-Task-3 bug.
+      f.host.selectEntity(CARVE_ENTITY_ID);
+      expect(f.selected.at(-1)).toBe(CARVE_ENTITY_ID);
+      const pushes = f.summaries.length;
+
+      f.click(32, 32);
+
+      // The marker wins the click over the entity FOOTPRINT it sits inside — the
+      // pick's tier rule (objects before volumes), which is what makes a marker
+      // clickable at all once the camera is inside the room that carved it.
+      const key = f.summaries.at(-1)?.selected;
+      expect(key).toBe(f.summaries.at(-1)?.visible[0]?.key);
+      expect(typeof key).toBe("string");
+      // It PUSHED, so the palette really does hear about a viewport click…
+      expect(f.summaries.length).toBeGreaterThan(pushes);
+      // …and the entity selection is untouched: two different selections, and
+      // clicking a finding is not a statement about which stamp is being worked on.
+      expect(f.selected.at(-1)).toBe(CARVE_ENTITY_ID);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "markers switched OFF are not selectable — what you see is what you target",
+  async () => {
+    const f = await pointerFixture(carveOps(), terrainBand(false), [AT_TARGET]);
+    try {
+      f.host.setLayers({
+        field: true,
+        kit: true,
+        props: true,
+        ghost: true,
+        selection: true,
+        grid: true,
+        flags: false,
+        voidCast: false,
+      });
+      // With the marker layer hidden the same click falls THROUGH to the carve
+      // entity's footprint — the slice-coherence rule applied to objects. It also
+      // means a flag selection cannot be made while the outline that would show it
+      // is switched off, which is why that outline is gated on `flags` too.
+      f.click(32, 32);
+      expect(f.selected.at(-1)).toBe(CARVE_ENTITY_ID);
+      expect(f.summaries.at(-1)?.selected).toBeNull();
     } finally {
       f.teardown();
     }
