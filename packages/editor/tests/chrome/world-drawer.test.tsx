@@ -770,11 +770,14 @@ test("the name field says OVERWRITE for a taken name and the rule for a broken o
 	);
 
 	// A TAKEN name: the consequence, naming the world AND the verb that commits to it.
+	// "replaces it" rather than "confirms" — a SCRATCH world gets no confirm dialog at
+	// all (that guard is for tracked ones), so a promise of one would be false for
+	// exactly the case this line is the only warning for.
 	act(() => {
 		fireEvent.change(field, { target: { value: "cavern" } });
 	});
 	const line = within(form).getByText(
-		'will overwrite "cavern" — Save confirms',
+		'will overwrite "cavern" — Save replaces it',
 	);
 	// The repo's info tone (Toasts.tsx's `info` row), not a fill colour and not the
 	// destructive lane: an overwrite the user typed on purpose is not an error.
@@ -791,6 +794,119 @@ test("the name field says OVERWRITE for a taken name and the rule for a broken o
 		"text-destructive-text",
 	);
 	expect(form.textContent ?? "").not.toContain("will overwrite");
+});
+
+test("the name field DESCRIBES its cue, so the overwrite warning is not sighted-only", async () => {
+	// The warning lives in a coloured span beside the field, and `aria-invalid` — the
+	// field's only other signal — is FALSE in the overwrite state, because the name is
+	// perfectly valid. Without `aria-describedby` a screen-reader user typing an existing
+	// name hears exactly what they hear typing a free one, and then destroys a world.
+	// The rule line rides the same wire, so the description is never absent.
+	stubDaemon([row({ name: "cavern" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	const field = within(drawer).getByLabelText("save as world name");
+
+	/** What a screen reader would read out for the field, resolved the way one does —
+	 *  `getElementById` rather than a CSS selector, because `useId` mints ids containing
+	 *  colons that no unescaped selector can match. */
+	const described = (): string => {
+		const id = field.getAttribute("aria-describedby");
+		if (id === null) throw new Error("the name field describes nothing");
+		const el = document.getElementById(id);
+		if (el === null)
+			throw new Error(`aria-describedby points at no element: ${id}`);
+		return el.textContent ?? "";
+	};
+
+	act(() => {
+		fireEvent.change(field, { target: { value: "grotto" } });
+	});
+	expect(described()).toContain(WORLD_NAME_RULE);
+
+	// The state the field itself cannot signal: valid, so `aria-invalid` is false, and
+	// destructive all the same.
+	act(() => {
+		fireEvent.change(field, { target: { value: "cavern" } });
+	});
+	expect(field.getAttribute("aria-invalid")).toBe("false");
+	expect(described()).toContain('will overwrite "cavern"');
+
+	act(() => {
+		fireEvent.change(field, { target: { value: "../etc" } });
+	});
+	expect(described()).toContain(WORLD_NAME_RULE);
+});
+
+test("a FILTERED-away world is still overwritten, and the line still says so", async () => {
+	// Reachable in ordinary use: narrow the list, then type a name the filter is hiding.
+	// The filter decides what is on SCREEN; it does not make the worlds behind it any
+	// less replaceable, so the cue is built from every listed row rather than the visible
+	// ones.
+	stubDaemon([row({ name: "cavern" }), row({ name: "grotto" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("filter worlds"), {
+			target: { value: "grot" },
+		});
+	});
+	expect(within(drawer).getAllByRole("option").length).toBe(1);
+
+	// Opening the name form does not reset the filter — only a fresh summon does — so
+	// "cavern" is genuinely off screen while it is being typed.
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	const field = within(drawer).getByLabelText("save as world name");
+	act(() => {
+		fireEvent.change(field, { target: { value: "cavern" } });
+	});
+	const form = field.closest("form");
+	if (!(form instanceof HTMLElement)) throw new Error("no name form");
+	expect(form.textContent ?? "").toContain('will overwrite "cavern"');
+});
+
+test("a name that breaks the RULE never claims an overwrite, whatever the list holds", async () => {
+	// Two copies of one regex stand between these states: `isValidWorldName`
+	// (lib/generation.ts, the UI-boundary mirror) and the daemon's own `WORLD_NAME_RE`,
+	// which is what `world.list` filters directory names through. They agree TODAY, which
+	// is why no user can reach this — and the `valid &&` guard is what keeps the form's
+	// two lines mutually exclusive if they ever drift, rather than leaving the property
+	// resting on a regex in another process. A row the daemon would never list, to pin it.
+	stubDaemon([row({ name: "-bad" })]);
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "-bad"));
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	const field = within(drawer).getByLabelText("save as world name");
+	act(() => {
+		fireEvent.change(field, { target: { value: "-bad" } });
+	});
+	const form = field.closest("form");
+	if (!(form instanceof HTMLElement)) throw new Error("no name form");
+
+	// Refused, not promised: Save is disabled, so a line saying what Save would replace
+	// is a line about a keypress that does nothing.
+	expect(
+		(within(drawer).getByRole("button", { name: "Save" }) as HTMLButtonElement)
+			.disabled,
+	).toBe(true);
+	expect(form.textContent ?? "").not.toContain("will overwrite");
+	expect(within(form).getByText(WORLD_NAME_RULE).className).toContain(
+		"text-destructive-text",
+	);
 });
 
 // --- (e) New world -------------------------------------------------------------

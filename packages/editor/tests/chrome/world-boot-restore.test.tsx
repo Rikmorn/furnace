@@ -496,6 +496,51 @@ test("a boot that REOPENS a world says nothing about new rock", async () => {
 	expect(hintCount()).toBe(0);
 });
 
+test("a lastWorld that is GONE still gets the hint — after the round trip that proves it", async () => {
+	// The realistic first-run-again: `lastWorld` names a world deleted behind the editor's
+	// back (a branch switch, another editor). Every other hint case short-circuits inside
+	// `worldToRestore` before `world.list` is ever called, so this is the one that watches
+	// the hint wait for a real answer rather than assuming one.
+	const daemon = stubDaemon({ worlds: [], holdList: true });
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={fakeUiStore({ lastWorld: "gone" })} />);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 0 }));
+	});
+
+	await waitFor(() => expect(daemon.commands()).toContain("world.list"));
+	// NOTHING yet. A hint posted here would be a claim about a world the daemon has not
+	// answered for — and if it answered with one, the hint would be flatly wrong.
+	expect(hintCount()).toBe(0);
+
+	daemon.releaseList();
+	await flush();
+	expect(hintCount()).toBe(1);
+	expect(screen.getByText("world:untitled")).toBeTruthy();
+});
+
+test("an op landing during the world.list round trip takes the HINT with it", async () => {
+	// The freshness re-check now guards both outcomes, and this is the half the restore's
+	// own case cannot reach: the hint's branch. `dirty` in the decision's closure is still
+	// false and so is the copy the verbs captured — the live op count is the only witness,
+	// and someone who has started digging is no longer on a first run.
+	const daemon = stubDaemon({ worlds: [], holdList: true });
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={fakeUiStore({ lastWorld: "gone" })} />);
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 0 }));
+	});
+	await waitFor(() => expect(daemon.commands()).toContain("world.list"));
+
+	act(() => {
+		stub.fire.stats(makeStats({ totalOps: 2, undoDepth: 2 }));
+	});
+	daemon.releaseList();
+	await flush();
+	expect(hintCount()).toBe(0);
+	expect(screen.getByText("dirty:true")).toBeTruthy();
+});
+
 test("a boot into a session that already has ops is not a first run", async () => {
 	// The case `dirty` alone cannot tell apart: ONE stats push seeds the baseline rather
 	// than marking an edit, so the session reads CLEAN while plainly not being empty.

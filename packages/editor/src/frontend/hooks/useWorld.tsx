@@ -103,10 +103,23 @@ export type WorldActions = {
 	closeDrawer: () => void;
 };
 
-/** What a boot with nothing to reopen says, once. The editor comes up on solid rock with
- *  no world named and no control pressed, which is indistinguishable from a broken one
- *  until something says so — this is D-21's "new = untitled scratch, name at first save"
- *  spelled as the two moves that get a user out of it, in the order they happen. */
+/** What a boot with nothing to reopen AND nothing already dug says, once. Both halves of
+ *  that condition are load-bearing and the second is the subtle one: a session can read
+ *  CLEAN while plainly not being empty, because the first stats push after a world swap
+ *  seeds the baseline rather than marking an edit — so `dirty` alone would hand this line
+ *  to someone mid-dig. See the decision site in the boot effect below.
+ *
+ *  The editor comes up on solid rock with no world named and no control pressed, which is
+ *  indistinguishable from a broken one until something says so — this is D-21's "new =
+ *  untitled scratch, name at first save" spelled as the two moves that get a user out of
+ *  it, in the order they happen.
+ *
+ *  "dig into the rock" names an INTENTION, not a gesture, and that is deliberate: a fresh
+ *  host boots with the `pointer` gesture armed, so LMB selects rather than strokes
+ *  (`viewport-host/field-host.ts` — "`pointer` is the DEFAULT one, so this branch — not
+ *  the stroke below — is what a fresh host does with its first click"). Digging needs the
+ *  Dig brush armed first, which drops the gesture. A "drag to dig" here would name a
+ *  gesture that, at the exact moment this fires, does something else. */
 const FIRST_RUN_HINT = "new world — dig into the rock, then ⌘S to save";
 
 const WorldStateContext = createContext<WorldState | null>(null);

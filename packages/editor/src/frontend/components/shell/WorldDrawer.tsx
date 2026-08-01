@@ -15,7 +15,7 @@
 // behind the editor's back (a git checkout, another editor) shows up the same way the
 // editor's own do.
 import { MoreHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
 import { api, type WorldRow } from "../../lib/api.ts";
@@ -51,6 +51,11 @@ const rowId = (name: string): string => `world-drawer-row-${name}`;
 const CATALOG_REASON =
 	"waiting for the materials catalog — a world remeshes against the table it was baked with";
 
+/** A form whose verb overwrites NOTHING — the default for {@link NameForm}'s `overwrites`,
+ *  so "absent means nothing is replaced" is readable in the signature. Module-level so
+ *  every form that omits the prop shares one identity. */
+const NO_OVERWRITES: ReadonlySet<string> = new Set();
+
 /** The inline name form the drawer uses for save-as, rename and duplicate. A form in
  *  place rather than a second dialog: the drawer is already modal, and stacking a prompt
  *  on top of it would put two focus traps and two Escape meanings on screen at once. */
@@ -59,7 +64,7 @@ function NameForm({
 	initial,
 	submitLabel,
 	busy,
-	overwrites,
+	overwrites = NO_OVERWRITES,
 	onSubmit,
 	onCancel,
 }: {
@@ -70,9 +75,9 @@ function NameForm({
 	 *  held, because the verb it would start is the one already running. Gated on the
 	 *  handler as well as the button: ⏎ in the field submits without going near it. */
 	busy: boolean;
-	/** The names this form's submit would OVERWRITE, if any. Named for the consequence
-	 *  rather than for "names that are taken", because the consequence is what differs
-	 *  per verb: a save-as REPLACES the world under the name, while `world.rename` and
+	/** The names this form's submit would OVERWRITE. Named for the consequence rather than
+	 *  for "names that are taken", because the consequence is what differs per verb: a
+	 *  save-as REPLACES the world under the name, while `world.rename` and
 	 *  `world.duplicate` are refused outright by the daemon (`already-exists`,
 	 *  daemon/handlers.ts) — so those two must not pass a set here, or the line would
 	 *  promise an overwrite the daemon will never perform. */
@@ -82,11 +87,23 @@ function NameForm({
 }) {
 	const [value, setValue] = useState(initial);
 	const valid = isValidWorldName(value);
+	/** Typed something, and it breaks the rule. An empty field is not a failure — it is a
+	 *  field nobody has answered yet. */
+	const invalid = value !== "" && !valid;
 	// EXACT, never case-folded. macOS's case-insensitive filesystem would fold "Cavern"
 	// onto "cavern" and Linux would not (the daemon says so in world.rename, and this
 	// daemon is portable) — so a case-only near-miss says nothing rather than claiming a
 	// consequence that is true on one platform and false on the other.
-	const overwrite = valid && overwrites?.has(value) === true;
+	//
+	// `valid &&` is what makes this exclusive with `invalid` STRUCTURALLY. Two copies of
+	// one regex stand between the two states (this file's `isValidWorldName` and the
+	// daemon's `WORLD_NAME_RE`, which `world.list` filters directory names through), and
+	// without the guard the property would rest on those two never drifting.
+	const overwrite = valid && overwrites.has(value);
+	// One id for the whole slot, carried by BOTH branches: the field must describe
+	// something in every state, and `aria-invalid` cannot stand in — it is FALSE in the
+	// overwrite state, which is the destructive one.
+	const hintId = useId();
 	return (
 		<form
 			className="flex flex-wrap items-center gap-2 border-border border-b bg-muted/40 px-3 py-2"
@@ -104,12 +121,15 @@ function NameForm({
 				type="text"
 				value={value}
 				aria-label={label}
-				aria-invalid={value !== "" && !valid}
+				aria-invalid={invalid}
+				// The cue below is the ONLY pre-commit warning a scratch world gets, and a
+				// colour is not a warning. Deliberately `describedby` and NOT a live region:
+				// this form is conditionally mounted, and SessionStrip.tsx documents that a
+				// region inserted together with its content announces unreliably. The one
+				// autofocus in the drawer lands here, so the description is read immediately.
+				aria-describedby={hintId}
 				onChange={(e) => setValue(e.target.value)}
-				className={cn(
-					"h-7 w-44",
-					value !== "" && !valid && "border-destructive",
-				)}
+				className={cn("h-7 w-44", invalid && "border-destructive")}
 			/>
 			{/* ONE line, three states, mutually exclusive by construction — D-25 puts the
 			    validation AT the field, so there is nothing to dump at the bottom of the form.
@@ -118,16 +138,19 @@ function NameForm({
 			    it, and can only do so once the name is already valid — i.e. once the rule has
 			    nothing left to say about it. */}
 			{overwrite ? (
-				<span className="text-foreground text-xs">
-					{`will overwrite "${value}" — ${submitLabel} confirms`}
+				// "replaces it", not "confirms": the tracked-overwrite confirm downstream fires
+				// for TRACKED worlds only, so promising a dialog would be false for exactly the
+				// scratch worlds this line is the sole warning for. It names the EFFECT, which
+				// is what the drawer's other verb labels do.
+				<span id={hintId} className="text-foreground text-xs">
+					{`will overwrite "${value}" — ${submitLabel} replaces it`}
 				</span>
 			) : (
 				<span
+					id={hintId}
 					className={cn(
 						"text-xs",
-						value !== "" && !valid
-							? "text-destructive-text"
-							: "text-muted-foreground",
+						invalid ? "text-destructive-text" : "text-muted-foreground",
 					)}
 				>
 					{WORLD_NAME_RULE}
@@ -360,7 +383,11 @@ export function WorldDrawer() {
 	// make the worlds behind them any less overwritable. Refreshed by the same refetch
 	// every `worlds-changed` tick drives, so a world created behind the editor's back is
 	// in here too.
-	const listed = useMemo(() => new Set(rows.map((w) => w.name)), [rows]);
+	//
+	// Unmemoised, like the `visible` filter above it — over the same array and doing
+	// strictly less work. `NameForm` is not memoised either, so a stable identity here
+	// would save no render.
+	const listed = new Set(rows.map((w) => w.name));
 	const selected = visible[Math.min(cursor, visible.length - 1)];
 
 	// Every gate the row's own Open button wears, `busy` included. Without it ⏎ walks
