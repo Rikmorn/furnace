@@ -93,7 +93,12 @@ const CANVAS_GROUP: BindingGroup = {
 		{ keys: "⇧ while flying", what: "3× boost, while held" },
 		{
 			keys: "triad tips",
-			what: "The corner axis gizmo's six ends snap the view to that axis — click one, or Tab to it and press ⏎",
+			// The second clause is load-bearing rather than helpful. The tips are under the
+			// WCAG 2.2 SC 2.5.8 target-size minimum and rest on that SC's equivalent-affordance
+			// exception; the six views carry no `keys`, so the registry-rendered part of this
+			// overlay cannot mention them, and without this sentence the one surface a keyboard
+			// user consults would say the tips are the only route (`AxisTriad`'s HIT/NEG_HIT).
+			what: "The corner axis gizmo's six ends snap the view to that axis — click one, or Tab to it and press ⏎. The burger's View menu lists the same six",
 		},
 		{
 			keys: "left-drag",

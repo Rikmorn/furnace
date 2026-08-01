@@ -113,16 +113,25 @@ camera verbs as one run. The tips are a REDUNDANT AFFORDANCE now and SC 2.5.8's
 equivalent-affordance exception applies; `HIT`/`NEG_HIT`'s comment says so, and says which
 six defs it depends on, so deleting them re-opens this.
 
-Two riders on what actually shipped, against the wording above:
+Three riders on what actually shipped, against the wording above:
 - **No `keys`.** Six chords were not taken — the charter's binding table allocates none, and
-  this editor keeps its keyboard sparse. So the views reach the menu, but NOT the shortcuts
-  overlay, which renders only actions with a `keys` (`ShortcutsDialog`'s own filter). The
-  "for free" in the sentence above was half right. The command palette (Task 7) is the
-  keyboard route, and it reads this same table.
-- **One naming source.** `axisViewLabel` in `frontend/lib/axis-triad.ts` now spells "View
-  from +X" once; the tip's `aria-label`/`title` and the menu row both call it. Two surfaces
+  this editor keeps its keyboard sparse. So the views reach the menu, but NOT the
+  registry-rendered part of the shortcuts overlay, which lists only actions with a `keys`
+  (`ShortcutsDialog`'s own filter). The "for free" in the sentence above was half right; the
+  overlay's STATIC triad-tips row was amended to name the View menu instead, so the one
+  surface a keyboard user consults still teaches the alternative route. The command palette
+  (Task 7) is the keyboard route proper, and it reads this same table.
+- **One naming source.** `axisViewLabel` in `frontend/lib/axis-triad.ts` spells each view's
+  name once; the tip's `aria-label`/`title` and the menu row both call it. Two surfaces
   wording one view differently would be two controls to a reader, and the exception would
   not hold.
+- **The names say the sign as a WORD** — "View from positive X", not "View from +X" (review
+  round, same day). As six adjacent menu rows the pairs differ by one punctuation mark that
+  a screen reader commonly drops at default verbosity, which would have announced three
+  identical pairs — the remedy defeating itself in the very group that carries it. NOT
+  measured against VoiceOver this session: it was removed as a risk, not diagnosed as a bug.
+  The ViewCube idiom (Front/Back/…) was rejected — the gizmo draws X/Y/Z, so its labels have
+  to as well, and mapping an axis to "Front" is an unverified world-convention claim.
 
 The item is DONE; the file itself still deletes at the F4.5 seal sweep with its siblings.
 

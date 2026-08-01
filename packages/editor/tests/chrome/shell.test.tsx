@@ -1893,17 +1893,16 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 	// arguments are the assertion: a row wired to the wrong sign looks perfect in a DOM test
 	// and sends the camera to the far side of the world on screen. Two DIFFERENT pairs, so
 	// a table where every row snapped to one view would still redden here.
-	pickMenuItem("View from -Y");
+	pickMenuItem("View from negative Y");
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["y", -1]);
-	pickMenuItem("View from +Z");
+	pickMenuItem("View from positive Z");
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["z", 1]);
 
 	// THE claim of this whole item: the six views are reachable somewhere other than the
-	// tips, and named identically there. The tips are 18 px / 14 px hit targets inside a
-	// 64 px box — under WCAG 2.2 SC 2.5.8's 24 px floor, and unfixable at that size — so
-	// they rest on the SC's equivalent-affordance exception, which these rows are. Two
-	// surfaces wording one view differently would be two controls to a reader, and the
-	// exception would not hold.
+	// tips, and named identically there — the tips are under the WCAG 2.2 SC 2.5.8 target-size
+	// minimum and rest on that SC's equivalent-affordance exception (the sizes are on
+	// `AxisTriad`'s HIT/NEG_HIT, and the argument on `AXIS_VIEWS`). Two surfaces wording one
+	// view differently would be two controls to a reader, and the exception would not hold.
 	//
 	// ORDER is asserted too, and it is a real claim: the group renders in table position,
 	// so the six sit with `view.frame` (the other camera verb) rather than trailing the
@@ -1923,12 +1922,11 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 	// stripping those out with a regex would have to know every keycap in the table, which
 	// is exactly the coupling the registry exists to remove. The label is the one bare
 	// text node either shape has.
-	const TEXT_NODE = 3;
 	const labels = [
 		...group.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox']"),
 	].map((el) =>
 		[...el.childNodes]
-			.filter((n) => n.nodeType === TEXT_NODE)
+			.filter((n) => n.nodeType === Node.TEXT_NODE)
 			.map((n) => n.textContent)
 			.join(""),
 	);
@@ -2134,12 +2132,12 @@ test("the triad's six tips snap the view, and are real buttons", async () => {
 	// that order too would reshuffle focus order on every camera move.
 	const tips = within(triad).getAllByRole("button");
 	expect(tips.map((t) => t.getAttribute("aria-label"))).toEqual([
-		"View from +X",
-		"View from -X",
-		"View from +Y",
-		"View from -Y",
-		"View from +Z",
-		"View from -Z",
+		"View from positive X",
+		"View from negative X",
+		"View from positive Y",
+		"View from negative Y",
+		"View from positive Z",
+		"View from negative Z",
 	]);
 	// Still depth-resolved for the pointer, via z-index rather than DOM order.
 	const zOf = (name: string): number =>
@@ -2154,14 +2152,20 @@ test("the triad's six tips snap the view, and are real buttons", async () => {
 	// At yaw 0 / pitch 0 the camera looks down −Z, so +Z points at the viewer and
 	// −Z away: the near tip must win an overlap, and at this pose they overlap
 	// exactly (both project to the centre).
-	expect(zOf("View from +Z")).toBeGreaterThan(zOf("View from -Z"));
+	expect(zOf("View from positive Z")).toBeGreaterThan(
+		zOf("View from negative Z"),
+	);
 
 	// Clicking a tip is the snap. The ARGUMENTS are the assertion: axis and sign
 	// are invisible to every other check here, and getting the sign wrong is the
 	// one mistake that looks fine in a DOM test and wrong on screen.
-	fireEvent.click(within(triad).getByRole("button", { name: "View from +X" }));
+	fireEvent.click(
+		within(triad).getByRole("button", { name: "View from positive X" }),
+	);
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["x", 1]);
-	fireEvent.click(within(triad).getByRole("button", { name: "View from -Z" }));
+	fireEvent.click(
+		within(triad).getByRole("button", { name: "View from negative Z" }),
+	);
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["z", -1]);
 
 	// Keyboard reachability comes from these being REAL buttons rather than
@@ -2190,7 +2194,7 @@ test("a triad tip does not steal focus from the canvas, and suppresses the conte
 	const stub = makeStubHost();
 	await renderShell(stub);
 	const canvas = screen.getByLabelText("field viewport");
-	const tip = screen.getByRole("button", { name: "View from +X" });
+	const tip = screen.getByRole("button", { name: "View from positive X" });
 
 	// THE bug this pins: the host binds every viewport key to the CANVAS
 	// (W/A/S/D, F, [ / ], ⌘Z) and its `blur` CANCELS a live move. The tips are

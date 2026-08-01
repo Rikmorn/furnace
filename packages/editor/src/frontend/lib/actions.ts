@@ -351,46 +351,70 @@ export const entityName = (e: FieldEntityInfo): string =>
 
 // --- the six axis views (F4.5c Task 5) ---------------------------------------
 
-/** The corner triad's six tips, as registry rows. Generated from one statement of each
- *  axis and each sign rather than written out six times, deliberately: six defs differing
- *  only by two arguments is exactly the shape a copy-paste slip survives in, and a `NegZ`
- *  that passes `+1` reads perfectly in review while sending the camera to the far side of
- *  the world. Here `axis` and `sign` are each named once and flow into the id, the label
- *  and the call together.
+type Axis = "x" | "y" | "z";
+
+/** The id an axis and a sign MUST carry, computed from the pair itself. */
+type AxisViewId<
+  A extends Axis,
+  S extends 1 | -1,
+> = `view.snap${S extends 1 ? "Pos" : "Neg"}${Uppercase<A>}`;
+
+/** One axis view, with its id CHECKED against the pair it snaps to.
+ *
+ *  Six defs differing only by two arguments is exactly the shape a copy-paste slip survives
+ *  in — a `NegZ` that passes `+1` reads perfectly in review and sends the camera to the far
+ *  side of the world. Generating the six from a loop would rule that out, but at the cost of
+ *  the registry's own premise: this table is meant to be GREPPABLE (`TopBar` and
+ *  `keybindings.test.ts` both look actions up by id literal), and a template-built id leaves
+ *  `grep view.snapNegZ` returning prose and no definition.
+ *
+ *  So the ids stay literal and the type does the pairing: `AxisViewId` computes the id from
+ *  `axis` and `sign`, so `axisView("view.snapNegZ", "z", 1)` is a compile error (TS2345),
+ *  and so is a mismatched axis. Same guarantee, still greppable. */
+const axisView = <A extends Axis, S extends 1 | -1>(
+  id: AxisViewId<A, S>,
+  axis: A,
+  sign: S,
+): ActionDef => ({
+  id,
+  group: "view",
+  label: () => axisViewLabel(axis, sign),
+  // Live with no selection and no engine, like `view.frame` beside it: a view verb needs
+  // neither, and a row greyed with no visible reason reads as broken.
+  enabled: () => true,
+  run: (ctx) => ctx.host?.snapView(axis, sign),
+});
+
+/** The corner triad's six tips, as registry rows.
  *
  *  WHY THEY EXIST — this is an accessibility remedy, not a convenience. `AxisTriad`'s six
- *  tips are 18 px / 14 px hit targets inside a 64 px box, under WCAG 2.2 SC 2.5.8's 24 px
- *  floor and unfixable at that size (six tips, one box). That SC does not apply to a
- *  control whose function is reachable another way on the same page; these rows are that
- *  other way, so the tips became a redundant affordance the moment this list landed.
- *  Deleting it re-opens the finding — `field-f4-gate-ux-findings.md` §3, and the comment on
- *  those two constants says the same thing from the other end.
+ *  tips are hit targets below WCAG 2.2 SC 2.5.8's minimum, and unfixably so at that size;
+ *  the measurements and the arithmetic live on `HIT`/`NEG_HIT` there, and restating them
+ *  here would be a second copy to keep true. That SC does not apply to a control whose
+ *  function is reachable another way on the same page — these rows are that other way, so
+ *  the tips are a redundant affordance rather than a violation. Delete this list and the
+ *  finding re-opens (`field-f4-gate-ux-findings.md` §3).
  *
- *  NO `keys`, and that is a decision rather than an omission: six chords would be six
- *  claims on a keyboard this editor keeps sparse, and the charter's binding table allocates
- *  none of them. The menu is the route. It follows — and is worth stating, because it reads
- *  like an oversight otherwise — that these six do NOT appear in the shortcuts overlay,
- *  which renders only actions carrying a `keys`. The command palette Task 7 adds reads this
- *  same table and will list them without any of them claiming a keycap.
+ *  NO `keys`, and that is a decision rather than an omission: six chords would be six claims
+ *  on a keyboard this editor keeps sparse, and the charter's binding table allocates none of
+ *  them. The menu is the route. It follows — and reads like an oversight otherwise — that
+ *  these six are absent from the REGISTRY-RENDERED part of the shortcuts overlay, which
+ *  lists only actions carrying a `keys`; that overlay's static triad-tips row names the View
+ *  menu instead, so a keyboard user still learns the alternative exists. The command palette
+ *  Task 7 adds reads this same table.
  *
- *  The labels come from `axisViewLabel`, which is also what each TIP is called. One
- *  spelling, so the gizmo and the menu cannot come to name one view two ways: that drift is
- *  what D-12 exists to prevent, and here it would break the exception above, since two
- *  differently-worded controls are two controls rather than one reachable twice. */
-const AXIS_VIEWS: readonly ActionDef[] = (["x", "y", "z"] as const).flatMap(
-  (axis) =>
-    ([1, -1] as const).map(
-      (sign): ActionDef => ({
-        id: `view.snap${sign === 1 ? "Pos" : "Neg"}${axis.toUpperCase()}`,
-        group: "view",
-        label: () => axisViewLabel(axis, sign),
-        // Live with no selection and no engine, like `view.frame` beside it: a view verb
-        // needs neither, and a row greyed with no visible reason reads as broken.
-        enabled: () => true,
-        run: (ctx) => ctx.host?.snapView(axis, sign),
-      }),
-    ),
-);
+ *  The labels come from `axisViewLabel`, which is also what each TIP is called — one
+ *  spelling, so the gizmo and the menu cannot name one view two ways (D-12). That is not
+ *  tidiness: two differently-worded controls are two controls to a screen reader rather than
+ *  one reachable twice, which is the exception above failing. */
+const AXIS_VIEWS: readonly ActionDef[] = [
+  axisView("view.snapPosX", "x", 1),
+  axisView("view.snapNegX", "x", -1),
+  axisView("view.snapPosY", "y", 1),
+  axisView("view.snapNegY", "y", -1),
+  axisView("view.snapPosZ", "z", 1),
+  axisView("view.snapNegZ", "z", -1),
+];
 
 // --- the table --------------------------------------------------------------
 
@@ -805,10 +829,12 @@ export const ACTIONS: readonly ActionDef[] = [
   // HERE, between the other camera verb and the display toggles, because the burger renders
   // a group in table order: seven camera rows then read as one run, where appending them
   // would file six of them behind two workspace verbs. FLAT rather than behind a submenu —
-  // this group is the ACCESSIBLE route to a control too small to click reliably, and one
-  // hover-intent step deeper would make the alternative harder to reach than the thing it
-  // stands in for. Eleven rows is a long group; the command palette, not a submenu, is what
-  // makes it short again.
+  // this group is the ACCESSIBLE route to a control too small to click reliably, and a
+  // submenu is a hover-intent (or ArrowRight) traversal, so the stand-in route would itself
+  // become two-step. What a user sees under the View heading is longer than these eleven
+  // rows: `BurgerMenu` follows the group with "View options…" and the five palette
+  // checkboxes and NO separator, so it reads as one run of seventeen. The command palette,
+  // not a submenu, is what makes that scannable.
   ...AXIS_VIEWS,
   {
     id: "view.normals",

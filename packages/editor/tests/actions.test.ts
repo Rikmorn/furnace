@@ -323,18 +323,23 @@ test("the view toggles report their own checked state and flip it", () => {
 
 // --- the six axis views (F4.5c Task 5) ---------------------------------------
 
-/** Each view's id beside the pair it MUST pass, written out longhand. Deliberately NOT
- *  derived the way the table derives them: a generator that got a sign backwards would
- *  hand this file a matching expectation, and the one thing these cases exist to do is
- *  disagree with the table when the table is wrong. */
-const AXIS_VIEWS: readonly (readonly [string, "x" | "y" | "z", 1 | -1])[] = [
-  ["view.snapPosX", "x", 1],
-  ["view.snapNegX", "x", -1],
-  ["view.snapPosY", "y", 1],
-  ["view.snapNegY", "y", -1],
-  ["view.snapPosZ", "z", 1],
-  ["view.snapNegZ", "z", -1],
-];
+/** Each view's id beside the pair it MUST pass, written out longhand. Named for what it is
+ *  — the EXPECTED pairing — rather than after the table it checks: `AXIS_VIEWS` is the
+ *  registry's own const, and one grep returning both would leave a reader deciding which is
+ *  the source and which the assertion.
+ *
+ *  Deliberately not derived from anything the registry derives from: a helper that got a
+ *  sign backwards would hand this file a matching expectation, and disagreeing with the
+ *  table when the table is wrong is the only thing these cases are for. */
+const EXPECTED_VIEWS: readonly (readonly [string, "x" | "y" | "z", 1 | -1])[] =
+  [
+    ["view.snapPosX", "x", 1],
+    ["view.snapNegX", "x", -1],
+    ["view.snapPosY", "y", 1],
+    ["view.snapNegY", "y", -1],
+    ["view.snapPosZ", "z", 1],
+    ["view.snapNegZ", "z", -1],
+  ];
 
 test("each axis view snaps to ITS OWN axis and sign", () => {
   // The whole table in ONE expectation, one STRING per action. Six defs differing only by
@@ -346,19 +351,19 @@ test("each axis view snaps to ITS OWN axis and sign", () => {
   // first entry is what also reddens a def that snapped twice, or not at all.
   const shows = (id: string, calls: unknown): string =>
     `${id} → ${JSON.stringify(calls)}`;
-  const observed = AXIS_VIEWS.map(([id]) => {
+  const observed = EXPECTED_VIEWS.map(([id]) => {
     const ctx = makeCtx();
     const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
     byId(id).run(ctx);
     return shows(id, host.snapView.mock.calls);
   });
   expect(observed).toEqual(
-    AXIS_VIEWS.map(([id, axis, sign]) => shows(id, [[axis, sign]])),
+    EXPECTED_VIEWS.map(([id, axis, sign]) => shows(id, [[axis, sign]])),
   );
 });
 
-test("the six axis views are the triad's own words, and claim no key", () => {
-  for (const [id] of AXIS_VIEWS) {
+test("the six axis views sit in the view group, always enabled, keyless, and named the way the triad names them", () => {
+  for (const [id] of EXPECTED_VIEWS) {
     const def = byId(id);
     // NO chord, and it is a design constraint rather than an omission: six keycaps the
     // charter's binding table never allocated, on a keyboard this editor keeps sparse.
@@ -380,14 +385,18 @@ test("the six axis views are the triad's own words, and claim no key", () => {
   // The literal vocabulary, pinned once. `AxisTriad` renders these same strings as each
   // tip's `aria-label` (both call `axisViewLabel`); that the two SURFACES agree is
   // `shell.test.tsx`'s case, and this is what either of them would have to change to.
+  //
+  // The WORDS, not `+X` / `-X`: six adjacent rows separated only by a punctuation mark that
+  // a screen reader commonly drops at default verbosity would announce as three pairs, in
+  // the group that exists as the reachable stand-in for a target too small to hit.
   const ctx = makeCtx();
-  expect(AXIS_VIEWS.map(([id]) => byId(id).label(ctx))).toEqual([
-    "View from +X",
-    "View from -X",
-    "View from +Y",
-    "View from -Y",
-    "View from +Z",
-    "View from -Z",
+  expect(EXPECTED_VIEWS.map(([id]) => byId(id).label(ctx))).toEqual([
+    "View from positive X",
+    "View from negative X",
+    "View from positive Y",
+    "View from negative Y",
+    "View from positive Z",
+    "View from negative Z",
   ]);
 });
 

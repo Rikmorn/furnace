@@ -1,6 +1,11 @@
-// Pure projection math for the viewport's corner axis triad (an orientation gizmo).
-// Given the orbit camera's yaw/pitch it returns where each world axis points on screen,
-// so the SVG overlay stays a thin render of these numbers. No DOM, no React — unit-tested.
+// The viewport's corner axis triad (an orientation gizmo), minus its rendering: the
+// projection math, and the one function that NAMES a snap view. Given the orbit camera's
+// yaw/pitch the projection returns where each world axis points on screen, so the SVG
+// overlay stays a thin render of these numbers. No DOM, no React — unit-tested.
+//
+// The naming function sits here rather than beside the component because two surfaces need
+// it — the gizmo and the registry's six View rows — and only one of them is a component:
+// `lib/actions.ts` is pure and cannot import a `.tsx`.
 
 type Vec3 = [number, number, number];
 
@@ -16,14 +21,20 @@ export type ProjectedAxis = {
 };
 
 /** How a snap view is NAMED, everywhere it is named — each triad tip's `aria-label` and
- *  `title`, and the burger's six View rows (`view.snapPosX` … in `lib/actions.ts`). One
- *  spelling because they are one control reached two ways: the tips are under the WCAG 2.2
- *  SC 2.5.8 target-size floor and rest on that SC's equivalent-affordance exception, and
- *  two surfaces wording one view differently would be two controls to a reader rather than
- *  one with a second route. `sign: 1` is the POSITIVE side of the axis, matching
- *  `FieldHost.snapView`'s own convention. */
+ *  `title`, and the burger's six View rows. One spelling because they are one control
+ *  reached two ways; the argument for why that matters is on `AXIS_VIEWS` in
+ *  `lib/actions.ts`.
+ *
+ *  The words "positive" and "negative", not `+` and `-`. That is the ACCESSIBLE spelling
+ *  rather than a verbose one: at default punctuation verbosity a screen reader commonly
+ *  drops a bare `+` or `-`, which would leave the three pairs announcing identically — and
+ *  as six adjacent menu rows that is the alternative route to an under-sized control
+ *  collapsing to three. Axis letters rather than a ViewCube's Front/Back/Left/Right: the
+ *  gizmo draws X, Y and Z, so those are the words its labels have to use.
+ *
+ *  `sign: 1` is the POSITIVE side of the axis, matching `FieldHost.snapView`. */
 export const axisViewLabel = (axis: "x" | "y" | "z", sign: 1 | -1): string =>
-  `View from ${sign === 1 ? "+" : "-"}${axis.toUpperCase()}`;
+  `View from ${sign === 1 ? "positive" : "negative"} ${axis.toUpperCase()}`;
 
 const dot = (a: Vec3, b: Vec3): number =>
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
