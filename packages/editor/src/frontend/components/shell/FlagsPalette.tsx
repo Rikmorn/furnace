@@ -83,7 +83,7 @@ const FILTER_BANDS = Object.keys(FILTER_HINTS) as (keyof FlagFilters)[];
  *  value-import anything under `viewport-host/` (frontend-no-engine-leakage
  *  bans the directory), so the two palettes agree by review. */
 const DOT_CLASS = {
-	candidate: "text-destructive",
+	candidate: "text-destructive-text",
 	info: "text-warning",
 } as const;
 
@@ -98,7 +98,7 @@ const DOT_GLYPH = {
 } as const;
 
 const VERDICT_CLASS = {
-	trapped: "bg-destructive/20 text-destructive",
+	trapped: "bg-destructive/20 text-destructive-text",
 	clear: "bg-success/20 text-success",
 	/** No answer is not a third answer (the `flagTint` rule): stay neutral. */
 	inconclusive: "bg-muted text-muted-foreground",
@@ -308,7 +308,7 @@ function Tag({
 		<span
 			title={title}
 			className={cn(
-				"rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground",
+				"rounded bg-muted px-1 text-2xs uppercase tracking-wide text-muted-foreground",
 				className,
 			)}
 		>
@@ -342,7 +342,7 @@ function FilterChip({
 				aria-pressed={on}
 				onClick={onToggle}
 				className={cn(
-					"rounded-full border px-2 py-px text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+					"rounded-full border px-2 py-px text-2xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 					on
 						? "border-primary bg-primary/15 text-foreground"
 						: "border-border text-muted-foreground hover:bg-muted/50",

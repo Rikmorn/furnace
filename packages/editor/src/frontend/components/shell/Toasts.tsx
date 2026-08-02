@@ -52,10 +52,12 @@ const TONE: Record<
 		// for a reader who cannot see the amber (WCAG 1.4.1).
 		Icon: TriangleAlert,
 		box: "border-warning",
-		// MIGRATION (until F4.5c Task 13): D-23 adds `--warning-text` there and this
-		// becomes `text-warning-text`. `--warning` is a FILL colour, so as body text it
-		// is under the 4.5:1 floor — the same split the error row above already has,
-		// one token short of it.
+		// NO `--warning-text` SIBLING, and the absence is measured rather than pending.
+		// D-23 expected the amber to behave like `--destructive` — a fill pressed into
+		// service as text, under the floor — and planned the split for F4.5c Task 13. The
+		// contrast pin written first that task (`tests/design-tokens.test.ts`) refuted it:
+		// `--warning` reads 5.40:1 on `--popover` and 5.63:1 on `--card`, both clear of
+		// 4.5:1. A second token would have been a rename with nothing behind it.
 		text: "text-warning",
 	},
 	error: {

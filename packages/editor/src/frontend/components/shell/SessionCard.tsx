@@ -323,7 +323,22 @@ export function SessionCard() {
 					▤
 				</span>
 				<span className="min-w-0 flex-1 truncate font-mono">{name}</span>
-				<span className="font-semibold text-[10px] text-primary tracking-widest">
+				{/* PROMOTION FEEDBACK (D-23/D-26's motion channel). SELECTED → the live
+				    session's tag is the one state change in this card the user does not
+				    initiate directly — a preview keystroke or a nudge promotes it — so it is
+				    the one that has to announce itself. State feedback, not choreography: a
+				    single 180 ms pop, and the global `prefers-reduced-motion` rule in
+				    styles.css zeroes it.
+
+				    The `key` is the MECHANISM, not bookkeeping. A CSS animation runs on mount
+				    and never again, so re-keying on the tag is what makes React drop the old
+				    span and mount a new one — the same reason Radix surfaces animate on open.
+				    Without it the class would fire exactly once, on the first render of the
+				    card, which is the render nobody needs told about. */}
+				<span
+					key={tag}
+					className="animate-[furnace-pop-in_180ms_ease-out] font-semibold text-2xs text-primary tracking-widest"
+				>
 					{tag}
 				</span>
 			</div>
@@ -423,12 +438,12 @@ export function SessionCard() {
 			    say it twice, and here it exists to explain the DISABLED VERB by naming the
 			    field rather than leaving "invalid" to be hunted for. */}
 			{stamp?.error != null && (
-				<p role="alert" className="px-3 py-1 text-destructive">
+				<p role="alert" className="px-3 py-1 text-destructive-text">
 					{stamp.error}
 				</p>
 			)}
 			{refusalReason !== undefined && (
-				<p className="px-3 py-1 text-destructive">{refusalReason}</p>
+				<p className="px-3 py-1 text-destructive-text">{refusalReason}</p>
 			)}
 
 			{stamp !== null && verbs !== null && (

@@ -114,7 +114,7 @@ export function AxisChip({ children }: { children: ReactNode }) {
 	return (
 		<span
 			aria-hidden
-			className="shrink-0 select-none font-mono text-[10px] leading-none text-muted-foreground"
+			className="shrink-0 select-none font-mono text-2xs leading-none text-muted-foreground"
 		>
 			{children}
 		</span>
@@ -151,7 +151,7 @@ export const denseTriggerCls =
 export function UnitSuffix({ unit }: { unit: string | undefined }) {
 	if (unit === undefined || unit === "") return null;
 	return (
-		<span className="shrink-0 select-none text-[10px] text-muted-foreground">
+		<span className="shrink-0 select-none text-2xs text-muted-foreground">
 			{unit}
 		</span>
 	);

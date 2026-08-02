@@ -16,20 +16,51 @@ import { cn } from "../../lib/cn.ts";
 // `components/ui/` is on a CONTAINER — `popover`, `dropdown-menu` (both contents), `select`
 // content, `tooltip`, `dialog` — where it is the point. That list is the invariant: a new
 // `shadow-*` anywhere else in this directory is the drift D-24 exists to stop.
+//
+// ────────────────────────────────────────────────────────────────────────────────────────
+//
+// D-23's three vocabularies, and this file is where all three are spelled out, because a
+// button is the only control that has a coloured fill, a hover and a disabled state at once.
+//
+// FOCUS is the ring and only the ring: `focus-visible:ring-1 focus-visible:ring-ring`, no
+// `ring-offset-*`. Stock shadcn offsets the ring by 2 px against `--background`, which draws
+// a halo of the PAGE colour between a control and its ring — correct on a white page, a
+// visible dark gash on every raised surface in this shell.
+//
+// HOVER LIGHTENS, NEVER FADES. `hover:bg-X/90` is a fade: on a dark shell it composites the
+// surface underneath into the fill and the control gets DARKER under the cursor, which reads
+// as pressed-and-stuck rather than as live. Every hover here therefore names a lighter
+// colour — `--accent` for the neutral ramp (one step above `--muted`/`--secondary`/`--input`,
+// and already the house standard on `ghost` and `outline`), `--primary-hover` for the
+// chromatic lane.
+//   RESIDUE, stated rather than hidden: `destructive` still fades. Lightening
+//   `--destructive` costs `--destructive-foreground` its floor — the light-on-mid pair
+//   measures 4.89:1 at rest and 3.97:1 at +0.05 L — so the fix is a PAIRED token change
+//   (fill up, foreground down), which is a design decision rather than a token edit. The
+//   variant has no call site in this app today, which is why it is a note and not a blocker.
+//
+// DISABLED DROPS HUE. A coloured fill swaps to `--muted` and its label to
+// `--muted-foreground` — 5.23:1 on that fill, so a dead button is legible rather than a
+// smear, which WCAG does not require of an inactive control but a reader still wants;
+// `opacity-50` on a coloured fill is the failure D-23 names, because a half-transparent fill
+// takes the label's contrast down with it. A variant with no coloured fill has no hue to
+// drop and dims instead — one number, 50 %, everywhere it is spelled in this chrome.
 const buttonVariants = cva(
-	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
-				default: "bg-primary text-primary-foreground hover:bg-primary/90",
+				default:
+					"bg-primary text-primary-foreground hover:bg-primary-hover disabled:bg-muted disabled:text-muted-foreground",
 				destructive:
-					"bg-destructive text-destructive-foreground hover:bg-destructive/90",
+					"bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground",
 				outline:
-					"border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+					"border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
 				secondary:
-					"bg-secondary text-secondary-foreground hover:bg-secondary/80",
-				ghost: "hover:bg-accent hover:text-accent-foreground",
-				link: "text-primary underline-offset-4 hover:underline",
+					"bg-secondary text-secondary-foreground hover:bg-accent disabled:opacity-50",
+				ghost:
+					"hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
+				link: "text-primary underline-offset-4 hover:underline disabled:opacity-50",
 			},
 			size: {
 				default: "h-9 px-4 py-2",

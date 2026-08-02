@@ -146,7 +146,7 @@ export function AdvancedSection({
 								</ActionTip>
 							</span>
 						))}
-						<span className="text-[10px] text-muted-foreground">
+						<span className="text-2xs text-muted-foreground">
 							in the viewport: ←/→ move X, ↑/↓ move Z, ⇧↑/⇧↓ move Y
 						</span>
 					</div>

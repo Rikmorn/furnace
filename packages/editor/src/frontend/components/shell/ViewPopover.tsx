@@ -117,7 +117,7 @@ const SLICE_STEP = 0.25;
 const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";
 const GROUP_CLASS = "flex flex-col gap-1.5";
 const GROUP_LABEL_CLASS =
-	"font-medium text-[11px] text-muted-foreground uppercase tracking-wide";
+	"font-medium text-2xs text-muted-foreground uppercase tracking-wide";
 
 /** The two shading modes, in the order they are offered: the state of seeing first, the
  *  debug flag second — and the debug one SAYS so, because a full-chroma normal render is

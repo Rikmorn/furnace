@@ -232,7 +232,7 @@ function RowVerb(props: {
  *  visible text still finds "frozen" / "baked". */
 function StateBadge({ label, glyph }: { label: string; glyph?: string }) {
 	return (
-		<span className="flex items-center gap-0.5 rounded bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+		<span className="flex items-center gap-0.5 rounded bg-muted px-1 text-2xs uppercase tracking-wide text-muted-foreground">
 			{glyph !== undefined && <span aria-hidden="true">{glyph}</span>}
 			<span>{label}</span>
 		</span>

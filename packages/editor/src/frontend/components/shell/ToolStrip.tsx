@@ -132,7 +132,7 @@ function StripFrame({
 			<span className="flex w-28 shrink-0 items-center gap-1.5 overflow-hidden">
 				<span className="font-semibold text-xs tracking-wide">{name}</span>
 				{suffix !== undefined && (
-					<span className="truncate text-[10px] text-muted-foreground">
+					<span className="truncate text-2xs text-muted-foreground">
 						{suffix}
 					</span>
 				)}

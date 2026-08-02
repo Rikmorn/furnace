@@ -34,10 +34,10 @@ import { Button } from "../ui/button.tsx";
 const TONE: Record<NotifySeverity, { Icon: LucideIcon; text: string }> = {
 	info: { Icon: Info, text: "text-muted-foreground" },
 	success: { Icon: CircleCheck, text: "text-success" },
-	// Amber, and the same triangle the toast row uses.
-	// MIGRATION (until F4.5c Task 13): D-23 adds `--warning-text` there and this becomes
-	// `text-warning-text`. `--warning` is a fill colour, which is fine for the icon tint
-	// this actually is — the rename keeps the two severities' tokens parallel.
+	// Amber, and the same triangle the toast row uses. It stays `--warning` with no
+	// `-text` sibling: the F4.5c contrast pin measured the amber at 5.63:1 on `--card`
+	// (this palette's surface), so the split D-23 planned for it had nothing to fix. See
+	// the same note beside the toast stack's warn row.
 	warn: { Icon: TriangleAlert, text: "text-warning" },
 	error: { Icon: CircleAlert, text: "text-destructive-text" },
 };

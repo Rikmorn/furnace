@@ -178,7 +178,7 @@ function Badge({
 	return (
 		<span
 			className={cn(
-				"whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[10px] text-muted-foreground",
+				"whitespace-nowrap rounded-full border border-border px-1.5 py-px text-2xs text-muted-foreground",
 				tone === "default" && "border-primary text-primary",
 				tone === "tracked" && "border-success/50 text-success",
 			)}
@@ -265,15 +265,13 @@ function Row({
 		>
 			{/* min-w-0 + truncate: a long world name must ellipsize rather than shove the
 			    badges and the row's verbs off the right edge of a fixed-width drawer. */}
-			<span className="min-w-0 truncate font-mono text-[13px]">
-				{world.name}
-			</span>
+			<span className="min-w-0 truncate font-mono text-xs">{world.name}</span>
 			{world.isDefault && <Badge tone="default">▶ game loads this</Badge>}
 			<TrackedBadge tracked={world.tracked} />
 			{legacy && <Badge>legacy</Badge>}
 			{current && <Badge>open</Badge>}
 			<div className="flex-1" />
-			<span className="whitespace-nowrap text-[11px] text-muted-foreground">
+			<span className="whitespace-nowrap text-2xs text-muted-foreground">
 				{relTime(world.manifestMtimeMs, Date.now())}
 			</span>
 			<ReasonTip reason={reason}>
@@ -579,7 +577,7 @@ export function WorldDrawer() {
 						/>
 					))}
 				</div>
-				<p className="border-border border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+				<p className="border-border border-t px-3 py-1.5 text-2xs text-muted-foreground">
 					⏎ open selected · esc close
 				</p>
 			</DialogContent>

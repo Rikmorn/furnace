@@ -31,7 +31,7 @@ class RowErrorBoundary extends Component<
 	override render() {
 		if (this.state.error)
 			return (
-				<p className="py-1 font-mono text-xs text-destructive">
+				<p className="py-1 font-mono text-xs text-destructive-text">
 					{this.props.path}: {this.state.error.message}
 				</p>
 			);
@@ -222,7 +222,7 @@ export function SchemaForm({
 							// role="alert" so the refusal reaches a screen reader the moment it
 							// appears — the visual cue is a red line the user is not looking at
 							// while typing.
-							<p role="alert" className="pb-0.5 text-[10px] text-destructive">
+							<p role="alert" className="pb-0.5 text-2xs text-destructive-text">
 								{refusal}
 							</p>
 						)}

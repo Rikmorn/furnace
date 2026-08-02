@@ -255,13 +255,19 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 							BUTTON_CLASS,
 							row.members.length > 1 && "rounded-b-none",
 							row.armed
-								? "bg-primary text-primary-foreground hover:bg-primary/90"
+								? // Hover LIGHTENS (D-23): `--primary-hover` is one step up the same
+									// hue. The `bg-primary/90` this replaced went the other way — on a
+									// dark shell an alpha fade pulls the surface underneath INTO the
+									// fill, so the armed tool darkened under the cursor.
+									"bg-primary text-primary-foreground hover:bg-primary-hover"
 								: "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 							// Dim only when it is BOTH refused and idle. A refused family that is
 							// ARMED is the live session's own family (mock frame 2), and dimming it
-							// would make "the strongest element in the rail" a 40 %-opacity claim.
+							// would make "the strongest element in the rail" a half-opacity claim.
+							// 50 % rather than the 40 % this used to carry: D-23 gives the chrome ONE
+							// dimmed tier, and it is the one `ui/`'s disabled controls already use.
 							refused && "cursor-not-allowed",
-							refused && !row.armed && "opacity-40",
+							refused && !row.armed && "opacity-50",
 						)}
 					>
 						<Icon className="h-4 w-4" aria-hidden="true" />
@@ -303,12 +309,15 @@ function MemberFlyout({ row }: { row: RailModel }) {
 						if (refused) e.preventDefault();
 					}}
 					className={cn(
-						"grid h-6 w-8 place-items-center rounded-b-md border-border/60 border-t text-[9px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+						"grid h-6 w-8 place-items-center rounded-b-md border-border/60 border-t text-2xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+						// Already compliant with D-23's hover rule: 80 % → 100 % of the same fill
+						// LIGHTENS. The tab rests dimmer than the family button above it on
+						// purpose — it is the subordinate half of one control.
 						row.armed
 							? "bg-primary/80 text-primary-foreground hover:bg-primary"
 							: "text-muted-foreground hover:bg-accent hover:text-foreground",
 						refused && "cursor-not-allowed",
-						refused && !row.armed && "opacity-40",
+						refused && !row.armed && "opacity-50",
 					)}
 				>
 					{/* The mock's tick, relocated. Decorative — the button's own label names it. */}
@@ -351,7 +360,7 @@ function MemberFlyout({ row }: { row: RailModel }) {
 							<span>{member.label}</span>
 							<span
 								className={cn(
-									"text-[10px]",
+									"text-2xs",
 									member.armed
 										? "text-primary-foreground/80"
 										: "text-muted-foreground",
@@ -365,7 +374,7 @@ function MemberFlyout({ row }: { row: RailModel }) {
 				{/* Outside the group on purpose: it is a NOTE about the list, not a member of
 				    it, and a text node inside the group would join every member's row. */}
 				{row.cycleKeys !== undefined && (
-					<p className="mt-1 border-border border-t px-2 pt-1 text-[10px] text-muted-foreground">
+					<p className="mt-1 border-border border-t px-2 pt-1 text-2xs text-muted-foreground">
 						{row.cycleKeys} cycles
 					</p>
 				)}

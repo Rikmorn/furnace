@@ -252,7 +252,7 @@ function CommandBody({
 				})}
 			</CommandList>
 			{/* The mock's footer strip. The keycap is the registry's, not a literal. */}
-			<div className="flex gap-3.5 border-border border-t px-3.5 py-1.5 text-[11px] text-muted-foreground">
+			<div className="flex gap-3.5 border-border border-t px-3.5 py-1.5 text-2xs text-muted-foreground">
 				<span>↑↓ navigate</span>
 				<span>⏎ run</span>
 				<span>esc close</span>

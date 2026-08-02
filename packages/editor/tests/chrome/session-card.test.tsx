@@ -507,6 +507,61 @@ test("the first COMMITTED touch promotes the card, and the session opens carryin
 	expect(within(openCard()).getByText("RECONFIGURE")).toBeTruthy();
 });
 
+test("the promotion REMOUNTS the state tag, which is what replays its animation", async () => {
+	// D-23's motion channel (F4.5c Task 13). The promotion is the one state change in this
+	// card the user does not ask for directly — a committed touch causes it — so the tag
+	// announces itself with a 180 ms pop.
+	//
+	// The thing worth testing is the MECHANISM, not the class string. A CSS animation runs
+	// on mount and never again, so a tag element that React merely re-labels animates
+	// exactly once in the card's life: on the first render, the one nobody needs told
+	// about. The `key={tag}` is what forces the unmount, and `isConnected` is what proves
+	// it happened — a class assertion alone would pass just as happily with the key
+	// deleted, which is the shape of vacuous pin this suite keeps finding.
+	//
+	// happy-dom resolves no styles and runs no animations, so this is the whole of what a
+	// headless test can say here; that the pop READS as feedback is a Safari-gate question.
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	stub.calls.openEntity.mockImplementation(() => {
+		stub.fire.stamp(
+			makeSession({
+				mode: "reconfigure",
+				entityId: 3,
+				params: { width: 8 },
+				seed: 7,
+				policy: "replace",
+			}),
+		);
+	});
+
+	selectEntity(stub, [makeEntity({ params: { width: 8 } })], 3);
+	const restTag = within(openCard()).getByText("SELECTED");
+	expect(restTag.className).toContain(
+		"animate-[furnace-pop-in_180ms_ease-out]",
+	);
+	expect(restTag.isConnected).toBe(true);
+
+	const width = within(openCard()).getByLabelText("Width") as HTMLInputElement;
+	act(() => {
+		width.focus();
+	});
+	fireEvent.change(width, { target: { value: "12" } });
+	act(() => {
+		fireEvent.blur(width);
+	});
+
+	// A NEW element carries the new tag, and the old one left the document — so the
+	// animation is on its first frame rather than long finished.
+	const liveTag = within(openCard()).getByText("RECONFIGURE");
+	expect(liveTag === restTag).toBe(false);
+	expect(restTag.isConnected).toBe(false);
+	expect(liveTag.className).toContain(
+		"animate-[furnace-pop-in_180ms_ease-out]",
+	);
+});
+
 test("a promotion the host REFUSES drops its touch instead of parking it for the next session", async () => {
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL] });

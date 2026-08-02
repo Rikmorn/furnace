@@ -102,9 +102,18 @@ export function Segmented<T extends string = string>({
 						className={cn(
 							"min-w-0 truncate px-1.5 py-0.5 text-xs transition-colors duration-150 ease-out",
 							"border-input border-r last:border-r-0",
+							// D-23's focus ring, which this control needs more than most: it is
+							// ONE tab stop with a roving tabindex, so arrowing between members
+							// moves focus with no other signal that it moved. The classes came
+							// over from `SegmentedField` at D-24 without one.
+							"focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 							i === selectedIndex
 								? "bg-primary text-primary-foreground"
-								: "bg-input text-muted-foreground hover:bg-muted",
+								: // Hover LIGHTENS: `--input` (0.26 L) → `--accent` (0.27 L), the
+									// house step. The inherited `hover:bg-muted` went the other way
+									// — 0.26 → 0.23 — so an unselected segment darkened under the
+									// cursor.
+									"bg-input text-muted-foreground hover:bg-accent",
 						)}
 						onClick={() => onChange(o.value)}
 						onKeyDown={(e) => {

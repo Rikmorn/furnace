@@ -48,8 +48,12 @@ const DialogContent = React.forwardRef<
 			{...props}
 		>
 			{children}
+			{/* D-23's ONE focus vocabulary on the close button below. Stock shadcn dressed it
+			    in a `focus:ring-2 ring-offset-2` of its own — a second, fatter ring, offset
+			    against `--background`, which on a raised dialog draws a dark gash between the
+			    button and its own ring. It is the same 1 px ring as everything else. */}
 			{showCloseButton && (
-				<DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+				<DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
 					<X className="h-4 w-4" />
 					<span className="sr-only">Close</span>
 				</DialogPrimitive.Close>

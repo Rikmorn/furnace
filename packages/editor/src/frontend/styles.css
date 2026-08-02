@@ -39,14 +39,31 @@
 	/* the attention lane — ONE hue: selection, primary action, generation-active, focus */
 	--primary: oklch(0.62 0.11 240); /* steel-blue, committed 3.2.2 live pass */
 	--primary-foreground: oklch(0.15 0.02 240);
+	/* D-23's hover rule needs a colour, not a modifier. "Hover LIGHTENS, never fades" is
+	   unimplementable on a coloured fill with alpha: this shell is dark, so `bg-primary/90`
+	   composites 10 % of a ~0.19 L surface into a 0.62 L fill and the button gets DARKER on
+	   hover (measured 0.243 → 0.200 relative luminance). One step UP the same hue is what
+	   the neutral ramp already does with --muted → --accent, so the chromatic lane gets the
+	   same treatment as a token rather than as an arbitrary value.
+	   +0.05 L matches the perceptual size of the neutral hover step, and because
+	   --primary-foreground is the DARK member of the pair, lightening the fill improves its
+	   contrast (5.48:1 → 6.67:1) rather than costing it. Both numbers are pinned in
+	   tests/design-tokens.test.ts. */
+	--primary-hover: oklch(0.67 0.11 240);
 	--ring: var(--primary);
 	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the tool is used */
 	--destructive: oklch(0.55 0.14 25);
-	/* D-23, first half — pulled forward by the toast stack (Task 7 of F4.5a): --destructive
-	   is a FILL colour and reads 3.55:1 as TEXT on --card and 3.40:1 on --popover (the
-	   toast surface) — both under the 4.5:1 floor.
+	/* D-23 (completed F4.5c): --destructive is a FILL colour and reads 3.55:1 as TEXT on
+	   --card and 3.40:1 on --popover (the toast surface) — both under the 4.5:1 floor.
 	   This lighter sibling is the text/icon/dot colour on those surfaces; the fill (buttons,
-	   borders) stays --destructive. The rest of the D-23 token pass is F4.5c. */
+	   borders) stays --destructive. `tests/design-tokens.test.ts` measures every pair in
+	   this block and forbids the bare `text-destructive` class from coming back.
+	   NO SUCH SPLIT EXISTS FOR --warning OR --success, and that is a measurement rather
+	   than an omission: as text they read 5.63:1 / 4.90:1 on --card and 5.40:1 / 4.70:1 on
+	   --popover, all clear of the floor. D-23 planned the two sibling tokens on the
+	   assumption they behaved like --destructive; the pin refuted it, so they were not
+	   added. --success has the thinnest margin in the ramp — darkening it, or lightening
+	   --popover, is what the pin is watching for. */
 	--destructive-text: oklch(0.68 0.16 25);
 	--warning: oklch(0.65 0.12 80);
 	--warning-foreground: oklch(0.16 0.02 80);
@@ -90,6 +107,7 @@
 	--color-muted-foreground: var(--muted-foreground);
 	--color-primary: var(--primary);
 	--color-primary-foreground: var(--primary-foreground);
+	--color-primary-hover: var(--primary-hover);
 	--color-ring: var(--ring);
 	--color-destructive: var(--destructive);
 	--color-destructive-text: var(--destructive-text);
@@ -111,6 +129,27 @@
 	--radius-xl: calc(var(--radius) + 4px);
 	--font-sans: var(--font-sans);
 	--font-mono: var(--font-mono);
+}
+
+/* The MICRO type tier (D-23). Tailwind's own scale bottoms out at `text-xs` (12 px), and
+   this chrome has a real tier below it — badges, keycaps, axis letters, unit suffixes,
+   count chips — which had been spelled as 28 bracketed sizes across 15 files, in five
+   different values (16 × 10 px, 9 × 11 px, and one each of 9, 12.5 and 13 px). A bracketed
+   size answers to no scale and no token, so the de-facto tier is named here: everything
+   under 12 px collapsed into it, and the 12.5 and 13 px pair went up to `text-xs`.
+   `tests/design-tokens.test.ts` holds the bracketed count at zero.
+
+   A PLAIN `@theme`, not the `inline` block above: `inline` exists so a value that is itself
+   a `var()` gets substituted into the utility (which is what makes `bg-card/50`'s
+   color-mix work). This is a literal, so `inline` would buy nothing and would cost the
+   `--text-2xs` custom property that a hand-written rule could otherwise read.
+
+   DELIBERATELY NO `--text-2xs--line-height`. Tailwind pairs one with each of its own
+   sizes, but `text-[10px]` never set leading, so adding one here would change the height
+   of every migrated row rather than just its font size — and nothing in this chrome may
+   move the viewport. Leading stays each caller's own (`leading-none`, `leading-tight`). */
+@theme {
+	--text-2xs: 0.625rem;
 }
 
 /* ── Motion (3.2.2 live pass) ───────────────────────────────────────────────

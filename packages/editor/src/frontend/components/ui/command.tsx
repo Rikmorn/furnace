@@ -149,7 +149,7 @@ const CommandGroup = React.forwardRef<
 	<CommandPrimitive.Group
 		ref={ref}
 		className={cn(
-			"overflow-hidden text-foreground [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide",
+			"overflow-hidden text-foreground [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide",
 			className,
 		)}
 		{...props}
@@ -164,12 +164,13 @@ const CommandItem = React.forwardRef<
 	<CommandPrimitive.Item
 		ref={ref}
 		className={cn(
-			"relative flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-[12.5px] outline-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+			"relative flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-xs outline-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
 			// Refused rows stay VISIBLE and stay in the list — finding a verb and learning
 			// why it will not run is the whole point of showing them. cmdk writes
 			// `aria-disabled` (never the `disabled` attribute) and skips them for arrow
 			// navigation, auto-selection and ⏎, which is the rail's posture exactly.
-			"data-[disabled=true]:opacity-40",
+			// 50 %, the chrome's one dimmed tier (D-23).
+			"data-[disabled=true]:opacity-50",
 			className,
 		)}
 		{...props}
@@ -180,7 +181,7 @@ CommandItem.displayName = CommandPrimitive.Item.displayName;
 /** The keycap at the end of a row. A `<kbd>`, like the shortcuts overlay's. */
 function CommandShortcut({ children }: { children: React.ReactNode }) {
 	return (
-		<kbd className="ml-auto font-mono text-[10px] text-muted-foreground">
+		<kbd className="ml-auto font-mono text-2xs text-muted-foreground">
 			{children}
 		</kbd>
 	);

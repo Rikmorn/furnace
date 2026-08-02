@@ -196,11 +196,11 @@ function ShortcutsBody() {
 		<div className="space-y-4">
 			{groups.map((group) => (
 				<section key={group.title} className="space-y-1.5">
-					<h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+					<h3 className="font-medium text-2xs text-muted-foreground uppercase tracking-wide">
 						{group.title}
 					</h3>
 					{group.note && (
-						<p className="text-[11px] text-muted-foreground">{group.note}</p>
+						<p className="text-2xs text-muted-foreground">{group.note}</p>
 					)}
 					{/* A description list, not a table: each row is one term and its
 							    meaning, and the grid is what lines the keycaps up. */}
@@ -208,7 +208,7 @@ function ShortcutsBody() {
 						{group.rows.map((row) => (
 							<Fragment key={row.keys}>
 								<dt>
-									<kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+									<kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-2xs text-foreground">
 										{row.keys}
 									</kbd>
 								</dt>

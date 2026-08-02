@@ -61,7 +61,15 @@ export function MaterialSwatches(props: {
 								}}
 								className={cn(
 									"h-6 w-6 rounded-sm border border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-									refused && "cursor-not-allowed opacity-40",
+									// The chrome's ONE dimmed tier (D-23), shared with `ui/`'s disabled
+									// controls and the tool rail's refused families.
+									refused && "cursor-not-allowed opacity-50",
+									// NOT the focus ring, despite the spelling: this fires on
+									// `activeId`, so it is the SELECTED marker, and the offset is
+									// load-bearing here in a way it never is on focus — a swatch's
+									// fill is an arbitrary material colour, and a ring drawn flush
+									// against a blue-grey one would be swallowed by it. The 1 px of
+									// `--background` is what keeps the marker readable on any swatch.
 									c.id === props.activeId &&
 										"ring-2 ring-ring ring-offset-1 ring-offset-background",
 								)}

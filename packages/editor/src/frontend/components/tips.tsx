@@ -116,7 +116,7 @@ export function KeyTip(props: {
 						<span className="font-medium text-foreground">{props.label}</span>
 					)}
 					{props.keys !== undefined && (
-						<kbd className="rounded-sm border border-border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+						<kbd className="rounded-sm border border-border bg-muted px-1 font-mono text-2xs text-muted-foreground">
 							{props.keys}
 						</kbd>
 					)}

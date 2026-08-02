@@ -48,7 +48,7 @@ export function SessionStrip({ session }: { session: StampSession }) {
 				<span className="font-mono text-foreground">
 					{sessionName(session)}
 				</span>
-				<span className="font-semibold text-[10px] text-primary tracking-widest">
+				<span className="font-semibold text-2xs text-primary tracking-widest">
 					{sessionStateTag(session)}
 				</span>
 			</span>
@@ -70,7 +70,7 @@ export function SessionStrip({ session }: { session: StampSession }) {
 				    that renders it in Task 10/11. */}
 				{session.moving !== true && <Verb keycap="R" verb="rotate ¼" />}
 			</span>
-			<span className="truncate text-[10px] text-muted-foreground">
+			<span className="truncate text-2xs text-muted-foreground">
 				the brush is suspended while this session is live
 			</span>
 		</section>
@@ -80,7 +80,7 @@ export function SessionStrip({ session }: { session: StampSession }) {
 function Verb({ keycap, verb }: { keycap: string; verb: string }) {
 	return (
 		<span className="flex shrink-0 items-center gap-1.5">
-			<kbd className="rounded-sm border border-border border-b-2 bg-muted px-1 font-mono text-[10px]">
+			<kbd className="rounded-sm border border-border border-b-2 bg-muted px-1 font-mono text-2xs">
 				{keycap}
 			</kbd>
 			{verb}
