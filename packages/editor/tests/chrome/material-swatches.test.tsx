@@ -88,11 +88,35 @@ test("the selected swatch's marker wears the SELECTION colour, not the focus one
 	// token move is most likely to make and least likely to be noticed making.
 	renderStrip(1);
 	const cls = screen.getByLabelText("material stone").className;
-	expect(cls).toContain("ring-primary");
+	// BOUNDED, for the reason the check further down already gave and this one had not taken:
+	// a bare `toContain` passes on every token that merely STARTS with the one it names.
+	// Measured — `ring-primary-foreground` (near-black at 0.15 L, an invisible marker on a
+	// dark swatch), `ring-primary-hover`, `ring-primary/50` and `focus-visible:ring-primary`
+	// each left this file and its two token siblings at 31 pass / 0 fail.
+	//
+	// The `(?:^| )` head is what keeps `focus-visible:ring-primary` out — a spelling that
+	// would put the SELECTION colour on the FOCUS state, which is the exact swap D-23 now
+	// forbids. The tail is `design-tokens.test.ts`'s `(?![\w-])` idiom plus `/`, and the `/`
+	// is the one deviation from it: that file's scans HUNT a bare token, so matching
+	// `text-primary/50` too is right there, while this one ASSERTS the marker is present and
+	// a half-opacity marker is not the one that was measured. Same rule as the `-foreground`
+	// fade ban next door — full opacity is checkable, "how faded is too faded" is not.
+	expect(/(?:^| )ring-primary(?![\w-/])/.test(cls)).toBe(true);
 	// The focus colour still has to be here, under its own variant. The two coexist on one
 	// element — tailwind-merge keeps both because the modifier differs even though the utility
-	// group does not — which is what lets a focused-AND-selected swatch show the wider ring in
-	// the focus colour on top of a marker in the selection one.
+	// group does not.
+	//
+	// WHAT THAT ACTUALLY RENDERS AS, since the obvious reading is wrong and the first draft of
+	// this comment took it: the two do NOT layer. `.ring-primary` and
+	// `.focus-visible\:ring-ring:focus-visible` both write `--tw-ring-color` on the SAME
+	// element, and Tailwind emits ONE `--tw-ring-shadow` layer off it — so while the swatch is
+	// focused, `:focus-visible` outranks the plain class and the WHOLE ring paints `--ring`.
+	// `--primary` is not on screen at that moment. The offset gap is unaffected either way: it
+	// is `--tw-ring-offset-color`, i.e. `--background`. So during focus the selection cue is
+	// ring WIDTH (4 px against an unselected swatch's 1) plus that gap, not colour — which is
+	// the same collision the file header reasons about for width, seen from colour's side.
+	// REASONED from the built CSS (`dist/frontend/chunk-*.css`) and the specificity rule, not
+	// pixel-proven: happy-dom resolves no styles, so nothing here can see a painted ring.
 	expect(cls).toContain("focus-visible:ring-ring");
 	// …and the marker itself must not name the focus colour bare. The `(?:^| )` is what keeps
 	// `focus-visible:ring-ring` out of this match: there the token follows a colon.

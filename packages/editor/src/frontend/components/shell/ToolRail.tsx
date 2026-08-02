@@ -85,10 +85,14 @@ const FAMILY_ICON: Record<ToolFamily["id"], LucideIcon> = {
  *
  *  Three other controls had the identical defect (`ui/button.tsx`'s default variant, the
  *  selected segment, a checked checkbox), and the F4.5c holistic gate settled all four at once
- *  in the only place that could: the token. `--ring` is its own neutral now, held at ≥3:1
- *  against `--primary` and every other fill a focusable control wears. The offset was
- *  compensation for the alias, the alias is gone, and the ruling rejected the offset variant
- *  explicitly rather than leaving it as a spent exception nobody would re-argue.
+ *  in the only place that could: the token, whose value and 3:1 floor are argued at `--ring` in
+ *  `styles.css` rather than restated here. The offset was compensation for the alias, the alias
+ *  is gone, and the ruling rejected the offset variant explicitly rather than leaving it as a
+ *  spent exception nobody would re-argue.
+ *
+ *  The ring on THIS const is pinned by name as well as by ban: `MUST_DECLARE_HOUSE_RING` anchors
+ *  the row on this string's own `h-8 w-8` geometry, because the file's other two ring-bearing
+ *  class strings (the flyout tab, the flyout members) used to answer the check on its behalf.
  *
  *  So `ring-offset-*` is a flat ban again, `ui/button.tsx` states it, and
  *  `tests/frontend-focus-vocabulary.test.ts` enforces it with one allowlisted file left:

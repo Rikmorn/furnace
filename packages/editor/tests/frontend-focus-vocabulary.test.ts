@@ -22,12 +22,22 @@ import { join, relative } from "node:path";
 // resolve to `--primary`, and must clear 3:1 on every fill it can abut). Here we only hold
 // which classes may be written.
 //
-// IT USED TO CARRY A LEDGER TOO, and the ledger is gone rather than mislaid. `RING_OVER_OWN_FILL`
-// tracked the controls whose focus ring sat on a fill of the ring's own colour, which was a real
-// defect class for exactly as long as `--ring` was `var(--primary)`. The F4.5c holistic gate took
-// that alias off, so the premise is false and the rows are not findings any more. What survived
-// the retirement is the part that is still true — those controls have coloured fills and must
-// keep declaring the house ring — and it moved into `MUST_DECLARE_HOUSE_RING` at the bottom.
+// IT USED TO CARRY A LEDGER TOO, and the ledger is gone rather than mislaid. THIS PARAGRAPH IS
+// THE ONLY TELLING OF THAT IN THIS FILE — the two docstrings below point at it rather than
+// repeating it, because three copies of one obituary rot together and none of them is the
+// source. (The token decision itself lives in `styles.css`'s `--ring` block, which is where the
+// colour is; this is only about what the retirement left behind here.)
+//
+// `RING_OVER_OWN_FILL` tracked the controls whose focus ring sat on a fill of the ring's own
+// colour — the default button, the selected segment, a checked checkbox, the armed tool — which
+// was a real defect class for exactly as long as `--ring` was `var(--primary)`: a 1 px outset
+// ring in the fill's own colour does not read as a ring, it reads as the control getting 1 px
+// bigger. The open question the ledger's `offset` column existed for was whether to offset all
+// four or to move the token. The F4.5c holistic gate moved the token AND rejected the piecemeal
+// offset variant in the same ruling, so the premise is false and the rows are not findings any
+// more. What survived the retirement is the part that is still true — those controls have
+// coloured fills and must keep declaring the house ring, which is now a neutral — and it moved
+// into `MUST_DECLARE_HOUSE_RING` at the bottom.
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
 
 /** JS/JSX comments removed before scanning. Every rule below matches a class NAME, and this
@@ -64,7 +74,13 @@ const CORPUS_FLOOR = 50;
 
 // ── the ban ────────────────────────────────────────────────────────────────────────────────
 
-/** Any `focus-visible:ring-*`, captured so the size/colour token can be read off it. */
+/** Any `focus-visible:ring-*`, captured so the size/colour token can be read off it.
+ *
+ *  `/g` HERE IS REQUIRED AND SAFE, unlike on `RING_OFFSET` below — the two are worth reading
+ *  together. `matchAll` demands the flag and clones the regex per call rather than advancing
+ *  this one, so no `lastIndex` survives between files; `.test()` advances the regex itself,
+ *  which is the bug that flag caused down there. Any new rule in this file should reach for
+ *  `matchAll`/`match`, or declare without `/g`. */
 const FOCUS_RING = /focus-visible:ring-([a-z0-9-]+)/g;
 
 /** The house pair, and the ONE sanctioned widening.
@@ -75,11 +91,9 @@ const FOCUS_RING = /focus-visible:ring-([a-z0-9-]+)/g;
  *  focus — focus making its own indicator smaller. Widening is what keeps focus additive.
  *
  *  NO OFFSET TOKEN IS SANCTIONED, and that absence is the F4.5c ruling made enforceable rather
- *  than an oversight. `offset-1` and `offset-background` were in here for the tool rail, whose
- *  ring needed a gap ONLY because the ring was the colour of the fill it sat on. The ruling
- *  rejected the piecemeal offset variant and fixed the colour instead, so a
- *  `focus-visible:ring-offset-*` anywhere now reddens the test below — which is what stops the
- *  patch coming back one control at a time. */
+ *  than an oversight. `offset-1` and `offset-background` were in here for the tool rail and went
+ *  with the reason for them (file header), so a `focus-visible:ring-offset-*` anywhere now
+ *  reddens the test below — which is what stops the patch coming back one control at a time. */
 const SANCTIONED_RING = new Map<string, string>([
   ["1", "the house width"],
   ["ring", "the house colour (--ring)"],
@@ -119,8 +133,19 @@ test("every focus ring is the house ring", () => {
 
 // ── the offset exception ───────────────────────────────────────────────────────────────────
 
-/** `ring-offset-*` in any form — the focus variant and the bare one alike. */
-const RING_OFFSET = /(?:focus-visible:)?ring-offset-[a-z0-9-]+/g;
+/** `ring-offset-*` in any form — the focus variant and the bare one alike.
+ *
+ *  DELIBERATELY NOT `/g`, and the flag's absence is a fix rather than an oversight. A global
+ *  regex carries `lastIndex` across calls, and this one is used with `.test()` inside a
+ *  `filter` — so the first file that MATCHED (the allowlisted `MaterialSwatches`) left the
+ *  index mid-string and the very next file in `walk` order was tested from that offset, with
+ *  its own offset classes invisible. Measured: a bare `ring-offset-2 ring-offset-background`
+ *  in `components/field/form-bits.tsx` (the file immediately after `MaterialSwatches` in walk
+ *  order) left this file at 4 pass / 0 fail, while the same sabotage in `DriftReport.tsx`
+ *  reddened correctly. `readdirSync` order is not guaranteed, so WHICH file sat in the blind
+ *  spot could move without anyone touching this test. Without the flag, `.test()` is
+ *  stateless and every file is read from 0. */
+const RING_OFFSET = /(?:focus-visible:)?ring-offset-[a-z0-9-]+/;
 
 /** The offset is BANNED by default and this is the whole allowlist — ONE entry, and it is not
  *  a focus ring.
@@ -136,12 +161,10 @@ const RING_OFFSET = /(?:focus-visible:)?ring-offset-[a-z0-9-]+/g;
  *  is what makes the geometric answer the right one here and only here.
  *
  *  `ToolRail` WAS the second entry and is deliberately not one now. Its offset was a genuine
- *  focus ring's, and it existed for one reason: `--ring` was `var(--primary)` and the armed tool
- *  is `bg-primary`, so without the gap the ring painted the colour the button already was
- *  (measured at 3× DPR, its focused and unfocused frames were indistinguishable). The F4.5c
- *  holistic gate took the alias off and rejected the offset variant in the same ruling, so the
- *  reason is gone and the classes went with it. The ring on that button is now the plain house
- *  pair, and the thing that makes it visible is the token, not the geometry. */
+ *  focus ring's and it went with the alias it was compensating for (file header); measured at
+ *  3× DPR before the fix, that button's focused and unfocused frames were indistinguishable.
+ *  The ring on it is the plain house pair now, and what makes it visible is the token rather
+ *  than the geometry. */
 const RING_OFFSET_ALLOWED = new Map<string, string>([
   [
     "components/field/MaterialSwatches.tsx",
@@ -158,7 +181,6 @@ test("the ring offset stays banned everywhere it is not the point", () => {
         RING_OFFSET.test(src) && !RING_OFFSET_ALLOWED.has(file),
     )
     .map(({ file }) => file);
-  RING_OFFSET.lastIndex = 0;
   expect(offenders).toEqual([]);
 });
 
@@ -184,57 +206,113 @@ test("every allowlisted offset is still where it says it is", () => {
  *  the tab order wearing the browser's ring instead of the editor's. Nothing failed when that
  *  was reverted.
  *
- *  THE FOUR COLOURED-FILL CONTROLS BELOW ARE THE `RING_OVER_OWN_FILL` LEDGER'S ESTATE. That
- *  ledger tracked them while `--ring` was `var(--primary)`, when a house ring on a `bg-primary`
- *  fill was an invisible focus state and the open question was whether to offset all four or to
- *  move the token. The F4.5c holistic gate moved the token, so the ledger's `offset` column
- *  stopped meaning anything and it retired with the defect class it was tracking.
- *
- *  What did NOT stop meaning anything is this: each of the four wears a fill of the accent lane
- *  in one of its states, and each is now correct for exactly one reason — it declares the house
- *  ring and the house ring is a neutral. Drop the classes and the control has no focus state on
- *  its filled state; that is the same failure the ledger existed to catch, minus the offset
- *  question. So the file list survives under an assertion that is still TRUE, rather than under
- *  one that has become a fossil.
+ *  THE FOUR COLOURED-FILL ROWS BELOW ARE THE RETIRED LEDGER'S ESTATE (file header). Each of the
+ *  four wears a fill of the accent lane in one of its states, and each is now correct for
+ *  exactly one reason — it declares the house ring and the house ring is a neutral. Drop the
+ *  classes and the control has no focus state on its filled state, which is the same failure the
+ *  ledger existed to catch minus the offset question. So the list survives under an assertion
+ *  that is still TRUE, rather than under one that has become a fossil.
  *
  *  `segmented` is the sharpest of them and worth restating: its own source comment says it "is
  *  ONE tab stop with a roving tabindex, so arrowing between members moves focus with no other
  *  signal that it moved". Arrowing onto the SELECTED member is precisely where the ring is the
- *  only signal there is. */
-const MUST_DECLARE_HOUSE_RING = new Map<string, string>([
+ *  only signal there is.
+ *
+ *  EACH ROW NAMES A CLASS STRING, NOT A FILE, and that is a repair rather than a flourish. The
+ *  shape this inherited from the ledger was file-granular — "somewhere in this file there is a
+ *  `focus-visible:ring-1`, and somewhere there is a `focus-visible:ring-ring`" — and
+ *  `ToolRail.tsx` has THREE ring-declaring class strings: the armed tool's `BUTTON_CLASS`, the
+ *  member flyout's tab, and the flyout's member buttons. Measured, not suspected: stripping the
+ *  pair from `BUTTON_CLASS` — the armed tool, the control this whole ruling is about — left this
+ *  file at 4 pass / 0 fail, because the other two answered the row on its behalf. The `anchor`
+ *  is what pins a row to ONE literal, so the ring has to be on the same string as the classes
+ *  that identify the control. */
+interface HouseRingSite {
+  /** A pattern the ring-carrying class string must ALSO match, tested against one string
+   *  literal at a time — two classes only reach the same element if they are on the same
+   *  string, which is the granularity the file-granular version lost.
+   *
+   *  TWO ROWS ANCHOR ON THE RING ITSELF (`^…$`) rather than on a neighbouring class, and that
+   *  is what their source says rather than a weaker rule: the collapsible trigger and the
+   *  segment each compose the house pair in as its own `cn()` argument, with the geometry in a
+   *  different one. Both files have exactly one ring site, so neither was ever the vacuous
+   *  row — the exact match is what keeps them from becoming one. */
+  readonly anchor: RegExp;
+  /** Which control this is, so a red names the thing that lost its ring rather than a path. */
+  readonly why: string;
+}
+
+const HOUSE_RING_WIDTH = /focus-visible:ring-1/;
+const HOUSE_RING_COLOUR = /focus-visible:ring-ring/;
+
+const MUST_DECLARE_HOUSE_RING = new Map<string, HouseRingSite>([
   [
     "components/ui/collapsible.tsx",
-    "styled in ui/ so a section trigger cannot ship with the UA ring again",
+    {
+      anchor:
+        /^focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring$/,
+      why: "the section trigger, styled in ui/ so it cannot ship with the UA ring again",
+    },
   ],
   [
     "components/ui/button.tsx",
-    "the `default` variant's bg-primary fill — ex-ledger, fixed by the token",
+    {
+      anchor: /^inline-flex items-center justify-center/,
+      why: "the cva BASE every variant inherits, `default`'s bg-primary fill included — ex-ledger",
+    },
   ],
   [
     "components/ui/segmented.tsx",
-    "the selected segment, reached by arrow with no other cue — ex-ledger",
+    {
+      anchor:
+        /^focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring$/,
+      why: "the selected segment, reached by arrow with no other cue — ex-ledger",
+    },
   ],
   [
     "components/ui/checkbox.tsx",
-    "the checked box's bg-primary fill — ex-ledger",
+    {
+      anchor: /data-\[state=checked\]:bg-primary/,
+      why: "the checked box's bg-primary fill — ex-ledger",
+    },
   ],
   [
     "components/shell/ToolRail.tsx",
-    "the armed tool — ex-ledger, and the one whose offset the ruling removed",
+    {
+      // The 32 px square is what separates the armed tool from the other two rings in that
+      // file — the flyout tab is `h-6 w-8`, the flyout members are `flex flex-col`. The const
+      // NAME cannot be the anchor: it is not inside the literal the anchor is matched against.
+      anchor: /(?:^| )h-8 w-8(?: |$)/,
+      why: "the armed tool's own BUTTON_CLASS — ex-ledger, and the one whose offset the ruling removed",
+    },
   ],
 ]);
 
-test("the controls that had to be given a ring still declare one", () => {
+/** Every quoted string in a source file, delimiters stripped. Both spellings, because a class
+ *  string that grew an interpolation would otherwise leave its row silently unmatched. */
+const classStrings = (src: string): string[] =>
+  [...src.matchAll(/"([^"\n]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? "");
+
+test("every control whose focus ring is load-bearing still declares the house one", () => {
+  // NOT "the controls that had to be GIVEN a ring", which this was called and which is false
+  // for four of the five rows: only `collapsible` was ever missing one. The other four are here
+  // because they sit on a coloured fill, and a name is what a red prints.
   const found = sources(FRONTEND);
   expect(found.length).toBeGreaterThan(CORPUS_FLOOR);
-  const missing = [...MUST_DECLARE_HOUSE_RING.keys()].filter(
-    (file) =>
-      !found.some(
-        (s) =>
-          s.file === file &&
-          /focus-visible:ring-1/.test(s.src) &&
-          /focus-visible:ring-ring/.test(s.src),
-      ),
-  );
+  const missing = [...MUST_DECLARE_HOUSE_RING]
+    .filter(([file, { anchor }]) => {
+      const source = found.find((s) => s.file === file);
+      if (source === undefined) return true;
+      return !classStrings(source.src).some(
+        (cls) =>
+          anchor.test(cls) &&
+          HOUSE_RING_WIDTH.test(cls) &&
+          HOUSE_RING_COLOUR.test(cls),
+      );
+    })
+    .map(
+      ([file, { why }]) =>
+        `${file} (${why}): no one class string carries both this row's anchor and the house ring`,
+    );
   expect(missing).toEqual([]);
 });

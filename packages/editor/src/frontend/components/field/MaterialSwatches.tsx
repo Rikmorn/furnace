@@ -79,12 +79,21 @@ export function MaterialSwatches(props: {
 									// said `ring-ring` while `--ring` WAS `--primary`, so the spelling
 									// cost nothing and said the wrong thing. The gate split the two
 									// tokens — focus is a neutral, selection is the accent — and a
-									// marker that fires on `activeId` belongs to selection. The focus
-									// colour still reaches this element under its own variant from the
-									// base string above; tailwind-merge keeps both because the
-									// modifier differs, so a focused-and-selected swatch shows the
-									// wider ring in the focus colour over a marker in the selection
-									// one. `tests/chrome/material-swatches.test.tsx` holds it.
+									// marker that fires on `activeId` belongs to selection.
+									//
+									// THE TWO COLOURS DO NOT LAYER, which the obvious reading of that
+									// sentence suggests and the CSS refuses. `.ring-primary` and
+									// `.focus-visible\:ring-ring:focus-visible` write the SAME custom
+									// property (`--tw-ring-color`) on the same element, and Tailwind
+									// emits ONE ring shadow off it — so while the swatch is focused,
+									// `:focus-visible` wins on specificity and the whole ring paints
+									// `--ring`. The selection hue is not on screen at that moment; the
+									// cue during focus is the WIDTH (4 px, below) plus the offset gap,
+									// which is `--background` rather than either ring colour. Same
+									// collision as the width one below, seen from colour's side.
+									// Reasoned from the built CSS, not pixel-proven — happy-dom
+									// resolves no styles, so no test in this repo can see a ring.
+									// `tests/chrome/material-swatches.test.tsx` holds the spellings.
 									//
 									// `focus-visible:ring-4` is here because the two rings share a CSS
 									// property and `:focus-visible` outranks a plain class, so the

@@ -33,12 +33,15 @@ import { cn } from "../../lib/cn.ts";
 //   bigger. Four controls had it at once — this variant, the selected segment, a checked
 //   checkbox, the armed tool — and only the rail had been patched, with a `ring-offset-1` that
 //   bought back a gap of `--background`. The F4.5c holistic gate ruled the other way: the
-//   offset variant is rejected and `--ring` is its own neutral now (`oklch(0.96 0.005 250)`,
-//   pinned at ≥3:1 against every fill a focusable control wears, `styles.css` and
-//   `tests/design-tokens.test.ts`). All four are fixed by the token, none by a call site, and
-//   the rail's offset went with the reason for it.
+//   offset variant is rejected and `--ring` is its own neutral now. All four are fixed by the
+//   token, none by a call site, and the rail's offset went with the reason for it. The value,
+//   the 3:1 floor it is held to and the arithmetic behind both are argued once, at `--ring` in
+//   `styles.css`, and pinned in `tests/design-tokens.test.ts`.
 //   `tests/frontend-focus-vocabulary.test.ts` holds the ban; `MUST_DECLARE_HOUSE_RING` there
-//   is what stops any of the four quietly dropping the ring the token now makes visible.
+//   pins each of the four to the CLASS STRING that carries its ring rather than to its file,
+//   which is what stops any of them quietly dropping the ring the token now makes visible. It
+//   was file-granular until the review round after this commit, and the tool rail's row was
+//   vacuous the whole time it was: two other rings in that file answered for the armed tool's.
 //
 // HOVER LIGHTENS, NEVER FADES. `hover:bg-X/90` is a fade: on a dark shell it composites the
 // surface underneath into the fill and the control gets DARKER under the cursor, which reads

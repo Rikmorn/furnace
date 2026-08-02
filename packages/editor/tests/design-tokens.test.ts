@@ -382,33 +382,41 @@ test("a hover fill is LIGHTER than the fill it replaces", () => {
 // fill on the inside edge (the defect the ruling closes) and the surface the control sits on
 // outside it (the pixels the ring replaces when it appears).
 //
-// WHAT WAS EXCLUDED, said out loud rather than quietly omitted:
-//   - `--warning` — one site, `TopBar.tsx`'s 7 px `aria-hidden` dirty dot. Not a control and
-//     not adjacent to any ring; the chip AROUND it is `bg-muted`, which is in the set.
-//   - `bg-black/80` — `ui/dialog.tsx`'s scrim. Nothing focusable sits on it, and the dialog
-//     it dims is `bg-background`, which is in the set.
-//   - `--border` — a 1 px separator `<span>` in the top bar.
-//   - `bg-transparent` — not a colour. Those controls show whatever surface is behind them,
-//     and every such surface (`--card`, `--popover`, `--background`) is in the set.
-//   - the translucent tints (`bg-primary/15`, `bg-muted/50`, `bg-muted/40`,
-//     `bg-destructive/20`, `bg-success/20`). A composite is not a token, and it does not need
-//     to be one here: each composites its base over `--card`, so the painted colour lies
-//     strictly BETWEEN the base and `--card`, and contrast against a LIGHT ring falls
-//     monotonically as the backdrop lightens — clearing both ends clears everything between
-//     them. `bg-success/20` is the one whose base is absent from the set, and it is absent
-//     because that chip is a `<Tag>` rendered OUTSIDE the button (`FlagsPalette.tsx`), so no
-//     ring ever abuts it.
+// THAT GREP OVER-COUNTS BY THREE, and the reconciliation belongs here rather than dangling:
+// it reads COMMENTS as well as code, and `src/frontend` as a whole rather than its components,
+// so three spellings nothing actually wears come back with the rest — `bg-card/50` (prose, in
+// `styles.css`'s `@theme` note) and `bg-primary/80` / `bg-primary/90` (prose, in `ToolRail.tsx`
+// and `button.tsx`, both recording alpha fills that F4.5c REMOVED). The scan at the bottom of
+// this section strips comments and reads only `.ts` / `.tsx`, which is why it derives 21, and
+// those 21 account exactly: 11 in `FOCUSABLE_FILLS`, 9 in `EXCLUDED_FILLS`, and
+// `bg-primary-hover` — the one fill no ring can reach, which has its own proof at
+// `UNREACHABLE_FILL`.
+//
+// TWO EXCLUSIONS ARE NOT `bg-*` SPELLINGS AT ALL, so no scan can hold them and they are said
+// out loud here instead:
 //   - `MaterialSwatches`' swatches. The fill is an arbitrary material colour out of the
-//     project, so no arithmetic in this file can reach it — which is exactly why that control
-//     has its own answer, a `ring-offset-1` SELECTION marker rather than a token choice. See
-//     `frontend-focus-vocabulary.test.ts`.
+//     project, painted through an inline `style`, so no arithmetic in this file can reach it —
+//     which is exactly why that control has its own answer, a `ring-offset-1` SELECTION marker
+//     rather than a token choice. See `frontend-focus-vocabulary.test.ts`.
 //   - the CANVAS itself. `CanvasHost`'s ring is `ring-inset` over rendered 3D, arbitrary for
 //     the same reason. `--viewport-background` IS in the set: it is the cell's colour before
 //     the first frame and wherever the canvas does not paint.
 
-/** A fill a focusable control in this chrome wears, or sits on, bound to the site that puts
- *  it there — the same discipline as `PRIMARY_TEXT_SITES`, and for the same reason: a bare
- *  token list decays into a list nobody can re-check. */
+/** A fill a focusable control in this chrome wears, or sits on.
+ *
+ *  HELD TO THE SOURCE BY A SCAN, not by the `where` string — and that is a correction rather
+ *  than a description. This docstring used to claim "the same discipline as
+ *  `PRIMARY_TEXT_SITES`", which was false: that ledger is bound to the code by a scan that
+ *  reddens on a new site, and this list had only prose. Measured while it did, and the hole was
+ *  live-defect-shaped rather than theoretical — putting `bg-warning` on the armed tool's
+ *  `BUTTON_CLASS`, a genuinely new fill under a focusable control, left this file and
+ *  `frontend-focus-vocabulary.test.ts` at 27 pass / 0 fail; naming that fill here then reports
+ *  `--warning: 2.92`, a real sub-3:1 WCAG 1.4.11 failure that would have shipped green.
+ *  Deleting the `--primary` row — the TIGHTEST fill in the set — was 27 / 0 as well, and so was
+ *  emptying the array.
+ *
+ *  `where` stays and is documentation rather than a check: the scan proves the SET is complete,
+ *  the sentence tells the next reader which control put a token in it. */
 interface FocusableFill {
   readonly token: string;
   readonly where: string;
@@ -457,6 +465,106 @@ const FOCUSABLE_FILLS: readonly FocusableFill[] = [
   },
 ];
 
+/** The one reason the five translucent tints share, spelled once rather than five times: a
+ *  composite is not a token, and it does not need to be one here. Each composites its base over
+ *  `--card`, so the painted colour lies strictly BETWEEN the base and `--card`, and contrast
+ *  against a LIGHT ring falls monotonically as the backdrop lightens — clearing both ends
+ *  clears everything between them. */
+const TINT_OVER_CARD =
+  "a tint over --card, so the painted colour lies between two fills that both clear the floor";
+
+/** A `bg-*` spelling the ring floor is deliberately NOT held on, promoted from prose to data so
+ *  the scan below can say "name it or exclude it" about anything else.
+ *
+ *  EACH IS BOUND TO ITS SITES, and the asymmetry with `FOCUSABLE_FILLS` is the point rather than
+ *  an inconsistency. A fill in the SET is already measured at 3:1 against `--ring`, so a new
+ *  site for it needs no new measurement and a file list there would be churn with no check in
+ *  it. A fill in HERE is excluded because of WHERE IT IS — "not a control", "nothing focusable
+ *  sits on it", "it composites over `--card`" — so a new site is exactly what invalidates the
+ *  reason. `bg-warning` is the proof of that: one `aria-hidden` dot in the top bar is out of
+ *  scope, and the same token under the armed tool is a 2.92:1 focus ring. */
+interface ExcludedFill {
+  /** The class spelling, exactly as the chrome writes it. */
+  readonly spelling: string;
+  /** Every file under `src/frontend` that writes it outside a comment. The check. */
+  readonly files: readonly string[];
+  readonly why: string;
+}
+
+const EXCLUDED_FILLS: readonly ExcludedFill[] = [
+  {
+    spelling: "bg-warning",
+    files: ["components/shell/TopBar.tsx"],
+    why: "a 7 px aria-hidden dirty dot — not a control, and not adjacent to any ring; the chip AROUND it is bg-muted, which is in the set",
+  },
+  {
+    spelling: "bg-black/80",
+    files: ["components/ui/dialog.tsx"],
+    why: "the scrim. Nothing focusable sits on it, and the dialog it dims is bg-background, which is in the set",
+  },
+  {
+    spelling: "bg-border",
+    files: ["components/shell/TopBar.tsx"],
+    why: "a 1 px separator <span>",
+  },
+  {
+    spelling: "bg-transparent",
+    files: [
+      "components/field/form-bits.tsx",
+      "components/ui/command.tsx",
+      "components/ui/input.tsx",
+      "components/ui/select.tsx",
+    ],
+    why: "not a colour. Those controls show whatever surface is behind them, and every such surface (--card, --popover, --background) is in the set",
+  },
+  {
+    spelling: "bg-primary/15",
+    files: [
+      "components/field/EntitiesList.tsx",
+      "components/shell/FlagsPalette.tsx",
+    ],
+    why: TINT_OVER_CARD,
+  },
+  {
+    spelling: "bg-muted/50",
+    files: [
+      "components/CollapsibleSection.tsx",
+      "components/field/DriftReport.tsx",
+      "components/field/EntitiesList.tsx",
+      "components/shell/FlagsPalette.tsx",
+    ],
+    why: TINT_OVER_CARD,
+  },
+  {
+    spelling: "bg-muted/40",
+    files: ["components/shell/WorldDrawer.tsx"],
+    why: TINT_OVER_CARD,
+  },
+  {
+    spelling: "bg-destructive/20",
+    files: ["components/shell/FlagsPalette.tsx"],
+    why: TINT_OVER_CARD,
+  },
+  {
+    spelling: "bg-success/20",
+    files: ["components/shell/FlagsPalette.tsx"],
+    why: `${TINT_OVER_CARD} — and the one whose BASE is absent from the set, because that chip is a <Tag> rendered OUTSIDE the button, so no ring ever abuts it`,
+  },
+];
+
+/** The class a token is worn as: `--primary` → `bg-primary`. */
+const fillClass = (token: string): string => `bg${token.slice(1)}`;
+
+/** `bg-<token>` and `bg-<token>/<alpha>`, the two spellings a fill is written in. */
+const BG_FILL = /bg-[a-z0-9-]+(?:\/[0-9]+)?/g;
+
+/** The anti-vacuity floor for the fill set, asserted INSIDE each test that reads it rather
+ *  than once at module load — the same reason `frontend-focus-vocabulary.test.ts` gives for its
+ *  `CORPUS_FLOOR`: a guard computed once covers cases that no longer read it. Both tests below
+ *  are the shape that goes quiet when their input empties, and emptying `FOCUSABLE_FILLS` was
+ *  measured at 27 pass / 0 fail before this existed. */
+const FILL_SET_FLOOR = 10;
+
 /** The luminance a ring must REACH to clear {@link AA_NON_TEXT} on a fill from above. */
 const lightestNeeded = (fill: string): number =>
   AA_NON_TEXT * (lum(fill) + 0.05) - 0.05;
@@ -501,16 +609,108 @@ test("the focus ring clears the non-text floor on every fill it can abut", () =>
   // 3:1 against adjacent colour is the floor for it. Named-and-numbered rather than counted,
   // because the fix for a failure is a token choice and the reader needs to know how far off
   // it is and on which fill.
+  expect(FOCUSABLE_FILLS.length).toBeGreaterThanOrEqual(FILL_SET_FLOOR);
   const offenders = FOCUSABLE_FILLS.filter(
     ({ token }) => rawContrast("--ring", token) < AA_NON_TEXT,
   ).map(({ token }) => `${token}: ${contrast("--ring", token)}`);
   expect(offenders).toEqual([]);
+  // WHERE THE HEADROOM RUNS OUT, as the number `styles.css` quotes in the paragraph that
+  // justifies the token. `--primary` is the binding fill: the ratio crosses 3:1 at L 0.93904,
+  // so the committed 0.96 has about 0.021 L of room and `--primary` itself has about 0.025 L
+  // before it takes that room away. Pinned because that paragraph shipped a wrong number the
+  // first time (0.9375, which measures 2.9861 and FAILS) and prose nothing checks is how.
+  expect(luminance(0.93904, 0.005, 250)).toBeLessThan(
+    lightestNeeded("--primary"),
+  );
+  expect(luminance(0.9391, 0.005, 250)).toBeGreaterThan(
+    lightestNeeded("--primary"),
+  );
+});
+
+test("every fill spelling in the chrome is named in the set or excluded from it", () => {
+  // THE ASSERTION THAT MAKES `FOCUSABLE_FILLS` A CHECK, and the recipe for it was written in
+  // the section header above long before anything ran it. Without this the list is a note: a
+  // `bg-warning` added to the armed tool passes, a deleted `--primary` row passes, an EMPTY
+  // array passes — all three measured at 27 pass / 0 fail. A new spelling now reddens with
+  // "name it or exclude it", which is the moment the measurement gets made.
+  //
+  // COMMENTS ARE STRIPPED FIRST, and that is load-bearing rather than tidy: the raw grep in the
+  // header derives 24 spellings, three of which are prose recording fills F4.5c REMOVED. A scan
+  // that inherited that artifact would demand rows for classes nothing wears.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  expect(FOCUSABLE_FILLS.length).toBeGreaterThanOrEqual(FILL_SET_FLOOR);
+
+  const sites = new Map<string, Set<string>>();
+  for (const file of files) {
+    for (const m of stripComments(readFileSync(file, "utf8")).matchAll(
+      BG_FILL,
+    )) {
+      const spelling = m[0];
+      if (spelling === undefined) continue;
+      const at = sites.get(spelling) ?? new Set<string>();
+      at.add(relative(FRONTEND, file));
+      sites.set(spelling, at);
+    }
+  }
+  expect(sites.size).toBeGreaterThanOrEqual(FILL_SET_FLOOR);
+
+  // `null` = in the set, so the floor above already measures it and a new site is safe by
+  // construction. An array = excluded BECAUSE OF WHERE IT IS, so the sites are the check.
+  const named = new Map<string, readonly string[] | null>([
+    ...FOCUSABLE_FILLS.map(
+      ({ token }) => [fillClass(token), null] as [string, null],
+    ),
+    [fillClass(UNREACHABLE_FILL), null],
+    ...EXCLUDED_FILLS.map(
+      ({ spelling, files: at }) =>
+        [spelling, at] as [string, readonly string[]],
+    ),
+  ]);
+
+  const findings: string[] = [];
+  for (const [spelling, at] of sites) {
+    const rule = named.get(spelling);
+    if (rule === undefined) {
+      findings.push(
+        `${spelling}: name it in FOCUSABLE_FILLS or exclude it — ${[...at].sort().join(", ")}`,
+      );
+      continue;
+    }
+    if (rule === null) continue;
+    const fresh = [...at].filter((f) => !rule.includes(f)).sort();
+    if (fresh.length > 0)
+      findings.push(
+        `${spelling}: excluded because of WHERE it is, and it is now also at ${fresh.join(", ")}`,
+      );
+  }
+  // The other direction, the one `TINTED_SITES` learned the hard way: a row for a fill nobody
+  // wears any more is a row nobody can re-check, and it re-permits the thing it was written to
+  // contain the day the spelling comes back somewhere else.
+  for (const [spelling, rule] of named) {
+    const at = sites.get(spelling);
+    if (at === undefined) {
+      findings.push(`${spelling}: named here, spelled nowhere`);
+      continue;
+    }
+    if (rule === null) continue;
+    for (const stale of rule.filter((f) => !at.has(f)))
+      findings.push(
+        `${spelling}: excluded at ${stale}, which does not spell it`,
+      );
+  }
+  expect(findings.sort()).toEqual([]);
 });
 
 test("the one excluded fill is excluded by arithmetic, not by preference", () => {
   // THE RULING'S BAR AS WRITTEN CANNOT BE MET, and this is the proof rather than the excuse.
   // Two directions exist for a ring to clear a fill — be lighter than it, or be darker — and
   // on this palette both are closed for `--primary-hover`.
+  //
+  // IF THIS REDDENS, THE FILL IS REACHABLE NOW — the accent lane moved and the impossibility
+  // stopped being one. The answer then is to move `--primary-hover` into `FOCUSABLE_FILLS` and
+  // let the floor test hold it, not to loosen anything here. `bg-primary-hover` is accounted
+  // for in the fill-spelling scan by `UNREACHABLE_FILL`, so the move is one line in each place.
   //
   // DARKER is closed first, and not by that fill: the darkest surface a focusable control
   // sits on is near black, so a ring dark enough to contrast with THAT would need negative

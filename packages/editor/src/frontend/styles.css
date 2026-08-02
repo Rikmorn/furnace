@@ -37,7 +37,13 @@
 	--muted-foreground: oklch(0.65 0.01 250);
 	--foreground: oklch(0.87 0.005 250);
 	/* the attention lane — ONE hue: selection, primary action, generation-active, focus */
-	--primary: oklch(0.62 0.11 240); /* steel-blue, committed 3.2.2 live pass */
+	/* steel-blue, committed 3.2.2 live pass. IT GAINED A WALL AT THE F4.5c HOLISTIC GATE and
+	   this is the notice: --ring has to clear 3:1 against it (WCAG 1.4.11), and at 0.62 L it is
+	   the TIGHTEST fill in that set — 3.19:1, about 0.025 L of headroom. Lightening this to
+	   0.65, an unremarkable-looking tweak on a line whose own comment invites iteration, takes
+	   the pair to 2.84 and reddens three tests. Move it and you are moving the focus ring too;
+	   the pair is asserted in tests/design-tokens.test.ts. */
+	--primary: oklch(0.62 0.11 240);
 	--primary-foreground: oklch(0.15 0.02 240);
 	/* D-23's hover rule needs a colour, not a modifier. "Hover LIGHTENS, never fades" is
 	   unimplementable on a coloured fill with alpha: this shell is dark, so `bg-primary/90`
@@ -64,9 +70,12 @@
 	   at the foreground's value anyway. The ruling suggested starting near 0.87 L (the text
 	   ramp) and the arithmetic moved it — 0.87 reads 2.42:1 against `--primary`, under the 3:1
 	   non-text floor, so the ring would have been invisible on exactly the control the ruling
-	   was about. The binding constraint is `--primary` at 0.62 L: a ring needs ≥ 0.9375 L to
-	   clear 3:1 on it, and 0.96 sits above that with room (3.19:1) rather than at the 0.94 that
-	   measures 3.0087 and rounds to a reassuring, meaningless "3.01".
+	   was about. The binding constraint is `--primary` at 0.62 L: the ratio crosses 3:1 at
+	   L 0.93904, so a ring needs ≥ 0.9391 to clear it, and 0.96 sits above that with room
+	   (3.19:1) rather than at the 0.94 that measures 3.0087 and rounds to a reassuring,
+	   meaningless "3.01". (An earlier draft of this line said 0.9375, which measures 2.9861 and
+	   FAILS. The crossing is pinned in tests/design-tokens.test.ts now, so the paragraph cannot
+	   drift off the arithmetic again.)
 
 	   ONE FILL IS OUT OF REACH AND IT IS OUT OF REACH FOR EVERY COLOUR, which is why it is
 	   recorded rather than fixed: `--primary-hover` (a focused button under the cursor) would
