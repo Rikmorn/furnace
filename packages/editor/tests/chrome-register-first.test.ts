@@ -14,10 +14,12 @@ import { join } from "node:path";
 // exists pins that hook to the no-op branch for the WHOLE RUN, and every Radix portal in
 // every other file then renders `null` under a trigger that opened perfectly well.
 //
-// The cost was measured at the F4.5c Task 12 review, and it was not small:
+// The cost was measured at the F4.5c Task 12 review, and it was not small — stated as the
+// RATIO and the wall clock, because the totals move every time anyone adds a case and a
+// hardcoded pass count in a comment is the exact failure mode this file exists to stop:
 //
-//   bun test packages/editor/tests/chrome   →  237 pass / 130 fail  [51s]
-//   …with the three missing imports added   →  367 pass /   0 fail  [10s]
+//   bun test packages/editor/tests/chrome   →  ~130 failures, ~51s
+//   …with the three missing imports added   →     0 failures, ~10s
 //
 // Three files (`confirm-dialog`, `flags-palette`, `host-seams-and-catalogs`) were missing it.
 // That is the whole of the "never run the chrome directory, confirm-dialog poisons it"
@@ -34,8 +36,14 @@ const CHROME = join(import.meta.dir, "chrome");
 
 /** The one spelling that survives. A BARE side-effect import: `organizeImports` sorts a
  *  named `./_harness.tsx` import below `../../src/…` and would revert any attempt to hoist
- *  it, while a side-effect import keeps the position it was written in. */
-const REGISTER = 'import "../inspector/_register.ts";';
+ *  it, while a side-effect import keeps the position it was written in.
+ *
+ *  Anchored to a WHOLE LINE (`^…$`, multiline), which is load-bearing rather than tidy. A
+ *  plain substring search matches the text inside `// import "../inspector/_register.ts";`
+ *  — and commenting the line out to isolate a failing test is the likeliest way it ever
+ *  disappears. That spelling passed the first version of this scan while leaving the file
+ *  with no registration at all, which is precisely the landmine here to be caught. */
+const REGISTER = /^import "\.\.\/inspector\/_register\.ts";$/m;
 
 const chromeTests = (): string[] =>
   readdirSync(CHROME)
@@ -50,7 +58,7 @@ test("every chrome test registers happy-dom before its first import", () => {
 
   const offenders = files.filter((name) => {
     const src = readFileSync(join(CHROME, name), "utf8");
-    const register = src.indexOf(REGISTER);
+    const register = src.search(REGISTER);
     if (register === -1) return true;
     // Position, not just presence: the import has to come before the first OTHER import,
     // because what matters is that registration runs before any DOM-touching module in

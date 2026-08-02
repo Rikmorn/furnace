@@ -25,8 +25,9 @@
 // onto nothing, and only in runs where no other file registered first, which is as
 // intermittent as it sounds. Three chrome files were missing it until the F4.5c Task 12
 // review, and they were the whole of the "confirm-dialog poisons the directory" folklore:
-// adding the line took `bun test packages/editor/tests/chrome` from 237 pass / 130 fail in
-// 51 s to 367 pass / 0 fail in 10 s. See `enum-field.test.tsx`'s header for the mechanism.
+// adding the line took `bun test packages/editor/tests/chrome` from ~130 failures in ~51 s
+// to ZERO in ~10 s. (The ratio and the clock, not a pass total — that number moves with
+// every case anyone adds.) See `enum-field.test.tsx`'s header for the mechanism.
 //
 // Registration is deliberately scoped to files that import the harness (NOT a bun
 // `--preload`) so `document`/`window` are never injected into the daemon/server/GPU

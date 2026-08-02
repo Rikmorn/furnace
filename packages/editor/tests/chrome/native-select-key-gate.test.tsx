@@ -279,8 +279,15 @@ test("⏎ on the merge-policy select does NOT commit the live session it sits in
 	fetch404();
 	const stub = makeStubHost({ generators: [HALL] });
 	await renderShell(stub);
-	const el = await (SITES.at(-1)?.reach(stub) ??
-		Promise.reject(new Error("no merge-policy site")));
+	// BY NAME, not by position. `SITES.at(-1)` would silently retarget this case at whatever
+	// a future entry appended — and the likeliest new entry is another tool-strip control,
+	// which a live session DETACHES, making this assertion vacuous in exactly the way the
+	// case it replaced was. The throw is the point: a missing site must stop the run, not
+	// quietly test something else.
+	const mergePolicy = SITES.find((s) => s.label === "merge policy");
+	if (mergePolicy === undefined)
+		throw new Error("the merge-policy site is gone; this case has no subject");
+	const el = await mergePolicy.reach(stub);
 
 	// ⏎ is a native select's OWN commit key — the keystroke a user presses to accept the
 	// highlighted option. The editor binds it to `session.confirm` → `host.confirmSession()`,

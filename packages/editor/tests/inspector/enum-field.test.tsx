@@ -54,11 +54,12 @@ import "./_register.ts";
 // turns true, and the portal renders `null` under a trigger that opened perfectly well.
 //
 // Process-wide rather than per-file, which is why it hid for two rounds: bun evaluates a
-// module once per RUN, so a chrome file — all 16 carry line 6, pinned by
-// `../chrome-register-first.test.ts` — used
-// to repair this one by loading first, and the same case passed in `bun test
-// packages/editor` and failed run on its own. `shell.test.tsx` driving the Radix
-// DropdownMenu's portal was never in tension with any of it; it registers first.
+// module once per RUN, so a chrome file used to repair this one by loading first. Every one
+// of them carries line 6 — that is the claim `../chrome-register-first.test.ts` pins, and a
+// count here would only go stale the next time someone adds a chrome test. The consequence
+// was that the same case passed under `bun test packages/editor` and failed when run on its
+// own. `shell.test.tsx` driving the Radix DropdownMenu's portal was never in tension with
+// any of it; it registers first.
 //
 // So this file CAN now drive its own commit, in any run, and does not — because
 // `SegmentedField`'s case already drives the identical `lib/enum-options.ts` mapping end to

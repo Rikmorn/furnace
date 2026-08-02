@@ -21,10 +21,14 @@
 import { cn } from "../../lib/cn.ts";
 import { ActionTip } from "../tips.tsx";
 
-/** One member of a segmented control. */
-export type SegmentedOption = {
+/** One member of a segmented control.
+ *
+ *  Generic in the VALUE so a caller with a union (`"studio" | "normals"`) gets that union
+ *  back from `onChange` rather than a bare `string`. Defaults to `string` for callers whose
+ *  values genuinely are open, which is what a schema-driven field has. */
+export type SegmentedOption<T extends string = string> = {
 	/** What {@link Segmented}'s `onChange` hands back. Unique within the option list. */
-	value: string;
+	value: T;
 	/** What the user reads, and the member's accessible name. */
 	label: string;
 	/** The one sentence the label has no room for, as a real tooltip (D-25).
@@ -46,7 +50,7 @@ function arrowTarget(key: string, index: number, count: number): number | null {
 	return null;
 }
 
-export function Segmented({
+export function Segmented<T extends string = string>({
 	label,
 	value,
 	options,
@@ -60,9 +64,9 @@ export function Segmented({
 	/** The selected option's `value`, or `null` for "none of them" — which is what a mixed
 	 *  multi-selection and a value matching no member both look like, and neither may render
 	 *  as a checked member. */
-	value: string | null;
-	options: readonly SegmentedOption[];
-	onChange: (value: string) => void;
+	value: T | null;
+	options: readonly SegmentedOption<T>[];
+	onChange: (value: T) => void;
 	className?: string;
 }) {
 	const selectedIndex = options.findIndex((o) => o.value === value);

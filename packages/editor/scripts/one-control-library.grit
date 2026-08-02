@@ -49,8 +49,19 @@ predicate in_chrome_outside_ui() {
 // Pinned by ACCESSIBLE NAME as well as by file, on the same reasoning as
 // `tests/frontend-no-doc-titles.test.ts`'s allowlist: a whole-file exemption would let a
 // FIFTH raw select into `tool-params.tsx` unnoticed, which is most of what this rule is
-// for. The residual hole is exactly "one of these four, re-created in its own file, under
-// its own name" — which is the control the exemption already names.
+// for.
+//
+// THE RESIDUAL HOLE, measured rather than reasoned (F4.5c Task 12 quality round). A
+// predicate that asks "does this element carry an allowlisted name in an allowlisted file"
+// cannot count, so it admits BOTH:
+//   - one of these four re-created in its own file under its own name; and
+//   - a SECOND select carrying an already-allowlisted name in the SAME file — verified by
+//     adding a duplicate `aria-label="smooth mode"` to `tool-params.tsx`, which drew no
+//     D-24 diagnostic at all.
+// What actually catches the second today is defence in depth, not this rule:
+// `tests/chrome/native-select-key-gate.test.tsx` reaches every site with `getByLabelText`,
+// which throws "Found multiple elements" on a duplicate name (verified in the same probe).
+// Worth knowing which mechanism is load-bearing before anyone edits either one.
 predicate allowlisted_select($props) {
   or {
     and {

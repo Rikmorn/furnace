@@ -29,11 +29,19 @@
 // hands them to a mouse and to nobody else. The trigger wraps the <label>, so the tooltip
 // opens both on a hover anywhere across the row and on the nested control taking FOCUS.
 //
-// The controls are the house library's (D-24), which is why each row spells an `htmlFor`
-// it did not need as an `<input>`: a Radix checkbox is a <button>, and a <label> reaches a
-// button by NAMING it, never by wrapping it. Dropping that association would not have
-// broken a test — every query here resolves through the `aria-label` — it would have
-// quietly cost the row text its click, which is most of each row's hit target.
+// The controls are the house library's (D-24), so each row spells an explicit `htmlFor`.
+// That is BELT AND BRACES, not a requirement, and the claim that used to stand here — "a
+// <label> reaches a button by NAMING it, never by wrapping it" — is false. `button` is a
+// labelable element in the HTML spec, so a <label> wrapping one is already associated with
+// it; measured at the F4.5c Task 12 quality round, where stripping every `htmlFor` here left
+// the row-text click working and the whole chrome directory green. The attribute stays
+// because it survives the control moving OUT of the label, which the implicit association
+// does not — but nobody should believe the rows depend on it.
+//
+// What the rows DO depend on is the row text staying clickable at all, which is most of each
+// row's hit target and which no query in this file would notice losing (they all resolve
+// through `aria-label`, straight at the control). That is pinned in `shell.test.tsx`,
+// "clicking a row's TEXT toggles it".
 //
 // Every group's aria-label is its visible label, verbatim. They diverged once ("layers"
 // over `aria-label="layer visibility"`) and a divergence is a screen reader and a screen
@@ -118,9 +126,15 @@ const GROUP_LABEL_CLASS =
  *
  *  A SEGMENTED control rather than the stacked radios this row shipped as (D-24/D-25): two
  *  members is exactly the cardinality the segmented vocabulary exists for, and the radios
- *  were the shell's last raw `<input type="radio">`. The mode is the option's transport
- *  `value`, so the `FieldHostShading` member comes back by lookup and never through a cast
- *  — the same rule `SegmentedField` follows for schema members. */
+ *  were the shell's last raw `<input type="radio">`.
+ *
+ *  The mode travels as the option's `value` and comes back NARROWED — `Segmented<T>` is
+ *  generic, so `onChange` hands over a `FieldHostShading` directly. No cast, and no lookup
+ *  either: this row carried a `find` plus an `if (picked === undefined) return` until the
+ *  Task 12 quality round pointed out that neither could ever fire, because the options are
+ *  built from `SHADING_MODES` right here. A type parameter buys what the runtime guard was
+ *  pretending to. (`SegmentedField` keeps ITS lookup for a real reason — a schema `member`
+ *  is `unknown` and genuinely distinct from the transport `value`.) */
 const SHADING_MODES: {
 	mode: FieldHostShading;
 	label: string;
@@ -138,7 +152,7 @@ const SHADING_MODES: {
 	},
 ];
 
-const SHADING_OPTIONS: SegmentedOption[] = SHADING_MODES.map(
+const SHADING_OPTIONS: SegmentedOption<FieldHostShading>[] = SHADING_MODES.map(
 	({ mode, label, hint }) => ({ value: mode, label, hint }),
 );
 
@@ -184,11 +198,7 @@ export function ViewPopover({
 						label="shading"
 						value={shading}
 						options={SHADING_OPTIONS}
-						onChange={(value) => {
-							const picked = SHADING_MODES.find((m) => m.mode === value);
-							if (picked === undefined) return;
-							view.setShading(picked.mode);
-						}}
+						onChange={view.setShading}
 						className="w-fit"
 					/>
 				</div>

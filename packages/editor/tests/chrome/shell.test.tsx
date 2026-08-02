@@ -1778,6 +1778,60 @@ test("the void checkbox drives host.setLayers(voidCast) and leaves the other lay
 	});
 });
 
+// D-24's one user-visible cost: the row TEXT has to stay clickable. It is most of each row's
+// hit target, and no other query in this file would notice it going — they all resolve
+// through `aria-label`, straight at the control, so the label could be inert and every
+// existing case would still pass.
+//
+// WHAT THIS DOES NOT PIN, stated because the review that asked for it assumed otherwise.
+// The rows migrated from `<input type="checkbox">` to the house `Checkbox`, a Radix
+// `<button>`, and `ViewPopover` spells an `htmlFor` on every row. That attribute is NOT what
+// makes this pass: `button` is a labelable element, so a `<label>` wrapping one is already
+// associated with it. Measured both ways at the F4.5c Task 12 quality round — stripping all
+// four `htmlFor={boxId(…)}` leaves the chrome directory at 368/0 AND leaves this case green,
+// and a direct probe shows `label.control` resolving to the wrapped `<button>` with no `for`
+// at all. So this case pins the BEHAVIOUR (the text is a hit target) and is deliberately
+// indifferent to which of the two associations delivers it — which is the right level, since
+// a user cannot tell them apart and a refactor that broke both is what should redden.
+//
+// The harness PROVES the behaviour rather than approximating it: happy-dom implements
+// label→control activation for the Radix button, so the click really does reach
+// `onCheckedChange`. This is not the `.focus()`-versus-click limitation that qualifies other
+// claims in this suite. Both a layers row and the lone antialiasing row are covered — the AA
+// one sits outside every group and pays a GPU context rebuild, so a dead hit target there is
+// the most expensive one to ship.
+test("clicking a row's TEXT toggles it — the label association the house checkbox needs", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	await openViewPopover();
+
+	// The <label>, addressed by its visible text rather than by the control's accessible
+	// name — that is the whole point: `getByLabelText` would pass with no association at all.
+	const gridRow = screen.getByText("grid", { selector: "label" });
+	act(() => {
+		fireEvent.click(gridRow);
+	});
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		grid: false,
+	});
+
+	// The antialiasing row is its own `htmlFor` site, under no group, and it is the row whose
+	// association is worth the most: its effect is a GPU context rebuild, so a dead hit
+	// target here reads as "the editor ignored me" on the one control with a visible cost.
+	// Asserted through the re-init (there is no `setSampleCount` seam — the round trip IS the
+	// verb), which is also why this half needs the two settled turns.
+	const initsBefore = stub.calls.init.mock.calls.length;
+	const aaRow = screen.getByText("antialiasing", { selector: "label" });
+	await act(async () => {
+		fireEvent.click(aaRow);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(stub.calls.init.mock.calls.length).toBe(initsBefore + 1);
+	expect(stub.calls.init.mock.calls.at(-1)?.[1]).toEqual({ sampleCount: 1 });
+});
+
 test("the flags layer is a free display gate, beside the other six", async () => {
 	fetch404();
 	const stub = makeStubHost();
