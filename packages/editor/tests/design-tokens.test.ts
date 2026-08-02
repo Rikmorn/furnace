@@ -122,8 +122,10 @@ test("the colour converter agrees with the sRGB primaries", () => {
 const css = readFileSync(STYLES, "utf8");
 
 /** Every `--name: oklch(L C H);` in the file, plus one level of `--name: var(--other);`
- *  indirection (which is how `--ring` is spelled). A chain deeper than one resolves to
- *  nothing here rather than to something wrong, and every lookup below throws on a miss. */
+ *  indirection (which is how `@theme inline`'s `--color-*` bridge lines are spelled — and how
+ *  `--ring` was spelled until the F4.5c holistic gate gave focus its own literal). A chain
+ *  deeper than one resolves to nothing here rather than to something wrong, and every lookup
+ *  below throws on a miss. */
 function parseTokens(source: string): Map<string, [number, number, number]> {
   const out = new Map<string, [number, number, number]>();
   for (const m of source.matchAll(
@@ -177,8 +179,11 @@ test("the parser found the ramp it is about to measure", () => {
   // this states that out loud instead of relying on it.
   expect(tokens.size).toBeGreaterThan(15);
   expect(tokens.get("--background")).toEqual([0.16, 0.005, 250]);
-  // The one-level alias resolves rather than going missing.
-  expect(tokens.get("--ring")).toEqual(tokens.get("--primary"));
+  // The one-level alias resolves rather than going missing. `--ring` used to be this
+  // file's example of it and is deliberately no longer one — see the focus-ring section
+  // below — so the coverage moves to `@theme inline`'s bridge lines, which are where the
+  // `--x: var(--y)` spelling still lives and are the reason the branch exists at all.
+  expect(tokens.get("--color-primary")).toEqual(tokens.get("--primary"));
 });
 
 test("body text clears AA on every surface of the ramp", () => {
@@ -362,6 +367,171 @@ test("a hover fill is LIGHTER than the fill it replaces", () => {
   }
 });
 
+// ── the focus ring ─────────────────────────────────────────────────────────────────
+// `--ring` is the FOCUS colour and, since the F4.5c holistic gate, nothing else. It used
+// to be `var(--primary)` — focus and selection spelled the same — and that made every
+// `bg-primary` control's focus state invisible: a 1 px outset ring painted in the fill's
+// own colour does not read as a ring, it reads as the control getting 1 px bigger. The
+// ruling took the alias off and gave focus its own neutral, and FOCUS ≠ SELECTION is now a
+// rule rather than an accident. These are the pins that keep it one.
+//
+// HOW THE FILL SET WAS DERIVED, stated so it can be re-derived instead of trusted:
+//   `grep -rhoE 'bg-[a-z0-9-]+(/[0-9]+)?' src/frontend | sort -u`  → 24 spellings
+// then keep the ones that land on, or behind, an element declaring `focus-visible:ring-ring`.
+// BOTH adjacencies of a 1 px outset ring are in here, because it has two: the control's own
+// fill on the inside edge (the defect the ruling closes) and the surface the control sits on
+// outside it (the pixels the ring replaces when it appears).
+//
+// WHAT WAS EXCLUDED, said out loud rather than quietly omitted:
+//   - `--warning` — one site, `TopBar.tsx`'s 7 px `aria-hidden` dirty dot. Not a control and
+//     not adjacent to any ring; the chip AROUND it is `bg-muted`, which is in the set.
+//   - `bg-black/80` — `ui/dialog.tsx`'s scrim. Nothing focusable sits on it, and the dialog
+//     it dims is `bg-background`, which is in the set.
+//   - `--border` — a 1 px separator `<span>` in the top bar.
+//   - `bg-transparent` — not a colour. Those controls show whatever surface is behind them,
+//     and every such surface (`--card`, `--popover`, `--background`) is in the set.
+//   - the translucent tints (`bg-primary/15`, `bg-muted/50`, `bg-muted/40`,
+//     `bg-destructive/20`, `bg-success/20`). A composite is not a token, and it does not need
+//     to be one here: each composites its base over `--card`, so the painted colour lies
+//     strictly BETWEEN the base and `--card`, and contrast against a LIGHT ring falls
+//     monotonically as the backdrop lightens — clearing both ends clears everything between
+//     them. `bg-success/20` is the one whose base is absent from the set, and it is absent
+//     because that chip is a `<Tag>` rendered OUTSIDE the button (`FlagsPalette.tsx`), so no
+//     ring ever abuts it.
+//   - `MaterialSwatches`' swatches. The fill is an arbitrary material colour out of the
+//     project, so no arithmetic in this file can reach it — which is exactly why that control
+//     has its own answer, a `ring-offset-1` SELECTION marker rather than a token choice. See
+//     `frontend-focus-vocabulary.test.ts`.
+//   - the CANVAS itself. `CanvasHost`'s ring is `ring-inset` over rendered 3D, arbitrary for
+//     the same reason. `--viewport-background` IS in the set: it is the cell's colour before
+//     the first frame and wherever the canvas does not paint.
+
+/** A fill a focusable control in this chrome wears, or sits on, bound to the site that puts
+ *  it there — the same discipline as `PRIMARY_TEXT_SITES`, and for the same reason: a bare
+ *  token list decays into a list nobody can re-check. */
+interface FocusableFill {
+  readonly token: string;
+  readonly where: string;
+}
+
+const FOCUSABLE_FILLS: readonly FocusableFill[] = [
+  {
+    token: "--primary",
+    where:
+      "button `default`, the selected segment, a checked checkbox, the armed tool",
+  },
+  {
+    token: "--destructive",
+    where: "button `destructive` — every ConfirmDialog",
+  },
+  { token: "--destructive-hover", where: "…that same button under the cursor" },
+  { token: "--secondary", where: "button `secondary`" },
+  {
+    token: "--accent",
+    where: "the house hover fill, and WorldDrawer's selected row at rest",
+  },
+  {
+    token: "--muted",
+    where:
+      "the disabled swap on a coloured button; the world chip; the status-bar chips",
+  },
+  {
+    token: "--input",
+    where: "an unselected segment; the dense inspector inputs",
+  },
+  {
+    token: "--card",
+    where: "panels, the tool rail column, the palette-layer buttons",
+  },
+  {
+    token: "--popover",
+    where: "menus, toasts, the tool rail's member flyout",
+  },
+  {
+    token: "--background",
+    where: "button `outline`; the dialog surface its close button sits on",
+  },
+  {
+    token: "--viewport-background",
+    where: "the canvas cell — CanvasHost's inset ring, the AxisTriad caps",
+  },
+];
+
+/** The luminance a ring must REACH to clear {@link AA_NON_TEXT} on a fill from above. */
+const lightestNeeded = (fill: string): number =>
+  AA_NON_TEXT * (lum(fill) + 0.05) - 0.05;
+
+/** …and the one it must STAY UNDER to clear that fill from below. */
+const darkestAllowed = (fill: string): number =>
+  (lum(fill) + 0.05) / AA_NON_TEXT - 0.05;
+
+/** The ONE fill the floor is not held on — and it is excluded by a PROOF rather than by a
+ *  choice, which is the whole reason it is named here instead of being left out of
+ *  `FOCUSABLE_FILLS` silently.
+ *
+ *  It is the fill of a `bg-primary` button that is focused AND under the cursor. The ruling
+ *  asked for ≥3:1 against every committed fill; that bar is unsatisfiable on this palette,
+ *  and the test below is the arithmetic rather than an assertion of it. The state it gives up
+ *  on is also the state with a second, stronger location cue in it — the pointer is on the
+ *  control — and the neutral still more than doubles the margin the alias had there. */
+const UNREACHABLE_FILL = "--primary-hover";
+
+test("focus is not selection — the ring is its own token, not an alias", () => {
+  // The ruling's own sentence, machine-held. `.not.toEqual` is stronger than banning the
+  // `var(--primary)` SPELLING, because `parseTokens` resolves one level of alias: a literal
+  // copy of the accent's value pasted in reddens here too.
+  const ring = tokens.get("--ring");
+  expect(ring).toBeDefined();
+  expect(ring).not.toEqual(tokens.get("--primary"));
+  expect(ring).not.toEqual(tokens.get("--primary-hover"));
+  // And it is spelled as a LITERAL, not as an alias of anything. An alias is a second name
+  // for a decision taken elsewhere; this one is its own, and the ledger has to be able to
+  // measure the token rather than whatever it currently points at.
+  //
+  // Asserted against the extracted DECLARATION rather than against `css` itself: a
+  // `not.toMatch` over the whole stylesheet prints the whole stylesheet on failure, which
+  // buries the one line the reader came for. Verified by sabotage, both ways.
+  const declaration = /^\s*--ring:\s*([^;]+);/m.exec(css)?.[1];
+  expect(declaration).toBeDefined();
+  expect(declaration).toMatch(/^oklch\(/);
+});
+
+test("the focus ring clears the non-text floor on every fill it can abut", () => {
+  // WCAG 1.4.11: a focus indicator is visual information required to identify a state, and
+  // 3:1 against adjacent colour is the floor for it. Named-and-numbered rather than counted,
+  // because the fix for a failure is a token choice and the reader needs to know how far off
+  // it is and on which fill.
+  const offenders = FOCUSABLE_FILLS.filter(
+    ({ token }) => rawContrast("--ring", token) < AA_NON_TEXT,
+  ).map(({ token }) => `${token}: ${contrast("--ring", token)}`);
+  expect(offenders).toEqual([]);
+});
+
+test("the one excluded fill is excluded by arithmetic, not by preference", () => {
+  // THE RULING'S BAR AS WRITTEN CANNOT BE MET, and this is the proof rather than the excuse.
+  // Two directions exist for a ring to clear a fill — be lighter than it, or be darker — and
+  // on this palette both are closed for `--primary-hover`.
+  //
+  // DARKER is closed first, and not by that fill: the darkest surface a focusable control
+  // sits on is near black, so a ring dark enough to contrast with THAT would need negative
+  // luminance. Every legal ring in this chrome is therefore a light one.
+  expect(darkestAllowed("--card")).toBeLessThan(0);
+  expect(darkestAllowed("--background")).toBeLessThan(0);
+  // LIGHTER is then closed by the fill itself. The luminance needed exceeds 1, which is the
+  // luminance of pure white — there is no such colour, in sRGB or anywhere a display can go.
+  expect(lightestNeeded(UNREACHABLE_FILL)).toBeGreaterThan(1);
+  expect(ratio(luminance(1, 0, 0), lum(UNREACHABLE_FILL))).toBeLessThan(
+    AA_NON_TEXT,
+  );
+  // What the move DID buy there, held so a later darkening of `--ring` cannot quietly give
+  // it back: the alias measured 1.22:1 on this fill (a ring one hover-step off its own
+  // colour). The comparison is computed from the tokens rather than typed, so it stays true
+  // if the accent lane moves.
+  expect(rawContrast("--ring", UNREACHABLE_FILL)).toBeGreaterThan(
+    ratio(lum("--primary"), lum(UNREACHABLE_FILL)),
+  );
+});
+
 test("the measured ratios, recorded", () => {
   // A LEDGER, not a floor. These are the numbers DESIGN.md §2 quotes, pinned exactly so a
   // token edit that moves one cannot land without moving the prose that cites it.
@@ -404,6 +574,12 @@ test("the measured ratios, recorded", () => {
     // control from 1.4.3, so this is a ledger entry rather than a floor — but the whole
     // point of the swap over `opacity-50` is that the label survives it.
     "--muted-foreground/--muted": contrast("--muted-foreground", "--muted"),
+    // The focus ring's two boundary numbers. `--primary` is the TIGHTEST fill the floor is
+    // actually held on, so it is the one that says how much room the accent lane has left
+    // before focus stops being visible on it; `--primary-hover` is the fill no colour can
+    // reach, recorded so the gap is a number in the ledger rather than a claim in a comment.
+    "--ring/--primary": contrast("--ring", "--primary"),
+    "--ring/--primary-hover": contrast("--ring", "--primary-hover"),
   }).toEqual({
     "--foreground/--background": 13.1,
     "--foreground/--card": 12.46,
@@ -423,6 +599,8 @@ test("the measured ratios, recorded", () => {
     "--primary-foreground/--primary": 5.48,
     "--primary-foreground/--primary-hover": 6.67,
     "--muted-foreground/--muted": 5.23,
+    "--ring/--primary": 3.19,
+    "--ring/--primary-hover": 2.63,
   });
 });
 

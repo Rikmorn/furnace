@@ -64,7 +64,7 @@ export function MaterialSwatches(props: {
 									// The chrome's ONE dimmed tier (D-23), shared with `ui/`'s disabled
 									// controls and the tool rail's refused families.
 									refused && "cursor-not-allowed opacity-50",
-									// NOT the focus ring, despite the spelling: this fires on
+									// NOT the focus ring, despite the shape: this fires on
 									// `activeId`, so it is the SELECTED marker. The offset is
 									// load-bearing here in a way it never is on focus — a swatch's
 									// fill is an arbitrary material colour, and a ring drawn flush
@@ -72,6 +72,19 @@ export function MaterialSwatches(props: {
 									// `--background` is what keeps the marker readable on any swatch.
 									// Leave it: a sweep that normalises `ring-offset-*` away as a
 									// shadcn focus-ring leftover would be removing the wrong thing.
+									// It is the LAST surviving offset in the chrome — the tool rail's
+									// went at the F4.5c holistic gate, when the reason for it did.
+									//
+									// `ring-primary`, not `ring-ring`, and the difference is new. This
+									// said `ring-ring` while `--ring` WAS `--primary`, so the spelling
+									// cost nothing and said the wrong thing. The gate split the two
+									// tokens — focus is a neutral, selection is the accent — and a
+									// marker that fires on `activeId` belongs to selection. The focus
+									// colour still reaches this element under its own variant from the
+									// base string above; tailwind-merge keeps both because the
+									// modifier differs, so a focused-and-selected swatch shows the
+									// wider ring in the focus colour over a marker in the selection
+									// one. `tests/chrome/material-swatches.test.tsx` holds it.
 									//
 									// `focus-visible:ring-4` is here because the two rings share a CSS
 									// property and `:focus-visible` outranks a plain class, so the
@@ -83,7 +96,7 @@ export function MaterialSwatches(props: {
 									// render), last one winning, so the outcome is decided by the
 									// argument order here rather than by cascade order.
 									c.id === props.activeId &&
-										"ring-2 ring-ring ring-offset-1 ring-offset-background focus-visible:ring-4",
+										"ring-2 ring-primary ring-offset-1 ring-offset-background focus-visible:ring-4",
 								)}
 								style={{ backgroundColor: cssColor(c.color) }}
 							/>

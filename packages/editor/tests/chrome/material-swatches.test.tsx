@@ -7,11 +7,15 @@ import "../inspector/_register.ts";
 // The MATERIAL STRIP's two rings, which are two different things wearing the same CSS
 // property — and that collision is the whole reason this file exists.
 //
-//   - the SELECTION ring (`ring-2 … ring-offset-1`) fires on `activeId`. Its offset is
-//     load-bearing rather than decorative: a swatch's fill is an arbitrary material colour,
-//     so a ring drawn flush against a blue-grey one is swallowed by it.
-//   - the FOCUS ring is the house `focus-visible:ring-1` that every control in the chrome
-//     wears (D-23's ONE focus vocabulary).
+//   - the SELECTION ring (`ring-2 ring-primary … ring-offset-1`) fires on `activeId`. Its
+//     offset is load-bearing rather than decorative: a swatch's fill is an arbitrary material
+//     colour, so a ring drawn flush against a blue-grey one is swallowed by it.
+//   - the FOCUS ring is the house `focus-visible:ring-1 focus-visible:ring-ring` that every
+//     control in the chrome wears (D-23's ONE focus vocabulary).
+//
+// They now differ in COLOUR as well as width, which they did not before the F4.5c holistic
+// gate took `--ring` off `--primary`. That is a third way the pair can go wrong and it has its
+// own test below.
 //
 // Both set `--tw-ring-width`, and `:focus-visible` outranks a plain class on specificity —
 // so before F4.5c Task 13's review round, focusing the SELECTED swatch made its ring go
@@ -73,6 +77,26 @@ test("focus never NARROWS the selected swatch's ring", () => {
 	// indicator at all, which is the other way to fail this.
 	expect(focusRing).not.toBeNull();
 	expect(focusRing as number).toBeGreaterThan(selectionRing as number);
+});
+
+test("the selected swatch's marker wears the SELECTION colour, not the focus one", () => {
+	// The F4.5c holistic gate split the two tokens: `--ring` is a neutral of its own now and
+	// `--primary` is selection. This marker fires on `activeId`, so it is SELECTION — and it
+	// was spelled `ring-ring`, a borrowing that cost nothing for exactly as long as the two
+	// tokens held the same value. Left alone, taking `--ring` off `--primary` would have
+	// silently recoloured a selection marker on the way past, which is the class of change a
+	// token move is most likely to make and least likely to be noticed making.
+	renderStrip(1);
+	const cls = screen.getByLabelText("material stone").className;
+	expect(cls).toContain("ring-primary");
+	// The focus colour still has to be here, under its own variant. The two coexist on one
+	// element — tailwind-merge keeps both because the modifier differs even though the utility
+	// group does not — which is what lets a focused-AND-selected swatch show the wider ring in
+	// the focus colour on top of a marker in the selection one.
+	expect(cls).toContain("focus-visible:ring-ring");
+	// …and the marker itself must not name the focus colour bare. The `(?:^| )` is what keeps
+	// `focus-visible:ring-ring` out of this match: there the token follows a colon.
+	expect(/(?:^| )ring-ring(?: |$)/.test(cls)).toBe(false);
 });
 
 test("an unselected swatch keeps the house 1 px focus ring", () => {

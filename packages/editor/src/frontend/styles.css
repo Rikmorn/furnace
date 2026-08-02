@@ -50,7 +50,32 @@
 	   contrast (5.48:1 → 6.67:1) rather than costing it. Both numbers are pinned in
 	   tests/design-tokens.test.ts. */
 	--primary-hover: oklch(0.67 0.11 240);
-	--ring: var(--primary);
+	/* FOCUS IS NOT SELECTION. This was `var(--primary)` until the F4.5c holistic gate, which
+	   meant the focus ring painted the colour a `bg-primary` control already is: a 1 px outset
+	   ring in the fill's own colour does not read as a ring, it reads as the control getting
+	   1 px bigger. Four controls had that defect at once (the default button, the selected
+	   segment, a checked checkbox, the armed tool), and the tool rail had been patched around
+	   it with a `ring-offset` — a variant the ruling then rejected, because the offset was only
+	   ever compensating for the alias. Selection stays `--primary`; focus and selection are
+	   different colours BY RULE now, not by coincidence.
+
+	   ITS OWN LITERAL, not `var(--foreground)`, for two reasons. One: the ledger has to measure
+	   the focus colour directly, and an alias measures somebody else's decision. Two: it is not
+	   at the foreground's value anyway. The ruling suggested starting near 0.87 L (the text
+	   ramp) and the arithmetic moved it — 0.87 reads 2.42:1 against `--primary`, under the 3:1
+	   non-text floor, so the ring would have been invisible on exactly the control the ruling
+	   was about. The binding constraint is `--primary` at 0.62 L: a ring needs ≥ 0.9375 L to
+	   clear 3:1 on it, and 0.96 sits above that with room (3.19:1) rather than at the 0.94 that
+	   measures 3.0087 and rounds to a reassuring, meaningless "3.01".
+
+	   ONE FILL IS OUT OF REACH AND IT IS OUT OF REACH FOR EVERY COLOUR, which is why it is
+	   recorded rather than fixed: `--primary-hover` (a focused button under the cursor) would
+	   need a ring at luminance 1.019, and pure white is 1.0 — the bar is 2% past the end of
+	   sRGB. It measures 2.63:1 here against the alias's 1.22:1. The dark direction is closed
+	   too, and closed first: a ring dark enough to contrast with `--card` would need NEGATIVE
+	   luminance, so every legal ring in this shell is a light one.
+	   All of it is asserted in tests/design-tokens.test.ts, including the impossibility. */
+	--ring: oklch(0.96 0.005 250);
 	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the
 	   tool is used. --destructive is the FILL/BORDER colour and never a text colour: at
 	   0.53 L it reads 3.26:1 as text on --card, well under the 4.5:1 floor, which is what

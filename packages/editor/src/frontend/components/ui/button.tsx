@@ -23,18 +23,22 @@ import { cn } from "../../lib/cn.ts";
 // button is the only control that has a coloured fill, a hover and a disabled state at once.
 //
 // FOCUS is the ring and only the ring: `focus-visible:ring-1 focus-visible:ring-ring`, no
-// `ring-offset-*`. Stock shadcn offsets the ring by 2 px against `--background`, which draws
-// a halo of the PAGE colour between a control and its ring — correct on a white page, a
-// visible dark gash on every raised surface in this shell.
-//   ONE EXCEPTION, added at the F4.5c re-critique: a ring drawn over a fill of the RING'S OWN
-//   COLOUR takes `ring-offset-1 ring-offset-background`, because there the halo is not a gash
-//   between a control and its ring — it is the only thing that makes the ring exist. `--ring`
-//   IS `--primary`, so this is every `bg-primary` control; the tool rail is the one measured
-//   (its armed button's focused and unfocused frames were indistinguishable at 3×) and the one
-//   fixed. The default variant BELOW still has the defect, as do the selected segment and a
-//   checked checkbox — deliberately, because the fix is one ruling across all four and not
-//   three separate call-site edits. `tests/frontend-focus-vocabulary.test.ts` holds both the
-//   ban and the exception, and carries the open rows as a ledger.
+// `ring-offset-*` and NO EXCEPTIONS on a focus ring anywhere in the chrome. Stock shadcn
+// offsets the ring by 2 px against `--background`, which draws a halo of the PAGE colour
+// between a control and its ring — correct on a white page, a visible dark gash on every
+// raised surface in this shell.
+//   AND FOCUS IS NOT SELECTION. `--ring` used to be `var(--primary)`, which meant the ring on
+//   the `default` variant below painted the colour the button already is: a 1 px outset ring
+//   in the fill's own colour does not read as a ring, it reads as the control getting 1 px
+//   bigger. Four controls had it at once — this variant, the selected segment, a checked
+//   checkbox, the armed tool — and only the rail had been patched, with a `ring-offset-1` that
+//   bought back a gap of `--background`. The F4.5c holistic gate ruled the other way: the
+//   offset variant is rejected and `--ring` is its own neutral now (`oklch(0.96 0.005 250)`,
+//   pinned at ≥3:1 against every fill a focusable control wears, `styles.css` and
+//   `tests/design-tokens.test.ts`). All four are fixed by the token, none by a call site, and
+//   the rail's offset went with the reason for it.
+//   `tests/frontend-focus-vocabulary.test.ts` holds the ban; `MUST_DECLARE_HOUSE_RING` there
+//   is what stops any of the four quietly dropping the ring the token now makes visible.
 //
 // HOVER LIGHTENS, NEVER FADES. `hover:bg-X/90` is a fade: on a dark shell it composites the
 // surface underneath into the fill and the control gets DARKER under the cursor, which reads

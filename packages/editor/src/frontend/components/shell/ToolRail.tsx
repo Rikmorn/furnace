@@ -71,39 +71,34 @@ const FAMILY_ICON: Record<ToolFamily["id"], LucideIcon> = {
 	stamp: Stamp,
 };
 
-/** 32 px inside the 44 px column — the mock's rail geometry; and D-23's focus ring plus the
- *  one OFFSET the rest of the chrome does not get.
+/** 32 px inside the 44 px column — the mock's rail geometry, and D-23's plain house focus ring
+ *  with nothing added to it.
  *
- *  `--ring` IS `--primary` (styles.css), and the armed tool is `bg-primary`. Without the offset
- *  the ring paints the colour the button already is, so focusing the armed tool adds one
- *  ring-coloured pixel to a ring-coloured square: the F4.5c re-critique captured the pair at 3×
- *  and the two frames are indistinguishable, while the same capture of an INACTIVE rail button
- *  shows an unmistakable ring. That is the tool a keyboard user is most likely to be on — the
- *  one they are using — and PRODUCT.md's floor is a visible focus state on every interactive
- *  control.
+ *  IT USED TO CARRY A `ring-offset-1 ring-offset-background` AND NO LONGER DOES. The reason it
+ *  had one was never geometric: `--ring` was `var(--primary)` and the armed tool is
+ *  `bg-primary`, so the ring painted the colour the button already is and focusing the armed
+ *  tool added one ring-coloured pixel to a ring-coloured square. The F4.5c re-critique captured
+ *  the pair at 3× and the two frames were indistinguishable, while the same capture of an
+ *  INACTIVE rail button showed an unmistakable ring — on the tool a keyboard user is most
+ *  likely to be on, the one they are using, against PRODUCT.md's floor of a visible focus state
+ *  on every interactive control.
  *
- *  THIS IS A SANCTIONED EXCEPTION TO A STANDING BAN, not an idiom borrowed from elsewhere. The
- *  ban is `ui/button.tsx`'s: no `ring-offset-*`, because stock shadcn's 2 px offset draws a halo
- *  of the PAGE colour between a control and its ring — a dark gash on every raised surface here.
- *  That reasoning still holds everywhere it was aimed. It inverts only in this one case: when
- *  the ring and the fill are the SAME COLOUR, the `--background` gap is not a gash between a
- *  control and its ring, it is the only thing that makes the ring exist at all.
+ *  Three other controls had the identical defect (`ui/button.tsx`'s default variant, the
+ *  selected segment, a checked checkbox), and the F4.5c holistic gate settled all four at once
+ *  in the only place that could: the token. `--ring` is its own neutral now, held at ≥3:1
+ *  against `--primary` and every other fill a focusable control wears. The offset was
+ *  compensation for the alias, the alias is gone, and the ruling rejected the offset variant
+ *  explicitly rather than leaving it as a spent exception nobody would re-argue.
  *
- *  `MaterialSwatches` also carries `ring-offset-1 ring-offset-background`, and it is NOT the
- *  precedent for this — an earlier version of this comment cited it as one and was wrong. That
- *  file says so in its own words: the offset there fires on `activeId`, so it belongs to the
- *  SELECTED marker, and its actual focus ring is a plain `focus-visible:ring-4` with no offset.
- *  Two different problems (an arbitrary material colour swallowing a marker; a ring the colour
- *  of its own fill) that happen to take the same three classes.
- *
- *  The residue is real and is NOT settled here: `ui/button.tsx`'s default variant, the selected
- *  segment in `ui/segmented.tsx` and a checked `ui/checkbox.tsx` are the same defect on the same
- *  mechanism. The choice — offset every `bg-primary` control, or take `--ring` off `--primary`
- *  and give focus a neutral — is one ruling covering all four, and it is recorded as an open
- *  ledger row in `tests/frontend-focus-vocabulary.test.ts` rather than left in this comment,
- *  because a comment is not a check. */
+ *  So `ring-offset-*` is a flat ban again, `ui/button.tsx` states it, and
+ *  `tests/frontend-focus-vocabulary.test.ts` enforces it with one allowlisted file left:
+ *  `MaterialSwatches`, whose offset was never a focus ring at all. It fires on `activeId`, so it
+ *  belongs to the SELECTED marker, and a swatch's fill is an arbitrary material colour that
+ *  would swallow a marker drawn flush against it. An earlier version of this comment cited it as
+ *  the precedent for the rail's offset and was wrong; the two were different problems that
+ *  happened to take the same three classes, and only one of them had a token answer. */
 const BUTTON_CLASS =
-	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
+	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 /** What one family row needs to render, derived ONCE in the `useMemo` below. The point of
  *  the shape is `memo`: the ctx object changes identity on every push the provider receives
