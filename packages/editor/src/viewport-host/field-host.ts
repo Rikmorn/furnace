@@ -149,6 +149,17 @@ export type FieldHostShading = "studio" | "normals";
  *  all the corner triad draws. */
 export type CameraPose = { yaw: number; pitch: number };
 
+/** The pending segment, in metres ({@link FieldHost.subscribeSegmentHud}) — how long the
+ *  capsule the next click would sweep is, and how long it is allowed to be.
+ *
+ *  There is no `anchored` flag because `null` already IS that answer: the seam pushes
+ *  `null` for "no point is down", and a record whose fields describe a segment that does
+ *  not exist would be a second spelling of the same state.
+ *
+ *  `capM` rides in the payload rather than being a number the chrome writes down: it is
+ *  {@link FieldHost}'s own cap, and this is the seam that carries it at runtime. */
+export type SegmentHud = { lenM: number; capM: number };
+
 /** The panel's mask choice for the active brush — maps onto a core BrushMask
  *  at op-build time. `none` = unmasked; `selection` embeds the host's current
  *  selection spec (no selection → the mask is dropped and reported via
@@ -1192,6 +1203,22 @@ export type FieldHost = {
    *  overlay. Single subscriber (that provider, which publishes it at
    *  `useCameraPose`); returns an unsubscribe. */
   subscribeCameraPose(cb: (pose: CameraPose) => void): () => void;
+  /** Subscribes to the PENDING segment ({@link SegmentHud}) — `null` whenever no
+   *  point is down (D-25). Pushed on both anchor edges, throttled to the stroke
+   *  cadence while the cursor moves between them, and once immediately on
+   *  subscribe (the {@link subscribeCameraPose} rationale: a status bar
+   *  re-subscribing mid-gesture must not read blank beside a capsule the
+   *  viewport is plainly drawing).
+   *
+   *  This is what makes the length cap VISIBLE while the user is still aiming —
+   *  before F4.5c it was reachable only as a refusal after the second click. The
+   *  chrome cannot value-import the cap, so `capM` rides in the payload.
+   *
+   *  Pointer-rate while a point is down, which is why the subscriber is the
+   *  shell's provider (one slot, one guard) rather than the status bar. Single
+   *  subscriber (that provider, which publishes it at `useFieldSegmentHud`);
+   *  returns an unsubscribe. */
+  subscribeSegmentHud(cb: (hud: SegmentHud | null) => void): () => void;
 };
 
 type Vec3T = [number, number, number];
@@ -1226,7 +1253,13 @@ type ChunkRender = {
 type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
-const STROKE_MIN_MS = 40; // stroke throttle (pointermove-while-digging)
+/** The pointer-rate cadence: how often a drag applies the brush, and (since D-25) how
+ *  often the pending segment's length reaches the chrome. Exported for the segment
+ *  suite's clock, which advances by exactly one window to prove the HUD's throttle
+ *  RELEASES — an assertion that spelled `40` here would go stale silently the first time
+ *  the cadence was tuned. Deliberately NOT re-exported from `index.ts`: the chrome has
+ *  no business with it, and everything behind that barrel value-imports core. */
+export const STROKE_MIN_MS = 40;
 const DIG_RANGE_M = 30;
 /** The longest capsule the segment gesture will sweep (D-F4-16). A segment's
  *  cost is linear in its length — every chunk on the line is dirtied, remeshed
@@ -1240,12 +1273,27 @@ const DIG_RANGE_M = 30;
  *  segment a stationary user can draw and refuses only the ones that needed the
  *  camera to move between clicks — which is exactly the accident it is for.
  *
- *  RESTATED in the tool rail's Segment member hint (`BRUSH_FAMILY` in
- *  `frontend/lib/actions.ts`) — the chrome cannot value-import anything under
- *  `viewport-host/`, so the two agree by review (the FlagsSection tint-palette
- *  precedent). It lived on `ToolPalette`'s Segment tooltip until F4.5b Task 8
- *  deleted that file. */
+ *  CARRIED to the chrome at runtime as {@link SegmentHud}'s `capM` (D-25), which
+ *  is the only place the number reaches a user while it still matters — the
+ *  status bar's segment line counts against it as the cursor moves. The chrome
+ *  cannot value-import anything under `viewport-host/`, so a seam is the one way
+ *  the two can be the same number rather than two numbers that agree.
+ *
+ *  Still RESTATED, once, in the tool rail's Segment member hint (`BRUSH_FAMILY`
+ *  in `frontend/lib/actions.ts`): that hint is a static sentence describing the
+ *  gesture before it starts, with no push to read, so it agrees by review (the
+ *  FlagsSection tint-palette precedent). It lived on `ToolPalette`'s Segment
+ *  tooltip until F4.5b Task 8 deleted that file. */
 const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
+/** How long a segment between these two world points is (m).
+ *
+ *  ONE function for the two readers rather than two spellings of Pythagoras, and the
+ *  reason is that they must agree exactly: `segmentClick` measures the pair to decide
+ *  whether to REFUSE it, and the HUD measures the pending pair to say whether it is
+ *  about to be refused. A readout that computed the length even slightly differently
+ *  would show a number inside the cap for a click the very next line rejects. */
+const segmentLength = (a: Vec3T, b: Vec3T): number =>
+  Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 /** How far a `pointer` pick reaches — the DIG reach, deliberately the same
  *  number rather than an independent one: "you can select what you could dig" is
  *  one rule to hold in the head, and the same range bounds the pick's occlusion
@@ -1820,6 +1868,16 @@ export function createFieldHost(deps?: {
   let remeshVersion = 0;
   let statsCb: ((s: FieldStats) => void) | null = null;
   let cameraPoseCb: ((pose: CameraPose) => void) | null = null;
+  let segmentHudCb: ((hud: SegmentHud | null) => void) | null = null;
+  // The segment HUD's own throttle clock, NOT `lastStroke`'s (D-25). Both admit one
+  // event per STROKE_MIN_MS and that CONSTANT is shared deliberately — a readout that
+  // refreshed on a different cadence from the brush it describes would be a second
+  // number to reason about. The VARIABLE is separate because the two paths are: the
+  // segment branch in `onPointerMove` returns above the stroke throttle and so never
+  // touches `lastStroke`, and writing it from here would open a stroke's first
+  // pointermove inside a window a HUD push had already spent — one silently dropped
+  // brush application at the start of the next drag.
+  let lastSegmentHud = 0;
   // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
   let lastReconfigureMs = 0;
   // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
@@ -2973,21 +3031,65 @@ export function createFieldHost(deps?: {
 
   // --- segment brush (two-click swept capsule, D-F3-14) -------------------
 
+  // The chrome's mirror of the pending segment (D-25). Measured between the SAME two
+  // endpoints the preview capsule is swept between, so the number on the status bar and
+  // the wireframe in the viewport can never describe different segments.
+  //
+  // No far end resolved yet means the cursor has not moved since the click that anchored
+  // — the two points are the same point, so the honest length is 0 rather than nothing.
+  // That is also what makes the anchoring click's own push meaningful.
+  const publishSegmentHud = (): void => {
+    if (segmentAnchor === null) {
+      segmentHudCb?.(null);
+      return;
+    }
+    const lenM =
+      segmentPreviewEnd === null
+        ? 0
+        : segmentLength(segmentAnchor, segmentPreviewEnd);
+    segmentHudCb?.({ lenM, capM: MAX_SEGMENT_M });
+  };
+
+  // The HUD's pointer-rate half, on the stroke cadence. Throttled because it crosses
+  // into React: an unthrottled push re-renders the status bar once per pointermove,
+  // which is the cost the whole cadence split in `useFieldHostState` exists to avoid.
+  //
+  // Called only from the RESOLVED-point path in `updateSegmentPreview`, deliberately:
+  // a cursor that hits nothing leaves the preview capsule standing, so publishing
+  // there would spend the window's one push on a length that did not change and stale
+  // the next real move by up to STROKE_MIN_MS. The edge pushes in `setSegmentAnchor`
+  // are what guarantee the readout is never left WRONG — this only decides how often
+  // a live one refreshes.
+  const publishSegmentHudThrottled = (): void => {
+    const now = performance.now();
+    if (now - lastSegmentHud < STROKE_MIN_MS) return;
+    lastSegmentHud = now;
+    publishSegmentHud();
+  };
+
   // The pending segment start (null = none), plus its hologram-blue cross. The
   // preview capsule dies with the anchor: without a start point there is no
   // second endpoint to sweep to.
+  //
+  // THE edge for the HUD, and the reason the push lives here rather than at the call
+  // sites: every path that arms or drops an anchor goes through this one function (six
+  // today — the anchoring click, the committing one, the Esc ladder, `resetWorld`,
+  // `setGesture` and a stamp arm), so a chrome readout left standing over a segment
+  // that no longer exists is not reachable rather than merely unobserved.
   const setSegmentAnchor = (p: Vec3T | null): void => {
     segmentAnchor = p;
     if (p === null) {
       segmentAnchorBatch = null;
       segmentPreviewBatch = null;
       segmentPreviewEnd = null;
+      publishSegmentHud();
       return;
     }
     segmentAnchorBatch = segmentsToBatch(
       crossSegments(p, ANCHOR_CROSS_HALF_M),
       GHOST_COLOR,
     );
+    publishSegmentHud();
   };
 
   // The capsule the second click would build: same endpoints, same radius as
@@ -3024,6 +3126,7 @@ export function createFieldHost(deps?: {
     if (!p) return;
     segmentPreviewEnd = p;
     rebuildSegmentPreview();
+    publishSegmentHudThrottled();
   };
 
   // The ONE funnel for a radius change — the panel's slider, the wheel and
@@ -3058,10 +3161,7 @@ export function createFieldHost(deps?: {
     // The length cap (MAX_SEGMENT_M), decided BEFORE the anchor is cleared so a
     // refusal leaves the gesture exactly as it was: the pending start stands and
     // the user re-clicks nearer, rather than losing a point they meant to keep.
-    const dx = p[0] - a[0];
-    const dy = p[1] - a[1];
-    const dz = p[2] - a[2];
-    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const len = segmentLength(a, p);
     if (len > MAX_SEGMENT_M) {
       reportToolError(
         `segment is ${len.toFixed(1)} m — the cap is ${MAX_SEGMENT_M} m; click nearer`,
@@ -6970,6 +7070,17 @@ export function createFieldHost(deps?: {
       cb({ yaw: orbitState.yaw, pitch: orbitState.pitch });
       return () => {
         if (cameraPoseCb === cb) cameraPoseCb = null;
+      };
+    },
+    subscribeSegmentHud(cb) {
+      segmentHudCb = cb;
+      // Initial push (the subscribeSelection remount rationale), and here it is the
+      // SAME argument as subscribeCameraPose's: nothing moves this value on its own, so
+      // a subscriber that waited for the next pointermove would read blank for as long
+      // as the user held still over a segment they had already started.
+      publishSegmentHud();
+      return () => {
+        if (segmentHudCb === cb) segmentHudCb = null;
       };
     },
   };

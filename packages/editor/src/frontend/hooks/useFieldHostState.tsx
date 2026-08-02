@@ -8,7 +8,7 @@
 // consumers read them out of context. Nothing below this provider may subscribe to
 // anything it owns.
 //
-// ALL TWELVE seams are here: `subscribeStats` (the status bar's chips),
+// ALL THIRTEEN seams are here: `subscribeStats` (the status bar's chips),
 // `subscribeToolError` (a toast, plus the verify release below), `subscribeCameraPose` (the
 // corner axis triad), the entity pair `subscribeEntities` + `subscribeDrift` (the entities
 // palette), `subscribeEntitySelection` (which row is selected, the box the viewport draws
@@ -17,7 +17,8 @@
 // control stack held until F4.5b: `subscribeTool` (the tool rail's armed family and the
 // strip's params), `subscribeSelection` (the selection verbs), `subscribeStamp` (the
 // session card) and `subscribeFlags` (the advisor's list). `subscribeHistory` (F4.5b
-// Task 12) is the newest: what each undo/redo step DID, in words.
+// Task 12) names what each undo/redo step DID, in words, and `subscribeSegmentHud`
+// (F4.5c Task 14) is the newest: how long the pending segment is against its cap.
 //
 // Two values here have NO seam behind them and never will: the brush `radius` and the
 // armed `gesture`. Both are chrome state pushed one way into the host, and both sit here
@@ -25,7 +26,7 @@
 // because every surface that shows one also shows `tool` — the top strip, the status
 // bar's keymap line, and the action registry's family keys, which arm the same slot.
 //
-// They publish through NINE contexts, split by CADENCE rather than by owner: a seam that
+// They publish through TEN contexts, split by CADENCE rather than by owner: a seam that
 // pushes at frame rate must not re-render a surface that only cares about something
 // answered once a minute. Each context's own docblock states its cadence, and its
 // throw-vs-default call with the reason for it. `subscribeToolError` is the one seam with
@@ -59,6 +60,7 @@ import type {
 	FlagFilters,
 	FlagsSummary,
 	PendingStamp,
+	SegmentHud,
 	SelectionInfo,
 	StampSession,
 	ViewportGesture,
@@ -168,6 +170,13 @@ export type FieldStampState = {
 	stamp: StampSession | null;
 };
 
+/** The pending segment the status bar counts out (D-25) — `null` whenever no point is
+ *  down, which is most of the time. Read-only: the anchor is the host's, set by clicks
+ *  on the canvas the chrome never sees. */
+export type FieldSegmentHudState = {
+	segment: SegmentHud | null;
+};
+
 /** The advisor's findings, the bands the chrome asks for, and the one verify in flight.
  *
  *  `verifying` is CHROME state (the row key stage 2 is running on) because releasing it
@@ -240,7 +249,9 @@ const FieldEntitySelectionContext =
 // (Task 8) reads the tool context, the flags palette (Task 13) reads the flags context,
 // the session card (Task 10) reads the stamp context, and the status bar's selection chip
 // reads the selection one. Four contexts, four consumers, no consumer reading a context
-// it does not need.
+// it does not need. The segment HUD (F4.5c) sits in this run as a FIFTH and is not part
+// of that bet — it arrived with its reader already known — but it is here on the same
+// terms, and the count above is about those four.
 
 /** The brush concern, USER-paced: the host pushes a tool on an Alt-click eyedrop and on
  *  every momentary ⇧/⌃ press and release, i.e. as fast as fingers move and no faster.
@@ -272,6 +283,22 @@ const FieldSelectionContext = createContext<FieldSelectionState | null>(null);
  *  Throws, for the FieldSelectionContext reason: a defaulted `null` claims there is no
  *  session in progress. */
 const FieldStampContext = createContext<FieldStampState | null>(null);
+
+/** The pending segment, POINTER-paced while one is half-drawn and dead silent otherwise.
+ *  A LATER arrival than the four above, and not one of them — it has its own single
+ *  reader on the same terms.
+ *
+ *  Its own context rather than a field on the tool context beside it, on the cadence
+ *  axis those four are split by: `gesture` and `tool` are read by the tool rail, the top
+ *  strip and the action registry, so folding a ~25 Hz readout into their value would
+ *  repaint all three for the duration of a gesture that concerns one span of text on the
+ *  status bar.
+ *
+ *  Throws, for the FieldSelectionContext reason: a defaulted `{ segment: null }` is a
+ *  claim about the HOST — "no point is down" — that nobody outside the provider is in a
+ *  position to make, and the keymap line would state the idle copy beside a capsule the
+ *  viewport is visibly drawing. */
+const FieldSegmentHudContext = createContext<FieldSegmentHudState | null>(null);
 
 /** The history concern, MUTATION-paced: one push per real log change (a stroke, a commit,
  *  a ⌘Z), which is the entity tick's rate and orders of magnitude below the stats push.
@@ -358,6 +385,16 @@ export function useFieldStamp(): FieldStampState {
 	return value;
 }
 
+/** The pending segment's length against its cap; throws outside the provider.
+ *  Re-renders its caller at the stroke cadence while a point is down — read it only
+ *  where the number is actually drawn (the status bar's keymap line). */
+export function useFieldSegmentHud(): FieldSegmentHudState {
+	const value = useContext(FieldSegmentHudContext);
+	if (!value)
+		throw new Error("useFieldSegmentHud outside <FieldHostStateProvider>");
+	return value;
+}
+
 /** The named history. Re-renders its caller on every log mutation — read it where the
  *  labels are actually rendered (the action context, the History palette). */
 export function useFieldHistory(): FieldHistoryState {
@@ -400,6 +437,7 @@ export function FieldHostStateProvider({
 	const [pendingStamp, setPendingStamp] = useState<PendingStamp | null>(null);
 	const [selection, setSelection] = useState<SelectionInfo | null>(null);
 	const [stamp, setStamp] = useState<StampSession | null>(null);
+	const [segment, setSegment] = useState<SegmentHud | null>(null);
 	const [history, setHistory] = useState<FieldHistory>(NO_HISTORY);
 	const [flags, setFlags] = useState<FlagsSummary>(NO_FLAGS);
 	const [filters, setFilters] = useState<FlagFilters>(DEFAULT_FLAG_FILTERS);
@@ -550,6 +588,34 @@ export function FieldHostStateProvider({
 	useEffect(() => {
 		if (!engineReady || !host) return;
 		return host.subscribeStamp(setStamp);
+	}, [engineReady, host]);
+
+	// The pending SEGMENT (D-25) — how long the capsule the next click would sweep is,
+	// and the cap it is measured against. The status bar counts it out while the user is
+	// still aiming, which is the only moment the 60 m limit can still be acted on.
+	//
+	// Guarded like the pose above, and for the pose's reason rather than a rate argument:
+	// the seam builds a FRESH object per push, so an unchanged length would re-render the
+	// bar on identity alone. That is reachable — a pointermove landing on the same surface
+	// point resolves the same two endpoints and measures the same metre — and the host's
+	// throttle bounds how often, not whether. The comparator is written out rather than
+	// added to `field-host-mirrors.ts`: two numbers with no nesting is not a helper's
+	// worth of work, and `statsEqual`'s eleven fields are what that module is for.
+	//
+	// `null` needs no guard of its own: `setSegment(null)` against a null state is a
+	// React bail-out by identity, and null is what the anchor edges push most often.
+	useEffect(() => {
+		if (!engineReady || !host) return;
+		return host.subscribeSegmentHud((next) =>
+			setSegment((prev) =>
+				prev !== null &&
+				next !== null &&
+				prev.lenM === next.lenM &&
+				prev.capM === next.capM
+					? prev
+					: next,
+			),
+		);
 	}, [engineReady, host]);
 
 	// The PENDING stamp arm (D-F4.5-7) — a stamp picked with nothing selected, waiting
@@ -741,6 +807,10 @@ export function FieldHostStateProvider({
 		[selection],
 	);
 	const stampValue = useMemo<FieldStampState>(() => ({ stamp }), [stamp]);
+	const segmentValue = useMemo<FieldSegmentHudState>(
+		() => ({ segment }),
+		[segment],
+	);
 	const historyValue = useMemo<FieldHistoryState>(
 		() => ({ history }),
 		[history],
@@ -757,11 +827,13 @@ export function FieldHostStateProvider({
 						<FieldToolContext.Provider value={toolValue}>
 							<FieldSelectionContext.Provider value={selectionValue}>
 								<FieldStampContext.Provider value={stampValue}>
-									<FieldHistoryContext.Provider value={historyValue}>
-										<FieldFlagsContext.Provider value={flagsValue}>
-											{children}
-										</FieldFlagsContext.Provider>
-									</FieldHistoryContext.Provider>
+									<FieldSegmentHudContext.Provider value={segmentValue}>
+										<FieldHistoryContext.Provider value={historyValue}>
+											<FieldFlagsContext.Provider value={flagsValue}>
+												{children}
+											</FieldFlagsContext.Provider>
+										</FieldHistoryContext.Provider>
+									</FieldSegmentHudContext.Provider>
 								</FieldStampContext.Provider>
 							</FieldSelectionContext.Provider>
 						</FieldToolContext.Provider>

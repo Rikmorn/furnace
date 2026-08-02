@@ -2,8 +2,9 @@
 // sibling): startStamp's no-selection ARM and the pending-stamp seam,
 // subscribeStamp's initial push, nudgeStamp's no-session no-op, the
 // entity-selection seam's validation and single-slot discipline, the void
-// cast's pre-context refusals, the camera-pose seam, and the options `init`
-// builds before it ever touches a device.
+// cast's pre-context refusals, the camera-pose seam, the segment HUD seam's
+// single-slot discipline, and the options `init` builds before it ever touches
+// a device.
 // Verified against the host source: none of these paths touch the GPU context,
 // the render loop, or the lazily-spawned remesh worker — a selection-less
 // startStamp returns at the arm BEFORE any session/preview work, nudgeStamp
@@ -24,7 +25,11 @@ import {
 import type { Context, RequestContextOptions } from "@furnace/core/gpu";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import { placesProps } from "../src/viewport-host/field-placements.ts";
-import type { CameraPose, FieldLayers } from "../src/viewport-host/index.ts";
+import type {
+  CameraPose,
+  FieldLayers,
+  SegmentHud,
+} from "../src/viewport-host/index.ts";
 
 // --- startStamp with NO selection: region-draw, not a refusal (D-F4.5-7) ----
 //
@@ -191,6 +196,36 @@ test("subscribeEntitySelection is a single slot with a real unsubscribe", () => 
   // still installed but a no-selection world reset changes nothing to push.
   expect(seen).toEqual([null]);
   expect(after).toEqual([null]);
+});
+
+test("subscribeSegmentHud is a single slot with a real, identity-guarded unsubscribe", () => {
+  const host = createFieldHost();
+  const seen: (SegmentHud | null)[] = [];
+  // `null` on subscribe: no point is down on a fresh host, and a seam that said
+  // nothing here would let a status bar mounting mid-gesture render its idle copy
+  // beside a capsule the viewport is drawing (the subscribeCameraPose argument).
+  const unsubscribe = host.subscribeSegmentHud((h) => seen.push(h));
+  expect(seen).toEqual([null]);
+  unsubscribe();
+
+  // The GUARD, from the side that breaks it: React re-runs an effect BODY before the
+  // previous cleanup, so the successor takes the slot and the stale release runs after
+  // it. Unguarded, that release frees the slot the successor just claimed and the seam
+  // goes silent with nothing thrown — which is why the second `unsubscribe()` here is
+  // the whole case rather than a tidy-up.
+  const after: (SegmentHud | null)[] = [];
+  host.subscribeSegmentHud((h) => after.push(h));
+  unsubscribe();
+  expect(after).toEqual([null]);
+
+  // …and the successor is still the live one. Arming a gesture is the push this can
+  // reach without a device: `setGesture` drops BOTH pending anchors on the way in, so
+  // it republishes even with nothing pending. (`escape()` deliberately does not — its
+  // first rung is guarded on an anchor actually existing, so with none down the ladder
+  // falls straight through. Checked, having assumed otherwise first.)
+  host.setGesture("segment");
+  expect(after).toEqual([null, null]);
+  expect(seen).toEqual([null]);
 });
 
 // --- listGenerators: the `emits` → `placesProps` WIRING (F4 Task 12, D-F4-15) -

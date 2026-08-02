@@ -37,6 +37,7 @@ import {
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import type {
 	FieldTool,
+	SegmentHud,
 	SelectionInfo,
 	StampSession,
 } from "../../src/viewport-host/index.ts";
@@ -3646,6 +3647,60 @@ test("the keymap asks for a region while a stamp is armed, and names the generat
 	).toBeTruthy();
 });
 
+/** The static Segment line — what the keymap says with the gesture armed and no point
+ *  down yet. Named because three assertions below need the SAME string: the HUD replaces
+ *  it while a point is pending and has to hand it back afterwards. */
+const SEGMENT_IDLE_LINE =
+	"click ×2 sweeps the brush · [ ] radius · Esc drops the point";
+
+test("the segment keymap counts the pending length against the cap, and reddens past it", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+
+	// Armed through the KEYS a user has rather than by writing the mirror: Segment is the
+	// brush family's fifth member, so a bare `b` enters the family at Dig and four ⇧B step
+	// to it. A case that armed it any other way could pass against a gesture nothing set.
+	pressKey("b");
+	for (let i = 0; i < 4; i++) pressKey("B", { shiftKey: true });
+	expect(screen.getByText(SEGMENT_IDLE_LINE)).toBeTruthy();
+
+	const hud = (h: SegmentHud | null): void => {
+		act(() => {
+			stub.fire.segmentHud(h);
+		});
+	};
+
+	// A point is down: the line becomes the READOUT — how long the pending segment is and
+	// what it is allowed to be. The cap is the HOST's number (`capM`), not a chrome copy.
+	hud({ lenM: 42.5, capM: 60 });
+	const live = screen.getByText(
+		"segment · 42.5 m / 60 m · [ ] radius · Esc drops the point",
+	);
+	expect(live.className.includes("text-destructive-text")).toBe(false);
+
+	// Past the cap the next click will be REFUSED, and the line says so before it is
+	// spent. The numbers carry the fact on their own (61.0 / 60) — the tone reinforces it
+	// rather than being the only channel that has it.
+	hud({ lenM: 61, capM: 60 });
+	const over = screen.getByText(
+		"segment · 61.0 m / 60 m · [ ] radius · Esc drops the point",
+	);
+	expect(over.className.includes("text-destructive-text")).toBe(true);
+	// …and the tone did not cost the no-wrap. This is the half of the canvas-size rule
+	// this line can break: the bar's HEIGHT is fixed by `h-7` (pinned in the layout
+	// contract case above) so text cannot grow it, and `whitespace-nowrap` is what stops
+	// it asking for a second row instead. The class goes through `cn`'s merge here and
+	// nowhere else, which is why it is asserted in the toned state.
+	expect(over.className.includes("whitespace-nowrap")).toBe(true);
+
+	// The point is spent or dropped: the readout goes away and the static line comes back.
+	// A HUD that survived its own gesture would state a length for a segment that is no
+	// longer pending.
+	hud(null);
+	expect(screen.getByText(SEGMENT_IDLE_LINE)).toBeTruthy();
+});
+
 test("the keymap names only keys that are LIVE — under paint, ⌃ and X are not", () => {
 	// A TRUTH assertion, not a wording one. The line is derived from the effect, and the
 	// three facts it has to respect all live elsewhere: ⌃ passes through on paint and
@@ -3656,7 +3711,7 @@ test("the keymap names only keys that are LIVE — under paint, ⌃ and X are no
 	// pins WORDING DRIFT and never truth, which is exactly how the static line got away
 	// with naming three dead keys.
 	const brush = (effect: FieldTool["effect"]): string =>
-		armedKeymap({ ...DIG_TOOL, effect }, null, null, null);
+		armedKeymap({ ...DIG_TOOL, effect }, null, null, null, null);
 
 	expect(brush("dig")).toBe(
 		"LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",

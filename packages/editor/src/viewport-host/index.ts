@@ -35,6 +35,7 @@ export {
   type FieldStats,
   type FieldTool,
   type PendingStamp,
+  type SegmentHud,
   type SelectionInfo,
   // `SelectionMode` is deliberately absent: the chrome only names the wider union, which it
   // narrows structurally (`gesture === null || gesture === "segment"` — does LMB still brush).

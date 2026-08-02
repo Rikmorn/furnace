@@ -19,7 +19,7 @@ import "../inspector/_register.ts";
 // through the stub host below ("only one runs at a time", "the in-flight column is
 // released…", "a SYNCHRONOUS refusal…"), which is strictly closer to production.
 //
-// Every case mounts under `FieldHostStateProvider`: the twelve host seams are the
+// Every case mounts under `FieldHostStateProvider`: the thirteen host seams are the
 // shell's, and without it `stub.fire.flags` reaches nothing at all.
 //
 // House rule (learned twice this slice): compare an element to `null` FIRST.

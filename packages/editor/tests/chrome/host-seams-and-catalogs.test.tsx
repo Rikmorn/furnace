@@ -193,15 +193,16 @@ const toastText = (text: string | RegExp): HTMLElement =>
 // The single-slot rule, pinned from the side that would break it. Every FieldHost
 // subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
 // would silently steal the shell's — no throw, no warning, the shell surface just stops
-// updating. ALL TWELVE belong to the provider now: stats to the status bar's chips, tool
+// updating. ALL THIRTEEN belong to the provider now: stats to the status bar's chips, tool
 // errors to the toast stack, entities + drift + the entity selection to the entities
 // palette, the camera pose to the axis triad, the named history to the Undo/Redo labels
-// and the History palette (F4.5b Task 12), and — since F4.5b Task 2 — tool / selection /
-// stamp / flags to the control stack, read out of context. This is the guard a re-added
-// meter, a re-added status line, or a mirror that crept back into a section has to trip.
+// and the History palette (F4.5b Task 12), the pending segment to the status bar's keymap
+// line (F4.5c Task 14), and — since F4.5b Task 2 — tool / selection / stamp / flags to the
+// control stack, read out of context. This is the guard a re-added meter, a re-added
+// status line, or a mirror that crept back into a section has to trip.
 //
 // Every seam, with the push that proves the slot is live. Quantified rather than spelled
-// out case by case: the point is that the set is CLOSED, and a thirteenth seam claimed by
+// out case by case: the point is that the set is CLOSED, and a fourteenth seam claimed by
 // a palette body is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
@@ -258,11 +259,16 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 			stub.calls.subscribeHistory,
 			() => stub.fire.history(NO_HISTORY),
 		],
+		[
+			"segmentHud",
+			stub.calls.subscribeSegmentHud,
+			() => stub.fire.segmentHud(null),
+		],
 	] as const;
 
 // The stub's own contract, asserted rather than asserted-in-a-comment. Every one of its
-// twelve unsubscribes is identity-guarded (`if (cbs.x === cb)`) exactly as all twelve of
-// the production host's are, and four of them were NOT until F4.5b Task 14 while the
+// thirteen unsubscribes is identity-guarded (`if (cbs.x === cb)`) exactly as all thirteen
+// of the production host's are, and four of them were NOT until F4.5b Task 14 while the
 // stub's header already claimed otherwise.
 //
 // The React shape it defends: on a dep change the effect BODY runs before the previous
@@ -270,7 +276,7 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 // that release frees the slot the new subscriber just took and the seam goes silent with
 // nothing thrown. The ownership case below cannot see it — it swaps the CHILD under a
 // provider that stays, so the provider's cleanups never run at all.
-test("every stub unsubscribe is identity-guarded, like all twelve of the host's", () => {
+test("every stub unsubscribe is identity-guarded, like all thirteen of the host's", () => {
 	const stub = makeStubHost();
 	/** A FRESH do-nothing subscriber per call. Sharing one closure across the two
 	 *  subscribes would make `cbs.x === cb` true for the stale cleanup and the guard would
@@ -299,6 +305,13 @@ test("every stub unsubscribe is identity-guarded, like all twelve of the host's"
 			() => stub.host.subscribeStats(noop()),
 			() => stub.fire.stats(makeStats()),
 		],
+		// The newest slot rides here from the day it lands rather than being added after
+		// it breaks, which is the only difference between this list and the four above.
+		[
+			"segmentHud",
+			() => stub.host.subscribeSegmentHud(noop()),
+			() => stub.fire.segmentHud(null),
+		],
 	] as const;
 	for (const [name, subscribe, push] of seams) {
 		const stale = subscribe();
@@ -308,7 +321,7 @@ test("every stub unsubscribe is identity-guarded, like all twelve of the host's"
 	}
 });
 
-test("every host seam is the PROVIDER's — twelve slots, one claimant each", async () => {
+test("every host seam is the PROVIDER's — thirteen slots, one claimant each", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	const { rerender } = await renderProviders(stub);

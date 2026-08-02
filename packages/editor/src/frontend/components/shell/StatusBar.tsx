@@ -16,6 +16,7 @@ import type { FieldStats } from "../../../viewport-host/index.ts"; // type-only:
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
 	useFieldHostState,
+	useFieldSegmentHud,
 	useFieldSelection,
 	useFieldStamp,
 	useFieldTool,
@@ -56,13 +57,33 @@ const ms = (n: number): string => `${grouped(Math.round(n))} ms`;
 
 /** The keymap line, in its own component so only IT re-renders: the session context pushes
  *  a clone on every nudge and every preview — pointer rate while a move is live — and the
- *  chips and the error line beside it have nothing to do with that. */
+ *  chips and the error line beside it have nothing to do with that. The segment HUD (D-25)
+ *  is the second context here with that cadence, and it is the same argument twice.
+ *
+ *  The line can grow and shrink as the number does and CANNOT move the canvas: `h-7` fixes
+ *  the bar's height (the ordering comment in `StatusBar` says so of the chips, and it is
+ *  the same `h-7`) and `whitespace-nowrap` refuses the wrap that is the only other way
+ *  text could ask for a second row. `tabular-nums` is the smaller half of the same care —
+ *  without it every digit that changes mid-gesture re-measures the whole line and the
+ *  words after it twitch.
+ *
+ *  The over-cap TONE is the one part of this line the string cannot carry, which is why
+ *  it is decided here: past the cap the next click is going to be refused, and the line
+ *  says so while the point can still be re-aimed. `segmentLine` puts both numbers in the
+ *  text so this is reinforcement rather than the sole channel. */
 function KeymapLine() {
 	const { tool, gesture, pendingStamp } = useFieldTool();
 	const { stamp } = useFieldStamp();
+	const { segment } = useFieldSegmentHud();
+	const overCap = segment !== null && segment.lenM > segment.capM;
 	return (
-		<span className="whitespace-nowrap">
-			{armedKeymap(tool, gesture, stamp, pendingStamp)}
+		<span
+			className={cn(
+				"whitespace-nowrap tabular-nums",
+				overCap && "text-destructive-text",
+			)}
+		>
+			{armedKeymap(tool, gesture, stamp, pendingStamp, segment)}
 		</span>
 	);
 }

@@ -21,8 +21,15 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldHistory, FieldTool } from "../src/viewport-host/index.ts";
+import {
+  createFieldHost,
+  STROKE_MIN_MS,
+} from "../src/viewport-host/field-host.ts";
+import type {
+  FieldHistory,
+  FieldTool,
+  SegmentHud,
+} from "../src/viewport-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
@@ -63,6 +70,11 @@ async function segmentFixture() {
     if (fn === undefined) throw new Error("test: no pointerdown listener");
     fn({ button: 0, altKey: false, clientX: x, clientY: y, pointerId: 1 });
   };
+  const move = (x: number, y: number): void => {
+    const fn = listeners.get("pointermove");
+    if (fn === undefined) throw new Error("test: no pointermove listener");
+    fn({ clientX: x, clientY: y, pointerId: 1 });
+  };
   const key = (k: string): void => {
     const fn = listeners.get("keydown");
     if (fn === undefined) throw new Error("test: no keydown listener");
@@ -89,6 +101,7 @@ async function segmentFixture() {
     host,
     errors,
     click,
+    move,
     key,
     ops,
     teardown: () => {
@@ -430,6 +443,149 @@ test.skipIf(!bunWebGpuAvailable())(
       expect(f.ops()).toHaveLength(0);
       expect(f.errors.at(-1)).toMatch(/unknown class id 99/);
     } finally {
+      f.teardown();
+    }
+  },
+);
+
+// --- the length HUD (D-25) ---------------------------------------------------
+//
+// The chrome mirror of the pending segment: what the status bar counts out while the
+// user aims, and the reason the 60 m cap above stopped being a fact you meet only as a
+// refusal. HERE for the same reason every case in this file is — the seam is fed by the
+// two-click state machine and by `onPointerMove`, neither of which has a method seam.
+
+/** `performance.now()`, frozen and hand-advanced. The HUD's throttle is a wall-clock
+ *  comparison, so a test that fires events as fast as the runtime allows can prove the
+ *  guard SUPPRESSES but never that it RELEASES — the whole run happens inside one
+ *  40 ms window. Restores exactly what was there. */
+function stubClock(start = 1_000_000): {
+  advance: (ms: number) => void;
+  restore: () => void;
+} {
+  const perf = performance as unknown as { now: () => number };
+  const prev = perf.now;
+  let t = start;
+  perf.now = () => t;
+  return {
+    advance: (ms) => {
+      t += ms;
+    },
+    restore: () => {
+      perf.now = prev;
+    },
+  };
+}
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the HUD reports the pending length against the host's own cap, and ends with the gesture",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      const pushes: (SegmentHud | null)[] = [];
+      f.host.subscribeSegmentHud((h) => pushes.push(h));
+      // On subscribe, with nothing pending. A seam that stayed silent here would leave a
+      // status bar that mounted mid-gesture reading its idle copy beside a visible
+      // capsule — the subscribeCameraPose argument, same shape.
+      expect(pushes).toEqual([null]);
+
+      f.host.setTool(DIG_TOOL);
+      f.host.setGesture("segment");
+
+      // The anchoring click. The cursor has not moved off the point it landed on, so the
+      // honest length is 0 — and `capM` is the HOST's number, which is the whole point of
+      // it riding in the payload: the chrome cannot value-import MAX_SEGMENT_M.
+      f.click(16, 16);
+      expect(pushes.at(-1)).toEqual({ lenM: 0, capM: 60 });
+
+      // …and the cursor moving is what makes it a readout rather than a label.
+      f.move(48, 40);
+      const live = pushes.at(-1);
+      if (live === null || live === undefined)
+        throw new Error("test: the move published no HUD");
+      expect(live.capM).toBe(60);
+      expect(live.lenM).toBeGreaterThan(0);
+
+      // Esc drops the point: the HUD has to go with it, or the bar keeps stating a
+      // length for a segment that is no longer pending.
+      f.key("Escape");
+      expect(pushes.at(-1)).toBe(null);
+
+      // The other way out is the COMMIT, and it is a separate path (`setSegmentAnchor`
+      // is called from inside `segmentClick`, not from the ladder) — so it is asserted
+      // rather than assumed.
+      f.click(20, 20);
+      expect(pushes.at(-1)).not.toBe(null);
+      f.click(40, 44);
+      expect(pushes.at(-1)).toBe(null);
+      expect(f.ops()).toHaveLength(1);
+      expect(f.errors).toEqual([]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the HUD throttles the moves between the clicks, and both anchor EDGES ignore it",
+  async () => {
+    const f = await segmentFixture();
+    const clock = stubClock();
+    try {
+      const pushes: (SegmentHud | null)[] = [];
+      f.host.subscribeSegmentHud((h) => pushes.push(h));
+      /** How many pushes since the last call — DELTAS, not absolutes. Arming a gesture
+       *  drops BOTH anchors through `setSegmentAnchor(null)`, so the seam publishes a
+       *  redundant `null` on the way in; that is harmless (the chrome's `setSegment(null)`
+       *  against a null state is a React bail-out by identity) and it is not what this
+       *  case is about. Counting deltas pins the throttle without pinning the arming
+       *  path's push count, which nothing here claims. */
+      let seen = 0;
+      const since = (): number => {
+        const n = pushes.length - seen;
+        seen = pushes.length;
+        return n;
+      };
+
+      f.host.setTool(DIG_TOOL);
+      f.host.setGesture("segment");
+      f.click(16, 16);
+      since();
+
+      // Five moves inside ONE window. The first is admitted (nothing has been published
+      // at pointer rate yet), the other four are the throttle's whole job: unthrottled
+      // this seam re-renders the status bar once per pointermove, which is the cost the
+      // provider's cadence split exists to avoid.
+      for (const x of [20, 24, 28, 32, 36]) f.move(x, 40);
+      expect(since()).toBe(1);
+
+      // Past the window it RELEASES — a guard that never let go would be a HUD frozen at
+      // the first cursor position, which no test firing events back-to-back could tell
+      // from a correct one. Advanced by the constant itself, so retuning the cadence
+      // moves this case with it instead of stranding it on a literal.
+      clock.advance(STROKE_MIN_MS);
+      f.move(40, 40);
+      expect(since()).toBe(1);
+
+      // The EDGE is not throttled, and that is the load-bearing half: the committing
+      // click lands inside the window the move above just opened, and the HUD still has
+      // to go out. A throttled edge would leave the bar counting out a segment that has
+      // already been committed.
+      f.click(44, 40);
+      expect(since()).toBe(1);
+      expect(pushes.at(-1)).toBe(null);
+      expect(f.ops()).toHaveLength(1);
+
+      // …and the ARMING edge, still inside that same window. A click that deferred to
+      // the throttle would put a point down and leave the bar on its idle copy — the
+      // same defect the other way round, and the reason the edges are unthrottled
+      // rather than merely happening to be first.
+      f.click(48, 44);
+      expect(since()).toBe(1);
+      expect(pushes.at(-1)).toEqual({ lenM: 0, capM: 60 });
+      expect(f.errors).toEqual([]);
+    } finally {
+      clock.restore();
       f.teardown();
     }
   },

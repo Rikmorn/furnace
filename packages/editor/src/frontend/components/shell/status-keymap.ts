@@ -5,13 +5,15 @@
 // evidence that it wanted one is that `armedKeymap` was already exported solely so
 // `shell.test.tsx` could import it — a function whose only non-local consumer is its own
 // test is a function that has outgrown the component it sits in. `StatusBar.tsx` was
-// past 620 lines with four unrelated clusters in it (`clean-code.md`'s ~400-line signal),
-// and the segment-length HUD is still to come.
+// past 620 lines with four unrelated clusters in it (`clean-code.md`'s ~400-line signal).
+// The segment-length HUD (D-25) landed here rather than there for exactly that reason:
+// it is another STRING decision, and the only part of it the renderer keeps is the tone.
 //
 // Type-imports only from the viewport host (erased) — the project-first invariant.
 import type {
   FieldTool,
   PendingStamp,
+  SegmentHud,
   StampSession,
   ViewportGesture,
 } from "../../../viewport-host/index.ts"; // type-only: erased
@@ -38,6 +40,7 @@ export function armedKeymap(
   gesture: ViewportGesture | null,
   session: StampSession | null,
   pendingStamp: PendingStamp | null,
+  segment: SegmentHud | null,
 ): string {
   // A live session owns the interaction — the family keys refuse while it stands, so
   // what is left to say is how it ENDS. The two end verbs come from `SESSION_VERBS`,
@@ -70,8 +73,7 @@ export function armedKeymap(
   if (gesture === "material")
     return "LMB floods the clicked material · Esc clears";
   if (gesture === "void") return "LMB floods an air pocket · Esc clears";
-  if (gesture === "segment")
-    return "click ×2 sweeps the brush · [ ] radius · Esc drops the point";
+  if (gesture === "segment") return segmentLine(segment);
   // The brush itself, with the armed effect NAMED: it is what LMB is about to do, and
   // the four read very differently. Joined from parts rather than interpolated, so an
   // effect with no live modifiers ends at the radius instead of a dangling separator.
@@ -80,6 +82,38 @@ export function armedKeymap(
     "[ ] radius",
     ...modifierParts(tool.effect),
   ].join(" · ");
+}
+
+/** The Segment line, in its two states (D-25).
+ *
+ *  With no point down it is the ordinary "what do the keys do" line. With one down it
+ *  becomes a READOUT — the length the pending capsule has reached against the cap the
+ *  second click is measured by — because that is the one fact the gesture cannot show on
+ *  its own: the wireframe in the viewport draws the shape and says nothing about how
+ *  long it is, and until now the cap arrived only afterwards, as a refusal for a click
+ *  already spent.
+ *
+ *  Both numbers, not just the length: "42.5 m" alone leaves the reader to remember what
+ *  it is being compared with, and the pair is what makes the over-cap state legible
+ *  WITHOUT its colour (`61.0 m / 60 m` says it plainly), which is what keeps the tone in
+ *  `KeymapLine` reinforcement rather than the only channel carrying it.
+ *
+ *  One decimal, which is what the host's own refusal prints (`segmentClick` formats the
+ *  same measurement with `toFixed(1)`): the number a user watched climb here is the
+ *  number quoted back at them if they push past it, and two roundings of one measurement
+ *  is how those would come to disagree at the boundary.
+ *
+ *  `[ ] radius` survives into the pending state because the keys DO — `applyRadius`
+ *  re-fattens a pending capsule, so dropping the clause would name a live key nowhere at
+ *  the one moment it is most useful, which is this module's whole complaint about the
+ *  static line it replaced. `click ×2` does not survive: with a point down only one
+ *  click is left. */
+function segmentLine(segment: SegmentHud | null): string {
+  const head =
+    segment === null
+      ? "click ×2 sweeps the brush"
+      : `segment · ${segment.lenM.toFixed(1)} m / ${segment.capM} m`;
+  return `${head} · [ ] radius · Esc drops the point`;
 }
 
 /** Which momentary/sticky overrides are LIVE under `effect`, derived rather than stated.

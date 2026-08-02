@@ -6,7 +6,7 @@
 // push the current (empty) state on subscribe, like the real host does.
 //
 // Every unsubscribe is REAL (frees the slot) and IDENTITY-GUARDED (`if (cbs.x === cb)`),
-// exactly as all twelve of the production host's are, and every `fire.*` reports whether
+// exactly as all thirteen of the production host's are, and every `fire.*` reports whether
 // the push was DELIVERED. That pair is what lets a test tell a subscriber that leaks from
 // one that cleans up — and, on a single-slot seam, WHICH mount is holding it.
 //
@@ -39,6 +39,7 @@ import type {
   FieldTool,
   FlagsSummary,
   PendingStamp,
+  SegmentHud,
   SelectionInfo,
   StampSession,
   ToolErrorSeverity,
@@ -140,6 +141,7 @@ export function makeStubHost(
     entitySelection: ((entityId: number | null) => void) | null;
     pendingStamp: ((p: PendingStamp | null) => void) | null;
     history: ((h: FieldHistory) => void) | null;
+    segmentHud: ((h: SegmentHud | null) => void) | null;
   } = {
     tool: null,
     cameraPose: null,
@@ -153,6 +155,7 @@ export function makeStubHost(
     entitySelection: null,
     pendingStamp: null,
     history: null,
+    segmentHud: null,
   };
   // What `occupiedTopY` answers. Mutable so a case can put content in the world
   // without a GPU: the seed decision is chrome-side arithmetic over this one number,
@@ -202,10 +205,11 @@ export function makeStubHost(
     selectFlag: mock(),
     // Every subscribe seam records its call, so a test can assert the slot was claimed
     // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
-    // machine-checkable form. ALL TWELVE belong to the shell's host-state provider —
+    // machine-checkable form. ALL THIRTEEN belong to the shell's host-state provider —
     // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4,
-    // `subscribePendingStamp` arrived owned in Task 9 and `subscribeHistory` in Task 12
-    // — which is why the ownership cases enumerate twelve.
+    // `subscribePendingStamp` arrived owned in Task 9, `subscribeHistory` in Task 12 and
+    // `subscribeSegmentHud` in F4.5c Task 14 — which is why the ownership cases
+    // enumerate thirteen.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),
@@ -218,6 +222,7 @@ export function makeStubHost(
     subscribeFlags: mock(),
     subscribeEntitySelection: mock(),
     subscribeHistory: mock(),
+    subscribeSegmentHud: mock(),
   };
   const host: FieldHost = {
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
@@ -429,6 +434,19 @@ export function makeStubHost(
         if (cbs.cameraPose === cb) cbs.cameraPose = null;
       };
     },
+    subscribeSegmentHud: (cb) => {
+      calls.subscribeSegmentHud(cb);
+      cbs.segmentHud = cb;
+      // The real host pushes the CURRENT pending segment on subscribe — `null` on a
+      // fresh host, which is what a status bar mounting with no gesture in flight must
+      // read rather than nothing at all.
+      cb(null);
+      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
+      // be distinguishable from a clean release).
+      return () => {
+        if (cbs.segmentHud === cb) cbs.segmentHud = null;
+      };
+    },
     subscribeStats: (cb) => {
       calls.subscribeStats(cb);
       cbs.stats = cb;
@@ -521,6 +539,14 @@ export function makeStubHost(
       history: (h: FieldHistory): boolean => {
         if (cbs.history === null) return false;
         cbs.history(h);
+        return true;
+      },
+      /** The pending segment's length against its cap, as the host publishes one from
+       *  both anchor edges and (throttled) from the moves between them — `null` for no
+       *  point down (D-25). */
+      segmentHud: (h: SegmentHud | null): boolean => {
+        if (cbs.segmentHud === null) return false;
+        cbs.segmentHud(h);
         return true;
       },
       /** An entity-selection change, as a pointer click or `selectEntity` publishes one. */
