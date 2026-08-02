@@ -16,9 +16,25 @@ interface LabelPointerProps {
 	onPointerCancel: PointerEventHandler<HTMLSpanElement>;
 }
 
-const ROW_CLASS = "flex items-center justify-between gap-2 py-0.5";
+// NO `justify-between`, and its absence is the point rather than an omission. That utility
+// distributes SLACK, so it only ever did anything while the caption was content-width — it
+// was what put the value column at a different x on every row. With a fixed caption and a
+// growing value side there is no slack left to distribute, so leaving it here would be an
+// inert class that reads as though the geometry still depended on the label's length.
+const ROW_CLASS = "flex items-center gap-2 py-0.5";
 
-/** The row's caption, shared by both wrappers. */
+/**
+ * The row's caption, shared by both wrappers — and the one place the label column's width
+ * is spent (`--spacing-label-col`, defined and derived in `styles.css`).
+ *
+ * `w-label-col shrink-0` rather than a content-width box: the value column's left edge is
+ * this element's right edge, so a caption that sized itself to its own text is a value
+ * column that moves from row to row. `truncate` is what a label longer than the column does
+ * instead of pushing — five of the field corpus's 33 labels clip, and the column ends them
+ * somewhere unambiguous (`Door North …`, `Chamber R…`). The `title` carries the full text
+ * for the pointer; a screen reader never needed it, because the clipped text is still the
+ * row's accessible name.
+ */
 function RowCaption({
 	path,
 	labelPointerProps,
@@ -26,8 +42,18 @@ function RowCaption({
 	path: string;
 	labelPointerProps?: LabelPointerProps;
 }) {
+	const label = humanizeLabel(path.split(".").at(-1) ?? path);
 	const labelSpanCls = [
-		"shrink-0 text-xs text-muted-foreground",
+		"w-label-col shrink-0 truncate text-xs text-muted-foreground",
+		// `truncate` brings `overflow: hidden`, which clips this box's own ink — and the
+		// hover underline below is ink that lands OUTSIDE the line box. Reasoned, not
+		// measured (nothing in `bun test` lays anything out): Inter's baseline sits 12.365 px
+		// into the 16 px line box `text-xs` gives it, and an underline at the font's own
+		// position plus `underline-offset-2` plus its thickness ends around 17.4 px — past
+		// the clip edge. The extra padding moves the CLIP edge down without moving the
+		// content, and the matching negative margin keeps the margin box (which is what
+		// `items-center` aligns and what sets the row's height) exactly as it was.
+		"pb-1 -mb-1",
 		// Scrub affordance: an ew-resize cursor + a subtle dotted hover underline signal the
 		// (already-wired) horizontal drag-to-scrub on numeric labels — otherwise invisible.
 		labelPointerProps
@@ -37,8 +63,8 @@ function RowCaption({
 		.filter(Boolean)
 		.join(" ");
 	return (
-		<span className={labelSpanCls} {...labelPointerProps}>
-			{humanizeLabel(path.split(".").at(-1) ?? path)}
+		<span className={labelSpanCls} title={label} {...labelPointerProps}>
+			{label}
 		</span>
 	);
 }

@@ -2,8 +2,14 @@ import { useId } from "react";
 import { Button } from "../../ui/button.tsx";
 import { Input } from "../../ui/input.tsx";
 
-/** The card's row-label width, so the seed caption lines up with the ones below it. */
-const LABEL_CLASS = "flex items-center gap-1.5 text-muted-foreground";
+/** The card's row-label COLUMN — `--spacing-label-col`, the one the schema form's field rows
+ *  below spend, so the seed caption and every param caption end at the same x.
+ *
+ *  It said that before and it was not true: the width was a hand-written `w-[52px]` at the
+ *  call site and the rows below were content-width, so this caption lined up with nothing.
+ *  The token is defined (and its 5rem derived) in `styles.css`. */
+const LABEL_CLASS =
+	"flex w-label-col shrink-0 items-center gap-1.5 text-muted-foreground";
 
 /**
  * The seed and its re-roll.
@@ -34,7 +40,7 @@ export function SeedRow({
 			    genuinely DID wrap its input — here they were siblings, so the 52 px "seed"
 			    target focused nothing and the accessible name came from an `aria-label` no
 			    association backed. */}
-			<label htmlFor={inputId} className={`${LABEL_CLASS} w-[52px]`}>
+			<label htmlFor={inputId} className={LABEL_CLASS}>
 				seed
 			</label>
 			<Input

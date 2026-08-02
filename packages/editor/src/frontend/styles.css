@@ -225,6 +225,65 @@
 	--text-2xs: 0.625rem;
 }
 
+/* THE LABEL COLUMN. One width, so every caption→value row in the session card puts its
+   value column on the SAME x. It used to put it wherever the caption's own text ended:
+   `Width` started its slider 33 px in and `Door South Offset` started its slider 103 px in,
+   in one form, on adjacent rows.
+
+   WHO ADOPTS IT. A row adopts when its CAPTION LEADS a control and the row is a sibling in
+   the card's top-level vertical stack — that is `FieldRow`/`FieldGroupRow` (every inspector
+   field) and `SeedRow`. Three kinds of thing that look similar do NOT adopt, and the line is
+   worth stating because the next new row has to fall on one side of it:
+     - a HORIZONTAL strip (`tool-params.tsx`) — one `LABEL_CLASS` there serves the 40 px top
+       bar and the ⋯ popover, and in the bar the caption is an inline lead-in, not a column;
+     - a CONTROL-FIRST list (`ViewPopover.tsx`'s layers/overlays, `tool-params`' hollow
+       toggle) — the checkbox comes first and the caption follows it, so there is no label
+       column to align;
+     - a READ-ONLY readout (`StatusBar.tsx`'s DetailRow, `ReadOnlyParams.tsx`) — a `<dt>/<dd>`
+       of mono data in a differently-sized surface, already internally aligned by its own
+       grid, and never on screen beside the form.
+   An INDENTED sub-form (`ObjectField`'s `pl-2` rule, `advanced`'s `pl-1`) shifts as a unit:
+   its rows align with each other, offset by the indent. That is why `AdvancedSection` does
+   not adopt — inside `CollapsibleContent`'s `pl-1` the token would land its captions 4 px
+   off the stack they would be aligning to, and 4 px off reads worse than plainly separate.
+
+   WHERE 5rem COMES FROM. Two derivations, taken independently, agreeing within 3 px:
+
+   1. THE CONTROL BUDGET (the binding one). A session palette is 280 px
+      (`lib/palette-store.ts`), border-box, less its 1 px borders and the card's `px-3`
+      gutter = 254 px of row. The widest value cluster is a slider row carrying a unit:
+      `w-20` range (80) + `gap-1` (4) + `w-14` exact input (56) + `gap-1` (4) + the "cells"
+      chip (21.67 px at `text-2xs`) = 165.67. Less the row's own `gap-2` (8), the caption may
+      be at most 254 − 8 − 165.67 = 80.33 px before it starts squeezing the control it names.
+   2. THE LABEL CORPUS. Every top-level property of core's four `FIELD_GENERATORS`, through
+      `humanizeLabel` — 33 distinct labels. Measured against the shipped
+      `fonts/inter-variable-latin.woff2` (advance sum, default instance, at the 12 px the
+      caption actually renders): the longest label outside the four `Door * Offset` compounds
+      and `Chamber Radius` is `Pillar Spacing` at 77.01 px.
+
+   So 5rem (80 px) holds every control at its natural size and fits 28 of the 33 labels
+   whole. The five that clip stay unambiguous — the column ends them at `Door North …`,
+   `Door South …`, `Door East O…`, `Door West …`, `Chamber R…`.
+
+   MEASURED vs REASONED, because the difference matters if this is ever re-derived: the glyph
+   advances are measured from the font file; the arithmetic above is read off source
+   constants. Neither is a browser measurement, and none is available from `bun test` —
+   happy-dom runs no layout, so `tests/chrome/label-column.test.tsx` pins the RULE (one token,
+   one utility, every row) and cannot pin the px.
+
+   THE RULING SAID `text-sm`; THE CAPTION RENDERS AT `text-xs`. Measured at what it is. At
+   14 px the same corpus would want ~94 px, which the control budget above cannot pay.
+
+   A PLAIN `@theme`, like `--text-2xs` above and for the same reason: the value is a literal,
+   so `inline` would buy nothing and would cost the custom property itself. `--spacing-*`
+   rather than `--width-*` because it yields `basis-`/`min-w-`/`pl-` as well as the
+   `w-label-col` the captions use — an adopting surface that needs a grid track or an indent
+   should not have to add a second declaration. (Both namespaces were compiled against the
+   installed Tailwind 4.3.3 to check which one emits `w-label-col`; both do.) */
+@theme {
+	--spacing-label-col: 5rem;
+}
+
 /* ── Motion (3.2.2 live pass) ───────────────────────────────────────────────
    State-feedback only: 150–250ms, ease-out, no choreography. All durations are
    zeroed by the prefers-reduced-motion block below (it wins with !important).
