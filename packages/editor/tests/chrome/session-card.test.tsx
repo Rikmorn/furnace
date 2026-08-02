@@ -22,8 +22,8 @@ import "../inspector/_register.ts";
 //      reconfigure, silently, which is the worst failure available here.
 //   3. the seed row is gated on the generator's `usesSeed`, so a hall never shows a
 //      re-roll that does nothing.
-//   4. the LIFECYCLE verbs (❄ ⬇ 🗑) are NOT here — D-14 puts them on the entity row, and
-//      the card is where a user would most plausibly reach for them.
+//   4. the LIFECYCLE verbs (freeze / sever / delete) are NOT here — D-14 puts them on
+//      the entity row, and the card is where a user would most plausibly reach for them.
 //
 // HOUSE RULE, and this file learned it the hard way (a sabotage run took two minutes to
 // report): every "this element is absent" assertion compares to null BEFORE the expect. A

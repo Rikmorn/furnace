@@ -6846,7 +6846,7 @@ export function createFieldHost(deps?: {
         // first write, so nothing has moved — and core's own sentence is the
         // best explanation there is, so it is passed through unwrapped
         // (setEntityFrozen/bakeEntity's stance). Swallowing it would leave a
-        // 🗑 that silently does nothing.
+        // row delete that silently does nothing.
         const message = err instanceof Error ? err.message : String(err);
         reportToolError(message);
         return;

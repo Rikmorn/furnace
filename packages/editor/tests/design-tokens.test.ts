@@ -201,7 +201,23 @@ test("error text clears AA on the surfaces it is used on", () => {
   // `--destructive-text` sites: toast + log rows (--popover); status bar, world drawer,
   // palettes, inspector field errors (--card). The FILL it split from does NOT clear the
   // floor as text (see the ledger) — that gap is the whole reason the token exists.
-  for (const surface of ["--card", "--popover"]) {
+  //
+  // `--accent` JOINED THE LIST at the F4.5 holistic gate, and it is the first HOVER surface
+  // in here. The entities row's sever and delete became `currentColor` lucide icons wearing
+  // this token, and a `ghost` button's hover paints `bg-accent` behind whatever it holds —
+  // so the icon is read on `--accent` for as long as the cursor is on the control it is
+  // about to click. It measures 4.86:1 there against 5.96:1 at rest: the hover is the
+  // WORST of the two and still clears, which is the fact that let the tone keep its own
+  // `hover:` spelling instead of handing the icon back to the neutral ramp.
+  //
+  // AN ICON IS HELD TO THE TEXT FLOOR HERE, which is stricter than WCAG compels. 1.4.3
+  // binds "text and images of text" and a glyph is neither, so the literally applicable SC
+  // is 1.4.11 at 3:1 — which does bind, since the icon is the only visible identification
+  // an icon-only button has. It is held to 4.5 anyway for the same two reasons the
+  // `border-destructive` floor is self-imposed: styles.css defines this token as the
+  // "text/ICON/dot sibling", so the token choice already commits a glyph to the text lane,
+  // and it costs nothing — both surfaces clear it with room.
+  for (const surface of ["--card", "--popover", "--accent"]) {
     expect(rawContrast("--destructive-text", surface)).toBeGreaterThanOrEqual(
       AA,
     );
@@ -993,8 +1009,11 @@ test("no class string tints a fill and then puts that fill's own foreground on i
 
 /** JS/JSX comments removed first. Both scans below match a class NAME, and this file's own
  *  vocabulary is discussed in prose all over the chrome — `EntitiesList` explains at length
- *  why its destructive verbs carry no `text-destructive`, which a naive substring search
- *  reads as the very thing it says is absent. Stripping is safe in the direction that
+ *  why its destructive verbs wear the `-text` sibling and never the bare `text-destructive`
+ *  fill, which a naive substring search reads as the very thing it says is banned. (That
+ *  comment used to explain the opposite — why the verbs carried no tone AT ALL — and the
+ *  example survived the F4.5 gate rewriting it, because naming a banned class is how you
+ *  document a ban.) Stripping is safe in the direction that
  *  matters: a mangled file loses matches, so it can only ever under-report, and both scans
  *  guard that with a non-empty file count. */
 const stripComments = (text: string): string =>

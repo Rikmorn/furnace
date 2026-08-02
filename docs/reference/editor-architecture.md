@@ -807,7 +807,8 @@ F2b stamp-session machinery end to end.
   `bakeGeneratorEntity`; bake confirms through the App-owned `useConfirmDialog` (stays
   inside the no-clobber + keybinding-suppression guards). `subscribeEntities` ticks the
   panel on entity-record changes that dirty no chunk (freeze/bake/undo of either).
-  *(F4.5b Task 4 adopted D-14's glyph map — freeze ❄ / bake ⬇ / delete 🗑, with Open
+  *(F4.5b Task 4 adopted D-14's glyph map — freeze / bake / delete (emoji then, lucide SVG
+  since the F4.5 holistic gate — see §the entities palette below), with Open
   keeping its word until D-13's session card takes it — added `deleteEntity`, and made the
   row half of a bidirectional selection sync with the viewport. Duplicate is deliberately
   NOT a row verb: `FieldHost.duplicateEntity` exists and Task 7 binds it to ⌘J and the Edit
@@ -1870,11 +1871,21 @@ half of the sync. A row click calls `host.selectEntity` (the write half) and tog
 read-only params `<dl>`; the id coming back down the seam styles the row with
 `aria-current`, and a `scrollIntoView({ block: "nearest" })` keyed on the SELECTION ALONE
 brings a viewport-made selection to a row that may be scrolled out of view.
-`field/EntitiesList.tsx` carries the row verb set — Open, freeze ❄ / unfreeze 🔓, bake ⬇,
-delete 🗑, each through one `RowVerb` component that owns the wrapper a disabled button needs
+`field/EntitiesList.tsx` carries the row verb set — Open, freeze / unfreeze, bake ("sever"),
+delete, each through one `RowVerb` component that owns the wrapper a disabled button needs
 (a disabled button swallows the pointer events a `title` wants, so the reason rides the
-`aria-label` too). **Duplicate is deliberately NOT a row verb** — D-14's glyph map puts ⬇ on
-bake and the mock puts duplicate in the burger. The `Δ` drift badge appears on any row the
+`aria-label` too). The three pictographs are **lucide SVG** since the F4.5 holistic gate
+(`Snowflake` / `LockOpen`, `ArrowDownToLine`, `Trash2`, with `Lock` on the frozen badge):
+they shipped as bare emoji, which render from the colour-emoji face and ignore `color`, so
+the two destructive verbs could carry no tone at all. As `currentColor` SVG they take D-23's
+destructive lane — `text-destructive-text` at rest AND on hover (a `ghost` button's own
+`hover:text-accent-foreground` would otherwise turn them grey under the cursor), 50 % dim
+when refused. `--destructive-text` is pinned on `--accent`, the hover surface, in
+`tests/design-tokens.test.ts`; the tone rule itself is pinned from both sides in
+`tests/chrome/entities-palette.test.tsx`. **Duplicate is deliberately NOT a row verb** —
+D-14's glyph map puts the down arrow on bake and the mock puts duplicate in the burger, and
+`ArrowDownToLine` (an arrow landing on a baseline) was chosen over anything resembling
+lucide's `Copy` to keep that reading intact. The `Δ` drift badge appears on any row the
 standing report touches; membership is the HOST's answer, pushed as
 `FieldDriftReport.entityIds` and turned into a `ReadonlySet` by the provider, so a badge
 cannot outlive the geometry it points at.
@@ -1952,7 +1963,7 @@ Safari owns as add-bookmark and does not let a page intercept — and **G** is `
 three refuse with no selected entity, and delete and grab refuse during a session as well
 (deleting the entity under a reconfigure, or replacing the session a `G` would open, both
 discard work the user is still doing). The delete confirm names the op count, because a row
-reads "1 ops" for a scatter that takes every prop it placed with it; the row's 🗑 and the menu
+reads "1 ops" for a scatter that takes every prop it placed with it; the row's delete and the menu
 item raise the same App-owned prompt, though the sentence is spelled in both
 `shell/EntitiesPalette.tsx` and `lib/actions.ts`.
 

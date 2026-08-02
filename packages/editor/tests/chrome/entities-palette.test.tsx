@@ -322,8 +322,8 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 });
 
 // Every row verb states its reason the same way, which is a convention that had to
-// be EXTENDED rather than invented: Open and 🗑 shipped with reasons in the
-// accessible name while ❄ and bake were bare `disabled` with a tooltip that still
+// be EXTENDED rather than invented: Open and delete shipped with reasons in the
+// accessible name while freeze and bake were bare `disabled` with a tooltip that still
 // promised to sever a recipe already severed. Quantified over the set so a fifth
 // verb cannot quietly ship bare.
 test("a baked row disables every verb it cannot run, each naming its reason", () => {
@@ -626,12 +626,14 @@ test("the entity-selection seam styles the row — the read half, from the viewp
 	expect(currentFlags()).toEqual([null, null]);
 });
 
-// D-14's glyph map: ⬇ is BAKE, and duplicate is a burger item rather than a row
-// verb (Task 7 binds it to ⌘J). Pinned from the side that would break it — the
-// glyph reads so naturally as "duplicate" that wiring it there is the obvious
+// D-14's glyph map: the DOWN ARROW is BAKE, and duplicate is a burger item rather than
+// a row verb (Task 7 binds it to ⌘J). Pinned from the side that would break it — a
+// downward arrow reads so naturally as "duplicate" that wiring it there is the obvious
 // mistake, and it would be a SILENT one: the row would look right and sever a
-// recipe on click.
-test("the row's ⬇ is BAKE, and duplicate has no row affordance at all", () => {
+// recipe on click. (The glyph is lucide's `ArrowDownToLine` since the F4.5 gate; the
+// assertion is on the VERB and its confirmation, so it survived the swap untouched,
+// which is the point of never asserting a pictograph.)
+test("the row's down-arrow verb is BAKE, and duplicate has no row affordance at all", () => {
 	const stub = makeStubHost();
 	let request: ConfirmRequest | null = null;
 	renderPalette(stub, {
@@ -646,11 +648,12 @@ test("the row's ⬇ is BAKE, and duplicate has no row affordance at all", () => 
 	fireEvent.click(rowButton("sever", 1));
 	expect(stub.calls.duplicateEntity).not.toHaveBeenCalled();
 	const pending = request as ConfirmRequest | null;
-	if (pending === null) throw new Error("⬇ did not open the bake confirmation");
+	if (pending === null)
+		throw new Error("sever did not open the bake confirmation");
 	expect(pending.message).toMatch(/severs the recipe permanently/);
 });
 
-test("🗑 confirms before removing the stamp — cancelling never reaches the host", () => {
+test("delete confirms before removing the stamp — cancelling never reaches the host", () => {
 	const stub = makeStubHost();
 	let request: ConfirmRequest | null = null;
 	renderPalette(stub, {
@@ -664,7 +667,7 @@ test("🗑 confirms before removing the stamp — cancelling never reaches the h
 	// The click alone must not delete: the palette routed it into the App confirm.
 	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
 	const pending = request as ConfirmRequest | null;
-	if (pending === null) throw new Error("🗑 did not open a confirmation");
+	if (pending === null) throw new Error("delete did not open a confirmation");
 	expect(pending.destructive).toBe(true);
 	// It names the entity AND how much goes with it — a row reads "3 ops", and
 	// that number is the honest measure of what is about to be removed.
@@ -676,7 +679,7 @@ test("🗑 confirms before removing the stamp — cancelling never reaches the h
 	expect(stub.calls.deleteEntity.mock.calls).toEqual([[1]]);
 });
 
-test("🗑 is disabled with its reason on a frozen or baked row", () => {
+test("delete is disabled with its reason on a frozen or baked row", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [FROZEN, BAKED]);
 	// The reason rides the ACCESSIBLE NAME as well as the wrapper's title, for
@@ -692,6 +695,103 @@ test("🗑 is disabled with its reason on a frozen or baked row", () => {
 	expect(bakedDelete.disabled).toBe(true);
 	fireEvent.click(frozenDelete);
 	expect(stub.calls.deleteEntity).not.toHaveBeenCalled();
+});
+
+// --- D-23's tones on the row verbs ------------------------------------------
+
+/** One element's class TOKENS, as a set.
+ *
+ *  A `toContain` on a className is the trap this file's neighbours have been caught by
+ *  four times: `text-destructive-text` is a substring of `hover:text-destructive-text`
+ *  and of `text-destructive-text/70`, which are three DIFFERENT colours applied in three
+ *  different states. Exact membership in the token list is the only bounded form. */
+const classTokens = (el: Element): Set<string> =>
+	new Set(el.className.split(/\s+/).filter((c) => c.length > 0));
+
+/** Every row verb, with the tone it must carry and how it names itself visibly.
+ *
+ *  `destructive: true` means the D-23 destructive TEXT/ICON token (`--destructive-text`,
+ *  spelled `text-destructive-text`) — never the bare `text-destructive` fill colour, which
+ *  `tests/design-tokens.test.ts` bans outright.
+ *
+ *  `visible: ""` is the assertion that the glyph is an SVG and NOT a character: a lucide
+ *  icon contributes no text, so any surviving pictograph shows up here as a non-empty
+ *  string. That is the half the emoji could never do — a colour-emoji glyph ignores
+ *  `color`, so a tone class on it was styling that did nothing. */
+const ROW_VERB_TONES = [
+	{ verb: "open", destructive: false, visible: "Open" },
+	{ verb: "freeze", destructive: false, visible: "" },
+	{ verb: "sever", destructive: true, visible: "" },
+	{ verb: "delete", destructive: true, visible: "" },
+] as const;
+
+test("the destructive row verbs wear D-23's destructive TONE and the neutral ones do not", () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY]);
+
+	// COMPLETENESS, first: the table above has to describe every verb on the row, or a
+	// fifth one added later ships untoned and every assertion below still passes. Every
+	// available verb's label ENDS in the entity id (a blocked one carries its reason
+	// after it, and the row here has none); the Δ badge is absent on an undrifted row
+	// and the expand button carries no label at all.
+	expect(screen.getAllByLabelText(/ entity 1$/).length).toBe(
+		ROW_VERB_TONES.length,
+	);
+
+	for (const { verb, destructive, visible } of ROW_VERB_TONES) {
+		const button = rowButton(verb, 1);
+		const cls = classTokens(button);
+		expect({
+			verb,
+			rest: cls.has("text-destructive-text"),
+			// The destructive lane must OVERRIDE `ghost`'s neutral hover rather than sit
+			// beside it: both are `hover:` text colours, so whichever twMerge keeps is the
+			// one on screen, and a destructive icon that turns grey under the cursor loses
+			// the tone exactly as the click is about to land.
+			hover: cls.has("hover:text-destructive-text"),
+			neutralHover: cls.has("hover:text-accent-foreground"),
+			svg: button.querySelector("svg") !== null,
+			text: button.textContent ?? "",
+		}).toEqual({
+			verb,
+			rest: destructive,
+			hover: destructive,
+			neutralHover: !destructive,
+			svg: visible === "",
+			text: visible,
+		});
+	}
+});
+
+test("a BLOCKED destructive verb dims to D-23's 50% and keeps its hue", () => {
+	// D-23's third rule, and the one a ghost button takes rather than the fill swap: a
+	// variant with no coloured fill "has no hue to drop and dims instead"
+	// (ui/button.tsx). So a refused sever/delete stays red and goes to 50% — which keeps
+	// a dead delete distinguishable from a dead freeze, information the fill swap would
+	// have thrown away for a control WCAG asks nothing of.
+	const stub = makeStubHost();
+	showEntities(stub, [BAKED]);
+	for (const verb of ["sever", "delete"]) {
+		const blocked = screen.getByLabelText(
+			new RegExp(`^${verb} entity 3 \\(baked`),
+		) as HTMLButtonElement;
+		const cls = classTokens(blocked);
+		expect({
+			verb,
+			disabled: blocked.disabled,
+			dim: cls.has("disabled:opacity-50"),
+			hue: cls.has("text-destructive-text"),
+			// The fill swap belongs to the two CHROMATIC variants; a ghost verb must not
+			// have picked it up.
+			fillSwap: cls.has("disabled:bg-muted"),
+		}).toEqual({
+			verb,
+			disabled: true,
+			dim: true,
+			hue: true,
+			fillSwap: false,
+		});
+	}
 });
 
 // The Δ badge is a POINTER to the drift report, not a copy of it. WHICH rows it

@@ -463,8 +463,16 @@ export function WorldDrawer() {
 			>
 				<DialogHeader className="border-border border-b px-3 py-2">
 					<DialogTitle className="text-sm">Worlds</DialogTitle>
+					{/* Both keys are MODE-DEPENDENT and the sentence used to describe only
+					    browse mode. An open name form takes ⏎ (its own submit) and Esc (the
+					    `onEscapeKeyDown` above, which cancels the form and keeps the drawer)
+					    before either reaches the list. That is not an edge case here: a save-as
+					    summon opens with the form ALREADY up, so the reading a screen reader got
+					    on open was the wrong one exactly when it mattered. One clause per mode
+					    and no more — this is read aloud in full every time the drawer opens. */}
 					<DialogDescription className="sr-only">
-						Every world in this project. ⏎ opens the selected one, Esc closes.
+						Every world in this project. ⏎ opens the selected one, Esc closes;
+						an open name form takes both keys first.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="flex items-center gap-2 border-border border-b px-3 py-2">

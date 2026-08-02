@@ -27,23 +27,41 @@
 //     POINTER to the report rather than a copy of it — the DriftReport section
 //     stays where it is, and the badge scrolls it into view.
 //
-// VISUAL-GATE RIDER: the two destructive verbs (⬇ sever, 🗑 delete) carry NO
-// `text-destructive`, where their worded predecessors did. The class had to go
-// rather than move, because a bare emoji renders from the colour-emoji font and
-// ignores `color` outright — so it was styling that did nothing while reading as
-// though it did. Forcing text presentation (a `\uFE0E` variation selector) is
-// unreliable across platforms, so the real answer is an SVG icon set, which is a
-// design decision for the gate rather than a fix to guess at here. Until then the
-// destructive pair is distinguished by its glyphs and its confirmations, not by
-// colour.
+// THE ROW VERBS ARE SVG GLYPHS, and the F4.5 holistic gate is what settled that. The
+// four pictographs above shipped as bare EMOJI, and the two destructive ones therefore
+// carried no tone at all: not one of ⬇ / 🗑 / ❄ / 🔒 exists in this chrome's font stack
+// (Inter Variable → system sans), so each fell back to the colour-emoji face, which
+// paints its own colour and IGNORES `color`. A destructive class on one of them was
+// styling that did nothing while reading as though it did — which is why the class was
+// deleted rather than moved when the worded verbs became pictographs, and why the
+// comment that stood here deferred the real answer to a design decision instead of
+// guessing. That decision is taken: lucide icons, which are `currentColor` SVG and can
+// therefore take the tones the words used to.
 //
-// Verb spelling, from the spec rather than from the shape of the code: D-14 maps
-// the row's glyph trio as freeze ❄ / BAKE ⬇ / delete 🗑, and the mock's own
-// caption says those three "stay on the row". So ⬇ is D-14's bake glyph — NOT
-// duplicate — carrying the verb this UI calls SEVER, and
-// DUPLICATE IS NOT A ROW VERB AT ALL: the mock puts it in the burger
-// (`Duplicate "maze-3"`), which is why there is no ⬇-for-duplicate button below
-// however naturally the glyph reads as one.
+// The two DESTRUCTIVE verbs (sever, delete) wear `--destructive-text`, the text/icon
+// sibling of the fill — `text-destructive` itself is banned outright, and measured, by
+// tests/design-tokens.test.ts. All three of D-23's state rules come from ui/button.tsx
+// rather than being re-decided here: hover KEEPS the tone and lets `bg-accent` do the
+// lightening, and disabled dims to 50% and keeps the hue, because a `ghost` verb has no
+// coloured fill to swap for `--muted`. Pinned from BOTH sides in
+// tests/chrome/entities-palette.test.tsx — the destructive pair carries the tone, the
+// neutral pair must not.
+//
+// NOT every pictograph in this file moved, and the line is measured rather than
+// preferred: `▦` (U+25A6) and the view chip's `⬒` (U+2B12) carry no Unicode emoji
+// property at all, so they render from the text face and take `color` correctly as they
+// stand. The four that moved are the four with `Emoji=Yes`.
+//
+// Verb spelling, from the spec rather than from the shape of the code: D-14 maps the
+// row's glyph trio as freeze ❄ / BAKE ⬇ / delete 🗑, and the mock's own caption says
+// those three "stay on the row". So the DOWN ARROW is D-14's bake glyph — NOT duplicate —
+// carrying the verb this UI calls SEVER, and DUPLICATE IS NOT A ROW VERB AT ALL: the mock
+// puts it in the burger (`Duplicate "maze-3"`), which is why there is no
+// arrow-for-duplicate button below however naturally the glyph reads as one. The icon
+// swap had to keep that reading intact, and `ArrowDownToLine` is chosen for exactly it:
+// it is the flatten / bake-down shape, an arrow landing on a baseline, and it shares
+// nothing with lucide's `Copy` — two offset rectangles — which is the glyph duplicate
+// would take if it ever earned one.
 //
 // `FieldHost.duplicateEntity` exists and is tested; it is deliberately menu-only,
 // and F4.5b Task 7 gives it its binding — ⌘J plus an Edit-menu item (the
@@ -67,9 +85,9 @@
 // at module-evaluation time.)
 //
 // a11y convention for the row: the four ACTION buttons all carry an aria-label
-// naming their verb AND the entity id, because their visible text ("Open", "❄",
-// "🗑") repeats identically on every row — a screen-reader user choosing between
-// eight identically-named buttons cannot tell which stamp they are about to
+// naming their verb AND the entity id, because what they show ("Open", then three
+// `aria-hidden` icons) repeats identically on every row — a screen-reader user choosing
+// between eight identically-named buttons cannot tell which stamp they are about to
 // sever. Every one of them also carries its DISABLED REASON in that label when it
 // has one, because the wrapper `title` a disabled button needs (it swallows
 // pointer events) sits on a non-focusable span that reaches neither a screen
@@ -87,6 +105,14 @@
 // move DOWN the list at all, because Tab walks a row and never crosses one. The list is
 // now ONE tab stop: see the grid's own header below for which APG pattern it is and why
 // that one.
+import type { LucideIcon } from "lucide-react";
+import {
+	ArrowDownToLine,
+	Lock,
+	LockOpen,
+	Snowflake,
+	Trash2,
+} from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
 import {
@@ -137,6 +163,24 @@ const rowSummary = (e: FieldEntityInfo): string =>
 
 const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
 
+/** D-23's destructive lane on an icon-only `ghost` verb, spelled ONCE so the two verbs in
+ *  it cannot drift apart the way the bare-glyph pair did.
+ *
+ *  `text-destructive-text`, never `text-destructive`: the fill measures 3.26:1 on `--card`
+ *  and is banned by tests/design-tokens.test.ts, while the `-text` sibling reads 5.96:1
+ *  here and 4.86:1 on the `--accent` a hover paints underneath it.
+ *
+ *  THE `hover:` HALF IS NOT REDUNDANT and is the whole reason this is a pair. `ghost`
+ *  carries `hover:text-accent-foreground` — a NEUTRAL hover text colour — so without a
+ *  `hover:` of its own the destructive icon would turn grey at the moment the cursor
+ *  settles on it and the pointer is about to click. Both are `hover:` text colours in the
+ *  same tailwind-merge group, and this one is appended later, so it is the one that
+ *  survives; the rendered class list is asserted rather than assumed, in
+ *  tests/chrome/entities-palette.test.tsx. D-23's "hover LIGHTENS" is satisfied by
+ *  `bg-accent` stepping up underneath, which is the neutral ramp's own hover. */
+const DESTRUCTIVE_VERB_CLASS =
+	"text-destructive-text hover:text-destructive-text";
+
 /** The grid's column count: the row's own control, the Δ badge, then open / freeze /
  *  sever / delete.
  *
@@ -150,8 +194,8 @@ const COLUMNS = 6;
 
 /** One row verb's control, in whichever of the two documentation channels its state
  *  can actually use. One component so the four verbs cannot drift apart on this again
- *  (they did: ❄ and ⬇ shipped bare, and bake's tooltip still promised to sever a recipe
- *  on a row where it could not).
+ *  (they did twice: freeze and sever shipped with no tooltip at all, and bake's promised
+ *  to sever a recipe on a row where it could not).
  *
  *  AVAILABLE → `ActionTip`, a real tooltip that opens on FOCUS as well as hover (D-25).
  *  That is the half a `title` never had: these are the verbs that open, freeze, sever and
@@ -164,14 +208,26 @@ const COLUMNS = 6;
  *  the double-`title` this used to ship (wrapper for the blocked case, button for the live
  *  one) is what D-25 replaced.
  *
- *  `glyph` renders inside an `aria-hidden` span: the accessible name is the label,
- *  never the pictograph. */
+ *  A verb shows EITHER an `Icon` or a `label`, and an `Icon` is `aria-hidden`: the
+ *  accessible name is the `aria-label` built below from `verb` + the entity id (+ the
+ *  blocked reason), never the pictograph. So the icon set can change without a single
+ *  lookup in the tests moving — and none did when these four stopped being emoji. */
 function RowVerb(props: {
 	entityId: number;
 	/** The verb, as it appears in the accessible name: `freeze entity 7`. */
 	verb: string;
-	glyph?: string;
+	/** The verb's glyph. Rendered at the size ui/button.tsx's own `[&_svg]:size-4` sets —
+	 *  a per-icon `h-3 w-3` here would be dead code, because that arbitrary variant
+	 *  compiles to a descendant selector (`.…size-4 svg`) which outranks a class on the
+	 *  svg itself. Writing one anyway is the same "styling that does nothing" this whole
+	 *  swap exists to remove. */
+	Icon?: LucideIcon;
 	label?: string;
+	/** Which of D-23's two lanes this verb is in. REQUIRED, and a union rather than an
+	 *  optional flag, so a fifth verb has to answer the question instead of defaulting
+	 *  quietly into neutral — which is exactly how the destructive pair lost its colour
+	 *  the first time. */
+	tone: "neutral" | "destructive";
 	/** Why the verb is unavailable, or null when it is. */
 	blocked: string | null;
 	/** The sentence the verb's own label has no room for, shown while it is available. */
@@ -183,10 +239,9 @@ function RowVerb(props: {
 	 *  than counted, because the Δ cell is conditional — a counted index would report a
 	 *  different column for `freeze` depending on whether the row happened to drift. */
 	colIndex: number;
-	className?: string;
 	onClick: () => void;
 }) {
-	const { blocked } = props;
+	const { blocked, Icon } = props;
 	const control = (
 		<Button
 			type="button"
@@ -197,7 +252,10 @@ function RowVerb(props: {
 			// straight back. React owning this `tabIndex` is safe precisely because the
 			// roving hook writes only the first cell's control and never this one.
 			tabIndex={-1}
-			className={cn(ROW_BUTTON_CLASS, props.className)}
+			className={cn(
+				ROW_BUTTON_CLASS,
+				props.tone === "destructive" && DESTRUCTIVE_VERB_CLASS,
+			)}
 			disabled={blocked !== null}
 			aria-label={
 				blocked === null
@@ -206,11 +264,7 @@ function RowVerb(props: {
 			}
 			onClick={props.onClick}
 		>
-			{props.glyph === undefined ? (
-				props.label
-			) : (
-				<span aria-hidden="true">{props.glyph}</span>
-			)}
+			{Icon === undefined ? props.label : <Icon aria-hidden="true" />}
 		</Button>
 	);
 	return (
@@ -229,11 +283,20 @@ function RowVerb(props: {
 /** The frozen/baked state chip. Muted, not semantic-coloured: these are states
  *  of a record, not warnings — the disabled Open carries the consequence. The
  *  glyph is decorative and the WORD is the accessible text, so a lookup by
- *  visible text still finds "frozen" / "baked". */
-function StateBadge({ label, glyph }: { label: string; glyph?: string }) {
+ *  visible text still finds "frozen" / "baked".
+ *
+ *  "Muted" was a HALF-TRUTH while the glyph was a 🔒, for the row verbs' reason: the
+ *  padlock came from the colour-emoji face and ignored `text-muted-foreground`, so the
+ *  chip read as grey text beside a full-colour pictograph. A lucide `Lock` inherits the
+ *  chip's own colour and the claim above becomes true of the whole chip.
+ *
+ *  It carries its own size, unlike a verb's icon: this is not a `Button`, so nothing above
+ *  it sets one. 12 px sits inside the 16 px line box the chip's `text-2xs` inherits, which
+ *  is what keeps the swap off the row's height. */
+function StateBadge({ label, Icon }: { label: string; Icon?: LucideIcon }) {
 	return (
 		<span className="flex items-center gap-0.5 rounded bg-muted px-1 text-2xs uppercase tracking-wide text-muted-foreground">
-			{glyph !== undefined && <span aria-hidden="true">{glyph}</span>}
+			{Icon !== undefined && <Icon aria-hidden="true" className="h-3 w-3" />}
 			<span>{label}</span>
 		</span>
 	);
@@ -289,8 +352,8 @@ export function EntitiesList(props: {
 		if (Number.isInteger(id)) props.onSelect(id);
 	});
 
-	// A refresh can remove the expanded entity (⌘Z undoes the whole commit,
-	// 🗑 removes it outright): drop the expansion so it does not outlive its row.
+	// A refresh can remove the expanded entity (⌘Z undoes the whole commit, the row's
+	// delete removes it outright): drop the expansion so it does not outlive its row.
 	useEffect(() => {
 		if (
 			expandedId !== null &&
@@ -399,7 +462,7 @@ export function EntitiesList(props: {
 												>
 													{rowSummary(e)}
 												</span>
-												{frozen && <StateBadge label="frozen" glyph="🔒" />}
+												{frozen && <StateBadge label="frozen" Icon={Lock} />}
 												{baked && <StateBadge label="baked" />}
 											</button>
 										</ActionTip>
@@ -425,6 +488,7 @@ export function EntitiesList(props: {
 										entityId={e.entityId}
 										verb="open"
 										label="Open"
+										tone="neutral"
 										colIndex={3}
 										blocked={openBlockedReason(e)}
 										hint="reconfigure this stamp"
@@ -433,7 +497,15 @@ export function EntitiesList(props: {
 									<RowVerb
 										entityId={e.entityId}
 										verb={frozen ? "unfreeze" : "freeze"}
-										glyph={frozen ? "🔓" : "❄"}
+										// The pair the emoji trio already spelled (❄ / 🔓, with 🔒 on the
+										// badge between them), kept rather than re-chosen: the button shows
+										// the ACTION, so an unfrozen row offers the snowflake and a frozen
+										// one offers the padlock coming off.
+										Icon={frozen ? LockOpen : Snowflake}
+										// Freeze is protective, not destructive — the neutral lane, and the
+										// contrast with its two neighbours is the point of colouring any of
+										// them.
+										tone="neutral"
 										colIndex={4}
 										blocked={freezeBlockedReason(e)}
 										// The freeze consequence is stated UNCONDITIONALLY rather than
@@ -453,7 +525,8 @@ export function EntitiesList(props: {
 										}
 										onClick={() => props.onFreeze(e.entityId, !frozen)}
 									/>
-									{/* ⬇ is D-14's bake glyph, not duplicate — see the header. The VERB
+									{/* The DOWN ARROW is D-14's bake glyph, not duplicate — see the header
+									    for why `ArrowDownToLine` and not lucide's `Copy`. The VERB
 									    is "sever", not "bake", because the bar's Bake button and
 									    `world.makeDefault` are two other operations under that word and
 									    neither has anything to do with this one: those write the world
@@ -463,7 +536,11 @@ export function EntitiesList(props: {
 									<RowVerb
 										entityId={e.entityId}
 										verb="sever"
-										glyph="⬇"
+										Icon={ArrowDownToLine}
+										// The one IRREVERSIBLE verb on the row, which is a stronger claim on
+										// the destructive tone than delete's: a delete is ⌘Z-able and a
+										// sever is not.
+										tone="destructive"
 										colIndex={5}
 										blocked={bakeBlockedReason(e)}
 										hint="sever this stamp's recipe — permanent; it becomes a baked entity"
@@ -472,7 +549,8 @@ export function EntitiesList(props: {
 									<RowVerb
 										entityId={e.entityId}
 										verb="delete"
-										glyph="🗑"
+										Icon={Trash2}
+										tone="destructive"
 										colIndex={6}
 										blocked={deleteBlockedReason(e)}
 										hint="remove this stamp and its ops"
