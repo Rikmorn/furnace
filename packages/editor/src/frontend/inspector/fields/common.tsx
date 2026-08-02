@@ -45,19 +45,32 @@ function RowCaption({
 	const label = humanizeLabel(path.split(".").at(-1) ?? path);
 	const labelSpanCls = [
 		"w-label-col shrink-0 truncate text-xs text-muted-foreground",
-		// `truncate` brings `overflow: hidden`, which clips this box's own ink — and the
-		// hover underline below is ink that lands OUTSIDE the line box. Reasoned, not
-		// measured (nothing in `bun test` lays anything out): Inter's baseline sits 12.365 px
-		// into the 16 px line box `text-xs` gives it, and an underline at the font's own
-		// position plus `underline-offset-2` plus its thickness ends around 17.4 px — past
-		// the clip edge. The extra padding moves the CLIP edge down without moving the
-		// content, and the matching negative margin keeps the margin box (which is what
-		// `items-center` aligns and what sets the row's height) exactly as it was.
-		"pb-1 -mb-1",
 		// Scrub affordance: an ew-resize cursor + a subtle dotted hover underline signal the
 		// (already-wired) horizontal drag-to-scrub on numeric labels — otherwise invisible.
+		//
+		// `pb-1 -mb-1` RIDES THE UNDERLINE, and its scope is this ternary rather than the
+		// line above because the underline is the only thing it is for. `truncate` brings
+		// `overflow: hidden`, which clips at this box's PADDING edge, and the underline is
+		// ink that lands outside the line box: Inter's baseline sits 12.365 px into the
+		// 16 px line box `text-xs` gives it, and `text-underline-offset` measures from the
+		// font's own underline position (2.04 px down) rather than from the baseline, so
+		// `underline-offset-2` plus ~1 px of thickness ends near 17.4 px — past the 16 px
+		// edge. The padding moves the CLIP edge down without moving the content, and the
+		// matching negative margin keeps the margin box (what `items-center` aligns and what
+		// sets the row's height) exactly as it was, so a scrubbable row and a plain one stay
+		// the same height and the same distance apart.
+		//
+		// THAT ARITHMETIC IS READ OFF THE FONT AND THE CSS RULE, not off a browser — nothing
+		// in `bun test` lays anything out. What IS measured is the reason the pair does not
+		// also belong to the plain branch: at 12 px the deepest ink in the whole shipped
+		// `fonts/inter-variable-latin.woff2` subset is `|` at 2.81 px below the baseline (the
+		// deepest letter is `g` at 2.59 px) against a clip edge 3.63 px down — 0 of its 509
+		// contoured glyphs reach it. An unconditional pair would be compensating, on the ~28
+		// captions that carry no underline, for ink that cannot be drawn — and it would have
+		// no contrast case, which is exactly why it was uncoverable. Scoped here, the two
+		// renders in `tests/inspector/scrub-affordance.test.tsx` pin it.
 		labelPointerProps
-			? "cursor-ew-resize select-none hover:underline hover:decoration-dotted hover:underline-offset-2"
+			? "cursor-ew-resize select-none pb-1 -mb-1 hover:underline hover:decoration-dotted hover:underline-offset-2"
 			: "",
 	]
 		.filter(Boolean)

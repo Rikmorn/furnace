@@ -19,6 +19,9 @@ import { join, relative } from "node:path";
 // take its size on trust:
 //   - StatusBar's `title={error}` — the clipped esbuild diagnostic itself;
 //   - VecField / QuatField / AxisTriad `title={label}` — axis-letter echoes;
+//   - inspector `fields/common.tsx`'s `RowCaption` `title={label}` — the caption's own text,
+//     for the pointer, because `truncate` can clip it. Structurally the same name echo as
+//     the two above, and on EVERY field row in the app rather than on one control;
 //   - PaletteLayer ×2 `title={PALETTES[id].title}` — a palette's own name;
 //   - LogPalette's `<time>` — an absolute timestamp;
 //   - `ReasonTip`'s `title={props.reason}` — the mechanism a DISABLED control needs, which

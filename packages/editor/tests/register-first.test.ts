@@ -82,8 +82,8 @@ const REGISTER = /^import "(?:\.\.\/inspector|\.)\/_register\.ts";$/m;
  *  be deleted with this scan still green while it poisons every Radix portal in the run. Both
  *  directions were reproduced. The inspector harness imports sit at 68 characters today, so
  *  two more names is all it takes — and next door the wrapped form is already the MAJORITY:
- *  of the 17 chrome tests, 15 wrap, 1 is single-line (`material-swatches`) and 1 imports no
- *  harness at all (`keybindings-dom`).
+ *  of the 18 chrome tests, 15 wrap, 2 are single-line (`label-column`, `material-swatches`)
+ *  and 1 imports no harness at all (`keybindings-dom`).
  *
  *  A guard that the repo's own formatter can switch off is worse than no guard, because it
  *  reads as coverage. Anchored to column 0 on both alternatives so a `//`-commented mention
@@ -139,17 +139,30 @@ const offendersIn = (
 
 // The chrome rule is UNCONDITIONAL — every file in the directory, harness or not — and it is
 // the stricter of the two deliberately. Measured against the CORRECTED `HARNESS` predicate:
-// 16 of the 17 chrome tests match it, and the one that does not is `keybindings-dom.test.ts`,
+// 17 of the 18 chrome tests match it, and the one that does not is `keybindings-dom.test.ts`,
 // which imports `_register.ts` alone and no harness because it needs a real `HTMLElement` to
 // narrow against and renders nothing. So collapsing the two rules into one predicate would
 // quietly stop covering exactly one file — and that file is in this directory precisely
 // because it is DOM-touching, which is the property the rule is about.
 //
 // Worth knowing how thin that argument was before the fix above: under the one-line-only
-// predicate, 16 of 17 chrome files failed to match — every wrapped import — so "share one
-// rule and we would lose `keybindings-dom`" was true by accident and understated the loss by
-// sixteen times. The conclusion survived the correction; the reason did not, and a reason
-// that only holds by accident is the same defect as a scan that only passes by accident.
+// predicate, 16 of 18 chrome files failed to match — every wrapped import, plus the one with
+// no harness — so "share one rule and we would lose `keybindings-dom`" was true by accident
+// and understated the loss by sixteen times. The conclusion survived the correction; the
+// reason did not, and a reason that only holds by accident is the same defect as a scan that
+// only passes by accident.
+//
+// EVERY COUNT IN THIS FILE IS RECOUNTED WHEN A TEST FILE IS ADDED, with the `HARNESS` regex
+// above rather than by eye — the header already records two commits in which this file's own
+// prose was wrong, and `label-column.test.tsx` arriving made it three before this line was
+// written. The one command that settles it, from `packages/editor`:
+//
+//   bun -e 'const {readdirSync,readFileSync}=require("node:fs");
+//     const H=/^(?:import .*|\}) from "\.(?:\.\/inspector)?\/_harness\.tsx";$/m;
+//     for (const d of ["chrome","inspector"]) {
+//       const f=readdirSync(`tests/${d}`).filter(n=>/\.test\.tsx?$/.test(n));
+//       console.log(d, f.length, f.filter(n=>H.test(readFileSync(`tests/${d}/${n}`,"utf8"))).length);
+//     }'
 test("every chrome test registers happy-dom before its first import", () => {
   // A scan that finds nothing passes vacuously, which for a directory-wide claim is the most
   // likely way for it to stop meaning anything (a moved directory, a renamed suffix).

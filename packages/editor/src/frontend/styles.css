@@ -232,20 +232,40 @@
 
    WHO ADOPTS IT. A row adopts when its CAPTION LEADS a control and the row is a sibling in
    the card's top-level vertical stack — that is `FieldRow`/`FieldGroupRow` (every inspector
-   field) and `SeedRow`. Three kinds of thing that look similar do NOT adopt, and the line is
-   worth stating because the next new row has to fall on one side of it:
-     - a HORIZONTAL strip (`tool-params.tsx`) — one `LABEL_CLASS` there serves the 40 px top
-       bar and the ⋯ popover, and in the bar the caption is an inline lead-in, not a column;
+   field) and `SeedRow`. Things that look similar and do NOT adopt, with the reason each one
+   is out, because the next new row has to fall on one side of the line:
+     - a HORIZONTAL strip (`ToolStrip.tsx`, via `tool-params.tsx`'s `LABEL_CLASS`) — in the
+       40 px top bar the caption is an inline lead-in, not a column. NOTE what that does not
+       cover: the SAME constant also renders in `StripOverflow.tsx`'s ⋯ popover as a vertical
+       caption→control stack (`flex flex-col gap-2.5` in a `w-72 p-3` box), where the
+       captions DO sit at as many different x positions as there are rows — five at once for
+       `smooth`, seven distinct across the four effects. That is this ruling's own defect in
+       another palette. It is a genuine remaining instance, filed rather than fixed: the two
+       renderings share one constant, so adopting there means splitting the constant first,
+       which is a build and not a comment;
      - a CONTROL-FIRST list (`ViewPopover.tsx`'s layers/overlays, `tool-params`' hollow
        toggle) — the checkbox comes first and the caption follows it, so there is no label
-       column to align;
-     - a READ-ONLY readout (`StatusBar.tsx`'s DetailRow, `ReadOnlyParams.tsx`) — a `<dt>/<dd>`
-       of mono data in a differently-sized surface, already internally aligned by its own
-       grid, and never on screen beside the form.
+       column to align. That reason does NOT reach every row in that popover:
+       `ViewPopover.tsx`'s slice-`y` row is caption-first. It stays out on width instead —
+       80 px of column for a one-character caption inside a 256 px popover;
+     - a READ-ONLY readout — `ReadOnlyParams.tsx` is a `<dt>/<dd>` grid (`grid-cols-[auto_1fr]`)
+       of mono data, already internally aligned and never on screen beside the form.
+       `StatusBar.tsx`'s `DetailRow` is grouped with it for the surface reason only: it is
+       `flex … justify-between`, so it is NOT internally aligned, it just lives in a
+       different chip entirely.
+   THE APP'S OTHER HARD-CODED LEFT COLUMN is `ShortcutsDialog.tsx`'s `grid-cols-[8rem_1fr]`.
+   It is not this token and should not become it — a keycap column in a dialog is a different
+   surface at a different width — but it is the second place a label-column number is spelled,
+   and worth knowing about before anyone concludes there is only one.
    An INDENTED sub-form (`ObjectField`'s `pl-2` rule, `advanced`'s `pl-1`) shifts as a unit:
-   its rows align with each other, offset by the indent. That is why `AdvancedSection` does
-   not adopt — inside `CollapsibleContent`'s `pl-1` the token would land its captions 4 px
-   off the stack they would be aligning to, and 4 px off reads worse than plainly separate.
+   its rows align with each other, offset by the indent. That is why `AdvancedSection`'s two
+   caption rows (`merge` and `nudge`, which fall the same way) do not adopt. The arithmetic
+   is smaller than it looks and has two parts: inside `CollapsibleContent`'s `pl-1` the
+   captions start 4 px in, but that section's rows use `gap-1.5` where the form uses `gap-2`,
+   so 2 px of the indent cancels and the value edge lands 2 px off — near-miss territory,
+   which reads as a bug where plainly separate reads as nesting. The `pl-1` is not this
+   commit's to remove either: it comes from the shared `CollapsibleSection`, which also
+   wraps `EntitiesList.tsx`, so taking it out moves a second surface for an unrelated reason.
 
    WHERE 5rem COMES FROM. Two derivations, taken independently, agreeing within 3 px:
 
@@ -265,21 +285,35 @@
    whole. The five that clip stay unambiguous — the column ends them at `Door North …`,
    `Door South …`, `Door East O…`, `Door West …`, `Chamber R…`.
 
+   IT IS A TIGHT FIT AND THE SLACK IS NAMED: 254 − 8 − 80 leaves 166 px for a cluster that
+   measures 165.67. The palette body scrolls (`Palette.tsx`'s `overflow-y-auto`), so on a
+   platform with CLASSIC rather than overlay scrollbars — Windows, most Linux desktops — the
+   gutter takes ~15 px out of the 254 and the slider row is the first thing to squeeze. Not a
+   defect on the macOS/Safari primary, and not a reason to move the width; a reason to expect
+   that row to compress first if the tool is ever driven elsewhere.
+
    MEASURED vs REASONED, because the difference matters if this is ever re-derived: the glyph
    advances are measured from the font file; the arithmetic above is read off source
-   constants. Neither is a browser measurement, and none is available from `bun test` —
-   happy-dom runs no layout, so `tests/chrome/label-column.test.tsx` pins the RULE (one token,
-   one utility, every row) and cannot pin the px.
+   constants. Neither is a browser measurement. What the harness can and cannot hold is
+   stated where the harness is — `tests/chrome/label-column.test.tsx`.
 
    THE RULING SAID `text-sm`; THE CAPTION RENDERS AT `text-xs`. Measured at what it is. At
-   14 px the same corpus would want ~94 px, which the control budget above cannot pay.
+   14 px the corpus's own threshold moves with it: `Pillar Spacing`, the widest label that
+   still fits whole, scales to 89.84 px, so fitting the same 28 labels would need ~90 px —
+   which the 80.33 px control budget above cannot pay.
 
    A PLAIN `@theme`, like `--text-2xs` above and for the same reason: the value is a literal,
-   so `inline` would buy nothing and would cost the custom property itself. `--spacing-*`
-   rather than `--width-*` because it yields `basis-`/`min-w-`/`pl-` as well as the
-   `w-label-col` the captions use — an adopting surface that needs a grid track or an indent
-   should not have to add a second declaration. (Both namespaces were compiled against the
-   installed Tailwind 4.3.3 to check which one emits `w-label-col`; both do.) */
+   so `inline` would buy nothing and would cost the custom property itself. THE AT-RULE IS
+   LOAD-BEARING, not decoration: a `--spacing-*` declaration in the `:root` block above emits
+   no utility at all, so moving this one line up there silently drops `.w-label-col` from the
+   built stylesheet and every caption falls back to `width: auto` — the defect, restored, with
+   the source unchanged. `tests/chrome/label-column.test.tsx` checks the at-rule and not just
+   the name for exactly that reason.
+   `--spacing-*` rather than `--width-*` because it yields `basis-`/`min-w-`/`pl-` as well as
+   the `w-label-col` the captions use — an adopting surface that needs a grid track or an
+   indent should not have to add a second declaration. (Both namespaces were compiled against
+   the installed Tailwind 4.3.0 to check which one emits `w-label-col`; both do, and only
+   `--spacing-*` emits the other three.) */
 @theme {
 	--spacing-label-col: 5rem;
 }

@@ -37,9 +37,9 @@ export function SeedRow({
 			    OUTSIDE the label (a button nested in one forwards its clicks to the input
 			    through label activation), which rules out wrapping; and the suppression this
 			    replaced carried a justification copied from `StampInspector`, where the label
-			    genuinely DID wrap its input — here they were siblings, so the 52 px "seed"
-			    target focused nothing and the accessible name came from an `aria-label` no
-			    association backed. */}
+			    genuinely DID wrap its input — here they were siblings, so the "seed" caption's
+			    whole hit target focused nothing and the accessible name came from an
+			    `aria-label` no association backed. */}
 			<label htmlFor={inputId} className={LABEL_CLASS}>
 				seed
 			</label>
