@@ -1,0 +1,93 @@
+language js
+
+// D-24, machine-enforced at AUTHORING time: the editor chrome has ONE control library, and
+// it lives in `src/frontend/components/ui/`. A raw `<input type="checkbox">`, a raw
+// `<input type="radio">` and a raw `<select>` are errors everywhere else under
+// `src/frontend/`.
+//
+// Registered from the repo's single Biome config (`biome.json`, `plugins`). Two things
+// about that registration are load-bearing and were both measured against Biome 2.4.15:
+//
+//   - the config value must be the PLAIN STRING form. The v2.5 object form
+//     (`{ path, includes }`) is not a config error at 2.4.15 — `PluginConfiguration` is
+//     declared `anyOf: [{"type": "string"}]`, so the object is ignored, the plugin never
+//     loads, and the resulting zero diagnostics read exactly like successful scoping.
+//   - scoping is THIS FILE'S job, via `$filename`. `overrides[].plugins` is additive and
+//     cannot switch a plugin off. `$filename` is the ABSOLUTE path and Grit regexes are
+//     anchored full-match, hence the leading `.*`.
+//
+// WHAT THIS CANNOT SEE, stated because the boundary is part of the rule: the type has to be
+// an authored string literal. `<input type={"checkbox"} />` — an expression container — does
+// not match, and no static scan can decide the general case. Verified against a fixture, so
+// the residue is known rather than assumed; it is not a reason to prefer a weaker
+// mechanism, because a source-text scan is blind to exactly the same thing.
+
+// The chrome, minus the control library itself. `components/ui/` is where these elements
+// are ALLOWED to be written — that is what makes it the library.
+predicate in_chrome_outside_ui() {
+  $filename <: r".*/packages/editor/src/frontend/.*",
+  $filename <: not r".*/components/ui/.*"
+}
+
+// The four native `<select>`s that survive, each pinned to the ONE file that may write it.
+//
+// They are an exemption on EVIDENCE, not a deferral. F4.5c Task 12 migrated the merge
+// policy to `ui/select.tsx` and ran the case: with a live stamp session standing, Esc to
+// dismiss the Radix listbox reached `host.escape()` and would have discarded the session.
+// Radix's `DismissableLayer` claims Escape on a capture-phase document listener and
+// `preventDefault()`s without `stopPropagation()`, and `useGlobalKeybindings` never
+// consults `defaultPrevented`; what holds the line for a native control is
+// `isTextInputTarget` recognising an `HTMLSelectElement`, which it cannot do for the
+// `<button>` a Radix trigger is. The full argument, including a second hazard (trigger
+// typeahead eating bare tool keys), is in `src/frontend/components/field/form-bits.tsx`.
+//
+// Pinned by ACCESSIBLE NAME as well as by file, on the same reasoning as
+// `tests/frontend-no-doc-titles.test.ts`'s allowlist: a whole-file exemption would let a
+// FIFTH raw select into `tool-params.tsx` unnoticed, which is most of what this rule is
+// for. The residual hole is exactly "one of these four, re-created in its own file, under
+// its own name" — which is the control the exemption already names.
+predicate allowlisted_select($props) {
+  or {
+    and {
+      $filename <: r".*/components/shell/tool-params\.tsx",
+      $props <: contains or {
+        `aria-label="brush mask"`,
+        `aria-label="smooth iterations"`,
+        `aria-label="smooth mode"`
+      }
+    },
+    and {
+      $filename <: r".*/components/shell/session-card/AdvancedSection\.tsx",
+      $props <: contains `aria-label="merge policy"`
+    }
+  }
+}
+
+// `range` and `color` are deliberately absent: a slider is D-25's territory
+// (`SliderField`), neither has a house primitive to migrate TO, and banning them would only
+// buy suppressions. A `pattern` rather than a `predicate` because `contains` takes a
+// pattern — a predicate here compiles to nothing and fails the whole plugin load.
+pattern banned_input_type() {
+  or { `type="checkbox"`, `type="radio"` }
+}
+
+any {
+  or { `<select $props />`, `<select $props>$_</select>` } as $el where {
+    in_chrome_outside_ui(),
+    not allowlisted_select($props),
+    register_diagnostic(
+      span = $el,
+      message = "D-24: raw <select> outside components/ui/. Use ui/select.tsx, or add this control to the allowlist in scripts/one-control-library.grit with its reason.",
+      severity = "error"
+    )
+  },
+  or { `<input $props />`, `<input $props></input>` } as $el where {
+    in_chrome_outside_ui(),
+    $props <: contains banned_input_type(),
+    register_diagnostic(
+      span = $el,
+      message = "D-24: raw checkbox/radio outside components/ui/. Use ui/checkbox.tsx, or ui/segmented.tsx for a small mutually-exclusive set.",
+      severity = "error"
+    )
+  }
+}

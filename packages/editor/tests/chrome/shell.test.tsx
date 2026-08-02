@@ -1543,13 +1543,16 @@ test("the editor comes up in STUDIO shading, and the popover offers normals as t
 	expect(stub.calls.setShading.mock.calls).toEqual([["studio"]]);
 
 	await openViewPopover();
-	const studio = screen.getByLabelText("Studio") as HTMLInputElement;
-	const normals = screen.getByLabelText("Normals (debug)") as HTMLInputElement;
-	expect(studio.checked).toBe(true);
-	expect(normals.checked).toBe(false);
+	// The two modes are a SEGMENTED control since F4.5c Task 12 (D-24), so the state lives
+	// in `aria-checked` rather than in an input's `.checked` — the same fact, on the one
+	// channel a screen reader also reads. The names are unchanged.
+	const studio = screen.getByRole("radio", { name: "Studio" });
+	const normals = screen.getByRole("radio", { name: "Normals (debug)" });
+	expect(studio.getAttribute("aria-checked")).toBe("true");
+	expect(normals.getAttribute("aria-checked")).toBe("false");
 	// The debug mode SAYS it is one, in the label — a full-chroma normal render is the
 	// loudest thing on the screen and reads as a feature otherwise (critique P0).
-	expect(normals.closest("label")?.textContent).toContain("debug");
+	expect(normals.textContent).toContain("debug");
 
 	act(() => {
 		fireEvent.click(normals);
@@ -1557,6 +1560,40 @@ test("the editor comes up in STUDIO shading, and the popover offers normals as t
 	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
 	act(() => {
 		fireEvent.click(studio);
+	});
+	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("studio");
+});
+
+// D-24 put this row on the shared `ui/segmented.tsx`, and a segmented control is a
+// radiogroup: ONE tab stop, arrows between the members, wrapping. That is the whole reason
+// it is not a toolbar of toggles, and it is the half a click-only case cannot see — the two
+// stacked radios this replaced answered the arrows through the browser, so the behaviour
+// existed before the widget did and would go missing silently.
+test("the shading control is ONE tab stop and its arrows WRAP between the modes (D-26)", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	await openViewPopover();
+	const group = screen.getByRole("radiogroup", { name: "shading" });
+	const members = within(group).getAllByRole("radio");
+	// The selected member is the one Tab reaches; the other is arrow-reachable, which is the
+	// ARIA radiogroup contract.
+	expect(members.map((m) => m.getAttribute("tabindex"))).toEqual(["0", "-1"]);
+
+	act(() => {
+		fireEvent.keyDown(within(group).getByRole("radio", { name: "Studio" }), {
+			key: "ArrowRight",
+		});
+	});
+	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
+
+	// …and WRAPPING is what makes a two-member group usable from one key: without it the
+	// second press off the end does nothing and the user is stranded on the debug mode.
+	act(() => {
+		fireEvent.keyDown(
+			within(group).getByRole("radio", { name: "Normals (debug)" }),
+			{ key: "ArrowRight" },
+		);
 	});
 	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("studio");
 });
@@ -1907,10 +1944,11 @@ test("the X-ray is a SESSION choice — ticking it writes nothing, and a stale b
 		flags: true,
 		voidCast: false,
 	});
-	// …and the control agrees with the host, rather than showing a tick over nothing.
+	// …and the control agrees with the host, rather than showing a tick over nothing. The
+	// house checkbox is a Radix `<button>` (D-24), so its state is `aria-checked`.
 	await openViewPopover();
-	expect((screen.getByLabelText("void cast") as HTMLInputElement).checked).toBe(
-		false,
+	expect(screen.getByLabelText("void cast").getAttribute("aria-checked")).toBe(
+		"false",
 	);
 });
 

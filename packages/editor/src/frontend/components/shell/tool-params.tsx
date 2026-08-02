@@ -6,18 +6,20 @@
 // prefix; the popover renders the whole thing.
 //
 // The controls are the ones `BrushInspector` and the panel's swatch strip had, with the
-// same accessible names, resized for a 40 px bar. The MASK and SMOOTH-MODE selects stay
-// native and the hollow toggle stays a native checkbox: D-25's forms vocabulary is Task
-// 11's and D-24's Biome rule (no raw `<select>` outside `components/ui/`) is F4.5c's, and
-// swapping the mask's kind here would have cost the app-level key gate its only
-// native-`<select>` guard while changing nothing a user can see.
+// same accessible names, resized for a 40 px bar. The hollow toggle is the house checkbox
+// (D-24). The three SELECTS here stay native, and that is now a measured exemption rather
+// than a deferral: F4.5c Task 12 drove a Radix `ui/select.tsx` from this harness with a
+// live session standing and Esc reached the cancel ladder anyway — the app-level key gate
+// recognises an `HTMLSelectElement` and cannot recognise a `<button>`. The evidence and the
+// allowlist that encodes it are in `field/form-bits.tsx` and
+// `scripts/one-control-library.grit`.
 //
 // The hollow THICKNESS field is the exception, and it is a correction rather than a
 // carry-over: the first cut of this file hand-copied it into a raw `<input type="number">`
 // and lost the house focus ring with it. It is `<Input>` again — the shadcn primitive
 // `BrushInspector` used — so the raw-control count this move adds is zero, not one.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import type {
 	FieldMaskChoice,
 	FieldTool,
@@ -25,6 +27,7 @@ import type {
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
+import { Checkbox } from "../ui/checkbox.tsx";
 import { Input } from "../ui/input.tsx";
 
 // Mirror FieldHost's radius clamp range (RADIUS_MIN/MAX) — the chrome cannot import the
@@ -217,6 +220,42 @@ function HollowThickness({
 	);
 }
 
+/**
+ * The fill brush's shell-band switch: on turns the solid fill into a band of
+ * {@link HOLLOW_DEFAULT_M}, off returns it to solid.
+ *
+ * A COMPONENT rather than an inline renderer, and that is `useId`'s doing. The house
+ * checkbox (D-24) is a `<button>`, so the row's `<label>` reaches it by `htmlFor` rather
+ * than by wrapping it — and the id must be per-MOUNT, because the ⋯ renders the whole
+ * option list including the ones the strip is already showing, so a param can be on screen
+ * twice and a module-scope constant would put both controls on one id. (Fill's list happens
+ * to fit its strip today, so hollow is not one of the doubled ones — a fact about
+ * {@link TOOL_OPTIONS} rather than a property to build on.)
+ *
+ * It cannot be a hook inside {@link PARAM_RENDERER}: those entries are plain functions
+ * called conditionally per param, so a hook in one would change hook ORDER as the armed
+ * effect changes.
+ */
+function HollowToggle({ ctx }: { ctx: ParamContext }) {
+	const id = useId();
+	return (
+		<label className={LABEL_CLASS} htmlFor={id}>
+			<Checkbox
+				id={id}
+				checked={ctx.tool.hollow !== null}
+				onCheckedChange={(c) =>
+					ctx.setTool({
+						...ctx.tool,
+						hollow: c === true ? HOLLOW_DEFAULT_M : null,
+					})
+				}
+				aria-label="hollow fill"
+			/>
+			hollow
+		</label>
+	);
+}
+
 /** A `Record` rather than a switch, so a param added to {@link TOOL_OPTIONS} without a
  *  renderer is a type error rather than a blank space on the strip. */
 const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
@@ -277,20 +316,7 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 	),
 	hollow: (ctx) => (
 		<span className={LABEL_CLASS}>
-			<label className={LABEL_CLASS}>
-				<input
-					type="checkbox"
-					checked={ctx.tool.hollow !== null}
-					onChange={(e) =>
-						ctx.setTool({
-							...ctx.tool,
-							hollow: e.target.checked ? HOLLOW_DEFAULT_M : null,
-						})
-					}
-					aria-label="hollow fill"
-				/>
-				hollow
-			</label>
+			<HollowToggle ctx={ctx} />
 			{ctx.tool.hollow !== null && (
 				<HollowThickness thickness={ctx.tool.hollow} ctx={ctx} />
 			)}

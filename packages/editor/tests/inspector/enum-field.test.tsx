@@ -18,18 +18,22 @@
 // which consumes this same `lib/enum-options.ts` and asserts `toBe(90)` plus
 // `typeof === "number"` after a real click.
 //
-// That is a disclosure, not a preference. A Radix `Select` item cannot be clicked under
-// happy-dom: PROBED this session — `pointerdown` on the trigger does flip it to
-// `aria-expanded="true"`, but the portaled content never mounts (0 elements with
-// `role="listbox"`, 0 with `role="option"`), because `SelectContent` positions itself from
-// real layout measurement that happy-dom does not provide. Keyboard `Enter`/`Space` and a
-// plain `click` reach the same dead end. So the choice was between an honest gap and a
-// test that mocked Radix and therefore asserted nothing about Radix.
+// That split is a division of labour, not a limitation, and the reason recorded here until
+// F4.5c was FALSE. It claimed a Radix `Select` item "cannot be clicked under happy-dom" —
+// 0 elements with `role="listbox"`, 0 with `role="option"`, keyboard and plain click both
+// dead ends. Re-probed at F4.5c Task 0 against happy-dom 20.10.6 through this same harness:
+// the portal mounts (1 listbox, 5 options), a plain `click` on the trigger opens it, and
+// keyboard `Enter` opens it. The one form that genuinely fails is a bare `pointerDown` with
+// no `{ button: 0, pointerType: "mouse" }`, which is what the original probe must have
+// used. `shell.test.tsx` already drove the Radix DropdownMenu's portal while this comment
+// said portals do not mount.
 //
-// What this leaves genuinely uncovered: the wiring of `memberAt` into THIS component's
-// `onValueChange`. Deleting that call is caught by typecheck (`onCommit` needs a value)
-// and by the display case below, but rewriting it to `onCommit(… v)` — committing the
-// index string — would pass everything here. A browser-driven gate is what closes it.
+// So the residue is smaller than it was written to be: this file could drive its own
+// commit if it wanted to, and does not, because `SegmentedField`'s case already drives the
+// identical `lib/enum-options.ts` mapping end to end and a second copy would pin the same
+// thing twice. What stays genuinely uncovered is narrow — rewriting `onValueChange` to
+// commit the raw index string would pass everything here (deleting it outright is caught by
+// typecheck and by the display case below).
 //
 // Harness import MUST be first (happy-dom globals before any DOM-touching module).
 

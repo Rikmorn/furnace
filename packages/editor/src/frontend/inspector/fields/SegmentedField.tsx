@@ -9,92 +9,46 @@
 // that rule closes; the short version is that a `{ enum: [0, 90] }` param used to
 // round-trip `90` as `"90"` and be refused setup-loud by the generator.
 //
-// ARIA: a `radiogroup` of `radio`s rather than a `toolbar` of toggles, because this is a
-// single choice from a mutually exclusive set — which is what a radio group MEANS, and
-// what buys arrow-key navigation as an expectation rather than an invention. The group is
-// ONE tab stop (roving tabindex, D-26): three stops for one choice is the pattern the tool
-// rail already retired on this shell.
+// The WIDGET is `components/ui/segmented.tsx` (D-24: one control library) — this file is
+// the schema half and nothing else. What lives here is what only a field knows: which
+// members exist, what a mixed multi-selection looks like, and that the option handed back
+// has to be resolved to its member before it commits.
 
-import { cn } from "../../lib/cn.ts";
+import { Segmented } from "../../components/ui/segmented.tsx";
 import { humanizeLabel } from "../../lib/humanize.ts";
-import {
-	type EnumOption,
-	enumOptions,
-	optionFor,
-} from "../lib/enum-options.ts";
+import { enumOptions, optionFor } from "../lib/enum-options.ts";
 import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldGroupRow, MIXED } from "./common.tsx";
-
-/** Which member the arrow keys move to from `index`, or `null` when the key is not a
- *  navigation one. Wraps, the ARIA radiogroup convention. */
-function arrowTarget(key: string, index: number, count: number): number | null {
-	if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % count;
-	if (key === "ArrowLeft" || key === "ArrowUp")
-		return (index - 1 + count) % count;
-	return null;
-}
 
 export function SegmentedField({ schema, values, onCommit, path }: FieldProps) {
 	const options = enumOptions(schema);
 	const mixed = isMixed(values);
 	const label = humanizeLabel(path.split(".").at(-1) ?? path);
+	// `null` rather than "the first member" when there is nothing to select: a mixed
+	// selection checks NOTHING, which is what every other field in this system does.
 	const selected = mixed ? undefined : optionFor(options, values[0]);
-	// Which button Tab reaches. The selected one when there is one; otherwise the first,
-	// so a mixed selection (or a param holding a value no member matches) does not make
-	// the whole group unreachable from the keyboard.
-	const tabIndex = selected ? options.indexOf(selected) : 0;
-
-	const pick = (o: EnumOption) => onCommit(values.map(() => o.member));
 
 	return (
 		<FieldGroupRow path={path}>
 			{mixed && (
 				<span className="shrink-0 text-muted-foreground text-xs">{MIXED}</span>
 			)}
-			<div
-				role="radiogroup"
-				aria-label={label}
-				className="flex min-w-0 overflow-hidden rounded border border-input"
-			>
-				{options.map((o, i) => (
-					// biome-ignore lint/a11y/useSemanticElements: `role="radio"` on a button IS the ARIA segmented-control pattern; a native <input type="radio"> brings its own dot and box-model and would defeat the joined look this whole vocabulary exists for
-					<button
-						key={o.value}
-						type="button"
-						role="radio"
-						// Explicit, even though the text is right there: the row's caption is a
-						// heading, not an association (FieldGroupRow), so each member states its
-						// own name rather than inheriting one.
-						aria-label={o.label}
-						aria-checked={selected === o}
-						tabIndex={i === tabIndex ? 0 : -1}
-						className={cn(
-							"min-w-0 truncate px-1.5 py-0.5 text-xs transition-colors duration-150 ease-out",
-							"border-input border-r last:border-r-0",
-							selected === o
-								? "bg-primary text-primary-foreground"
-								: "bg-input text-muted-foreground hover:bg-muted",
-						)}
-						onClick={() => pick(o)}
-						onKeyDown={(e) => {
-							const next = arrowTarget(e.key, i, options.length);
-							if (next === null) return;
-							e.preventDefault();
-							const target = options[next];
-							if (target === undefined) return;
-							pick(target);
-							// Focus follows selection, the radiogroup convention — otherwise the
-							// roving tabindex moves out from under the focused button.
-							const group = e.currentTarget.parentElement;
-							const button = group?.children[next];
-							if (button instanceof HTMLElement) button.focus();
-						}}
-					>
-						{o.label}
-					</button>
-				))}
-			</div>
+			<Segmented
+				label={label}
+				value={selected?.value ?? null}
+				options={options}
+				onChange={(value) => {
+					// Resolved back to the OPTION rather than parsed: the member travels beside
+					// its label precisely so it never has to be reconstructed from a string.
+					// Undefined is unreachable (the values are our own) and returns rather than
+					// falling back — committing member 0 for a value nobody sent would turn a
+					// mapping bug into a silent data change.
+					const picked = options.find((o) => o.value === value);
+					if (picked === undefined) return;
+					onCommit(values.map(() => picked.member));
+				}}
+			/>
 		</FieldGroupRow>
 	);
 }

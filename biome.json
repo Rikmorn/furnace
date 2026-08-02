@@ -27,6 +27,7 @@
       "!bun.lock"
     ]
   },
+  "plugins": ["packages/editor/scripts/one-control-library.grit"],
   "formatter": {
     "enabled": true,
     "useEditorconfig": true,

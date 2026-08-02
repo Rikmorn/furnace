@@ -27,12 +27,19 @@
 // (D-25): the sentences below are what each toggle costs and what it does to the picture,
 // they are the whole reason a checkbox called "void" is comprehensible, and a `title`
 // hands them to a mouse and to nobody else. The trigger wraps the <label>, so the tooltip
-// opens both on a hover anywhere across the row and on the nested input taking FOCUS.
+// opens both on a hover anywhere across the row and on the nested control taking FOCUS.
+//
+// The controls are the house library's (D-24), which is why each row spells an `htmlFor`
+// it did not need as an `<input>`: a Radix checkbox is a <button>, and a <label> reaches a
+// button by NAMING it, never by wrapping it. Dropping that association would not have
+// broken a test — every query here resolves through the `aria-label` — it would have
+// quietly cost the row text its click, which is most of each row's hit target.
 //
 // Every group's aria-label is its visible label, verbatim. They diverged once ("layers"
 // over `aria-label="layer visibility"`) and a divergence is a screen reader and a screen
 // disagreeing about what a thing is called. And none of them is called "view": inside a
 // popover already named View, a group by that name says nothing.
+import { useId } from "react";
 import type {
 	FieldHostShading,
 	FieldLayers,
@@ -40,7 +47,9 @@ import type {
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { ActionTip } from "../tips.tsx";
+import { Checkbox } from "../ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
+import { Segmented, type SegmentedOption } from "../ui/segmented.tsx";
 
 const VOID_CAST_HINT =
 	"X-ray: meshes the air as a solid, so a cave network reads from outside. Built when you tick it; the next edit clears it — re-tick to refresh";
@@ -105,7 +114,13 @@ const GROUP_LABEL_CLASS =
 /** The two shading modes, in the order they are offered: the state of seeing first, the
  *  debug flag second — and the debug one SAYS so, because a full-chroma normal render is
  *  the most attention-grabbing thing on the screen and reads as a feature otherwise
- *  (critique P0). */
+ *  (critique P0).
+ *
+ *  A SEGMENTED control rather than the stacked radios this row shipped as (D-24/D-25): two
+ *  members is exactly the cardinality the segmented vocabulary exists for, and the radios
+ *  were the shell's last raw `<input type="radio">`. The mode is the option's transport
+ *  `value`, so the `FieldHostShading` member comes back by lookup and never through a cast
+ *  — the same rule `SegmentedField` follows for schema members. */
 const SHADING_MODES: {
 	mode: FieldHostShading;
 	label: string;
@@ -123,6 +138,10 @@ const SHADING_MODES: {
 	},
 ];
 
+const SHADING_OPTIONS: SegmentedOption[] = SHADING_MODES.map(
+	({ mode, label, hint }) => ({ value: mode, label, hint }),
+);
+
 export function ViewPopover({
 	open,
 	onOpenChange,
@@ -139,6 +158,11 @@ export function ViewPopover({
 	const focusReturn = useViewportFocusReturn();
 	const setLayer = (layer: keyof FieldLayers, on: boolean): void =>
 		view.setLayers({ ...layers, [layer]: on });
+	// `useId` rather than hardcoded strings: a literal id is a claim on the whole document,
+	// and this popover shares one with the inspector's field rows and every other palette.
+	// The hook makes the claim local to the mount, so nobody has to go checking.
+	const uid = useId();
+	const boxId = (name: string): string => `${uid}-${name}`;
 
 	return (
 		<Popover open={open} onOpenChange={onOpenChange}>
@@ -154,32 +178,31 @@ export function ViewPopover({
 				className="w-64 space-y-3 p-3 text-xs"
 				{...focusReturn.overlay}
 			>
-				<div className={GROUP_CLASS} role="radiogroup" aria-label="shading">
+				<div className={GROUP_CLASS}>
 					<span className={GROUP_LABEL_CLASS}>shading</span>
-					{SHADING_MODES.map(({ mode, label, hint }) => (
-						<ActionTip key={mode} hint={hint}>
-							<label className={LABEL_CLASS}>
-								<input
-									type="radio"
-									name="shading"
-									checked={shading === mode}
-									onChange={() => view.setShading(mode)}
-								/>
-								{label}
-							</label>
-						</ActionTip>
-					))}
+					<Segmented
+						label="shading"
+						value={shading}
+						options={SHADING_OPTIONS}
+						onChange={(value) => {
+							const picked = SHADING_MODES.find((m) => m.mode === value);
+							if (picked === undefined) return;
+							view.setShading(picked.mode);
+						}}
+						className="w-fit"
+					/>
 				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control set; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
 				<div className={GROUP_CLASS} role="group" aria-label="layers">
 					<span className={GROUP_LABEL_CLASS}>layers</span>
 					{LAYERS.map((layer) => (
 						<ActionTip key={layer} hint={LAYER_HINTS[layer]}>
-							<label className={LABEL_CLASS}>
-								<input
-									type="checkbox"
+							<label className={LABEL_CLASS} htmlFor={boxId(layer)}>
+								<Checkbox
+									id={boxId(layer)}
 									checked={layers[layer]}
-									onChange={(e) => setLayer(layer, e.target.checked)}
+									onCheckedChange={(c) => setLayer(layer, c === true)}
+									aria-label={layer}
 								/>
 								{layer}
 							</label>
@@ -190,23 +213,23 @@ export function ViewPopover({
 				<div className={GROUP_CLASS} role="group" aria-label="overlays">
 					<span className={GROUP_LABEL_CLASS}>overlays</span>
 					<ActionTip hint={VOID_CAST_HINT}>
-						<label className={LABEL_CLASS}>
-							<input
-								type="checkbox"
+						<label className={LABEL_CLASS} htmlFor={boxId("voidCast")}>
+							<Checkbox
+								id={boxId("voidCast")}
 								checked={layers.voidCast}
-								onChange={(e) => setLayer("voidCast", e.target.checked)}
+								onCheckedChange={(c) => setLayer("voidCast", c === true)}
 								aria-label="void cast"
 							/>
 							void
 						</label>
 					</ActionTip>
 					<ActionTip hint={SLICE_HINT}>
-						<label className={LABEL_CLASS}>
-							<input
-								type="checkbox"
+						<label className={LABEL_CLASS} htmlFor={boxId("slice")}>
+							<Checkbox
+								id={boxId("slice")}
 								checked={slice.enabled}
-								onChange={(e) =>
-									view.setSlice({ ...slice, enabled: e.target.checked })
+								onCheckedChange={(c) =>
+									view.setSlice({ ...slice, enabled: c === true })
 								}
 								aria-label="slice view"
 							/>
@@ -237,11 +260,15 @@ export function ViewPopover({
 					</label>
 				</div>
 				<ActionTip hint={AA_HINT}>
-					<label className={`${LABEL_CLASS} border-border border-t pt-3`}>
-						<input
-							type="checkbox"
+					<label
+						className={`${LABEL_CLASS} border-border border-t pt-3`}
+						htmlFor={boxId("antialiasing")}
+					>
+						<Checkbox
+							id={boxId("antialiasing")}
 							checked={sampleCount === 4}
-							onChange={(e) => view.setSampleCount(e.target.checked ? 4 : 1)}
+							onCheckedChange={(c) => view.setSampleCount(c === true ? 4 : 1)}
+							aria-label="antialiasing"
 						/>
 						antialiasing
 					</label>
