@@ -55,11 +55,19 @@ import "./_register.ts";
 //
 // Process-wide rather than per-file, which is why it hid for two rounds: bun evaluates a
 // module once per RUN, so a chrome file used to repair this one by loading first. Every one
-// of them carries line 6 — that is the claim `../chrome-register-first.test.ts` pins, and a
-// count here would only go stale the next time someone adds a chrome test. The consequence
-// was that the same case passed under `bun test packages/editor` and failed when run on its
-// own. `shell.test.tsx` driving the Radix DropdownMenu's portal was never in tension with
-// any of it; it registers first.
+// of them now carries the bare register import above its first other import, as does every
+// inspector test that renders — that is the claim `../register-first.test.ts` pins, and a
+// count here would only go stale the next time someone adds a test. The consequence was
+// that the same case passed under
+// `bun test packages/editor` and failed when run on its own. `shell.test.tsx` driving the
+// Radix DropdownMenu's portal was never in tension with any of it; it registers first.
+//
+// And the poisoning runs BOTH ways, which F4.5c Task 15 had to measure to believe: with
+// `boolean-field.test.tsx` missing its line, the "numeric enum's trigger shows the member's
+// LABEL" case below fails on an EMPTY trigger — checkbox and select share one resolved copy
+// of the shim (`react-use-layout-effect@1.1.2`), so a file that renders no portal at all can
+// still turn this one off. THIS file's own registration does not save it — by then it is too
+// late; only the one in `boolean-field.test.tsx` does.
 //
 // So this file CAN now drive its own commit, in any run, and does not — because
 // `SegmentedField`'s case already drives the identical `lib/enum-options.ts` mapping end to

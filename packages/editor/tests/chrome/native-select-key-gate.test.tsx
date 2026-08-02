@@ -7,6 +7,13 @@ import "../inspector/_register.ts";
 // machine half of that exemption: the reason is prose in `field/form-bits.tsx`, and prose
 // does not redden when someone migrates one of them to `ui/select.tsx`.
 //
+// THE TWO HALVES ARE MUTUALLY LOAD-BEARING, so neither should be weakened without reading
+// the other. The `.grit` rule cannot COUNT: a second control carrying an already-allowlisted
+// name in an already-allowlisted file draws no diagnostic at all (measured at the Task 12
+// review). What catches that is this file's `getByLabelText`, which throws "Found multiple
+// elements" on a duplicate name. Relax the walk to `getAllBy*` or key it by anything but the
+// accessible name and the allowlist stops being a list of four.
+//
 // WHAT EACH CASE CLAIMS: Esc pressed on this control does NOT reach `host.escape()` — the
 // editor's one cancel ladder, whose rungs discard a live selection and a session being
 // configured. What holds that line is `isTextInputTarget` (`lib/keybindings.ts`) recognising

@@ -15,9 +15,12 @@
 //
 //     import "../inspector/_register.ts";
 //
-// Every chrome test carries it (the "shell.test.tsx rule"), and that sentence is now held
-// by a scan rather than by trust — `tests/chrome-register-first.test.ts` reddens, naming
-// the file, if one ever does not. It had been wrong in prose twice before the scan existed.
+// Every chrome test carries it, and so does every inspector test that RENDERS (the five
+// pure-logic ones deliberately do not — see the scoping note at the foot of this comment).
+// That sentence is held by a scan rather than by trust — `tests/register-first.test.ts`
+// reddens, naming the file, if one ever does not. It had been wrong in prose twice before
+// the scan existed; F4.5c Task 15 found nine inspector tests still missing the line, EIGHT
+// of them asserting in a header comment that they had it.
 //
 // It matters for any module that captures `globalThis.document` at LOAD time rather than
 // at render — Radix's `useLayoutEffect` shim, and therefore every Radix PORTAL. Without it
@@ -29,9 +32,11 @@
 // to ZERO in ~10 s. (The ratio and the clock, not a pass total — that number moves with
 // every case anyone adds.) See `enum-field.test.tsx`'s header for the mechanism.
 //
-// Registration is deliberately scoped to files that import the harness (NOT a bun
-// `--preload`) so `document`/`window` are never injected into the daemon/server/GPU
-// test runs, which would break them.
+// Registration is deliberately OPT-IN per file (NOT a bun `--preload`) so `document`/
+// `window` are never injected into the daemon/server/GPU test runs, which would break them.
+// In practice the opt-in set is every test that renders — plus `chrome/keybindings-dom.ts`,
+// which needs a real `HTMLElement` to narrow against and no harness — and the five
+// pure-logic inspector tests are outside it.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 // Idempotent: bun runs every test file in one process, so guard against a second

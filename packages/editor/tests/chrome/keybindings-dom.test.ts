@@ -2,7 +2,7 @@
 // F4.5c Task 12 review. This file's own graph does not reach Radix, so its late
 // registration was harmless rather than wrong; it is hoisted anyway because "every chrome
 // test opens with this line" is a rule a scan can hold
-// (`tests/chrome-register-first.test.ts`), and "every chrome test except the one that
+// (`tests/register-first.test.ts`), and "every chrome test except the one that
 // happens not to need it" is not.
 import "../inspector/_register.ts";
 

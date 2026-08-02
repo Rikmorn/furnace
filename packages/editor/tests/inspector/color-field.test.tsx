@@ -1,3 +1,8 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement. `ColorField` reaches no Radix module TODAY, but the rule is per-file
+// rather than per-import-graph precisely because that is a property of someone else's file.
+import "./_register.ts";
+
 // Pins CURRENT ColorField commit/preview event wiring (regression armor for the
 // shadcn control swap in Task 4). This is the "Safari saga" class of bug (commits
 // 4e22f4f / 9f8bb41): a native <input type="color"> only blurs when focus moves to

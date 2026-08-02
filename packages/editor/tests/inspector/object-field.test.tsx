@@ -1,6 +1,10 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // Task 8 sub-change 2: nested ObjectFields lose the bordered/rounded <fieldset> box
 // (the critique's named-ban "nested-cards" structure) — they now render as an indented
-// labeled group. Harness import MUST be first.
+// labeled group.
 
 import { afterEach, expect, test } from "bun:test";
 import { SchemaForm } from "../../src/frontend/inspector/SchemaForm.tsx";

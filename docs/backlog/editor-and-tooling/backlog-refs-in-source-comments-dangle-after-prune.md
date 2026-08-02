@@ -8,13 +8,17 @@ they were deliberately left alone rather than fixed out-of-mandate.
 
 Five source sites still name a backlog file that no longer exists:
 
+Line numbers re-measured 2026-08-02 (F4.5c Task 15) — four of the five had drifted, some by
+hundreds of lines, which is the second way a table like this rots. **Grep the dangling NAME,
+not the line.**
+
 | site | dangling name | now lives in |
 | ---- | ------------- | ------------ |
-| `packages/editor/src/frontend/lib/catalog.ts:184` | `field-editor-prop-meshes.md` | `field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes* |
-| `packages/editor/src/viewport-host/field-placements.ts:13` | `field-editor-prop-meshes.md` | same as above |
-| `packages/editor/src/viewport-host/field-host.ts:520` | `field-reconfigure-ghost-exactness.md` | `field-tool-follow-ons.md` § *Reconfigure ghost previews against CURRENT field state, not the entity's pre-span state* |
+| `packages/editor/src/frontend/lib/catalog.ts:206` | `field-editor-prop-meshes.md` | `field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes* |
+| `packages/editor/src/viewport-host/field-placements.ts:14` | `field-editor-prop-meshes.md` | same as above |
+| `packages/editor/src/viewport-host/field-host.ts:832` | `field-reconfigure-ghost-exactness.md` | `field-tool-follow-ons.md` § *Reconfigure ghost previews against CURRENT field state, not the entity's pre-span state* |
 | `packages/core/src/field/generators.ts:216` | `enum-field-stringifies-numeric-members.md` | `editor-chrome-authoring-gaps.md` § *EnumField stringifies enum members and never coerces back — numeric enums are dead on arrival* |
-| `packages/editor/tests/field-host-headless.test.ts:141` | `field-host-worker-injection-seam` (bare, no `.md`) | `editor-test-harness-fragility.md` § *FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session* |
+| `packages/editor/tests/field-host-headless.test.ts:344` | `field-host-worker-injection-seam` (bare, no `.md`) | `editor-test-harness-fragility.md` § *FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session* |
 
 **Two fixed, 2026-07-30 (F4.5a Task 10).** The pair in `FieldPanel.tsx` (:131, :164, both
 `entity-row-params-stale-across-load.md`) travelled with the `sameEntities` comparator into

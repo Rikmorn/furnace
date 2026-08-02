@@ -81,6 +81,39 @@ environment isolation proposed below subsumes it.
    `menubar.test.tsx`, `entities-panel`, `inspect-panel`, `view-flags` — are all files
    F4.5a deleted; the ordering finding survives them, the file list does not.)
 
+   **CLOSED 2026-08-02 (F4.5c Tasks 12 + 15) — root cause FOUND, and it was not a
+   happy-dom mystery.** `@radix-ui/react-use-layout-effect` resolves
+   `globalThis?.document ? useLayoutEffect : noop` ONCE in its module body, and
+   `@radix-ui/react-portal` mounts through `useLayoutEffect(() => setMounted(true), [])`.
+   One file that reaches any Radix module before happy-dom's globals exist pins that hook
+   to the no-op branch for the WHOLE PROCESS, and every portal in every other file then
+   renders `null` under a trigger that opened correctly. That is the entire effect
+   described above — "ONE inspector file in front of the directory clears all 48" was the
+   registering file arriving first, nothing more.
+
+   The fix is one line per file: a BARE `import "../inspector/_register.ts";` above the
+   first other import (bare, because Biome's `organizeImports` sorts a named
+   `./_harness.tsx` import below `../../src/…` and reverts any attempt to hoist it).
+   Task 12 added it to the three chrome files that lacked it — `confirm-dialog`,
+   `flags-palette`, `host-seams-and-catalogs` — taking `bun test packages/editor/tests/chrome`
+   from ~130 failures in ~51 s to **0 in ~10 s**, and Task 15 added it to the nine
+   inspector tests that RENDER and lacked it. The rule is now held by a scan,
+   `tests/register-first.test.ts`, which names the offending file.
+
+   **Two process facts this RETIRES.** "Never run the chrome directory, `confirm-dialog`
+   poisons it" was a real mechanism misread as a quirk of one file — the directory is safe
+   and fast now. So is the `segmented-field` + `shell.test.tsx` pairing, which failed for
+   the same reason. The `color-field`-in-front workaround above is obsolete.
+
+   **What is NOT closed** is the ordering dependency this section opens with: the subdir
+   convention (§1 and §2) is still unenforced, and the inspector directory's green was
+   itself order-dependent until Task 15 — measured, because it looked fine either way.
+   Adding the nine imports moved no counts at all (85 pass / 0 fail / 180 asserts before
+   and after), since bun happened to evaluate a DOM-safe file first; but the pair
+   `boolean-field.test.tsx` + `enum-field.test.tsx` goes 9/0 with the line and **8/1
+   without** it. A suite that is green by load order is the shape this whole entry is
+   about.
+
 **A real fix worth designing when this bites again:** isolate the environments —
 e.g. a separate `bun test` invocation (or bunfig test project) for DOM tests vs
 GPU tests vs daemon tests, so global state can't leak across families; or a

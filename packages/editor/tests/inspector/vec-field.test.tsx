@@ -1,8 +1,11 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // Task 8 sub-change 3: vec fields render VISIBLE axis chips (x/y/z/(w)) before each
 // input — not tooltip-only (the old `title` attr). Plus the Task 8 review fix: the
 // unchanged-blur dirty-check ported from NumberField (shared commit-guard) so tabbing
-// through Transform position/scale doesn't fire spurious commits. Harness import MUST
-// be first.
+// through Transform position/scale doesn't fire spurious commits.
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { makeVecField } from "../../src/frontend/inspector/fields/VecField.tsx";

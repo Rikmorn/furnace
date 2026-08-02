@@ -1,10 +1,11 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // Pins CURRENT NumberField edit semantics (regression armor for the shadcn control
 // swap in Task 4). These assert what the code does TODAY — verified by reading
 // src/frontend/inspector/fields/NumberField.tsx and by these tests passing against
 // current code. They are NOT TDD for new behavior.
-//
-// Harness import MUST be first so happy-dom's DOM globals register before any
-// DOM-touching module (see _harness.tsx / _register.ts).
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { NumberField } from "../../src/frontend/inspector/fields/NumberField.tsx";

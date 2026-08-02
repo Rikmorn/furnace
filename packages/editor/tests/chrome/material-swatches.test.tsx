@@ -1,4 +1,4 @@
-// Registered FIRST — the chrome-wide rule (`tests/chrome-register-first.test.ts` enforces
+// Registered FIRST — the chrome-wide rule (`tests/register-first.test.ts` enforces
 // it): Radix resolves `globalThis.document` at module-evaluation time, and one file that
 // reaches it before happy-dom exists pins the layout-effect shim to its no-op branch for
 // the whole run.

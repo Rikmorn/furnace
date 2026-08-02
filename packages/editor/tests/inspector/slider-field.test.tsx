@@ -1,6 +1,9 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // The D-25 bounded-numeric vocabulary: SLIDER (drag, scrub, or type an exact value) and
-// STEPPER (± over a short integer range). Harness import MUST be first so happy-dom's
-// globals register before any DOM-touching module.
+// STEPPER (± over a short integer range).
 //
 // THREE affordances over ONE value is the whole point, and each has a way to be silently
 // wrong on its own:

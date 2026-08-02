@@ -1455,19 +1455,32 @@ size is the one fact it cannot know, so it arrives as an argument (`OriginBounds
 layer component measures it. That is what makes clamp/snap/what-survives-a-hide testable
 without a browser.
 
-- `PALETTE_IDS` is a **closed union** (`controls`, `entities`, `log`): a persisted record
-  for an id not in it is dropped rather than restored, so a retired palette cannot come
-  back as dead geometry.
-- The defaults claim **two** of the cell's four corners: `controls` docks to the right
-  edge from y=0 — which puts it in the **top-right** — while `entities` and `log` share
-  the **top-left**, `log` starting **closed** because it is summoned rather than
-  always-on. The axis triad is a third claimant of that same top-right corner, which is
-  exactly why it mounts above the palette layer in DOM order (§20.5) — the controls dock
-  covers it otherwise. `Toasts` takes the bottom-right (its own D-1 absolute layer), so
-  the **bottom-left** is the one strip nothing defaults into, and that is where the
-  collapsed-chip rail lives: it used to sit top-right, under exactly this dock, so
-  collapsing any palette dropped its chip on top of another one (`PaletteLayer`'s own
-  account of the move).
+- `PALETTE_IDS` is a **closed union**, and as of F4.5b it is five: `entities`, `session`,
+  `flags`, `history`, `log`. A persisted record for an id not in it is dropped rather than
+  restored, so a retired palette cannot come back as dead geometry — which is exactly what
+  happened to F4.5a's `controls` dock when the control stack dissolved into the tool rail,
+  the top strip and the session card.
+- **The default arrangement is THREE COLUMNS, and it is arithmetic rather than taste.** At
+  the design floor (`DESIGN_FLOOR_CELL`, 1235 px of cell) three palette widths fit side by
+  side: `entities` at x=24 (360 wide), `session` at x=420 (280) and `history` at x=720
+  (240, ending at 960). Exactly ONE column stacks — entities over flags, on the left — and
+  that stack is what `entities.maxHeight` (320 px) pays for. `PALETTES` carries a `width`
+  and an optional `maxHeight` per palette so the arrangement is PROVABLE rather than
+  eyeballed, and `tests/palette-store.test.ts` checks all ten pairs. A default that
+  deliberately shares a corner declares it (`sharesCornerWith`), beside the default it
+  excuses, so a palette added later inherits nothing.
+- **Nothing docks by default and no default claims the RIGHT edge** — `controls` was the
+  one that did. Past history's 960 the cell is clear, which leaves the top-right corner to
+  the axis triad and the strip a right-handed user orbits in unclaimed. `log` and `history`
+  start **closed** because they are summoned (the status bar's ⚠ and `undo N` chips, the
+  View and Edit menus); `session` starts closed for a different reason — its open state is
+  DRIVEN by whether there is a session or a selected entity to be about (D-13), which is
+  what `drivenOpen` records: not persisted, not restored, and still reachable by the
+  burger's checkbox so the card's × is not a latch with no exit. `Toasts` takes the
+  bottom-right (its own D-1 absolute layer), so the **bottom-left** is the one strip
+  nothing defaults into, and that is where the collapsed-chip rail lives: it used to sit
+  top-right, under the old dock, so collapsing any palette dropped its chip on top of
+  another one (`PaletteLayer`'s own account of the move).
 - `SNAP_PX = 24` — roughly a coarse pointer's slop.
 - The ⌘\ hide-all is a **latch**: `hidden` does not touch the per-palette records, so
   restoring returns the exact prior arrangement.
@@ -1476,10 +1489,10 @@ without a browser.
 and the disk (a `PERSIST_DEBOUNCE_MS = 200` write, so a drag writes once at the end of
 the gesture rather than 60×/s). It is split into **state and actions contexts**, and the
 load-bearing beneficiary is `ShellChrome` — the component that actually builds the
-`content={{ controls: <FieldPanel/>, … }}` elements — which reads ACTIONS ONLY. That is
-what keeps those elements referentially stable across a drag and therefore keeps
-`FieldPanel` off the pointer-rate path. (`ShellFrame`, one level up, reads only
-`useEditor`.)
+`content={{ entities: <EntitiesPalette/>, session: <SessionCard/>, … }}` elements — which
+reads ACTIONS ONLY. That is what keeps those elements referentially stable across a drag
+and therefore keeps the palette bodies off the pointer-rate path. (`ShellFrame`, one level
+up, reads only `useEditor`.)
 
 **Front-to-back order is session-local** (`hooks/usePaletteStack.tsx`) and deliberately
 NOT persisted: geometry, collapse and open are decisions the user made; which palette
@@ -1632,10 +1645,12 @@ the canvas would kill every viewport key and cancel a live `G` grab (`onBlur` �
 `cancelMoveInFlight`). They also suppress their own `contextmenu`, which the canvas's
 handler cannot reach because they are canvas SIBLINGS, not descendants. Buttons are
 emitted in fixed axis order (that is the tab order) and resolve overlap with `zIndex`;
-the SVG behind them paints far-to-near. The triad mounts **above the palette layer in DOM order** — the default
-arrangement docks `controls` to the right edge at top 0, which covers exactly the corner
-the triad sits in, so mounted before the layer it would ship invisible out of the box.
-`Toasts` sits there for the same reason with a softer case. Both are their own absolute
+the SVG behind them paints far-to-near. The triad mounts **above the palette layer in DOM order** — F4.5a's default
+arrangement docked `controls` to the right edge at top 0, covering exactly the corner the
+triad sits in, so mounted before the layer it shipped invisible out of the box. That dock
+retired with `FieldPanel` (§21) and no default claims the right edge now, but the DOM order
+stays: the corner is unclaimed by DEFAULT, not unclaimable, and a user may drag any palette
+onto it. `Toasts` sits there for the same reason with a softer case. Both are their own absolute
 box inside the SAME cell: they take nothing from the canvas (D-1).
 
 ### 20.6 The menu, the shortcut overlay, and the ONE history
@@ -1699,8 +1714,11 @@ stamp family, and the button is what decides which.
 
 ### 20.7 What moved out of FieldPanel — and what remains
 
-`FieldPanel.tsx` is now **261 lines** and rides in the `controls` palette (§19's
-orchestrator-slope entry tracked it at 817). What left, and where it went:
+**Read this as the F4.5a snapshot it is — §21 is the current state.** At F4.5a
+`FieldPanel.tsx` was down to **261 lines** and rode in the `controls` palette (§19's
+orchestrator-slope entry tracked it at 817); F4.5b finished the job, deleting the file and
+retiring the palette id with it. The table below is still the accurate account of where
+each organ WENT, which is why it stays. What left, and where it went:
 
 | Left the panel | Now lives in |
 | --- | --- |

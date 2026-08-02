@@ -31,8 +31,12 @@ integration claims that actually need a Shell.
 ## Trigger to revisit
 
 `CanvasHost.tsx` growing a THIRD concern, or the focus seam growing a fourth member. Either
-is the point at which the file stops being "the canvas" and starts being a bag. Named for
-Task 15 if that slice touches this file anyway.
+is the point at which the file stops being "the canvas" and starts being a bag.
+
+**The Task 15 conditional resolved NEGATIVE (2026-08-02).** That task was doc, gate and
+backlog work; it did not touch `CanvasHost.tsx`, so the "while you are in there anyway"
+opening did not arrive. Both conditions above are still unmet — the file holds two concerns
+and `ViewportFocus` still has three members — so the entry stands unchanged.
 
 ## Reference
 

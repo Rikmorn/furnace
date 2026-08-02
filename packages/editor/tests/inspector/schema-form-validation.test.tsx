@@ -1,3 +1,7 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // D-25's refusal contract: validation AT the field, with the commit verb explaining it.
 //
 // The shape matters more than the copy. A form that collects its refusals into a bag and
@@ -10,8 +14,6 @@
 // The other half is the REFUSAL ITSELF: an out-of-bounds value must not reach `onPreview`.
 // The card previews into a live worker ghost, so a value the generator will throw on is a
 // round-trip and an error toast to say what the schema already knew.
-//
-// Harness import MUST be first (happy-dom globals before any DOM-touching module).
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { SchemaForm } from "../../src/frontend/inspector/index.tsx";

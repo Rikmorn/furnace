@@ -1,3 +1,7 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // Pins CURRENT multi-select fan-out semantics in SchemaForm: mixed values render the
 // "—" placeholder, and editing one field fans the edit into ALL N drafts before calling
 // the parent onCommit.
@@ -5,7 +9,7 @@
 // This file used to carry a third case, at the InspectPanel level (the same edit fanning
 // out to a mock EditorActions, one ComponentEdit per selected entity). It went with the
 // scene-editing surface — SchemaForm is the survivor, and these two cases are the
-// regression armour that matters for it. Harness import MUST be first.
+// regression armour that matters for it.
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { SchemaForm } from "../../src/frontend/inspector/SchemaForm.tsx";

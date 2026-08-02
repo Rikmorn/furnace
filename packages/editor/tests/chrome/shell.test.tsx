@@ -4456,9 +4456,11 @@ test("a job chip arrives at the FRONT of the right cluster — every click targe
 // slider. Too narrow and a key the user pressed for the CONTROL runs an editor verb —
 // which for Esc means losing the session they were configuring.
 
-/** Arm the brush so `BrushInspector` renders: it carries both shapes this predicate has
- *  to separate — a native `<select>` (mask) and an `<input type="range">` (radius). */
-function armBrushInspector(): void {
+/** Arm the brush so the tool strip's brush params render. `BrushInspector` used to be where
+ *  they lived and it is deleted; `components/shell/tool-params.tsx` carries them now — and
+ *  it still carries both shapes this predicate has to separate, a native `<select>` (mask)
+ *  and an `<input type="range">` (radius). */
+function armBrushParams(): void {
 	act(() => {
 		fireEvent.keyDown(window, { key: "b" });
 	});
@@ -4484,7 +4486,7 @@ test("a bare key on a RANGE slider still binds — a slider is not typed text", 
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
-	armBrushInspector();
+	armBrushParams();
 	const slider = screen.getByLabelText("brush radius");
 	stub.calls.setGesture.mockClear();
 

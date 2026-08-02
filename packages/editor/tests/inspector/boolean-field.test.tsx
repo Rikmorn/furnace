@@ -1,7 +1,14 @@
+// Registered FIRST — the shell.test.tsx rule. This file reaches Radix (`BooleanField` →
+// `ui/checkbox.tsx` → `@radix-ui/react-checkbox`) above its harness import, and the shim in
+// `@radix-ui/react-use-layout-effect` picks its branch ONCE per process, so without this line
+// the file poisons every Radix portal in the run. Measured at F4.5c Task 15 on the pair
+// `boolean-field + enum-field`: 9 pass / 0 fail with the line, 8 pass / 1 fail without it.
+import "./_register.ts";
+
 // Task 8 carried fix (from Task 4 review): the shadcn Checkbox rendered the SAME check
 // glyph for both checked and indeterminate, so the BooleanField MIXED state looked almost
 // identical to checked. The fix adds a distinct minus/dash glyph for indeterminate. The
-// field logic (data-state="indeterminate") was already correct. Harness import MUST be first.
+// field logic (data-state="indeterminate") was already correct.
 
 import { afterEach, expect, test } from "bun:test";
 import { BooleanField } from "../../src/frontend/inspector/fields/BooleanField.tsx";

@@ -1,7 +1,11 @@
+// Registered FIRST — the shell.test.tsx rule; see `boolean-field.test.tsx` for the mechanism
+// and the measurement.
+import "./_register.ts";
+
 // Task 8 sub-change 4: the drag-scrub already exists on scrubbable field labels —
 // make it DISCOVERABLE with an ew-resize cursor + a subtle hover underline. This pins
 // that a scrubbable label (NumberField) carries the affordance classes and a plain
-// label (StringField) does not. Harness import MUST be first.
+// label (StringField) does not.
 
 import { afterEach, expect, test } from "bun:test";
 import { NumberField } from "../../src/frontend/inspector/fields/NumberField.tsx";
