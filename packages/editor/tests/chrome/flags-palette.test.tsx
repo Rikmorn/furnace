@@ -1,3 +1,9 @@
+// Registered FIRST — the shell.test.tsx rule. A BARE side-effect import, the only spelling
+// `organizeImports` leaves in place. See `../inspector/enum-field.test.tsx` for the
+// measurement. Carried by every file in this directory so the guarantee is per-file rather
+// than "whichever file bun happened to load first also registered".
+import "../inspector/_register.ts";
+
 // Harness tests for the Flags palette (F4.5b Task 13, D-F4.5-15) — the advisor's
 // findings promoted out of the dissolving control stack.
 //

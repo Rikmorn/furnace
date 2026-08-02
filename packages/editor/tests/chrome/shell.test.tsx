@@ -4302,44 +4302,21 @@ function armBrushInspector(): void {
 	});
 }
 
-test("Esc pressed on a native <select> dismisses the DROPDOWN — it does not run the ladder", async () => {
-	fetch404();
-	const stub = makeStubHost({ generators: [HALL_GEN_MIN] });
-	await renderShell(stub);
-	armBrushInspector();
-	const select = screen.getByLabelText("brush mask");
-
-	// Esc is the conventional way to dismiss a native select popup, so this is the
-	// expected keystroke rather than an exotic one — and the ladder's rung 2 would
-	// cancel a live session with it.
-	act(() => {
-		stub.fire.stamp({
-			generator: "hall",
-			params: {},
-			seed: 1,
-			policy: "replace",
-			region: { min: [0, 0, 0], max: [4, 4, 4] },
-			phase: "ready",
-			run: 1,
-			opCount: 3,
-			placementCount: null,
-			error: null,
-			truncatedSelection: false,
-			mode: "stamp",
-			entityId: null,
-		});
-	});
-	act(() => {
-		fireEvent.keyDown(select, { key: "Escape" });
-	});
-	expect(stub.calls.escape).not.toHaveBeenCalled();
-
-	// ⏎ is the select's own commit key, and would otherwise APPLY that session.
-	act(() => {
-		fireEvent.keyDown(select, { key: "Enter" });
-	});
-	expect(stub.calls.commitSession).not.toHaveBeenCalled();
-});
+// THE ESC/⏎ CASE THAT USED TO SIT HERE IS GONE, and its claims live in
+// `native-select-key-gate.test.tsx` — which walks all four allowlisted selects rather than
+// this one, and can actually fail.
+//
+// It was vacuous three times over, all found at the F4.5c Task 12 review:
+//   1. it captured the mask select and THEN fired a session — but a live session swaps the
+//      tool strip for the session strip, so Esc was dispatched at a node with
+//      `isConnected === false`, reaching no window listener whatever the gate did;
+//   2. sabotaging the gate itself (deleting `|| t instanceof HTMLSelectElement` from
+//      `isTextInputTarget`) reddens all four replacement cases and left this one GREEN;
+//   3. its ⏎ half asserted on `commitSession`, and ⏎ runs `session.confirm` →
+//      `confirmSession`. The mock it watched cannot be called by the key it pressed.
+//
+// The replacement pins ⏎ on the merge-policy select — the only allowlisted control still
+// CONNECTED while a session is live — and carries a control case in each direction.
 
 test("a bare key on a RANGE slider still binds — a slider is not typed text", async () => {
 	fetch404();

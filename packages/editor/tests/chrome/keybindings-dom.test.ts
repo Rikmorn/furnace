@@ -1,3 +1,11 @@
+// Registered FIRST — the shell.test.tsx rule, and uniform across this directory as of the
+// F4.5c Task 12 review. This file's own graph does not reach Radix, so its late
+// registration was harmless rather than wrong; it is hoisted anyway because "every chrome
+// test opens with this line" is a rule a scan can hold
+// (`tests/chrome-register-first.test.ts`), and "every chrome test except the one that
+// happens not to need it" is not.
+import "../inspector/_register.ts";
+
 // The DOM half of the key gate: `isTextInputTarget` needs a real HTMLElement to narrow
 // against, so it cannot live beside the pure matcher/gate cases in tests/keybindings.ts.
 //
@@ -9,11 +17,9 @@
 // exactly that reason.
 //
 // Only `_register.ts` is imported, not `_harness.tsx`: this case touches
-// `document.createElement` and nothing else, so it needs neither testing-library nor its
-// module-evaluation ordering dance.
+// `document.createElement` and nothing else, so it needs testing-library not at all.
 import { expect, test } from "bun:test";
 import { isTextInputTarget } from "../../src/frontend/lib/keybindings.ts";
-import "../inspector/_register.ts";
 
 /** An `<input>` of `type`. Built through the attribute rather than the property so the
  *  fixture goes through the same normalisation the DOM applies to real markup. */

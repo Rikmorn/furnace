@@ -18,25 +18,28 @@ import "../inspector/_register.ts";
 // LIVE SESSION standing. Three of them cannot be: a live session swaps the tool strip for
 // the session strip (`tool-strip.test.tsx`, "a live session swaps the tool strip"), so the
 // mask/iterations/mode selects are DETACHED the instant a session exists. Measured — after
-// `fire.stamp(...)`, `select.isConnected === false` and the label no longer resolves. The
-// pre-existing pin in `shell.test.tsx` ("Esc pressed on a native <select> dismisses the
-// DROPDOWN") does exactly that: it captures the select, fires a session, then dispatches Esc
-// at a node no longer in the tree, where the event cannot reach the window listener and
-// `escape` is unreachable whatever the gate says. It passes for the wrong reason.
+// `fire.stamp(...)`, `select.isConnected === false` and the label no longer resolves. Only
+// `merge policy` lives inside the session card, so it is the one site that gets the real
+// standing, and the one that carries the ⏎ case.
+//
+// It replaced a pin in `shell.test.tsx` that did exactly the impossible thing — captured the
+// mask select, fired a session, then dispatched Esc at a node no longer in the tree. That
+// case is deleted; its epitaph is at the same spot in `shell.test.tsx` and lists the three
+// separate ways it could not fail.
 //
 // So the standing here is the one each control actually has, and every case carries two
-// guards that make the pass non-vacuous: the node is still CONNECTED when Esc is
-// dispatched, and the same Esc from a plain element DOES reach `escape()` (the control case
-// at the bottom). Without that pair, "escape was not called" is satisfied by any mistake
-// that removes the element.
+// guards that make the pass non-vacuous: the node is still CONNECTED when the key is
+// dispatched, and the same key from a plain element DOES reach the verb (the two control
+// cases at the bottom). Without that pair, "the verb was not called" is satisfied by any
+// mistake that removes the element — or by watching the wrong mock.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
-	FieldEntityInfo,
 	FieldGeneratorInfo,
+	StampSession,
 } from "../../src/viewport-host/index.ts";
 import {
 	act,
@@ -49,6 +52,14 @@ import {
 } from "../inspector/_harness.tsx";
 import { makeStubHost } from "./_stub-host.ts";
 
+// BEFORE `cleanup`, deliberately: the disclosure is undone by clicking its trigger, which
+// has to still be mounted. bun runs afterEach hooks in registration order, so this one is
+// registered first. A throwing case would otherwise leak the disclosure open into the next
+// FILE — its memory is module-scoped and outlives this one.
+afterEach(() => {
+	restoreAdvanced?.();
+	restoreAdvanced = null;
+});
 afterEach(cleanup);
 afterEach(() => notify.clear());
 
@@ -115,15 +126,22 @@ const HALL: FieldGeneratorInfo = {
 	usesSeed: false,
 };
 
-const ENTITY: FieldEntityInfo = {
-	entityId: 3,
-	type: "generator",
+/** A live stamp session, mid-configure — the standing under which the cancel ladder has
+ *  something to destroy. */
+const SESSION: StampSession = {
 	generator: "hall",
 	params: { width: 8 },
 	seed: 7,
+	policy: "replace",
 	region: { min: [0, 0, 0], max: [4, 4, 4] },
-	opSpan: [0, 0],
-	placed: [],
+	phase: "configuring",
+	run: 0,
+	opCount: null,
+	placementCount: null,
+	error: null,
+	truncatedSelection: false,
+	mode: "stamp",
+	entityId: null,
 };
 
 /** Undo a disclosure this file opened, set by the `merge policy` site and run before the
@@ -203,14 +221,15 @@ const SITES: readonly {
 	{
 		label: "merge policy",
 		file: "shell/session-card/AdvancedSection.tsx",
-		// The session card's advanced disclosure. Selecting an entity is what opens the card
-		// (the reconfigure path), so this one DOES stand beside live session state — it is
-		// the only one of the four that can.
+		// The session card's advanced disclosure, reached through a REAL live stamp session
+		// rather than through `entitySelection`. This is the only one of the four that can
+		// stand beside a session at all — the other three are detached by the strip swap the
+		// moment one exists — so it is the only place the session-destroying rungs of the
+		// ladder are actually within reach of a keypress. That makes it the site that carries
+		// the ⏎ half below.
 		reach: (stub) => {
-			stub.setEntities([ENTITY]);
 			act(() => {
-				stub.fire.entities();
-				stub.fire.entitySelection(3);
+				stub.fire.stamp(SESSION);
 			});
 			const box = screen.getByRole("region", { name: "Session" });
 			// The disclosure remembers itself across mounts and that memory is module-scoped —
@@ -251,12 +270,54 @@ for (const site of SITES) {
 			fireEvent.keyDown(el, { key: "Escape" });
 		});
 		expect(stub.calls.escape).not.toHaveBeenCalled();
-
-		// Before unmount, while the trigger is still live.
-		restoreAdvanced?.();
-		restoreAdvanced = null;
 	});
 }
+
+// --- the ⏎ half, on the ONE control that can carry it ------------------------
+
+test("⏎ on the merge-policy select does NOT commit the live session it sits inside", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	const el = await (SITES.at(-1)?.reach(stub) ??
+		Promise.reject(new Error("no merge-policy site")));
+
+	// ⏎ is a native select's OWN commit key — the keystroke a user presses to accept the
+	// highlighted option. The editor binds it to `session.confirm` → `host.confirmSession()`,
+	// which APPLIES the stamp. The VERB matters and is the third way the case this replaces
+	// was vacuous: it asserted on `commitSession`, a different mock that ⏎ never touches, so
+	// it would have held even against a connected node and a broken gate.
+	// So the gate has to hold here for a reason Esc's case does not cover: Esc destroys
+	// work, ⏎ ships it, and both are one keypress from a control the user opened on purpose.
+	//
+	// This claim was previously made in `shell.test.tsx` against the brush-mask select, where
+	// it could never fail: that node is detached by the strip swap before the session exists,
+	// so the event reached no listener. The merge-policy select is the only allowlisted
+	// control that is CONNECTED while a session is live, which is what makes the assertion
+	// real. Both guards below are the non-vacuity proof.
+	expect(el instanceof HTMLSelectElement).toBe(true);
+	expect(el.isConnected).toBe(true);
+
+	act(() => {
+		fireEvent.keyDown(el, { key: "Enter" });
+	});
+	expect(stub.calls.confirmSession).not.toHaveBeenCalled();
+});
+
+test("⏎ from a plain element DOES commit the session — the case above is not vacuous", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+	const box = screen.getByRole("region", { name: "Session" });
+	expect(box.isConnected).toBe(true);
+	act(() => {
+		fireEvent.keyDown(box, { key: "Enter" });
+	});
+	expect(stub.calls.confirmSession).toHaveBeenCalled();
+});
 
 // --- the control case: the assertion above can FAIL --------------------------
 

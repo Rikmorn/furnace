@@ -1,3 +1,10 @@
+// Registered FIRST — the shell.test.tsx rule. A BARE side-effect import, the only spelling
+// `organizeImports` leaves in place. See `../inspector/enum-field.test.tsx` for the
+// measurement; the short version is that Radix's `useLayoutEffect` shim reads
+// `globalThis.document` ONCE at module load, so a file that reaches Radix before happy-dom
+// exists turns every Radix portal in the PROCESS into a no-op.
+import "../inspector/_register.ts";
+
 // ConfirmDialog behaviour (Task 5, review item #6). Lives in a subdir — like every
 // DOM test in this package — so happy-dom's global-fetch registration can't pollute
 // the daemon HTTP suites (a bare tests/ DOM test does; see tests/chrome/menubar.test.tsx).

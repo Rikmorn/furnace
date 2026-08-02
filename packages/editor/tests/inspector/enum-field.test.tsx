@@ -54,7 +54,8 @@ import "./_register.ts";
 // turns true, and the portal renders `null` under a trigger that opened perfectly well.
 //
 // Process-wide rather than per-file, which is why it hid for two rounds: bun evaluates a
-// module once per RUN, so a chrome file — 13 of the 16 carry line 6 — used
+// module once per RUN, so a chrome file — all 16 carry line 6, pinned by
+// `../chrome-register-first.test.ts` — used
 // to repair this one by loading first, and the same case passed in `bun test
 // packages/editor` and failed run on its own. `shell.test.tsx` driving the Radix
 // DropdownMenu's portal was never in tension with any of it; it registers first.

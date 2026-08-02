@@ -1,3 +1,9 @@
+// Registered FIRST — the shell.test.tsx rule. A BARE side-effect import, the only spelling
+// `organizeImports` leaves in place. See `../inspector/enum-field.test.tsx` for the
+// measurement. Carried by every file in this directory so the guarantee is per-file rather
+// than "whichever file bun happened to load first also registered".
+import "../inspector/_register.ts";
+
 // The two chrome↔host protocol claims that belong to NO single surface, in the harness
 // this file has carried since the F2b sweep: mock EditorContext + a minimal stub FieldHost
 // that records calls and exposes its subscribe callbacks for manual firing (the

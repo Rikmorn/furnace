@@ -15,12 +15,18 @@
 //
 //     import "../inspector/_register.ts";
 //
-// Every chrome test carries it (the "shell.test.tsx rule"). It matters for any module
-// that captures `globalThis.document` at LOAD time rather than at render — Radix's
-// `useLayoutEffect` shim, and therefore every Radix PORTAL. Without it a file that
-// imports a portal-using component before the harness gets a trigger that opens onto
-// nothing, and only in runs where no other file registered first, which is as
-// intermittent as it sounds. See `enum-field.test.tsx`'s header for the measurement.
+// Every chrome test carries it (the "shell.test.tsx rule"), and that sentence is now held
+// by a scan rather than by trust — `tests/chrome-register-first.test.ts` reddens, naming
+// the file, if one ever does not. It had been wrong in prose twice before the scan existed.
+//
+// It matters for any module that captures `globalThis.document` at LOAD time rather than
+// at render — Radix's `useLayoutEffect` shim, and therefore every Radix PORTAL. Without it
+// a file that imports a portal-using component before the harness gets a trigger that opens
+// onto nothing, and only in runs where no other file registered first, which is as
+// intermittent as it sounds. Three chrome files were missing it until the F4.5c Task 12
+// review, and they were the whole of the "confirm-dialog poisons the directory" folklore:
+// adding the line took `bun test packages/editor/tests/chrome` from 237 pass / 130 fail in
+// 51 s to 367 pass / 0 fail in 10 s. See `enum-field.test.tsx`'s header for the mechanism.
 //
 // Registration is deliberately scoped to files that import the harness (NOT a bun
 // `--preload`) so `document`/`window` are never injected into the daemon/server/GPU
