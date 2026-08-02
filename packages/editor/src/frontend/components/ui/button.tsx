@@ -26,6 +26,15 @@ import { cn } from "../../lib/cn.ts";
 // `ring-offset-*`. Stock shadcn offsets the ring by 2 px against `--background`, which draws
 // a halo of the PAGE colour between a control and its ring — correct on a white page, a
 // visible dark gash on every raised surface in this shell.
+//   ONE EXCEPTION, added at the F4.5c re-critique: a ring drawn over a fill of the RING'S OWN
+//   COLOUR takes `ring-offset-1 ring-offset-background`, because there the halo is not a gash
+//   between a control and its ring — it is the only thing that makes the ring exist. `--ring`
+//   IS `--primary`, so this is every `bg-primary` control; the tool rail is the one measured
+//   (its armed button's focused and unfocused frames were indistinguishable at 3×) and the one
+//   fixed. The default variant BELOW still has the defect, as do the selected segment and a
+//   checked checkbox — deliberately, because the fix is one ruling across all four and not
+//   three separate call-site edits. `tests/frontend-focus-vocabulary.test.ts` holds both the
+//   ban and the exception, and carries the open rows as a ledger.
 //
 // HOVER LIGHTENS, NEVER FADES. `hover:bg-X/90` is a fade: on a dark shell it composites the
 // surface underneath into the fill and the control gets DARKER under the cursor, which reads

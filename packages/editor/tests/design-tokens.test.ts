@@ -699,6 +699,45 @@ test("no on-fill foreground is FADED — the pair is measured at full opacity", 
   expect(offenders).toEqual([]);
 });
 
+/** An authored `font-family`, in either of the two spellings React accepts: the JSX style
+ *  property (`fontFamily=`) and the CSS/SVG attribute (`font-family=`). */
+const AUTHORED_FONT_FAMILY =
+  /font-?[Ff]amily\s*=\s*(?:"([^"]*)"|\{"([^"]*)"\}|\{`([^`]*)`\})/g;
+
+/** The only families the chrome may name, and they are both `var()` references rather than
+ *  stacks: DESIGN.md §3 commits the stacks ONCE, in `styles.css`, and a second copy of them in
+ *  a component is a copy that drifts. */
+const TOKEN_FAMILIES = new Set(["var(--font-mono)", "var(--font-sans)"]);
+
+test("no font family is named outside the two tokens", () => {
+  // The sibling of the size scan above, and it exists because of a defect the size scan's
+  // shape could never have seen: `AxisTriad`'s SVG labels carried `fontFamily="monospace"` —
+  // a CSS GENERIC, not a bracketed Tailwind class, so no `text-[…]` pattern touches it. It
+  // measured as a THIRD font family in the running chrome, alongside Inter and JetBrains
+  // Mono, with nobody having chosen it.
+  //
+  // What makes an SVG presentation attribute the place this happens: it is the one styling
+  // channel that sits BELOW the cascade, so it silently wins against the inherited stack
+  // without appearing in any class string. Proven in Chrome rather than assumed — an SVG
+  // `<text>` with no `font-family` computes to the Inter stack (it inherits like any other
+  // element), one carrying `font-family="monospace"` computes to `monospace`, and one
+  // carrying `font-family="var(--font-mono)"` computes to the full JetBrains stack. So the
+  // attribute was overriding a stack that was already correct, and `var()` is a legal value
+  // there, which is what makes the token spelling available as the fix.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const offenders: string[] = [];
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    for (const m of src.matchAll(AUTHORED_FONT_FAMILY)) {
+      const value = m[1] ?? m[2] ?? m[3] ?? "";
+      if (!TOKEN_FAMILIES.has(value))
+        offenders.push(`${relative(FRONTEND, file)}: ${value}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});
+
 test("no arbitrary font size survives outside the scale", () => {
   // D-23's type clause, as the user ruled it at F4.5c: the chrome has ONE scale, and a
   // `text-[…]` size is one that belongs to no tier and answers to no token. `--text-2xs`

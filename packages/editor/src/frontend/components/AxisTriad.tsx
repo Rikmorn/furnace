@@ -125,11 +125,20 @@ export function AxisTriad({
 									y={ey}
 									textAnchor="middle"
 									dominantBaseline="central"
-									// SVG text inherits neither the app's font stack nor its type scale, so a
-									// bare `monospace` here resolved to Chrome's default mono — measured
-									// as a THIRD font family in the chrome, alongside Inter and JetBrains
-									// Mono, with nobody having chosen it. `var(--font-mono)` is the
-									// committed stack (styles.css) and reaches SVG the same way.
+									// The attribute was OVERRIDING an inherited stack that was already
+									// right — not supplying one that was missing. Proven in Chrome: an
+									// SVG `<text>` with no `font-family` computes to the Inter stack,
+									// because `font-family` inherits like any other CSS property and
+									// Tailwind's preflight puts it on `html`. What the presentation
+									// attribute did was replace that with the CSS GENERIC `monospace`,
+									// i.e. Chrome's default mono — measured as a third font family in
+									// the chrome, alongside Inter and JetBrains Mono, chosen by nobody.
+									//
+									// So the fix is to name the committed stack rather than a generic.
+									// `var()` IS legal in a presentation attribute (verified: this
+									// computes to the full JetBrains stack), which is what lets the
+									// token be spelled here instead of a second copy of styles.css's
+									// list — and `design-tokens.test.ts` now scans for exactly that.
 									//
 									// 9 px stays, and is the one place under the 10 px `text-2xs` floor on
 									// purpose: this is a single letter centred in a `CAP`-radius disc, so

@@ -71,27 +71,37 @@ const FAMILY_ICON: Record<ToolFamily["id"], LucideIcon> = {
 	stamp: Stamp,
 };
 
-/** 32 px inside the 44 px column — the mock's rail geometry. */
-/** The rail button, with the ONE focus vocabulary plus an OFFSET the rest of the chrome does
- *  not need.
+/** 32 px inside the 44 px column — the mock's rail geometry; and D-23's focus ring plus the
+ *  one OFFSET the rest of the chrome does not get.
  *
- *  `--ring` IS `--primary` (styles.css), and the armed tool is `bg-primary`. Without the
- *  offset the ring paints the same colour the button is already painted, so focusing the
- *  armed tool adds one ring-coloured pixel to a ring-coloured square: the F4.5c re-critique
- *  captured the pair at 3× and the two frames are indistinguishable, while the same capture
- *  of an INACTIVE rail button shows an unmistakable ring. That is the tool a keyboard user is
- *  most likely to Tab to — the one they are using — and PRODUCT.md's floor is a visible focus
- *  state on every interactive control.
+ *  `--ring` IS `--primary` (styles.css), and the armed tool is `bg-primary`. Without the offset
+ *  the ring paints the colour the button already is, so focusing the armed tool adds one
+ *  ring-coloured pixel to a ring-coloured square: the F4.5c re-critique captured the pair at 3×
+ *  and the two frames are indistinguishable, while the same capture of an INACTIVE rail button
+ *  shows an unmistakable ring. That is the tool a keyboard user is most likely to be on — the
+ *  one they are using — and PRODUCT.md's floor is a visible focus state on every interactive
+ *  control.
  *
- *  `ring-offset-1 ring-offset-background` is `MaterialSwatches`' idiom, and its principle
- *  verbatim: focus must be ADDITIVE. The dark 1 px gap is what makes the ring a separate
- *  thing from the fill rather than a wider edge of it. It stays LOCAL to the rail rather than
- *  going into `ui/`'s base vocabulary because an offset drawn in `--background` on a control
- *  sitting on `--popover` paints a gap a shade darker than its own surface — the layered-
- *  surface objection `ui/button.tsx` records — and the rail sits on the shell, where it does
- *  not arise. Whether the other `bg-primary` controls (button's default variant, the
- *  segmented selection, a checked checkbox) want the same treatment or a neutral `--ring` is
- *  a live question and NOT settled here. */
+ *  THIS IS A SANCTIONED EXCEPTION TO A STANDING BAN, not an idiom borrowed from elsewhere. The
+ *  ban is `ui/button.tsx`'s: no `ring-offset-*`, because stock shadcn's 2 px offset draws a halo
+ *  of the PAGE colour between a control and its ring — a dark gash on every raised surface here.
+ *  That reasoning still holds everywhere it was aimed. It inverts only in this one case: when
+ *  the ring and the fill are the SAME COLOUR, the `--background` gap is not a gash between a
+ *  control and its ring, it is the only thing that makes the ring exist at all.
+ *
+ *  `MaterialSwatches` also carries `ring-offset-1 ring-offset-background`, and it is NOT the
+ *  precedent for this — an earlier version of this comment cited it as one and was wrong. That
+ *  file says so in its own words: the offset there fires on `activeId`, so it belongs to the
+ *  SELECTED marker, and its actual focus ring is a plain `focus-visible:ring-4` with no offset.
+ *  Two different problems (an arbitrary material colour swallowing a marker; a ring the colour
+ *  of its own fill) that happen to take the same three classes.
+ *
+ *  The residue is real and is NOT settled here: `ui/button.tsx`'s default variant, the selected
+ *  segment in `ui/segmented.tsx` and a checked `ui/checkbox.tsx` are the same defect on the same
+ *  mechanism. The choice — offset every `bg-primary` control, or take `--ring` off `--primary`
+ *  and give focus a neutral — is one ruling covering all four, and it is recorded as an open
+ *  ledger row in `tests/frontend-focus-vocabulary.test.ts` rather than left in this comment,
+ *  because a comment is not a check. */
 const BUTTON_CLASS =
 	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 

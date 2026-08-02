@@ -33,12 +33,22 @@ const EXCLUDED_DIR = join("components", "ui");
 
 /** The opening tag of `<PopoverContent …>`, returned as its attribute text.
  *
- *  Hand-scanned rather than regexed because the attribute lists here contain BRACES with
- *  nested braces and strings (`{...focusReturn.overlay}`, `` {`${row.group} tools`} ``), and
- *  a lazy `<PopoverContent[^>]*>` stops at the first `>` inside a template or a generic —
- *  which would silently truncate the very attribute it is looking for and report a false
- *  PASS. Depth-tracking over `{}` with quote awareness is the smallest thing that is exact.
- */
+ *  Hand-scanned rather than regexed because a JSX attribute list contains `>` characters that
+ *  are not the end of the tag — inside a template literal, and inside every arrow function
+ *  passed as a prop. `<PopoverContent[^>]*>` stops at the first of them. `[^>]*` is GREEDY, but
+ *  it cannot cross a `>` at all, so greed makes no difference here; the negated class is what
+ *  ends the match.
+ *
+ *  WHICH WAY IT FAILS, stated exactly, because the first version of this docblock had it
+ *  backwards and that mattered: truncating loses the tail of the attribute list, so a `aria-
+ *  label` sitting after an arrow-function prop goes UNSEEN and the popover is reported
+ *  **unnamed**. That is a false ALARM — the test reddens on correct code — not a false pass.
+ *  Measured on `<PopoverContent onKeyDown={(e) => f(e)} aria-label="named">`: the naive form
+ *  yields `" onKeyDown={(e) ="` and this parser yields the whole list, so `NAMED` is `false`
+ *  and `true` respectively. The one direction the naive form fails OPEN is a different bug —
+ *  it matches `<PopoverContentExtra a>`, a component that is not this one at all.
+ *
+ *  Depth-tracking over `{}` with quote awareness is the smallest thing that is exact. */
 function openingTags(text: string, tag: string): string[] {
   const out: string[] = [];
   const needle = `<${tag}`;
@@ -98,23 +108,44 @@ test("every popover's role=dialog carries an accessible name", () => {
 });
 
 // The scan is worth exactly what its parser is worth, so the parser is pinned separately.
-// Both of these defeated the naive `[^>]*` form: the first ends its attribute list AFTER a
-// `>` that sits inside a template literal, the second after one inside a generic argument.
-test("the opening-tag scanner survives braces, templates and generics", () => {
+//
+// The four cases below are labelled by what each one actually proves, because the first
+// version of this comment claimed all of them defeated the naive `<PopoverContent[^>]*>` form
+// and only two of them do. Measured, not asserted from reading — the naive form's output on
+// each is quoted.
+test("the opening-tag scanner survives braces, arrow props and near-miss names", () => {
+  // (1) CHANGES THE VERDICT. An arrow-function prop before the name: the naive form stops at
+  // the `>` of `=>`, yielding `" onKeyDown={(e) ="`, which contains no `aria-label` — so a
+  // correctly named popover is reported unnamed. This is the realistic shape; three of the
+  // four popovers in the chrome carry a prop like it.
+  expect(
+    openingTags(
+      '<PopoverContent onKeyDown={(e) => f(e)} aria-label="named">x</PopoverContent>',
+      "PopoverContent",
+    ),
+  ).toEqual([' onKeyDown={(e) => f(e)} aria-label="named"']);
+  // (2) CHANGES THE VERDICT. A near-miss component name: the naive form happily matches
+  // `<PopoverContentExtra a>` (every character up to the `>` is legal in `[^>]*`), inventing an
+  // offender in a file that has no `PopoverContent` at all.
+  expect(openingTags("<PopoverContentExtra a>", "PopoverContent")).toEqual([]);
+  // (3) Same verdict, different string. A `>` inside a template literal truncates the naive
+  // match to `" aria-label={`a "` — still enough to contain `aria-label=`, so `NAMED` agrees by
+  // luck. Pinned anyway: the parser's job is the exact tag, and luck is not a property.
   expect(
     openingTags(
       '<PopoverContent aria-label={`a > b`} className="x" />',
       "PopoverContent",
     ),
   ).toEqual([' aria-label={`a > b`} className="x" /']);
+  // (4) Identical under both forms — a plain spread has no `>` to trip on. Kept as the control:
+  // without a case the naive form also passes, the three above could be read as a parser that
+  // merely disagrees with regex everywhere.
   expect(
     openingTags(
       "<PopoverContent {...spread}>body</PopoverContent>",
       "PopoverContent",
     ),
   ).toEqual([" {...spread}"]);
-  // A longer component name that merely starts with the same letters is not this tag.
-  expect(openingTags("<PopoverContentExtra a>", "PopoverContent")).toEqual([]);
 });
 
 // The count is asserted so that a refactor which DELETES every popover cannot turn this
