@@ -3648,8 +3648,8 @@ test("the keymap asks for a region while a stamp is armed, and names the generat
 });
 
 /** The static Segment line — what the keymap says with the gesture armed and no point
- *  down yet. Named because three assertions below need the SAME string: the HUD replaces
- *  it while a point is pending and has to hand it back afterwards. */
+ *  down yet. Named because two assertions below need the SAME string: the HUD replaces it
+ *  while a point is pending and has to hand it back afterwards. */
 const SEGMENT_IDLE_LINE =
 	"click ×2 sweeps the brush · [ ] radius · Esc drops the point";
 
@@ -3694,11 +3694,58 @@ test("the segment keymap counts the pending length against the cap, and reddens 
 	// nowhere else, which is why it is asserted in the toned state.
 	expect(over.className.includes("whitespace-nowrap")).toBe(true);
 
+	// EXACTLY at the cap is still LEGAL — the host refuses on `len > MAX_SEGMENT_M`, so a
+	// 60.0 m segment commits. A predicate written `>=` would redden a click that is about
+	// to succeed, and nothing else in this suite can tell the two spellings apart.
+	hud({ lenM: 60, capM: 60 });
+	const atCap = screen.getByText(
+		"segment · 60.0 m / 60 m · [ ] radius · Esc drops the point",
+	);
+	expect(atCap.className.includes("text-destructive-text")).toBe(false);
+
 	// The point is spent or dropped: the readout goes away and the static line comes back.
 	// A HUD that survived its own gesture would state a length for a segment that is no
 	// longer pending.
 	hud(null);
 	expect(screen.getByText(SEGMENT_IDLE_LINE)).toBeTruthy();
+});
+
+test("the over-cap tone belongs to the segment line, not to whatever the bar says next", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	pressKey("b");
+	for (let i = 0; i < 4; i++) pressKey("B", { shiftKey: true });
+
+	act(() => {
+		stub.fire.segmentHud({ lenM: 75, capM: 60 });
+	});
+	expect(
+		screen
+			.getByText("segment · 75.0 m / 60 m · [ ] radius · Esc drops the point")
+			.className.includes("text-destructive-text"),
+	).toBe(true);
+
+	// A session opens OVER the pending point, and the HUD is never republished — which is
+	// a state the host can really be in: `startStamp`'s SELECTION-first branch opens a
+	// session without clearing `segmentAnchor` (only its no-selection sibling does), and
+	// `setGesture` clears the anchors but not the selection. So: box-select, arm Segment,
+	// click once, sweep past 60 m, pick a generator.
+	//
+	// `armedKeymap` answers the SESSION first, so the line on screen is no longer about
+	// the segment at all — and a tone derived from `segment` alone beside it paints
+	// "⏎ commit · Esc discard" as a refusal. The branch that chooses the words owns the
+	// tone; deriving it a second time in the renderer is how the two came to disagree.
+	act(() => {
+		stub.fire.stamp(SESSION);
+	});
+	expect(
+		screen
+			.getByText(
+				`← → ↑ ↓ nudge · R rotate ¼ · ⏎ ${SESSION_VERBS.STAMP.primary} · Esc ${SESSION_VERBS.STAMP.secondary}`,
+			)
+			.className.includes("text-destructive-text"),
+	).toBe(false);
 });
 
 test("the keymap names only keys that are LIVE — under paint, ⌃ and X are not", () => {
@@ -3711,7 +3758,13 @@ test("the keymap names only keys that are LIVE — under paint, ⌃ and X are no
 	// pins WORDING DRIFT and never truth, which is exactly how the static line got away
 	// with naming three dead keys.
 	const brush = (effect: FieldTool["effect"]): string =>
-		armedKeymap({ ...DIG_TOOL, effect }, null, null, null, null);
+		armedKeymap({
+			tool: { ...DIG_TOOL, effect },
+			gesture: null,
+			session: null,
+			pendingStamp: null,
+			segment: null,
+		}).text;
 
 	expect(brush("dig")).toBe(
 		"LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",

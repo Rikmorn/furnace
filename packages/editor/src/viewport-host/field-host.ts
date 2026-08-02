@@ -369,7 +369,7 @@ export type FieldStats = {
    *  first stands, so there is never more than one.
    *
    *  It rides the stats push rather than a subscription of its own for two reasons. The
-   *  seams are single-slot, so a thirteenth would be a thirteenth thing to claim exactly
+   *  seams are single-slot, so a fourteenth would be a fourteenth thing to claim exactly
    *  once — and this fact has no consumer that does not already read stats. What it
    *  BUYS is legibility for a refusal that already ships: "a void cast is still building
    *  — re-tick the void layer once it lands" names a state nothing on screen showed,
@@ -1872,11 +1872,17 @@ export function createFieldHost(deps?: {
   // The segment HUD's own throttle clock, NOT `lastStroke`'s (D-25). Both admit one
   // event per STROKE_MIN_MS and that CONSTANT is shared deliberately — a readout that
   // refreshed on a different cadence from the brush it describes would be a second
-  // number to reason about. The VARIABLE is separate because the two paths are: the
-  // segment branch in `onPointerMove` returns above the stroke throttle and so never
-  // touches `lastStroke`, and writing it from here would open a stroke's first
-  // pointermove inside a window a HUD push had already spent — one silently dropped
-  // brush application at the start of the next drag.
+  // number to reason about.
+  //
+  // The VARIABLE is separate because the two paths are: the segment branch in
+  // `onPointerMove` returns above the stroke throttle and so never touches `lastStroke`.
+  // Keeping them apart is HYGIENE rather than a fix for a live bug, and the honest size
+  // of it is small — a stroke and a segment cannot be live at once (`onPointerDown`
+  // routes `gesture !== null` to the gesture branch and never sets `digging`), so
+  // sharing the slot would cost at most one dropped brush application, and only if the
+  // user disarmed the gesture, pressed LMB and moved within one 40 ms window of the last
+  // HUD push — a couple of frames, with the lost application a few px from the
+  // pointerdown one that already landed. Cheap to prevent, so prevented.
   let lastSegmentHud = 0;
   // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
   let lastReconfigureMs = 0;
@@ -3035,9 +3041,11 @@ export function createFieldHost(deps?: {
   // endpoints the preview capsule is swept between, so the number on the status bar and
   // the wireframe in the viewport can never describe different segments.
   //
-  // No far end resolved yet means the cursor has not moved since the click that anchored
-  // — the two points are the same point, so the honest length is 0 rather than nothing.
-  // That is also what makes the anchoring click's own push meaningful.
+  // With no far end resolved the only point the host has is the anchor, so the honest
+  // length is 0 rather than nothing — which is what makes the anchoring click's own push
+  // meaningful. Two ways to be in that state, and 0 is right for both: the cursor has
+  // not moved since the click, or it has moved and resolved no surface (`if (!p) return`
+  // in `updateSegmentPreview`, which deliberately leaves the last preview standing).
   const publishSegmentHud = (): void => {
     if (segmentAnchor === null) {
       segmentHudCb?.(null);

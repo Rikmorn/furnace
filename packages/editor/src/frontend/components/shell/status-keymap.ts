@@ -1,5 +1,6 @@
-// What the keys do RIGHT NOW, as a string — the status bar's keymap line, decided here
-// and rendered there.
+// What the keys do RIGHT NOW — the status bar's keymap line, decided here and rendered
+// there. The line's WORDS and its one bit of tone, because both follow from the same
+// branch and splitting them is how they came to disagree (see `Keymap`).
 //
 // Its own module because it is PURE: no React, no JSX, no context, no host handle. The
 // evidence that it wanted one is that `armedKeymap` was already exported solely so
@@ -7,7 +8,8 @@
 // test is a function that has outgrown the component it sits in. `StatusBar.tsx` was
 // past 620 lines with four unrelated clusters in it (`clean-code.md`'s ~400-line signal).
 // The segment-length HUD (D-25) landed here rather than there for exactly that reason:
-// it is another STRING decision, and the only part of it the renderer keeps is the tone.
+// it is another decision about what the line SAYS, and the renderer is left holding only
+// the class name that says it.
 //
 // Type-imports only from the viewport host (erased) — the project-first invariant.
 import type {
@@ -18,6 +20,31 @@ import type {
   ViewportGesture,
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
+
+/** Everything the status bar needs about what is armed. ONE options object rather than
+ *  five positional nullables (`clean-code.md` calls >4 a smell, and four of the five read
+ *  as bare `null`s at a call site): the fields are one cohesive question — what is the
+ *  editor armed to do right now — which is the shape that rule blesses. */
+export type ArmedState = {
+  tool: FieldTool;
+  gesture: ViewportGesture | null;
+  session: StampSession | null;
+  pendingStamp: PendingStamp | null;
+  segment: SegmentHud | null;
+};
+
+/** The keymap line plus whether it is describing something the next click will REFUSE.
+ *
+ *  The tone rides WITH the text, and that pairing is the whole point of the type: the
+ *  branch cascade below is the only thing that knows which state the line is about, and a
+ *  renderer that re-derived "is this over the cap?" from `segment` alone would tone lines
+ *  the segment is not even the subject of. That was live — a session opening over a
+ *  pending point (`startStamp`'s selection-first branch keeps the anchor) painted
+ *  "⏎ commit · Esc discard" as a refusal. Decided once, here, where the branch is. */
+export type Keymap = { text: string; overCap: boolean };
+
+/** A line with nothing to warn about — every branch but the segment's. */
+const plain = (text: string): Keymap => ({ text, overCap: false });
 
 /** One line per armed state — what the keys do RIGHT NOW. It answers the question a modal
  *  editor makes people ask constantly ("what does clicking do in this mode?") at the
@@ -33,15 +60,19 @@ import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
  *  as two different keys, and it is part of how this line's old static clause got away
  *  with naming three keys the host does not bind.
  *
+ *  ORDER IS THE CONTRACT: a session shadows a pending stamp, which shadows the gesture.
+ *  Because the tone leaves with the text, that order now decides both — nothing
+ *  downstream re-answers "which state is this?" and gets a different answer.
+ *
  *  Tested DIRECTLY rather than through the DOM: these strings ARE the claim, and rendering
  *  them first would be asserting the same thing twice. */
-export function armedKeymap(
-  tool: FieldTool,
-  gesture: ViewportGesture | null,
-  session: StampSession | null,
-  pendingStamp: PendingStamp | null,
-  segment: SegmentHud | null,
-): string {
+export function armedKeymap({
+  tool,
+  gesture,
+  session,
+  pendingStamp,
+  segment,
+}: ArmedState): Keymap {
   // A live session owns the interaction — the family keys refuse while it stands, so
   // what is left to say is how it ENDS. The two end verbs come from `SESSION_VERBS`,
   // the one table the card and the session strip also read: a user working a stamp has
@@ -52,7 +83,9 @@ export function armedKeymap(
   if (session !== null) {
     const verbs = SESSION_VERBS[sessionStateTag(session)];
     const steer = session.moving === true ? "drag ghost move" : "← → ↑ ↓ nudge";
-    return `${steer} · R rotate ¼ · ⏎ ${verbs.primary} · Esc ${verbs.secondary}`;
+    return plain(
+      `${steer} · R rotate ¼ · ⏎ ${verbs.primary} · Esc ${verbs.secondary}`,
+    );
   }
   // A pending stamp SHADOWS the armed gesture: LMB is drawing that stamp's region,
   // whatever the gesture slot still says underneath (usually `pointer`, the arm most
@@ -67,21 +100,24 @@ export function armedKeymap(
   // same mechanism; one mechanism with two verbs on one status line, with the wrong
   // verb on the flow D-F4.5-7 exists to make discoverable, is worse than either.
   if (pendingStamp !== null)
-    return `click ×2 to span a region for ${pendingStamp.name} · Esc cancels`;
-  if (gesture === "pointer") return "LMB select · G grab · F frame · ⌫ delete";
-  if (gesture === "box") return "click ×2 spans a region · Esc clears";
+    return plain(
+      `click ×2 to span a region for ${pendingStamp.name} · Esc cancels`,
+    );
+  if (gesture === "pointer")
+    return plain("LMB select · G grab · F frame · ⌫ delete");
+  if (gesture === "box") return plain("click ×2 spans a region · Esc clears");
   if (gesture === "material")
-    return "LMB floods the clicked material · Esc clears";
-  if (gesture === "void") return "LMB floods an air pocket · Esc clears";
+    return plain("LMB floods the clicked material · Esc clears");
+  if (gesture === "void") return plain("LMB floods an air pocket · Esc clears");
   if (gesture === "segment") return segmentLine(segment);
   // The brush itself, with the armed effect NAMED: it is what LMB is about to do, and
   // the four read very differently. Joined from parts rather than interpolated, so an
   // effect with no live modifiers ends at the radius instead of a dangling separator.
-  return [
-    `LMB ${tool.effect}`,
-    "[ ] radius",
-    ...modifierParts(tool.effect),
-  ].join(" · ");
+  return plain(
+    [`LMB ${tool.effect}`, "[ ] radius", ...modifierParts(tool.effect)].join(
+      " · ",
+    ),
+  );
 }
 
 /** The Segment line, in its two states (D-25).
@@ -107,13 +143,21 @@ export function armedKeymap(
  *  re-fattens a pending capsule, so dropping the clause would name a live key nowhere at
  *  the one moment it is most useful, which is this module's whole complaint about the
  *  static line it replaced. `click ×2` does not survive: with a point down only one
- *  click is left. */
-function segmentLine(segment: SegmentHud | null): string {
-  const head =
-    segment === null
-      ? "click ×2 sweeps the brush"
-      : `segment · ${segment.lenM.toFixed(1)} m / ${segment.capM} m`;
-  return `${head} · [ ] radius · Esc drops the point`;
+ *  click is left.
+ *
+ *  The ONE branch that can set `overCap`, and the only place that predicate is spelled.
+ *  Strictly `>`, matching the host's own refusal (`len > MAX_SEGMENT_M`): a segment of
+ *  exactly the cap COMMITS, so `>=` here would paint a legal click as a doomed one. */
+function segmentLine(segment: SegmentHud | null): Keymap {
+  if (segment === null)
+    return plain(
+      "click ×2 sweeps the brush · [ ] radius · Esc drops the point",
+    );
+  const { lenM, capM } = segment;
+  return {
+    text: `segment · ${lenM.toFixed(1)} m / ${capM} m · [ ] radius · Esc drops the point`,
+    overCap: lenM > capM,
+  };
 }
 
 /** Which momentary/sticky overrides are LIVE under `effect`, derived rather than stated.

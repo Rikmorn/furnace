@@ -7,8 +7,9 @@
 // subscribeStats is a single slot and a second subscriber would silently steal the
 // first's callback.
 //
-// The keymap line's STRINGS live next door in `status-keymap.ts` — pure, React-free, and
-// tested directly. What is left here is rendering.
+// What the keymap line SAYS — and whether it is warning about something — is decided next
+// door in `status-keymap.ts`: pure, React-free, and tested directly. What is left here is
+// rendering it.
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useSyncExternalStore } from "react";
@@ -60,22 +61,34 @@ const ms = (n: number): string => `${grouped(Math.round(n))} ms`;
  *  chips and the error line beside it have nothing to do with that. The segment HUD (D-25)
  *  is the second context here with that cadence, and it is the same argument twice.
  *
- *  The line can grow and shrink as the number does and CANNOT move the canvas: `h-7` fixes
- *  the bar's height (the ordering comment in `StatusBar` says so of the chips, and it is
- *  the same `h-7`) and `whitespace-nowrap` refuses the wrap that is the only other way
- *  text could ask for a second row. `tabular-nums` is the smaller half of the same care —
- *  without it every digit that changes mid-gesture re-measures the whole line and the
- *  words after it twitch.
+ *  The line grows and shrinks as the number does and CANNOT move the canvas, for a
+ *  STRUCTURAL reason rather than a budget of characters: the canvas cell is a sibling of
+ *  this footer inside a `fixed inset-0 flex flex-col` root, so where it sits is a function
+ *  of the header's and footer's HEIGHTS and nothing else. `h-7` fixes this one (the
+ *  ordering comment in `StatusBar` says the same of the chips, and it is the same `h-7`)
+ *  and `whitespace-nowrap` refuses the wrap that is the only way text could ask for a
+ *  second row. No length of line can reach the canvas — which matters, because `lenM` has
+ *  no ceiling: only the second CLICK is capped, so a flown-away camera can put kilometres
+ *  on this line. `tabular-nums` is the smaller half of the same care — without it every
+ *  digit that changes mid-gesture re-measures the line and the words after it twitch.
  *
- *  The over-cap TONE is the one part of this line the string cannot carry, which is why
- *  it is decided here: past the cap the next click is going to be refused, and the line
- *  says so while the point can still be re-aimed. `segmentLine` puts both numbers in the
- *  text so this is reinforcement rather than the sole channel. */
+ *  The over-cap TONE arrives WITH the text rather than being worked out here, and that is
+ *  a correctness point, not tidiness: `armedKeymap` answers a session and a pending stamp
+ *  BEFORE the gesture, so a tone re-derived from `segment` alone painted lines the segment
+ *  was not the subject of — a session opened over a pending point rendered "⏎ commit ·
+ *  Esc discard" in the refusal colour. One branch cascade, one answer. All this component
+ *  decides is which class says it. */
 function KeymapLine() {
 	const { tool, gesture, pendingStamp } = useFieldTool();
 	const { stamp } = useFieldStamp();
 	const { segment } = useFieldSegmentHud();
-	const overCap = segment !== null && segment.lenM > segment.capM;
+	const { text, overCap } = armedKeymap({
+		tool,
+		gesture,
+		session: stamp,
+		pendingStamp,
+		segment,
+	});
 	return (
 		<span
 			className={cn(
@@ -83,7 +96,7 @@ function KeymapLine() {
 				overCap && "text-destructive-text",
 			)}
 		>
-			{armedKeymap(tool, gesture, stamp, pendingStamp, segment)}
+			{text}
 		</span>
 	);
 }
