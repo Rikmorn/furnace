@@ -47,14 +47,28 @@ const PALETTE_ICON: Record<PaletteId, LucideIcon> = {
  *  Its ONE consumer is the projection below, which is why a zero measurement reads as "not
  *  measured" rather than as a cell with no room in it: before the first layout (and in a
  *  DOM that runs none) every box is zero, and projecting against that would pin every
- *  palette to the origin.
+ *  palette to the origin. It stays a guard rather than becoming a complaint because the
+ *  fallback is benign — no projection, stored geometry rendered as-is — and because the
+ *  same measurement is already a contract violation `CanvasHost` throws over one sibling
+ *  away; a second, quieter posture on one fact would only be noise.
+ *
+ *  `hidden` is a DEPENDENCY, not a detail. ⌘\ sets that attribute on the very element this
+ *  measures, and a `display:none` element's every rect is zero — so a window resized while
+ *  the layer is latched away is a resize this hook cannot read, and no second event fires
+ *  when the latch lifts. Re-running on the flag is what re-measures at exactly the moment
+ *  there is something to measure again; the early return is what stops the latched state
+ *  from clearing a good measurement with a zero one.
  *
  *  A `resize` listener rather than a ResizeObserver: the cell's size is a function of the
  *  window and of nothing else — that is the layout contract at the top of `Shell` — so the
  *  window event is the whole story, and it costs no observer per mount. */
-function useCellSize(ref: RefObject<HTMLDivElement | null>): CellSize | null {
+function useCellSize(
+	ref: RefObject<HTMLDivElement | null>,
+	hidden: boolean,
+): CellSize | null {
 	const [cell, setCell] = useState<CellSize | null>(null);
 	useLayoutEffect(() => {
+		if (hidden) return;
 		const measure = (): void => {
 			const rect = ref.current?.getBoundingClientRect();
 			if (!rect || rect.width === 0 || rect.height === 0) return;
@@ -69,7 +83,7 @@ function useCellSize(ref: RefObject<HTMLDivElement | null>): CellSize | null {
 		measure();
 		window.addEventListener("resize", measure);
 		return () => window.removeEventListener("resize", measure);
-	}, [ref]);
+	}, [ref, hidden]);
 	return cell;
 }
 
@@ -86,7 +100,7 @@ export function PaletteLayer({
 	const order = usePaletteOrder();
 	const raise = usePaletteRaise();
 	const layerRef = useRef<HTMLDivElement | null>(null);
-	const cell = useCellSize(layerRef);
+	const cell = useCellSize(layerRef, hidden);
 	const chipRefs = useRef<Partial<Record<PaletteId, HTMLButtonElement | null>>>(
 		{},
 	);

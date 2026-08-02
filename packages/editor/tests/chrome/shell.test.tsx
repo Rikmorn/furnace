@@ -20,6 +20,7 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { ReactElement } from "react";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { NUDGE_PX } from "../../src/frontend/components/shell/Palette.tsx";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import { armedKeymap } from "../../src/frontend/components/shell/status-keymap.ts";
 import {
@@ -29,6 +30,10 @@ import {
 import { ACTIONS, byId } from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
+import {
+	GRIP_REACH_PX,
+	PALETTES,
+} from "../../src/frontend/lib/palette-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import type {
 	FieldTool,
@@ -2968,6 +2973,11 @@ test("the palette title is a keyboard GRIP: arrows step it, \u21e7 steps it furt
 	// It is in the header beside the two verbs, not somewhere else in the palette — the
 	// thing a user drags is the thing a keyboard moves.
 	expect(grip.closest("header")?.parentElement).toBe(flagsPalette());
+	// …and it is INSIDE the heading rather than instead of it. Making the title operable is
+	// no reason to stop it being a heading: the region landmark and the heading are two
+	// different ways to navigate, and only one of them lists the palettes to a reader
+	// pressing `H`. A grip that replaced the `h2` passes every other case in this file.
+	expect(grip.closest("h2") === null).toBe(false);
 
 	// One arrow, one step of the chrome's own 8 px rhythm. Measured off the shipped default
 	// rather than a fixture, so a default that moves keeps this case honest.
@@ -3014,6 +3024,49 @@ test("the grip does not swallow Esc: the cancel ladder still runs from it", asyn
 	expect(stub.calls.escape.mock.calls.length).toBe(1);
 });
 
+test("the grip claims the bare arrows and NOTHING else", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const grip = flagsGrip();
+
+	// A claimed key is prevented: the arrows scroll a page by default, and a palette that
+	// moved AND scrolled the document under it would be two things per press.
+	const claimed = new KeyboardEvent("keydown", {
+		key: "ArrowRight",
+		bubbles: true,
+		cancelable: true,
+	});
+	withLayerBox(() => {
+		act(() => {
+			grip.dispatchEvent(claimed);
+		});
+	});
+	expect(claimed.defaultPrevented).toBe(true);
+	const stepped = PALETTES.flags.default.x + NUDGE_PX;
+	expect(flagsPalette()?.style.left).toBe(`${stepped}px`);
+
+	// A MODIFIED arrow is somebody else's — \u2318\u2190 is a browser Back on some platforms and
+	// \u2325\u2192 a word jump — so the grip neither acts on it nor prevents it. \u21e7 is the one
+	// modifier that IS ours (it is the long step), which is why it is excluded from the
+	// guard rather than lumped in with the rest.
+	for (const mod of ["metaKey", "ctrlKey", "altKey"]) {
+		const ignored = new KeyboardEvent("keydown", {
+			key: "ArrowRight",
+			[mod]: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		withLayerBox(() => {
+			act(() => {
+				grip.dispatchEvent(ignored);
+			});
+		});
+		expect([mod, ignored.defaultPrevented]).toEqual([mod, false]);
+		expect([mod, flagsPalette()?.style.left]).toEqual([mod, `${stepped}px`]);
+	}
+});
+
 /** A persisted arrangement whose flags palette is far out in a big window — the shape a
  *  smaller window has to cope with, and the one a bigger one has to give back. */
 const FAR_OUT = {
@@ -3042,8 +3095,8 @@ test("a shrunken window brings a stranded palette back into reach, and growing i
 		},
 		{ width: 400, height: 300 },
 	);
-	expect(flagsPalette()?.style.left).toBe("80px");
-	expect(flagsPalette()?.style.top).toBe("268px");
+	expect(flagsPalette()?.style.left).toBe(`${400 - PALETTES.flags.width}px`);
+	expect(flagsPalette()?.style.top).toBe(`${300 - GRIP_REACH_PX}px`);
 
 	// THE DISCRIMINATOR between a clamp that MOVES the palette and one that only shows it
 	// moved: the record on disk is untouched, so the user's position survived the shrink.
@@ -3066,6 +3119,36 @@ test("a shrunken window brings a stranded palette back into reach, and growing i
 	);
 	expect(flagsPalette()?.style.left).toBe("900px");
 	expect(flagsPalette()?.style.top).toBe("500px");
+});
+
+test("the \u2318\\ latch cannot leave the cell measurement stale", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: FAR_OUT }));
+	expect(flagsPalette()?.style.left).toBe("900px");
+
+	// \u2318\\ sets `hidden` on the very div the cell measurement reads. In a browser a
+	// `display:none` element measures all-zero, so a resize DURING the latch tells the layer
+	// nothing — and no second resize fires when the latch lifts. Nothing is stubbed here for
+	// exactly that reason: an unmeasurable rect is the state under test, and happy-dom's own
+	// zero agrees with the browser on this one point.
+	pickMenuItem("Hide palettes");
+	expect(flagsPalette() === null).toBe(true);
+	act(() => {
+		window.dispatchEvent(new Event("resize"));
+	});
+
+	// UNLATCHING is what has to re-measure. Without it the layer projects against the cell
+	// as it was before the resize and hands back a palette outside the window — the stranded
+	// palette this whole projection exists to prevent, arriving through the one door that
+	// suppresses the event it listens for.
+	withLayerBox(
+		() => {
+			pickMenuItem("Show palettes");
+		},
+		{ width: 400, height: 300 },
+	);
+	expect(flagsPalette()?.style.left).toBe(`${400 - PALETTES.flags.width}px`);
 });
 
 test("a Reset that happens BEFORE the store arrives is not undone by the restore", async () => {

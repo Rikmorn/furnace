@@ -9,6 +9,7 @@ import {
   DESIGN_FLOOR_CELL,
   defaultWorkspace,
   deserializeWorkspace,
+  GRIP_REACH_PX,
   movePalette,
   nudgePalette,
   PALETTE_IDS,
@@ -476,7 +477,10 @@ test("every shipped default fits the 1280×800 design floor", () => {
     .filter(
       (c) =>
         c.x + c.width > DESIGN_FLOOR_CELL.width ||
-        c.y + (c.maxHeight ?? 0) >= DESIGN_FLOOR_CELL.height,
+        // An unbounded palette still has to get its GRIP inside the cell — that is the
+        // floor its height has if it declares none, and it makes both axes the same
+        // "does the box fit" question rather than one `>` and one `>=`.
+        c.y + (c.maxHeight ?? GRIP_REACH_PX) > DESIGN_FLOOR_CELL.height,
     )
     .map((c) => c.id);
   expect(overflow).toEqual([]);
@@ -537,6 +541,60 @@ test("a nudge steps by the delta and takes the DRAG's clamp with it", () => {
   );
   expect(docked.palettes.entities.edge).toBe("left");
   expect(docked.palettes.entities.x).toBe(0);
+});
+
+test("an arrow can LEAVE a dock, even though one step is smaller than the gutter", () => {
+  // The one place the keyboard CANNOT simply inherit the drag's rule, and it is a
+  // difference in kind rather than in geometry: a pointer crosses the 24 px gutter in one
+  // gesture, and an 8 px step never can. Without the departure enlargement below, a plain
+  // arrow out of a dock re-snaps to the same edge and `movePalette` returns the identical
+  // state — not a small move, a PERMANENT no-op with no re-render to hint at it, and ⇧ is
+  // the only way out of a dock a keyboard user ever entered by accident.
+  const docked = nudgePalette(
+    floatingAt(SNAP_PX + 4, 200),
+    "entities",
+    { dx: -8, dy: 0 },
+    BOUNDS,
+  );
+  expect(docked.palettes.entities.edge).toBe("left");
+
+  const away = nudgePalette(docked, "entities", { dx: 8, dy: 0 }, BOUNDS);
+  expect(away.palettes.entities.edge).toBeNull();
+  // Just clear of the gutter, which is the smallest departure that IS one.
+  expect(away.palettes.entities.x).toBe(SNAP_PX + 1);
+
+  // The right edge answers identically — a rule that only knew about the left one would
+  // pass every case above.
+  const right = movePalette(
+    floatingAt(400, 200),
+    "entities",
+    { x: BOUNDS.maxX, y: 200 },
+    BOUNDS,
+  );
+  expect(right.palettes.entities.edge).toBe("right");
+  const offRight = nudgePalette(right, "entities", { dx: -8, dy: 0 }, BOUNDS);
+  expect(offRight.palettes.entities.edge).toBeNull();
+  expect(offRight.palettes.entities.x).toBe(BOUNDS.maxX - (SNAP_PX + 1));
+
+  // NARROW, and each of these is a way the enlargement could leak. Toward the edge it is
+  // still a step (into the wall, so nothing moves and the state is returned unchanged);
+  // ⇧ is already past the gutter and keeps its own size; a FREE palette never sees it; and
+  // the Y axis never does, because there is no top or bottom dock to leave.
+  expect(nudgePalette(docked, "entities", { dx: -8, dy: 0 }, BOUNDS)).toBe(
+    docked,
+  );
+  expect(
+    nudgePalette(docked, "entities", { dx: 32, dy: 0 }, BOUNDS).palettes
+      .entities.x,
+  ).toBe(32);
+  expect(
+    nudgePalette(floatingAt(400, 200), "entities", { dx: 8, dy: 0 }, BOUNDS)
+      .palettes.entities.x,
+  ).toBe(408);
+  expect(
+    nudgePalette(docked, "entities", { dx: 0, dy: 8 }, BOUNDS).palettes.entities
+      .y,
+  ).toBe(208);
 });
 
 test("a nudge starts from where the palette IS, not from a stale stored x", () => {
@@ -616,7 +674,7 @@ test("the projection's bounds keep the GRIP inside the cell, per palette width",
   const cell = { width: 1000, height: 600 };
   expect(cellBounds(cell, "entities")).toEqual({
     maxX: 1000 - PALETTES.entities.width,
-    maxY: 600 - 32,
+    maxY: 600 - GRIP_REACH_PX,
   });
   // Per palette, not one figure for all of them: a 380 px log and a 240 px history have
   // different right-most origins, and a shared number would strand one or clip the other.

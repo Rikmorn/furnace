@@ -2321,13 +2321,17 @@ live session card). Past history's right edge at 960 the cell is clear, which le
 the axis triad and the bottom-left to the collapsed-chip rail.
 
 Two other F4.5c Task 11 facts about the same geometry. **A palette moves by keyboard** (D-26): its
-title is the grip — a real `button`, because a `role="button"` header would make the collapse and
-close verbs presentational — and the arrows step it 8 px, ⇧-arrows 32 px, through `nudgePalette`,
-which is `movePalette` with the origin resolved first, so the keyboard inherits the drag's clamp and
-edge snap rather than restating them. Esc is deliberately NOT claimed: the move is modeless, so there
+title is the grip — a real `button` INSIDE its `h2`, because a `role="button"` header would make the
+collapse and close verbs presentational while dropping the heading would cost heading navigation —
+and the arrows step it 8 px, ⇧-arrows 32 px, through `nudgePalette`, which is `movePalette` with the
+origin resolved first, so the keyboard inherits the drag's clamp and edge snap rather than restating
+them. The ONE deliberate divergence is leaving a dock: a step smaller than `SNAP_PX` would re-snap
+forever, so a departure is enlarged to `SNAP_PX + 1` (arrival is unchanged). Modified arrows are
+neither acted on nor prevented; ⇧ is the exception because it is the long step. Esc is deliberately NOT claimed: the move is modeless, so there
 is nothing to leave, and Esc stays `session.escape`'s. **A resize projects, it does not move**
 (`clampToCell`): the layer measures the cell and clamps stored geometry AT RENDER, leaving the record
-alone — so a window that shrinks brings a stranded palette back into reach and one that grows again
+alone — and `useCellSize` takes the ⌘\ latch as a dependency, because a `display:none` layer measures
+zero and no resize event fires when the latch lifts — so a window that shrinks brings a stranded palette back into reach and one that grows again
 returns it to where the user put it. Clamping the state would instead have lost the position
 permanently, marked the arrangement `touched`, persisted it, and vetoed a restore that had not yet
 arrived.

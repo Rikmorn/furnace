@@ -174,6 +174,13 @@ export const PALETTES: Record<
     // 720 clears the card's right edge (420 + 280) by 20 px, and 720 + 240 = 960 leaves
     // the triad's corner and the whole strip past it alone.
     //
+    // A DEPARTURE, and worth naming as one: the F4.5c plan put this in the LEFT column
+    // under entities. That column cannot hold three — entities' extent already reaches
+    // y = 344 and flags starts at 380, so a third would need an extent of its own invented
+    // for it, and the arrangement would rest on two budgets instead of one. A column of its
+    // own needs none, which is why it is the stronger answer rather than merely a different
+    // one.
+    //
     // y = 56 rather than 24, so it lines up with the card it is read alongside: the two
     // answer different questions at different moments (what a stamp IS, versus what has
     // been done) and belong on one eye line.
@@ -222,11 +229,15 @@ export const DESIGN_FLOOR_CELL = {
 } as const;
 
 /** How much of a palette's top edge must stay inside the cell for its grip to be grabbable
- *  — one header row (a 20 px control plus `py-1.5`, 32 px). The projection's Y bound, and
- *  deliberately weaker than the drag's: a drag knows the palette's measured height and can
- *  keep the WHOLE box in, while the projection runs before anything is measured and can
- *  only promise the handle. */
-const GRIP_REACH_PX = 32;
+ *  — the header's full height: a 20 px control, `py-1.5` either side, and the 1 px bottom
+ *  border. The projection's Y bound, and deliberately weaker than the drag's: a drag knows
+ *  the palette's measured height and can keep the WHOLE box in, while the projection runs
+ *  without measuring anything and can only promise the handle.
+ *
+ *  Exported because the default-arrangement check needs it for the same reason the
+ *  projection does — a palette with less than this inside the cell is not reachable, so it
+ *  is the floor on an unbounded default's height as well. */
+export const GRIP_REACH_PX = 20 + 6 + 6 + 1;
 
 /** The cell as the layer measured it. */
 export type CellSize = { width: number; height: number };
@@ -330,13 +341,34 @@ export function nudgePalette(
   delta: { dx: number; dy: number },
   bounds: OriginBounds,
 ): WorkspaceState {
-  const from = clampToCell(state.palettes[id], bounds);
+  const geom = state.palettes[id];
+  const from = clampToCell(geom, bounds);
   return movePalette(
     state,
     id,
-    { x: from.x + delta.dx, y: from.y + delta.dy },
+    { x: from.x + departing(geom.edge, delta.dx), y: from.y + delta.dy },
     bounds,
   );
+}
+
+/** A step that LEAVES a dock, enlarged to clear the snap gutter.
+ *
+ *  The one place the keyboard cannot simply inherit the drag's geometry, and it is a
+ *  difference in kind rather than a second rule: crossing a 24 px gutter is one gesture for
+ *  a pointer and impossible for an 8 px step, which re-snaps to the edge it started on and
+ *  returns the identical state — a permanent no-op with not even a re-render to hint at it.
+ *  The ARRIVAL stays exactly the drag's (a step into the gutter docks, `edgeAt` decides);
+ *  only the departure is enlarged, only on the axis that has edges, and only in the
+ *  direction that leaves. A step toward the edge, a free palette, and the Y axis all keep
+ *  their own size.
+ *
+ *  `SNAP_PX + 1` rather than something roomier: the smallest departure that IS one, so the
+ *  keyboard still lands where a pointer could and no placement becomes keyboard-only. */
+function departing(edge: PaletteState["edge"], dx: number): number {
+  if (edge === null || dx === 0) return dx;
+  const leaving = edge === "left" ? dx > 0 : dx < 0;
+  if (!leaving) return dx;
+  return Math.sign(dx) * Math.max(Math.abs(dx), SNAP_PX + 1);
 }
 
 /** The origin bounds the LAYER projects against: the cell minus this palette's declared
@@ -345,7 +377,19 @@ export function nudgePalette(
  *  Asymmetric on purpose. The width is declared (this module owns it and the layer renders
  *  it), so x gets the drag's own rule — the whole box stays in. The height is content, and
  *  the projection runs on every render without measuring anything, so the strongest honest
- *  promise on that axis is that the header is still there to grab. */
+ *  promise on that axis is that the header is still there to grab.
+ *
+ *  FOUR rules decide where a palette may be, and this is the invariant that keeps them
+ *  agreeing. `movePalette` clamps a drag, `clampToCell` clamps the projection, this
+ *  function derives the projection's bounds, and `PaletteLayer.measureBounds` derives the
+ *  drag's. The two derivations differ on BOTH axes: the drag measures the palette, this one
+ *  declares its width and gives the Y axis a grip instead of a height. On x they agree
+ *  exactly, because the declared width IS the rendered width (`box-sizing: border-box`). On
+ *  y they do not, and the thing that stops the difference from being visible is
+ *  `Palette.placement`'s `calc(100% - y)` height cap on the SHOWN y: it is what keeps a
+ *  projected palette inside the cell it was projected into, so the drag's own maxY is never
+ *  smaller than where the projection put it. Remove that cap and the first arrow press
+ *  after a shrink re-measures a palette that is taller than the cell and teleports it. */
 export function cellBounds(cell: CellSize, id: PaletteId): OriginBounds {
   return {
     maxX: cell.width - PALETTES[id].width,

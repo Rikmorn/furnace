@@ -35,8 +35,8 @@ export type PaletteSize = { width: number; height: number };
  *  chrome's spacing step, so a nudged palette stays on the same rhythm as everything
  *  around it; 32 px is four of those — far enough to cross a palette in a dozen presses,
  *  small enough that it never overshoots the cell in one go. */
-const NUDGE_PX = 8;
-const NUDGE_FAR_PX = 32;
+export const NUDGE_PX = 8;
+export const NUDGE_FAR_PX = 32;
 
 /** The four keys the grip claims, as unit vectors. A lookup rather than a chain, so the
  *  "did we claim this key?" question below has exactly one answer. */
@@ -217,6 +217,11 @@ export function Palette({
 	 *  lists state at length): nothing at the window listens for arrows, and the canvas
 	 *  listens on itself, so the only default worth stopping is the page scroll. */
 	const onGripKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
+		// \u21e7 is OURS (it is the long step); every other modifier is somebody else's —
+		// \u2318\u2190 is a browser Back, \u2325\u2192 a word jump — so a modified arrow is neither acted
+		// on nor prevented. `lib/actions.ts`'s `bare`/`shifted` pair is the same rule for the
+		// window's own bindings.
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
 		const dir = NUDGE_KEYS[e.key];
 		if (dir === undefined) return;
 		const bounds = boundsNow();
@@ -270,27 +275,31 @@ export function Palette({
 				className="flex shrink-0 cursor-grab touch-none select-none items-center gap-1 border-b border-border px-2 py-1.5 active:cursor-grabbing"
 			>
 				{/* THE GRIP: the palette's title, and the one thing in the header a keyboard
-				    can move the palette with (D-26). It is a real `button` rather than the
-				    header itself carrying `role="button"`, and that is a constraint rather
-				    than a preference — a `button` role makes its children PRESENTATIONAL, so
-				    a header wearing it would take the collapse and close verbs out of the
-				    accessibility tree entirely.
-				    The `h2` it replaced is not missed: the section is still a named REGION (it
-				    takes its name from `title` directly now instead of from the heading), which
-				    is the landmark a reader navigates palettes by. What is gained is that the
-				    title is now reachable at all — it used to be inert chrome.
-				    The accessible name leads with the VERB and still contains the visible text,
-				    which is what WCAG 2.5.3 asks of a control whose label is a noun. */}
-				<button
-					ref={gripRef}
-					type="button"
-					aria-label={`move ${title} palette`}
-					aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
-					onKeyDown={onGripKeyDown}
-					className="min-w-0 flex-1 cursor-grab truncate text-left font-semibold text-foreground text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing"
-				>
-					{title}
-				</button>
+				    can move the palette with (D-26). A real `button` INSIDE the heading rather
+				    than the header itself carrying `role="button"`, and both halves of that are
+				    constraints rather than preferences. The role cannot go on the header,
+				    because a `button` makes its children PRESENTATIONAL and would take the
+				    collapse and close verbs out of the accessibility tree entirely. The heading
+				    cannot go away either, because the region landmark and the heading are two
+				    different ways to navigate and only one of them is a list of palettes to a
+				    reader pressing `H`. Nesting keeps both; what it costs is that the heading
+				    announces the button's name ("move Flags palette") rather than the bare
+				    title, which still identifies the palette and says what the header does.
+				    The accessible name leads with the VERB and CONTAINS the visible text, which
+				    is what WCAG 2.5.3 requires; visible-text-first is that SC's Understanding
+				    document advising, not the success criterion. */}
+				<h2 className="min-w-0 flex-1">
+					<button
+						ref={gripRef}
+						type="button"
+						aria-label={`move ${title} palette`}
+						aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowUp Shift+ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+						onKeyDown={onGripKeyDown}
+						className="block w-full cursor-grab truncate text-left font-semibold text-foreground text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing"
+					>
+						{title}
+					</button>
+				</h2>
 				<Button
 					ref={collapseRef}
 					type="button"
