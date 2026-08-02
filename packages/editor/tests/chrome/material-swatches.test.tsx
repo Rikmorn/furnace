@@ -20,8 +20,9 @@ import "../inspector/_register.ts";
 //
 // happy-dom resolves no styles, so this cannot measure a painted ring. What it can do is
 // read the className `cn()` actually produced and check the widths against each other,
-// which is where the outcome is decided: tailwind-merge resolves same-variant conflicts at
-// build time, so the surviving `focus-visible:ring-N` is the one that renders.
+// which is where the outcome is decided: `cn()` runs tailwind-merge on every render, so the
+// same-variant conflict is resolved at call time and the surviving `focus-visible:ring-N`
+// is the one that reaches the DOM.
 import { afterEach, expect, test } from "bun:test";
 import { MaterialSwatches } from "../../src/frontend/components/field/MaterialSwatches.tsx";
 import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";

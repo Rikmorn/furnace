@@ -46,7 +46,10 @@ import { cn } from "../../lib/cn.ts";
 // smear, which WCAG does not require of an inactive control but a reader still wants;
 // `opacity-50` on a coloured fill is the failure D-23 names, because a half-transparent fill
 // takes the label's contrast down with it. A variant with no coloured fill has no hue to
-// drop and dims instead — one number, 50 %, everywhere it is spelled in this chrome.
+// drop and dims instead — and every DISABLED-or-refused dim in this chrome is that same
+// 50 %, in `ui/` and in the tool rail and material strip alike. (Resting de-emphasis is a
+// different thing and keeps its own values: the dialog close button's `opacity-70`, the
+// dropdown shortcut's `opacity-60`. Those are not states, so they are not this tier.)
 const buttonVariants = cva(
 	"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
 	{

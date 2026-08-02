@@ -62,10 +62,18 @@
 	     - its foreground is near-white, so contrast FALLS as the fill lightens — the pair
 	       measures 5.33:1 at 0.53 and 4.69:1 at the 0.56 hover, and 4.4979:1 at 0.57, which
 	       is under the floor while still ROUNDING to a reassuring "4.50";
-	     - `border-destructive` carries a state (the error toast's edge, the world drawer's
-	       invalid name field), so WCAG 1.4.11 wants 3:1 against --popover, and that pins the
-	       fill from BELOW: 0.53 gives 3.1264:1 and 0.52 gives 2.9953:1 — again a value that
-	       rounds to a passing-looking 3.00 and is not one.
+	     - `border-destructive` is held to 3:1 against --popover, and that pins the fill from
+	       BELOW: 0.53 gives 3.1264:1 and 0.52 gives 2.9953:1 — again a value that rounds to a
+	       passing-looking 3.00 and is not one.
+	   The 3:1 floor is a SELF-IMPOSED one, and the honest version of the reasoning is worth
+	   the two lines. WCAG 1.4.11 binds visual information REQUIRED TO identify a state, and
+	   at neither `border-destructive` site is the border required: the error toast pairs it
+	   with --destructive-text copy and a distinguishing icon, and the world drawer's invalid
+	   field carries a --destructive-text message beside it (WorldDrawer.tsx). A strict
+	   reading therefore does not compel this value. It is kept because it costs nothing —
+	   the fill still clears 5.33:1 with its own foreground at 0.53 — and because a border
+	   that is legible on its own is the conservative direction for a colour whose whole job
+	   is to say "this is the destructive one".
 	   Both walls are asserted in tests/design-tokens.test.ts. */
 	--destructive: oklch(0.53 0.14 25);
 	/* Hover LIGHTENS, never fades (D-23) — see --primary-hover for the mechanism. This lane
@@ -173,7 +181,12 @@
    DELIBERATELY NO `--text-2xs--line-height`. Tailwind pairs one with each of its own
    sizes, but `text-[10px]` never set leading, so adding one here would change the height
    of every migrated row rather than just its font size — and nothing in this chrome may
-   move the viewport. Leading stays each caller's own (`leading-none`, `leading-tight`). */
+   move the viewport. Leading stays each caller's own (`leading-none`, `leading-tight`).
+   That neutrality is a property of THIS tier only. The two sites that went UP to `text-xs`
+   instead (`WorldDrawer`'s world name at 13 px, `ui/command`'s row at 12.5 px) do gain
+   Tailwind's paired `--text-xs--line-height`, so those two rows change height as well as
+   font size. Both are inside a dialog and a palette — neither is on the canvas's sizing
+   path — but they are the two places to look at on a visual pass. */
 @theme {
 	--text-2xs: 0.625rem;
 }

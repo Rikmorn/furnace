@@ -96,10 +96,15 @@ function ratio(l1: number, l2: number): number {
 }
 
 test("the colour converter agrees with the sRGB primaries", () => {
-  // Without this, every ratio below is a number produced by ~30 lines of transcribed
-  // matrix constants that nothing checks — a single mistyped digit would shift them all
-  // and the floors would still "pass". The anchors are the CSS Color 4 / Oklab values for
-  // the sRGB primaries, which must round-trip to the corners of the cube exactly.
+  // Without this, every ratio below is a number produced by ~30 lines of transcribed matrix
+  // constants that nothing checks. The anchors are the CSS Color 4 / Oklab values for the
+  // sRGB primaries, which must round-trip to the corners of the cube exactly.
+  //
+  // ITS RESOLUTION, measured rather than assumed: perturbing a matrix constant by ≥ ~9e-4
+  // reddens here, while ≤ ~1e-4 does not. That residue is immaterial — a coefficient error
+  // that small cannot move a rendered 8-bit channel or a 2 dp ledger entry — but the claim
+  // is "a transcription slip", not "any digit anywhere". The 18-entry ledger `toEqual` below
+  // is the second net, and it is the tighter one.
   expect(toRgb255(0.62796, 0.25768, 29.23)).toEqual([255, 0, 0]);
   expect(toRgb255(0.86644, 0.29483, 142.5)).toEqual([0, 255, 0]);
   expect(toRgb255(0.45201, 0.31322, 264.05)).toEqual([0, 0, 255]);
@@ -235,15 +240,17 @@ test("an on-fill foreground clears AA on BOTH states of its fill", () => {
   }
 });
 
-/** WCAG 1.4.11, the floor for a non-text boundary that carries meaning — a severity edge,
- *  an invalid field. Lower than the text floor, and the constraint that stopped
- *  `--destructive` being darkened as far as the button alone would have liked. */
+/** The non-text floor, borrowed from WCAG 1.4.11 rather than compelled by it — see the
+ *  `--destructive` block in `styles.css`. It is the constraint that stopped the token being
+ *  darkened as far as the button alone would have liked. */
 const AA_NON_TEXT = 3;
 
 test("a meaning-carrying border clears the non-text floor on its surface", () => {
   // `border-destructive` sites: the error toast (on --popover) and the world drawer's
-  // invalid-name field (on --background). Both are the visual carrier of a STATE, so
-  // 1.4.11 applies to them where it would not to decoration.
+  // invalid-name field (on --background). At BOTH the state is also carried in words — the
+  // toast's `--destructive-text` copy and icon, the drawer's message beside the field — so
+  // 1.4.11 does not strictly bind here. Held anyway, as the conservative direction for a
+  // colour whose only job is to mark the destructive thing.
   for (const surface of ["--popover", "--background"]) {
     expect(rawContrast("--destructive", surface)).toBeGreaterThanOrEqual(
       AA_NON_TEXT,
@@ -392,7 +399,12 @@ function compositeOklab(
  *    - the tool rail's member-flyout tab (`bg-primary/80` + `--primary-foreground`, 3.84)
  *    - the destructive button's hover (`bg-destructive/90` + `--destructive-foreground`)
  *  Both had a DARK foreground on a fill that alpha was darkening, which is the same
- *  mechanism as D-23's hover rule seen from the text's side. */
+ *  mechanism as D-23's hover rule seen from the text's side.
+ *
+ *  THIS LIST BEING HAND-MAINTAINED IS ITS WEAKNESS, and the paragraph above does not fix
+ *  it: re-adding either pair leaves every assertion here green, which was demonstrated
+ *  rather than assumed. The scan below ("no class string tints a fill and then puts that
+ *  fill's own foreground on it") is what actually stops them coming back. */
 const TINTED_SITES = [
   [
     "FlagsPalette trapped chip",
@@ -440,6 +452,72 @@ test("text on a translucent fill clears AA under BOTH compositing assumptions", 
     ([label, text, fill, backdrop, alpha]) =>
       `${label}: ${Math.round(worstTintedContrast(text, fill, backdrop, alpha) * 100) / 100}`,
   );
+  expect(offenders).toEqual([]);
+});
+
+/** The tones whose `-foreground` sibling is an ON-FILL colour — one meant to be read on top
+ *  of that tone as a solid block.
+ *
+ *  `muted` is deliberately absent, and the omission is the whole reason this is a list
+ *  rather than a sweep over every `--*-foreground` token in `styles.css`.
+ *  `--muted-foreground` is the chrome's SECONDARY TEXT TIER, worn by timestamps, hints and
+ *  counts on ordinary surfaces — not the label of a `bg-muted` block. Including it flags two
+ *  innocent rows (`FlagsPalette`, `DriftReport`) whose `hover:bg-muted/50` lightens a
+ *  transparent row, which D-23 explicitly sanctions. */
+const ON_FILL_TONES = [
+  "primary",
+  "destructive",
+  "secondary",
+  "accent",
+  "popover",
+  "success",
+  "warning",
+] as const;
+
+/** Every quoted string in a source file — the granularity that matters, because two classes
+ *  only compose if they land on the SAME element. */
+const stringLiterals = (src: string): string[] =>
+  [...src.matchAll(/"[^"\n]*"|`[^`]*`/g)].map((m) => m[0]);
+
+test("no class string tints a fill and then puts that fill's own foreground on it", () => {
+  // The gap this closes was PROVEN open, not theorised: `TINTED_SITES` above is hand
+  // maintained, and re-adding the exact `bg-primary/80 text-primary-foreground` pair that
+  // F4.5c removed from the tool rail left all 14 assertions in this file green. A comment
+  // saying "absent because fixed" enforces nothing.
+  //
+  // THE MECHANISM. An on-fill foreground is chosen against the SOLID tone. Alpha over this
+  // dark shell pulls the surface underneath into the fill, and where that foreground is the
+  // DARK member of the pair (`--primary-foreground`, `--destructive-foreground` on a light
+  // fill) the label loses contrast as the fill dims — the tool rail's armed flyout tab sat
+  // at 3.84:1 in its RESTING state this way. Either make the fill opaque, or put the pair in
+  // `TINTED_SITES` where it is measured.
+  //
+  // WHAT IT CANNOT SEE, stated plainly rather than overclaimed: it reads ONE class string at
+  // a time, so a tint applied by a parent or sibling element with the text on a child is
+  // invisible to it, as is any tint composed at runtime. It catches the spelling that has
+  // actually occurred here — both offending sites wrote fill and foreground on one element —
+  // and nothing wider than that.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const offenders: string[] = [];
+  for (const file of files) {
+    for (const literal of stringLiterals(
+      stripComments(readFileSync(file, "utf8")),
+    )) {
+      for (const tone of ON_FILL_TONES) {
+        const tinted = new RegExp(`bg-${tone}/\\d`).test(literal);
+        if (tinted && new RegExp(`text-${tone}-foreground`).test(literal))
+          offenders.push(`${relative(FRONTEND, file)}: ${literal}`);
+      }
+      // `--success` has a `-text` sibling now, so its bare form on its own tint is the
+      // second spelling of the `clear` chip's original 3.82:1 defect.
+      if (
+        /bg-success\/\d/.test(literal) &&
+        /text-success(?![\w-])/.test(literal)
+      )
+        offenders.push(`${relative(FRONTEND, file)}: ${literal}`);
+    }
+  }
   expect(offenders).toEqual([]);
 });
 

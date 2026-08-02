@@ -73,14 +73,15 @@ export function MaterialSwatches(props: {
 									// Leave it: a sweep that normalises `ring-offset-*` away as a
 									// shadcn focus-ring leftover would be removing the wrong thing.
 									//
-									// `focus-visible:ring-2` is here because the two rings share a CSS
+									// `focus-visible:ring-4` is here because the two rings share a CSS
 									// property and `:focus-visible` outranks a plain class, so the
 									// house `focus-visible:ring-1` above was SHRINKING this 2 px
 									// marker to 1 px whenever the selected swatch took focus — focus
 									// making its own indicator smaller. Widening rather than
 									// narrowing keeps focus additive; tailwind-merge resolves the two
-									// `focus-visible:ring-*` at build time, last one winning, so the
-									// outcome is decided here rather than by cascade order.
+									// `focus-visible:ring-*` at call time (`cn()` runs on every
+									// render), last one winning, so the outcome is decided by the
+									// argument order here rather than by cascade order.
 									c.id === props.activeId &&
 										"ring-2 ring-ring ring-offset-1 ring-offset-background focus-visible:ring-4",
 								)}
