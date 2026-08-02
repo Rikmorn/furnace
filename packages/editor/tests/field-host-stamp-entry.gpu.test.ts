@@ -264,6 +264,74 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+// --- …and it drops the pending ANCHORS, exactly as its sibling does ----------
+//
+// The no-selection branch clears both anchors and says why: `cursorAffordance` answers
+// `null` for any anchored gesture, the hologram goes on tracking a sweep that can no
+// longer happen, and Esc spends its first press on a point the user believes is gone.
+// All three hold when the session opens SELECTION-first, and D-7 suspends the brush
+// while a session pends anyway — a live anchor under one is a contradiction.
+//
+// The branch said "supersedes any arm" and superseded neither anchor. Its
+// `setPendingStamp(null)` looks like it would cover the corner — the clear does live in
+// that setter — but the setter's first line returns on an unchanged id, so with NOTHING
+// armed the call is a complete no-op. That is why the ARM_EXITS row below (which reaches
+// this same branch WITH a stamp armed, so the setter really disarms) was green
+// throughout: the two paths differ by exactly the guard.
+//
+// Pinned by CONSEQUENCE rather than by the assignment: `segmentAnchor` is not readable
+// from outside, and "the anchor is null" is an implementation fact where "one Esc still
+// discards the session" is the thing a user would notice. Rung one of the ladder is "a
+// half-drawn gesture", so a stale anchor eats the press that should have ended the
+// session — the exact wording of the sibling's comment, turned into an assertion.
+const STALE_ANCHORS: readonly {
+  name: string;
+  /** Leave one pending anchor down. `box` is armed and its selection is committed. */
+  arm: (f: Awaited<ReturnType<typeof stampEntryFixture>>) => void;
+}[] = [
+  {
+    name: "a pending segment point",
+    arm: (f) => {
+      f.host.setGesture("segment");
+      f.click(20, 20);
+    },
+  },
+  {
+    // `box` is still armed from the selection above, so this is corner one of a NEW
+    // region — the selection it would close is not the one already committed.
+    name: "a pending box corner",
+    arm: (f) => f.click(20, 20),
+  },
+];
+
+for (const row of STALE_ANCHORS) {
+  test.skipIf(!bunWebGpuAvailable())(
+    `a selection-first startStamp drops ${row.name}`,
+    async () => {
+      const f = await stampEntryFixture();
+      try {
+        f.host.setGesture("box");
+        f.click(14, 14);
+        f.click(50, 50);
+        expect(f.selections.at(-1)).not.toBeNull();
+
+        row.arm(f);
+        f.host.startStamp("hall");
+        expect(opened(f.sessions)).not.toBeNull();
+
+        // ONE Esc has to reach the SESSION. With a stale anchor standing the ladder
+        // stops at rung one instead, clearing a point nothing on screen still explains,
+        // and the session the user was trying to discard is still there.
+        f.key("Escape");
+        expect(f.sessions.at(-1)).toBeNull();
+        expect(f.errors).toEqual([]);
+      } finally {
+        f.teardown();
+      }
+    },
+  );
+}
+
 // --- disarming the stamp takes its pending corner with it -------------------
 //
 // ONE table, because the claim is one rule: the clear lives inside

@@ -6693,6 +6693,18 @@ export function createFieldHost(deps?: {
       // A selection-first start supersedes any arm: the region question is
       // answered, so the viewport must stop asking it.
       setPendingStamp(null);
+      // …and both pending ANCHORS with it, for the reasons the sibling branch
+      // above spells out — they hold whichever way the session was opened, and
+      // D-7 suspends the brush under a live session anyway, so a half-drawn
+      // gesture waiting underneath one is a contradiction.
+      //
+      // NOT covered by the `setPendingStamp(null)` above, though it looks it:
+      // that setter clears the box corner only when it is really DISARMING, and
+      // its first line returns on an unchanged id — so with nothing armed (the
+      // ordinary way here: select a region, arm a gesture, click once, pick a
+      // generator) the call does nothing at all.
+      setBoxAnchor(null);
+      setSegmentAnchor(null);
       openStampSession(
         generator,
         def,
