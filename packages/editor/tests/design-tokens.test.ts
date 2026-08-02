@@ -19,9 +19,9 @@ import { join, relative } from "node:path";
 // `text-destructive-text`), and every surface a tone is used on is asserted, not just the
 // darkest one.
 //
-// It also does not reach TRANSLUCENT fills (`bg-success/20`), whose painted colour depends
-// on a compositing space this file cannot verify without a browser. Those stay a gate
-// question; see the note on the ledger.
+// TRANSLUCENT fills get their own section near the bottom. Their painted colour depends on
+// a compositing space this file cannot settle headlessly, so those pairs are asserted
+// against the WORSE of the two plausible assumptions rather than against a single number.
 
 const STYLES = join(import.meta.dir, "..", "src", "frontend", "styles.css");
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
@@ -143,7 +143,20 @@ function lum(name: string): number {
   return luminance(t[0], t[1], t[2]);
 }
 
-/** The measured ratio for a pair, at the 2 dp the ledger and DESIGN.md quote. */
+/** The measured ratio for a pair, EXACT. Every floor assertion uses this one.
+ *
+ *  Separate from {@link contrast} because rounding defeats a floor at exactly the boundary
+ *  that matters, and this file found that out by sabotage rather than by reading: darkening
+ *  `--destructive` to 0.52 puts its border at 2.9953:1 against `--popover`, which
+ *  `Math.round(…* 100) / 100` turns into a 3.00 that sails through `>= 3`. The same trap sits
+ *  one step away on the text floor — a 0.57 destructive hover measures 4.4979:1 and rounds
+ *  to a reassuring 4.50. Round for the ledger; never for a gate. */
+function rawContrast(fg: string, bg: string): number {
+  return ratio(lum(fg), lum(bg));
+}
+
+/** The measured ratio at the 2 dp the ledger and DESIGN.md quote. LEDGER ONLY — see
+ *  {@link rawContrast} for why a floor must never be asserted against this. */
 function contrast(fg: string, bg: string): number {
   return Math.round(ratio(lum(fg), lum(bg)) * 100) / 100;
 }
@@ -165,11 +178,13 @@ test("the parser found the ramp it is about to measure", () => {
 
 test("body text clears AA on every surface of the ramp", () => {
   for (const surface of ["--background", "--card", "--popover"]) {
-    expect(contrast("--foreground", surface)).toBeGreaterThanOrEqual(AA);
+    expect(rawContrast("--foreground", surface)).toBeGreaterThanOrEqual(AA);
   }
   // The secondary tier is held to the same floor rather than exempted: it carries real
   // copy (timestamps, counts, hints), not just disabled states.
-  expect(contrast("--muted-foreground", "--card")).toBeGreaterThanOrEqual(AA);
+  expect(rawContrast("--muted-foreground", "--card")).toBeGreaterThanOrEqual(
+    AA,
+  );
 });
 
 test("error text clears AA on the surfaces it is used on", () => {
@@ -177,7 +192,9 @@ test("error text clears AA on the surfaces it is used on", () => {
   // palettes, inspector field errors (--card). The FILL it split from does NOT clear the
   // floor as text (see the ledger) — that gap is the whole reason the token exists.
   for (const surface of ["--card", "--popover"]) {
-    expect(contrast("--destructive-text", surface)).toBeGreaterThanOrEqual(AA);
+    expect(rawContrast("--destructive-text", surface)).toBeGreaterThanOrEqual(
+      AA,
+    );
   }
 });
 
@@ -190,39 +207,58 @@ test("warning text clears AA on the surfaces it is used on", () => {
   // and it does not (see the ledger). A second token for a pair that already passes
   // would be surface bought with nothing.
   for (const surface of ["--card", "--popover"]) {
-    expect(contrast("--warning", surface)).toBeGreaterThanOrEqual(AA);
+    expect(rawContrast("--warning", surface)).toBeGreaterThanOrEqual(AA);
   }
 });
 
 test("success text clears AA on the surfaces it is used on", () => {
-  // `text-success` sites: the toast row (--popover); the log row and the world drawer's
-  // tracked badge (--card). Clears, but by the smallest margin in the ramp — a darkening
-  // of `--success` or a lightening of `--popover` is what this catches.
+  // `text-success-text` sites: the toast row (--popover); the log row and the world
+  // drawer's tracked badge (--card); the flags palette's `clear` verdict chip (a tinted
+  // surface, which the chip pin below covers separately).
   for (const surface of ["--card", "--popover"]) {
-    expect(contrast("--success", surface)).toBeGreaterThanOrEqual(AA);
+    expect(rawContrast("--success-text", surface)).toBeGreaterThanOrEqual(AA);
   }
 });
 
-test("an on-fill foreground clears AA on its own fill", () => {
-  expect(
-    contrast("--destructive-foreground", "--destructive"),
-  ).toBeGreaterThanOrEqual(AA);
-  expect(contrast("--primary-foreground", "--primary")).toBeGreaterThanOrEqual(
-    AA,
-  );
-  // A hover state is not a moment when a label may become unreadable, so the hover fill
-  // is held to the same floor as the resting one.
-  expect(
-    contrast("--primary-foreground", "--primary-hover"),
-  ).toBeGreaterThanOrEqual(AA);
+test("an on-fill foreground clears AA on BOTH states of its fill", () => {
+  // The destructive pair is where this is a live constraint rather than a formality:
+  // `--destructive-foreground` is near-white, so it LOSES contrast as the fill lightens —
+  // the opposite of the primary pair, and the reason `--destructive` had to move DOWN
+  // before `--destructive-hover` could sit above it.
+  for (const [fg, fill] of [
+    ["--destructive-foreground", "--destructive"],
+    ["--destructive-foreground", "--destructive-hover"],
+    ["--primary-foreground", "--primary"],
+    ["--primary-foreground", "--primary-hover"],
+  ] as const) {
+    expect(rawContrast(fg, fill)).toBeGreaterThanOrEqual(AA);
+  }
+});
+
+/** WCAG 1.4.11, the floor for a non-text boundary that carries meaning — a severity edge,
+ *  an invalid field. Lower than the text floor, and the constraint that stopped
+ *  `--destructive` being darkened as far as the button alone would have liked. */
+const AA_NON_TEXT = 3;
+
+test("a meaning-carrying border clears the non-text floor on its surface", () => {
+  // `border-destructive` sites: the error toast (on --popover) and the world drawer's
+  // invalid-name field (on --background). Both are the visual carrier of a STATE, so
+  // 1.4.11 applies to them where it would not to decoration.
+  for (const surface of ["--popover", "--background"]) {
+    expect(rawContrast("--destructive", surface)).toBeGreaterThanOrEqual(
+      AA_NON_TEXT,
+    );
+  }
 });
 
 test("a hover fill is LIGHTER than the fill it replaces", () => {
-  // D-23, as arithmetic rather than as intent. This is the assertion that makes the
-  // `--primary-hover` token necessary at all: the alpha spelling it replaced
-  // (`hover:bg-primary/90`) composited the dark surface underneath into the fill and came
-  // out DARKER, which no amount of reviewing the class string reveals.
+  // D-23, as arithmetic rather than as intent. This is the assertion that makes the two
+  // `-hover` tokens necessary at all: the alpha spelling they replaced
+  // (`hover:bg-primary/90`, `hover:bg-destructive/90`) composited the dark surface
+  // underneath into the fill and came out DARKER, which no amount of reviewing the class
+  // string reveals.
   expect(lum("--primary-hover")).toBeGreaterThan(lum("--primary"));
+  expect(lum("--destructive-hover")).toBeGreaterThan(lum("--destructive"));
   // The neutral ramp's own hover step, which `bg-accent` is the house spelling of.
   for (const rest of ["--muted", "--secondary", "--input"]) {
     expect(lum("--accent")).toBeGreaterThan(lum(rest));
@@ -243,6 +279,11 @@ test("the measured ratios, recorded", () => {
     "--muted-foreground/--card": contrast("--muted-foreground", "--card"),
     "--destructive/--card": contrast("--destructive", "--card"),
     "--destructive/--popover": contrast("--destructive", "--popover"),
+    "--destructive-foreground/--destructive-hover": contrast(
+      "--destructive-foreground",
+      "--destructive-hover",
+    ),
+    "--success-text/--card": contrast("--success-text", "--card"),
     "--destructive-text/--card": contrast("--destructive-text", "--card"),
     "--destructive-text/--popover": contrast("--destructive-text", "--popover"),
     "--warning/--card": contrast("--warning", "--card"),
@@ -271,19 +312,135 @@ test("the measured ratios, recorded", () => {
     "--foreground/--card": 12.46,
     "--foreground/--popover": 11.96,
     "--muted-foreground/--card": 5.71,
-    "--destructive/--card": 3.55,
-    "--destructive/--popover": 3.4,
+    "--destructive/--card": 3.26,
+    "--destructive/--popover": 3.13,
+    "--destructive-foreground/--destructive-hover": 4.69,
+    "--success-text/--card": 7.83,
     "--destructive-text/--card": 5.96,
     "--destructive-text/--popover": 5.72,
     "--warning/--card": 5.63,
     "--warning/--popover": 5.4,
     "--success/--card": 4.9,
     "--success/--popover": 4.7,
-    "--destructive-foreground/--destructive": 4.89,
+    "--destructive-foreground/--destructive": 5.33,
     "--primary-foreground/--primary": 5.48,
     "--primary-foreground/--primary-hover": 6.67,
     "--muted-foreground/--muted": 5.23,
   });
+});
+
+// ── text on a TRANSLUCENT fill ─────────────────────────────────────────────────────
+// The class of pair the flat-token assertions above cannot see. `bg-success/20` is not a
+// token; it is a token composited over whatever surface it lands on, and the result is
+// lighter than that surface — so a text colour that clears the floor on `--card` can fail
+// on a chip drawn on `--card`. That is exactly how the `clear` verdict chip shipped at
+// ~3.9:1 while `--success` on `--card` measured a passing 4.90.
+//
+// WHY THE VERDICT IS PINNED AND THE NUMBER IS NOT. Tailwind emits `bg-X/20` as
+// `color-mix(in oklab, …)`, and where the browser then composites that against the
+// backdrop — gamma sRGB, or the oklab it was mixed in — is not something a headless test
+// can settle. So both are computed and the WORSE of the two must clear the floor. The
+// verdict is invariant across the ambiguity even though the exact ratio is not, and an
+// assertion that only holds under the friendlier assumption would be a coincidence
+// enshrined.
+
+/** Alpha-composite in gamma-encoded sRGB — what a browser does when it paints a
+ *  translucent layer over an opaque one. Returns the result's relative luminance. */
+function compositeSrgb(
+  fill: readonly [number, number, number],
+  backdrop: readonly [number, number, number],
+  alpha: number,
+): number {
+  const f = oklchToLinearSrgb(...fill).map(encodeSrgb);
+  const b = oklchToLinearSrgb(...backdrop).map(encodeSrgb);
+  const mix = f.map((c, i) =>
+    decodeSrgb(c * alpha + (b[i] as number) * (1 - alpha)),
+  );
+  return (
+    0.2126 * (mix[0] as number) +
+    0.7152 * (mix[1] as number) +
+    0.0722 * (mix[2] as number)
+  );
+}
+
+/** The same blend interpolated in Oklab, the space `color-mix` names. */
+function compositeOklab(
+  fill: readonly [number, number, number],
+  backdrop: readonly [number, number, number],
+  alpha: number,
+): number {
+  const toLab = ([L, C, H]: readonly [number, number, number]) => {
+    const h = (H * Math.PI) / 180;
+    return [L, C * Math.cos(h), C * Math.sin(h)] as const;
+  };
+  const [l1, a1, b1] = toLab(fill);
+  const [l2, a2, b2] = toLab(backdrop);
+  const L = l1 * alpha + l2 * (1 - alpha);
+  const a = a1 * alpha + a2 * (1 - alpha);
+  const b = b1 * alpha + b2 * (1 - alpha);
+  const H = (Math.atan2(b, a) * 180) / Math.PI;
+  return luminance(L, Math.hypot(a, b), H < 0 ? H + 360 : H);
+}
+
+/** Every surviving text-on-translucent-fill pair in the chrome, as `[label, text, fill,
+ *  backdrop, alpha]`. Enumerated rather than discovered: no scan can pair a `bg-<tone>/<alpha>` with
+ *  the text colour that happens to land on it, so this list is maintained by review.
+ *
+ *  TWO SITES ARE ABSENT BECAUSE THE ALPHA WAS REMOVED, not because they were overlooked —
+ *  both failed this check and both were fixed by making the fill opaque, which moves them
+ *  under the flat on-fill assertion instead:
+ *    - the tool rail's member-flyout tab (`bg-primary/80` + `--primary-foreground`, 3.84)
+ *    - the destructive button's hover (`bg-destructive/90` + `--destructive-foreground`)
+ *  Both had a DARK foreground on a fill that alpha was darkening, which is the same
+ *  mechanism as D-23's hover rule seen from the text's side. */
+const TINTED_SITES = [
+  [
+    "FlagsPalette trapped chip",
+    "--destructive-text",
+    "--destructive",
+    "--card",
+    0.2,
+  ],
+  ["FlagsPalette clear chip", "--success-text", "--success", "--card", 0.2],
+  [
+    "FlagsPalette filter chip (on)",
+    "--foreground",
+    "--primary",
+    "--card",
+    0.15,
+  ],
+  ["FlagsPalette selected row", "--foreground", "--primary", "--card", 0.15],
+  ["EntitiesList selected row", "--foreground", "--primary", "--card", 0.15],
+] as const;
+
+/** The worse of the two compositing assumptions, which is the one that has to clear. */
+function worstTintedContrast(
+  text: string,
+  fill: string,
+  backdrop: string,
+  alpha: number,
+): number {
+  const f = tokens.get(fill);
+  const b = tokens.get(backdrop);
+  if (f === undefined || b === undefined)
+    throw new Error(`no such token in styles.css: ${fill} / ${backdrop}`);
+  return Math.min(
+    ratio(lum(text), compositeSrgb(f, b, alpha)),
+    ratio(lum(text), compositeOklab(f, b, alpha)),
+  );
+}
+
+test("text on a translucent fill clears AA under BOTH compositing assumptions", () => {
+  // Named-and-numbered rather than counted: a failure here has to say which chip and how
+  // far off it is, because the fix is a token choice rather than a one-line revert.
+  const offenders = TINTED_SITES.filter(
+    ([, text, fill, backdrop, alpha]) =>
+      worstTintedContrast(text, fill, backdrop, alpha) < AA,
+  ).map(
+    ([label, text, fill, backdrop, alpha]) =>
+      `${label}: ${Math.round(worstTintedContrast(text, fill, backdrop, alpha) * 100) / 100}`,
+  );
+  expect(offenders).toEqual([]);
 });
 
 // ── the source scans ───────────────────────────────────────────────────────────────
@@ -306,13 +463,31 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-/** `text-destructive` and nothing longer: `text-destructive-text` and
- *  `text-destructive-foreground` are the two spellings that are allowed to survive. */
+/** `text-destructive` / `text-success` and nothing longer: the `-text` and `-foreground`
+ *  siblings are the spellings allowed to survive. */
 const BARE_DESTRUCTIVE_TEXT = /text-destructive(?![\w-])/g;
+const BARE_SUCCESS_TEXT = /text-success(?![\w-])/g;
+
+test("no text wears the success FILL colour", () => {
+  // The `--destructive` rule, applied to the second semantic colour that now has a `-text`
+  // sibling. `--success` clears the floor on the FLAT surfaces (4.90 on --card), which is
+  // why this is not a contrast assertion — it is a single-source-of-truth one. Two ways to
+  // spell "success text" is how the `clear` chip ended up at 3.9:1 while every flat site
+  // read fine, and one of the two spellings has to stop existing for that to be checkable.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const offenders: string[] = [];
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    if (BARE_SUCCESS_TEXT.test(src)) offenders.push(relative(FRONTEND, file));
+    BARE_SUCCESS_TEXT.lastIndex = 0;
+  }
+  expect(offenders).toEqual([]);
+});
 
 test("no text wears the destructive FILL colour", () => {
-  // D-23's split, enforced rather than remembered. `--destructive` measures 3.55:1 on
-  // --card and 3.40:1 on --popover (the ledger above), so `text-destructive` is an
+  // D-23's split, enforced rather than remembered. `--destructive` measures 3.26:1 on
+  // --card and 3.13:1 on --popover (the ledger above), so `text-destructive` is an
   // accessibility failure wherever it appears — and it is also the spelling every shadcn
   // snippet on the internet uses, which is how it comes back. Fills and borders
   // (`bg-destructive`, `border-destructive`) are untouched by this: contrast is a reading

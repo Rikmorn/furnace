@@ -99,7 +99,7 @@ const DOT_GLYPH = {
 
 const VERDICT_CLASS = {
 	trapped: "bg-destructive/20 text-destructive-text",
-	clear: "bg-success/20 text-success",
+	clear: "bg-success/20 text-success-text",
 	/** No answer is not a third answer (the `flagTint` rule): stay neutral. */
 	inconclusive: "bg-muted text-muted-foreground",
 } as const;

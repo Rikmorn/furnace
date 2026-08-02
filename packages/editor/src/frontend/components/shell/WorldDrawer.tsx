@@ -180,7 +180,7 @@ function Badge({
 			className={cn(
 				"whitespace-nowrap rounded-full border border-border px-1.5 py-px text-2xs text-muted-foreground",
 				tone === "default" && "border-primary text-primary",
-				tone === "tracked" && "border-success/50 text-success",
+				tone === "tracked" && "border-success/50 text-success-text",
 			)}
 		>
 			{children}

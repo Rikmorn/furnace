@@ -65,13 +65,24 @@ export function MaterialSwatches(props: {
 									// controls and the tool rail's refused families.
 									refused && "cursor-not-allowed opacity-50",
 									// NOT the focus ring, despite the spelling: this fires on
-									// `activeId`, so it is the SELECTED marker, and the offset is
+									// `activeId`, so it is the SELECTED marker. The offset is
 									// load-bearing here in a way it never is on focus — a swatch's
 									// fill is an arbitrary material colour, and a ring drawn flush
 									// against a blue-grey one would be swallowed by it. The 1 px of
 									// `--background` is what keeps the marker readable on any swatch.
+									// Leave it: a sweep that normalises `ring-offset-*` away as a
+									// shadcn focus-ring leftover would be removing the wrong thing.
+									//
+									// `focus-visible:ring-2` is here because the two rings share a CSS
+									// property and `:focus-visible` outranks a plain class, so the
+									// house `focus-visible:ring-1` above was SHRINKING this 2 px
+									// marker to 1 px whenever the selected swatch took focus — focus
+									// making its own indicator smaller. Widening rather than
+									// narrowing keeps focus additive; tailwind-merge resolves the two
+									// `focus-visible:ring-*` at build time, last one winning, so the
+									// outcome is decided here rather than by cascade order.
 									c.id === props.activeId &&
-										"ring-2 ring-ring ring-offset-1 ring-offset-background",
+										"ring-2 ring-ring ring-offset-1 ring-offset-background focus-visible:ring-4",
 								)}
 								style={{ backgroundColor: cssColor(c.color) }}
 							/>

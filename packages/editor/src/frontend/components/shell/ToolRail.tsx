@@ -310,11 +310,17 @@ function MemberFlyout({ row }: { row: RailModel }) {
 					}}
 					className={cn(
 						"grid h-6 w-8 place-items-center rounded-b-md border-border/60 border-t text-2xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-						// Already compliant with D-23's hover rule: 80 % → 100 % of the same fill
-						// LIGHTENS. The tab rests dimmer than the family button above it on
-						// purpose — it is the subordinate half of one control.
+						// The armed tab used to rest at `bg-primary/80` so it read as the
+						// subordinate half of one control. That direction was compliant with
+						// D-23's hover rule (80 % → 100 % lightens) and still had to go: on a
+						// dark shell the 20 % of `--card` bleeding through darkened the fill, and
+						// `--primary-foreground` is the DARK member of the pair, so the tab's own
+						// label sat at 3.84:1 — under the floor, in the resting state, whenever
+						// the family was armed. The subordinate reading is carried by geometry
+						// instead (24 px under a 32 px button, its own top border), which costs
+						// no contrast, and the hover is now the same token step as everywhere.
 						row.armed
-							? "bg-primary/80 text-primary-foreground hover:bg-primary"
+							? "bg-primary text-primary-foreground hover:bg-primary-hover"
 							: "text-muted-foreground hover:bg-accent hover:text-foreground",
 						refused && "cursor-not-allowed",
 						refused && !row.armed && "opacity-50",

@@ -26,8 +26,8 @@ import {
 } from "../../lib/notify-store.ts";
 
 /** Per-severity presentation. The error row uses `--destructive-text`, NOT
- *  `--destructive`: the latter is a fill colour and reads 3.40:1 as text on `--popover`
- *  (3.55:1 on `--card`, where the status bar's copy sits) — both under the 4.5:1 floor,
+ *  `--destructive`: the latter is a fill/border colour and reads 3.13:1 as text on
+ *  `--popover` (3.26:1 on `--card`, where the status bar's copy sits) — both under the floor,
  *  which is what D-23 splits the token for. The BORDER keeps the fill colour, where
  *  contrast is not a reading question.
  *
@@ -45,7 +45,7 @@ const TONE: Record<
 	success: {
 		Icon: CircleCheck,
 		box: "border-success",
-		text: "text-success",
+		text: "text-success-text",
 	},
 	warn: {
 		// A TRIANGLE: the shape is what separates a warning from the error's circle

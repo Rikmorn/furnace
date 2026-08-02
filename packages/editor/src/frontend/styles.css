@@ -51,24 +51,48 @@
 	   tests/design-tokens.test.ts. */
 	--primary-hover: oklch(0.67 0.11 240);
 	--ring: var(--primary);
-	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the tool is used */
-	--destructive: oklch(0.55 0.14 25);
-	/* D-23 (completed F4.5c): --destructive is a FILL colour and reads 3.55:1 as TEXT on
-	   --card and 3.40:1 on --popover (the toast surface) — both under the 4.5:1 floor.
-	   This lighter sibling is the text/icon/dot colour on those surfaces; the fill (buttons,
-	   borders) stays --destructive. `tests/design-tokens.test.ts` measures every pair in
-	   this block and forbids the bare `text-destructive` class from coming back.
-	   NO SUCH SPLIT EXISTS FOR --warning OR --success, and that is a measurement rather
-	   than an omission: as text they read 5.63:1 / 4.90:1 on --card and 5.40:1 / 4.70:1 on
-	   --popover, all clear of the floor. D-23 planned the two sibling tokens on the
-	   assumption they behaved like --destructive; the pin refuted it, so they were not
-	   added. --success has the thinnest margin in the ramp — darkening it, or lightening
-	   --popover, is what the pin is watching for. */
+	/* semantic, desaturated for the dark base — committed 3.2.2 live pass; iterate as the
+	   tool is used. --destructive is the FILL/BORDER colour and never a text colour: at
+	   0.53 L it reads 3.26:1 as text on --card, well under the 4.5:1 floor, which is what
+	   --destructive-text below exists for.
+
+	   IT SITS IN A BOX WITH FOUR WALLS, which is why it moved DOWN from the 0.55 it was
+	   committed at, and why the hover step here (+0.03) is smaller than --primary-hover's
+	   (+0.05):
+	     - its foreground is near-white, so contrast FALLS as the fill lightens — the pair
+	       measures 5.33:1 at 0.53 and 4.69:1 at the 0.56 hover, and 4.4979:1 at 0.57, which
+	       is under the floor while still ROUNDING to a reassuring "4.50";
+	     - `border-destructive` carries a state (the error toast's edge, the world drawer's
+	       invalid name field), so WCAG 1.4.11 wants 3:1 against --popover, and that pins the
+	       fill from BELOW: 0.53 gives 3.1264:1 and 0.52 gives 2.9953:1 — again a value that
+	       rounds to a passing-looking 3.00 and is not one.
+	   Both walls are asserted in tests/design-tokens.test.ts. */
+	--destructive: oklch(0.53 0.14 25);
+	/* Hover LIGHTENS, never fades (D-23) — see --primary-hover for the mechanism. This lane
+	   could not simply step up: lightening from the old 0.55 rest took the near-white
+	   foreground under the floor, so the REST value came down to make room above it. */
+	--destructive-hover: oklch(0.56 0.14 25);
+	/* The text/icon/dot sibling of --destructive, for every surface a reader reads it on.
+	   `tests/design-tokens.test.ts` measures every pair in this block and forbids the bare
+	   `text-destructive` class from coming back.
+	   NO SUCH SPLIT EXISTS FOR --warning, and that is a measurement rather than an
+	   omission: as text the amber reads 5.63:1 on --card and 5.40:1 on --popover, clear of
+	   the floor. D-23 planned a --warning-text on the assumption it behaved like
+	   --destructive; the pin refuted it, so it was not added. */
 	--destructive-text: oklch(0.68 0.16 25);
 	--warning: oklch(0.65 0.12 80);
 	--warning-foreground: oklch(0.16 0.02 80);
 	--success: oklch(0.6 0.1 155);
 	--success-foreground: oklch(0.16 0.02 155);
+	/* --success needed the split after all, but for a reason the FLAT pairs cannot show:
+	   as text it clears on --card (4.90:1) and --popover (4.70:1), and fails only on its own
+	   TINTED chip — `bg-success/20` over --card is lighter than --card, and the `clear`
+	   verdict landed at ~3.8-3.9:1 there. A translucent fill is a surface the token table
+	   does not contain, which is why that class of pair now has its own pin.
+	   Constructed like --destructive-text: lightness up, chroma up a touch. It is the text
+	   colour at EVERY success site, not just the chip — one spelling, so the scan can
+	   enforce it; --success stays the fill/border colour. */
+	--success-text: oklch(0.72 0.12 155);
 	/* shadcn component tokens — committed 3.2.2 live pass: raised-neutral surfaces +
 	   readable foregrounds on the existing ramp (iterate as the tool is used).
 	   secondary/accent are raised neutrals near --muted (accent lifts a touch more so
@@ -110,11 +134,13 @@
 	--color-primary-hover: var(--primary-hover);
 	--color-ring: var(--ring);
 	--color-destructive: var(--destructive);
+	--color-destructive-hover: var(--destructive-hover);
 	--color-destructive-text: var(--destructive-text);
 	--color-warning: var(--warning);
 	--color-warning-foreground: var(--warning-foreground);
 	--color-success: var(--success);
 	--color-success-foreground: var(--success-foreground);
+	--color-success-text: var(--success-text);
 	/* shadcn component tokens (committed 3.2.2 live pass) */
 	--color-secondary: var(--secondary);
 	--color-secondary-foreground: var(--secondary-foreground);

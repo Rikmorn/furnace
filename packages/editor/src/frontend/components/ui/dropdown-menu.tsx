@@ -84,6 +84,11 @@ const DropdownMenuItem = React.forwardRef<
 	<DropdownMenuPrimitive.Item
 		ref={ref}
 		className={cn(
+			// `focus:bg-accent` is NOT the focus-ring vocabulary and must not be normalised into
+			// it (D-23). Radix moves DOM focus between rows as you arrow through the menu, so
+			// `:focus` here is the roving HIGHLIGHT — the row under the cursor-equivalent — and it
+			// is `focus:` rather than `focus-visible:` on purpose: a mouse-opened menu must still
+			// show which row is live. A ring on every row as it passes would be noise.
 			"relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
 			inset && "pl-8",
 			className,

@@ -282,10 +282,10 @@ test("an init rejection lands in the status bar, NOT the global engine-error bra
 	const [visible, live] = screen.getAllByText(
 		/field host init failed: requestAdapter returned null/,
 	);
-	// `-text`, not the bare fill token: --destructive is a FILL colour and reads
-	// 3.55:1 as text on --card, under the 4.5:1 floor (D-23's first half, landed with
-	// the toasts). The exact class matters — "text-destructive" is a SUBSTRING of it,
-	// so a loose assertion here would pass either way and pin nothing.
+	// `-text`, not the bare fill token: --destructive is a FILL/BORDER colour and reads
+	// 3.26:1 as text on --card, under the 4.5:1 floor (D-23, completed at F4.5c). The
+	// exact class matters — "text-destructive" is a SUBSTRING of it, so a loose assertion
+	// here would pass either way and pin nothing.
 	expect(visible?.className).toContain("text-destructive-text");
 	expect(live?.className).toContain("sr-only");
 });
@@ -673,10 +673,10 @@ test("an engine build failure reports in the status bar, in the destructive tone
 	// TWO nodes carry it, deliberately: the visible span and the persistent live
 	// region whose text change is what announces.
 	const [visible, live] = screen.getAllByText("esbuild: it did not build");
-	// `-text`, not the bare fill token: --destructive is a FILL colour and reads
-	// 3.55:1 as text on --card, under the 4.5:1 floor (D-23's first half, landed with
-	// the toasts). The exact class matters — "text-destructive" is a SUBSTRING of it,
-	// so a loose assertion here would pass either way and pin nothing.
+	// `-text`, not the bare fill token: --destructive is a FILL/BORDER colour and reads
+	// 3.26:1 as text on --card, under the 4.5:1 floor (D-23, completed at F4.5c). The
+	// exact class matters — "text-destructive" is a SUBSTRING of it, so a loose assertion
+	// here would pass either way and pin nothing.
 	expect(visible?.className).toContain("text-destructive-text");
 	expect(live?.className).toContain("sr-only");
 	// …and no canvas was mounted, so nothing tried to init a host that may not exist.

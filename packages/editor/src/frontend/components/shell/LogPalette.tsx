@@ -33,7 +33,7 @@ import { Button } from "../ui/button.tsx";
  *  `--destructive-text` (D-23) rather than the fill. */
 const TONE: Record<NotifySeverity, { Icon: LucideIcon; text: string }> = {
 	info: { Icon: Info, text: "text-muted-foreground" },
-	success: { Icon: CircleCheck, text: "text-success" },
+	success: { Icon: CircleCheck, text: "text-success-text" },
 	// Amber, and the same triangle the toast row uses. It stays `--warning` with no
 	// `-text` sibling: the F4.5c contrast pin measured the amber at 5.63:1 on `--card`
 	// (this palette's surface), so the split D-23 planned for it had nothing to fix. See

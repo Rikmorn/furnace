@@ -31,13 +31,15 @@ import { cn } from "../../lib/cn.ts";
 // surface underneath into the fill and the control gets DARKER under the cursor, which reads
 // as pressed-and-stuck rather than as live. Every hover here therefore names a lighter
 // colour — `--accent` for the neutral ramp (one step above `--muted`/`--secondary`/`--input`,
-// and already the house standard on `ghost` and `outline`), `--primary-hover` for the
-// chromatic lane.
-//   RESIDUE, stated rather than hidden: `destructive` still fades. Lightening
-//   `--destructive` costs `--destructive-foreground` its floor — the light-on-mid pair
-//   measures 4.89:1 at rest and 3.97:1 at +0.05 L — so the fix is a PAIRED token change
-//   (fill up, foreground down), which is a design decision rather than a token edit. The
-//   variant has no call site in this app today, which is why it is a note and not a blocker.
+// and already the house standard on `ghost` and `outline`), `--primary-hover` and
+// `--destructive-hover` for the two chromatic lanes.
+//   The destructive lane was the hard one, and the fix is in `styles.css` rather than here:
+//   its foreground is near-white, so lightening the fill COSTS contrast instead of buying
+//   it, and there was no room above the old 0.55 rest. The rest value came DOWN to 0.53 so
+//   the hover could sit at 0.56 with both states over the floor (5.33:1 and 4.69:1), which
+//   also had to clear WCAG 1.4.11 for `border-destructive`. This is not a dead branch:
+//   `ConfirmDialog` selects it via `variant={request.destructive ? …}`, so it is the button
+//   on every delete-world and overwrite-a-tracked-world confirm in the app.
 //
 // DISABLED DROPS HUE. A coloured fill swaps to `--muted` and its label to
 // `--muted-foreground` — 5.23:1 on that fill, so a dead button is legible rather than a
@@ -53,7 +55,7 @@ const buttonVariants = cva(
 				default:
 					"bg-primary text-primary-foreground hover:bg-primary-hover disabled:bg-muted disabled:text-muted-foreground",
 				destructive:
-					"bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground",
+					"bg-destructive text-destructive-foreground hover:bg-destructive-hover disabled:bg-muted disabled:text-muted-foreground",
 				outline:
 					"border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
 				secondary:
