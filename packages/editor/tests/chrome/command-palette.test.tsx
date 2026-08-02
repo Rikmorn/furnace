@@ -199,6 +199,30 @@ test("⌘K opens the palette; it is not there before", async () => {
 	expect(paletteInput()).toBeTruthy();
 });
 
+// The F4.5c re-critique measured this with Chrome's own AX engine over the running app:
+// `role="combobox"`, `name: ""`, with an `aria-labelledby` PRESENT and resolving to empty —
+// cmdk points the input at an internal label element that only `Command`'s `label` prop
+// fills. Present-but-empty is the bad case rather than merely the incomplete one: it is the
+// first branch the name computation takes, and a reader gets an anonymous text box in the
+// middle of a dialog whose own title they may never hear again.
+//
+// Asserted through the ROLE QUERY rather than by reading the attribute, because the
+// attribute was already there and already wrong. `getByRole(name)` runs the real accessible-
+// name computation (`dom-accessibility-api`), so it follows the same `aria-labelledby` →
+// element → text path a screen reader does, and an empty resolution fails it.
+test("the search box is NAMED — cmdk leaves its aria-labelledby empty otherwise", async () => {
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+	const box = palette();
+	expect(box).toBeTruthy();
+	if (box === null) return;
+	// The dialog's own name, and the box inside it: one surface, one string.
+	expect(
+		within(box).getByRole("combobox", { name: "Find a command" }),
+	).toBeTruthy();
+});
+
 test("the burger's View group opens it too — one action, two routes", async () => {
 	const stub = stubWithGenerators();
 	await renderShell(stub);

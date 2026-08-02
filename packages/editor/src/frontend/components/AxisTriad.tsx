@@ -125,8 +125,19 @@ export function AxisTriad({
 									y={ey}
 									textAnchor="middle"
 									dominantBaseline="central"
+									// SVG text inherits neither the app's font stack nor its type scale, so a
+									// bare `monospace` here resolved to Chrome's default mono — measured
+									// as a THIRD font family in the chrome, alongside Inter and JetBrains
+									// Mono, with nobody having chosen it. `var(--font-mono)` is the
+									// committed stack (styles.css) and reaches SVG the same way.
+									//
+									// 9 px stays, and is the one place under the 10 px `text-2xs` floor on
+									// purpose: this is a single letter centred in a `CAP`-radius disc, so
+									// the size is the DISC's geometry rather than a reading size, and
+									// raising it overflows the cap it labels. The disc is decoration to a
+									// reader either way — the axis buttons below carry the real names.
 									fontSize={9}
-									fontFamily="monospace"
+									fontFamily="var(--font-mono)"
 									fontWeight="bold"
 									fill="#fff"
 								>

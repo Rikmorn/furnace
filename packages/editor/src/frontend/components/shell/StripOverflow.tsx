@@ -52,7 +52,15 @@ export function StripOverflow({
 					Every {effect} option — also here when the strip is narrow
 				</TooltipContent>
 			</Tooltip>
-			<PopoverContent align="end" className="w-72 p-3" {...focusReturn.overlay}>
+			{/* The trigger's name, verbatim (the `StatusBar` chip convention) — Radix names its
+			    popover's `role="dialog"` for nobody, and "all dig options" is exactly what a
+			    reader needs to hear on arrival, since the ⋯ that opened it carries no text. */}
+			<PopoverContent
+				aria-label={label}
+				align="end"
+				className="w-72 p-3"
+				{...focusReturn.overlay}
+			>
 				{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this option list; a <fieldset>/<legend> would force a second box inside a popover that is already one */}
 				<div
 					role="group"

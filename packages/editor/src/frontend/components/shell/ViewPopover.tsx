@@ -187,7 +187,12 @@ export function ViewPopover({
 				<span aria-hidden="true">⬒</span>
 				view
 			</PopoverTrigger>
+			{/* The trigger's name, verbatim (the `StatusBar` chip convention): Radix's popover
+			    content is a `role="dialog"` that Radix never names, so without this the one
+			    surface holding every layer, overlay and shading control announces itself as
+			    "dialog". */}
 			<PopoverContent
+				aria-label="view options"
 				align="start"
 				className="w-64 space-y-3 p-3 text-xs"
 				{...focusReturn.overlay}

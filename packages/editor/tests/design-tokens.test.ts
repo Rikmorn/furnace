@@ -225,6 +225,96 @@ test("success text clears AA on the surfaces it is used on", () => {
   }
 });
 
+/** Every surface `text-primary` is read on, enumerated with the site that puts it there.
+ *
+ *  ENUMERATED rather than scanned, for the same reason the translucent-fill table below is:
+ *  a class-string scan cannot pair a child's `text-primary` with the `bg-accent` its PARENT
+ *  ROW paints, and the parent row is exactly where this broke. `WorldDrawer`'s row is
+ *  `selected && "bg-accent"` and its "▶ game loads this" badge was `text-primary`, so the
+ *  accent read at 4.2002:1 on the one row the user had just clicked — a resting state, not
+ *  a hover.
+ *
+ *  Why `--primary` gets no `-text` sibling when `--destructive` and `--success` did: it does
+ *  not need one. It clears the floor on every surface it is actually READ on (--card,
+ *  --popover); it fails only on the interaction neutrals, and the badge did not need the hue
+ *  in its TEXT — `border-primary` carries the same meaning and is held to the non-text floor
+ *  instead. Deleting the usage was smaller than adding a token, and D-23's own rule is that a
+ *  split is earned by measurement (see `--warning` in styles.css, where the same test came
+ *  back the other way and the planned token was cancelled). */
+interface PrimaryTextSite {
+  /** Path under `src/frontend`, so the ledger is bound to the code and not to memory. */
+  readonly file: string;
+  /** The surface it is READ on, or `null` for a spelling that ships unused. */
+  readonly surface: string | null;
+  readonly site: string;
+}
+
+const PRIMARY_TEXT_SITES: readonly PrimaryTextSite[] = [
+  {
+    file: "components/shell/SessionStrip.tsx",
+    surface: "--card",
+    site: "the STAMP label, top bar",
+  },
+  {
+    file: "components/shell/SessionCard.tsx",
+    surface: "--card",
+    site: "the STAMP label, card header",
+  },
+  // Carried, not read: shadcn's `link` variant ships `text-primary` and this editor uses it
+  // NOWHERE (`variant="link"` has zero call sites). Listed rather than exempted so the ledger
+  // is the whole truth about the spelling — and so the day someone uses it, this row is where
+  // they find out which surfaces it may sit on.
+  {
+    file: "components/ui/button.tsx",
+    surface: null,
+    site: "the unused `link` variant",
+  },
+];
+
+/** The interaction neutrals, where the accent does NOT clear the floor as text. Asserted as
+ *  FAILING on purpose: this is the measurement that says "confine `text-primary` to the flat
+ *  reading surfaces", and an assertion that only checked the passing side would go quiet the
+ *  day someone widened the ramp. */
+const PRIMARY_TEXT_FORBIDDEN = ["--secondary", "--input", "--accent"];
+
+test("the accent clears AA as text on every surface it is read on", () => {
+  for (const { surface } of PRIMARY_TEXT_SITES) {
+    if (surface === null) continue;
+    expect(rawContrast("--primary", surface)).toBeGreaterThanOrEqual(AA);
+  }
+});
+
+/** `text-primary` and nothing longer — `text-primary-foreground` is a different token. */
+const BARE_PRIMARY_TEXT = /text-primary(?![\w-])/g;
+
+test("the accent-as-text ledger names every file that spells it", () => {
+  // THE ASSERTION THAT WOULD HAVE CAUGHT THE DEFECT, stated plainly because the two tests
+  // above would not have: they measure the surfaces the ledger CLAIMS, and a ledger that
+  // claims nothing about the world drawer passes happily while the world drawer reads at
+  // 4.2:1. Binding the ledger to the source is what makes it a check rather than a note —
+  // a new `text-primary` anywhere reddens here, and the fix is to add the row and say which
+  // surface it sits on, which is the moment the measurement gets made.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const found: string[] = [];
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    if (BARE_PRIMARY_TEXT.test(src)) found.push(relative(FRONTEND, file));
+    BARE_PRIMARY_TEXT.lastIndex = 0;
+  }
+  expect(found.sort()).toEqual(PRIMARY_TEXT_SITES.map((s) => s.file).sort());
+});
+
+test("…and does NOT clear it on the interaction neutrals, which is why it is confined", () => {
+  for (const surface of PRIMARY_TEXT_FORBIDDEN) {
+    expect(rawContrast("--primary", surface)).toBeLessThan(AA);
+  }
+  // The border is the channel that survives on those surfaces, and it is held to the
+  // non-text floor there rather than assumed: this is what lets the world drawer's badge
+  // keep saying "this is the one" after its text colour went back to the neutral ramp.
+  expect(rawContrast("--primary", "--accent")).toBeGreaterThanOrEqual(3);
+});
+
 test("an on-fill foreground clears AA on BOTH states of its fill", () => {
   // The destructive pair is where this is a live constraint rather than a formality:
   // `--destructive-foreground` is near-white, so it LOSES contrast as the fill lightens —
@@ -578,6 +668,33 @@ test("no text wears the destructive FILL colour", () => {
     if (BARE_DESTRUCTIVE_TEXT.test(src))
       offenders.push(relative(FRONTEND, file));
     BARE_DESTRUCTIVE_TEXT.lastIndex = 0;
+  }
+  expect(offenders).toEqual([]);
+});
+
+/** A `-foreground` token with an opacity modifier: `text-primary-foreground/80` and friends.
+ *  The `(?![\w-])` tail is what keeps `text-primary-foreground` itself out of the match. */
+const FADED_ON_FILL_FOREGROUND = /text-[a-z-]+-foreground\/\d+(?![\w-])/g;
+
+test("no on-fill foreground is FADED — the pair is measured at full opacity", () => {
+  // The pairs test above measures `--primary-foreground` on `--primary` at 5.4805:1 and
+  // calls it clear. An `/80` makes that measurement describe a colour that is not on screen:
+  // the composited text reads 4.3233:1, under the floor, on the tool-rail flyout's hint line
+  // for the ARMED member — the one row in that popover a user is most likely to read.
+  //
+  // The alpha bought nothing a token could not: the hint is already subordinate by size
+  // (`text-2xs`) and by position. So the ban is total rather than a threshold — "how faded
+  // is too faded" is a question with a different answer per pair, and per surface under a
+  // translucent fill, and none of those answers is checkable from a class string. Full
+  // opacity is, and it is what the pairs test already asserts.
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const offenders: string[] = [];
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    const hits = src.match(FADED_ON_FILL_FOREGROUND);
+    if (hits !== null)
+      offenders.push(`${relative(FRONTEND, file)}: ${hits.join(", ")}`);
   }
   expect(offenders).toEqual([]);
 });

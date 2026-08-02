@@ -86,7 +86,17 @@ function CommandDialog({
 			>
 				<DialogTitle className="sr-only">{title}</DialogTitle>
 				<DialogDescription className="sr-only">{description}</DialogDescription>
-				<Command {...commandProps}>{children}</Command>
+				{/* `label` is cmdk's OWN naming hook and it is not optional here. cmdk points
+				    `Command.Input`'s `aria-labelledby` at an internal element that stays EMPTY
+				    until this prop fills it, so the search box shipped as a `role="combobox"`
+				    whose name resolved to "" — a present-but-empty `aria-labelledby`, which is
+				    worse than none, since it is the branch the name computation reaches first.
+				    Fed from `title` rather than taken as a second prop: the dialog and the box
+				    inside it are the same surface, and two spellings of one name is how they
+				    drift. Before the spread, so a caller that wants them different still can. */}
+				<Command label={title} {...commandProps}>
+					{children}
+				</Command>
 			</DialogContent>
 		</Dialog>
 	);

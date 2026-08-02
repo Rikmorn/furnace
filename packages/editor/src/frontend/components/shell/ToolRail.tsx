@@ -72,8 +72,28 @@ const FAMILY_ICON: Record<ToolFamily["id"], LucideIcon> = {
 };
 
 /** 32 px inside the 44 px column — the mock's rail geometry. */
+/** The rail button, with the ONE focus vocabulary plus an OFFSET the rest of the chrome does
+ *  not need.
+ *
+ *  `--ring` IS `--primary` (styles.css), and the armed tool is `bg-primary`. Without the
+ *  offset the ring paints the same colour the button is already painted, so focusing the
+ *  armed tool adds one ring-coloured pixel to a ring-coloured square: the F4.5c re-critique
+ *  captured the pair at 3× and the two frames are indistinguishable, while the same capture
+ *  of an INACTIVE rail button shows an unmistakable ring. That is the tool a keyboard user is
+ *  most likely to Tab to — the one they are using — and PRODUCT.md's floor is a visible focus
+ *  state on every interactive control.
+ *
+ *  `ring-offset-1 ring-offset-background` is `MaterialSwatches`' idiom, and its principle
+ *  verbatim: focus must be ADDITIVE. The dark 1 px gap is what makes the ring a separate
+ *  thing from the fill rather than a wider edge of it. It stays LOCAL to the rail rather than
+ *  going into `ui/`'s base vocabulary because an offset drawn in `--background` on a control
+ *  sitting on `--popover` paints a gap a shade darker than its own surface — the layered-
+ *  surface objection `ui/button.tsx` records — and the rail sits on the shell, where it does
+ *  not arise. Whether the other `bg-primary` controls (button's default variant, the
+ *  segmented selection, a checked checkbox) want the same treatment or a neutral `--ring` is
+ *  a live question and NOT settled here. */
 const BUTTON_CLASS =
-	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+	"grid h-8 w-8 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
 /** What one family row needs to render, derived ONCE in the `useMemo` below. The point of
  *  the shape is `memo`: the ctx object changes identity on every push the provider receives
@@ -330,7 +350,14 @@ function MemberFlyout({ row }: { row: RailModel }) {
 					<span aria-hidden="true">▾</span>
 				</button>
 			</PopoverTrigger>
+			{/* Radix gives the content `role="dialog"` and no name to go with it — and unlike
+			    its Dialog, it does not complain. The name is the TRIGGER's, verbatim, which is
+			    the convention `StatusBar`'s chips set: a reader arrives in the dialog they just
+			    opened and hears which one it is. The inner `role="group"` keeps the same string
+			    on purpose — the group is what the arrow keys walk, and a dialog wrapping a
+			    like-named group is the ordinary shape, not a duplicate. */}
 			<PopoverContent
+				aria-label={`${row.group} tools`}
 				align="start"
 				side="right"
 				className="w-60 p-1"
@@ -367,8 +394,13 @@ function MemberFlyout({ row }: { row: RailModel }) {
 							<span
 								className={cn(
 									"text-2xs",
+									// FULL opacity. The `/80` composited to 4.3233:1 on `--primary` where
+									// the token pair measures 5.4805 — the fade alone spent the whole
+									// margin, on the hint line of the ARMED member, which is the row in
+									// this popover a reader is most likely to be reading. Subordinate is
+									// carried by size (`text-2xs`) and position, which cost no contrast.
 									member.armed
-										? "text-primary-foreground/80"
+										? "text-primary-foreground"
 										: "text-muted-foreground",
 								)}
 							>

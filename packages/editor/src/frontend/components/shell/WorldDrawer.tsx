@@ -179,7 +179,15 @@ function Badge({
 		<span
 			className={cn(
 				"whitespace-nowrap rounded-full border border-border px-1.5 py-px text-2xs text-muted-foreground",
-				tone === "default" && "border-primary text-primary",
+				// BORDER only. The accent as TEXT reads 4.2002:1 on `--accent`, and `--accent`
+				// is what the row paints the moment it is SELECTED — a resting state, on the
+				// row the user just clicked, under the product's own 4.5:1 floor. Its sibling
+				// one line down reaches for `text-success-text` rather than `text-success` for
+				// exactly this reason; the accent has no `-text` twin because it does not need
+				// one, it needs to stay off this surface. The meaning survives in the border,
+				// which is held to the non-text floor instead (4.2 ≥ 3), plus the ▶ and the
+				// words — three channels, none of them the failing one.
+				tone === "default" && "border-primary",
 				tone === "tracked" && "border-success/50 text-success-text",
 			)}
 		>
