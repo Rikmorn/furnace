@@ -48,6 +48,12 @@ import { join } from "node:path";
 // nothing checks is a statement that drifts, so this file checks it. A new test written
 // without the import re-poisons its directory and costs the suite 5× — here that is one
 // legible failure naming the file and the line to add.
+//
+// AND THE SCAN ITSELF HAS BEEN DEFEATED ONCE, which is the thing to read before trusting it:
+// its first `HARNESS` predicate required a one-line import, so `bunx biome format --write`
+// could silently exempt any file whose harness import grew past the line width. See that
+// predicate's own docblock — a guard the repo's formatter can switch off reads as coverage
+// while providing none, and that is the same disease as the files it polices.
 const TESTS = import.meta.dir;
 
 /** The one spelling that survives. A BARE side-effect import: `organizeImports` sorts a
@@ -62,11 +68,51 @@ const TESTS = import.meta.dir;
  *  with no registration at all, which is precisely the landmine here to be caught. */
 const REGISTER = /^import "(?:\.\.\/inspector|\.)\/_register\.ts";$/m;
 
-/** A file only needs the DOM if it pulls in the render harness. This is what lets the five
- *  pure-logic inspector tests (`format`, `scrub`, `numeric-schema`, `echo-guard`, `vec-fan`)
- *  out of the rule rather than injecting happy-dom's globals into suites that never render —
- *  scoping registration to the files that need it is `_register.ts`'s own stated contract. */
-const HARNESS = /^import .*"\.(?:\.\/inspector)?\/_harness\.tsx";$/m;
+/** Does this file pull in the render harness? Matched on the line carrying the SPECIFIER,
+ *  in both of the two shapes the repo's own formatter produces:
+ *
+ *      import { cleanup, render } from "./_harness.tsx";      ← under the line width
+ *      } from "./_harness.tsx";                               ← Biome wrapped it
+ *
+ *  THE SECOND ALTERNATIVE IS THE WHOLE POINT, and it was added after a review defeated the
+ *  first version of this scan using nothing but ordinary authoring. That version required the
+ *  import on ONE line. Add two more real names to a harness import (`act` and `waitFor`, both
+ *  genuine exports) and it crosses 80 characters; `bunx biome format --write` then wraps it,
+ *  the predicate stops matching, and the file becomes SILENTLY EXEMPT — its register line can
+ *  be deleted with this scan still green while it poisons every Radix portal in the run. Both
+ *  directions were reproduced. The inspector harness imports sit at 68 characters today, so
+ *  two more names is all it takes — and next door the wrapped form is already the MAJORITY:
+ *  of the 17 chrome tests, 15 wrap, 1 is single-line (`material-swatches`) and 1 imports no
+ *  harness at all (`keybindings-dom`).
+ *
+ *  A guard that the repo's own formatter can switch off is worse than no guard, because it
+ *  reads as coverage. Anchored to column 0 on both alternatives so a `//`-commented mention
+ *  cannot match — the same discipline `REGISTER` above documents.
+ *
+ *  WHAT THIS PREDICATE IS A PROXY FOR, stated precisely because the obvious reading is wrong.
+ *  It is a proxy for "this file RENDERS", not for "this file reaches Radix". The harness does
+ *  not itself reach Radix at runtime: its one path there is `editor-context.ts`'s
+ *  `import type { ConfirmRequest }` from `ConfirmDialog.tsx`, which does value-import
+ *  `ui/button.tsx` (→ `react-slot`) — but a type-only import is ERASED, so nothing on that
+ *  path is ever evaluated. The harness's real runtime graph is four files and none is Radix.
+ *  What makes importing it sufficient is simpler: the first import in `_harness.tsx` is a
+ *  bare `import "./_register.ts";`, so pulling the harness in registers the DOM at all — the
+ *  only open question is whether it happens FIRST.
+ *
+ *  So the exemption is sound and the residual hole is a different shape. The five pure-logic
+ *  inspector tests (`format`, `scrub`, `numeric-schema`, `echo-guard`, `vec-fan`) render
+ *  nothing AND reach no Radix — verified by a transitive trace that skips type-only imports —
+ *  so leaving them alone is right, and injecting happy-dom's globals into suites that never
+ *  render is what `_register.ts`'s own scoping note says not to do.
+ *
+ *  THE HOLE, named rather than closed: a file that imports a Radix-backed component WITHOUT
+ *  the harness is exempt here and would still poison the run. No such file exists today, and
+ *  a review built one to prove it (a probe importing `BooleanField` alone: scan green,
+ *  `enum-field` red). Closing it means walking the module graph for `@radix-ui`, and getting
+ *  that right needs the type-erasure subtlety above — a second delicate thing to maintain in
+ *  a guard. If such a file is ever written, this is where it goes. */
+const HARNESS =
+  /^(?:import .*|\}) from "\.(?:\.\/inspector)?\/_harness\.tsx";$/m;
 
 const testsIn = (dir: string): string[] =>
   readdirSync(join(TESTS, dir))
@@ -91,10 +137,19 @@ const offendersIn = (
     return firstImport !== -1 && firstImport < register;
   });
 
-// The chrome rule is UNCONDITIONAL — every file in the directory, harness or not. It is the
-// stricter of the two deliberately: `keybindings-dom.test.ts` imports `_register.ts` alone and
-// no harness, so dropping chrome to the `inspector/` predicate to share one rule would quietly
-// stop covering it.
+// The chrome rule is UNCONDITIONAL — every file in the directory, harness or not — and it is
+// the stricter of the two deliberately. Measured against the CORRECTED `HARNESS` predicate:
+// 16 of the 17 chrome tests match it, and the one that does not is `keybindings-dom.test.ts`,
+// which imports `_register.ts` alone and no harness because it needs a real `HTMLElement` to
+// narrow against and renders nothing. So collapsing the two rules into one predicate would
+// quietly stop covering exactly one file — and that file is in this directory precisely
+// because it is DOM-touching, which is the property the rule is about.
+//
+// Worth knowing how thin that argument was before the fix above: under the one-line-only
+// predicate, 16 of 17 chrome files failed to match — every wrapped import — so "share one
+// rule and we would lose `keybindings-dom`" was true by accident and understated the loss by
+// sixteen times. The conclusion survived the correction; the reason did not, and a reason
+// that only holds by accident is the same defect as a scan that only passes by accident.
 test("every chrome test registers happy-dom before its first import", () => {
   // A scan that finds nothing passes vacuously, which for a directory-wide claim is the most
   // likely way for it to stop meaning anything (a moved directory, a renamed suffix).
@@ -102,15 +157,35 @@ test("every chrome test registers happy-dom before its first import", () => {
   expect(offendersIn("chrome", () => true)).toEqual([]);
 });
 
+/** The inspector tests that are ALLOWED not to register: pure logic, no render, and — traced
+ *  transitively with type-only imports skipped, because those are erased — no Radix anywhere
+ *  in their runtime graph. An allowlist rather than a computed remainder, for the reason the
+ *  next assertion states. */
+const NON_RENDERING = [
+  "echo-guard.test.ts",
+  "format.test.ts",
+  "numeric-schema.test.ts",
+  "scrub.test.ts",
+  "vec-fan.test.ts",
+];
+
 test("every rendering inspector test registers happy-dom before its first import", () => {
   const files = testsIn("inspector");
   expect(files.length).toBeGreaterThan(10);
-  // The guard that keeps the PREDICATE honest, not just the directory: respell the harness
-  // import and every file silently stops needing registration, leaving this test to pass on
-  // an empty set. Eleven of sixteen render today.
-  const rendering = files.filter((f) =>
-    HARNESS.test(readFileSync(join(TESTS, "inspector", f), "utf8")),
+  // THE GUARD THAT KEEPS THE PREDICATE HONEST, not just the directory: if `HARNESS` ever
+  // stops matching, every file silently stops needing registration and the offender check
+  // below passes on an empty set — which is precisely how the formatter defeated the first
+  // version of this scan.
+  //
+  // Asserted as the EXEMPT SET BY NAME rather than as a floor on the rendering count. A
+  // floor (`> 5`, when 11 of 16 render) degrades gradually: it absorbs five files dropping
+  // out one at a time, which is exactly the shape a widening line-length problem has. Naming
+  // the five makes any file leaving the rendering set a RED with the file in the message,
+  // and makes adding a genuinely pure-logic test a deliberate edit here — which is the right
+  // moment to re-check that it reaches no Radix.
+  const exempt = files.filter(
+    (f) => !HARNESS.test(readFileSync(join(TESTS, "inspector", f), "utf8")),
   );
-  expect(rendering.length).toBeGreaterThan(5);
+  expect(exempt).toEqual(NON_RENDERING);
   expect(offendersIn("inspector", (src) => HARNESS.test(src))).toEqual([]);
 });

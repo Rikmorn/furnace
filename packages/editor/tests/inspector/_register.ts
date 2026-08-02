@@ -34,9 +34,9 @@
 //
 // Registration is deliberately OPT-IN per file (NOT a bun `--preload`) so `document`/
 // `window` are never injected into the daemon/server/GPU test runs, which would break them.
-// In practice the opt-in set is every test that renders — plus `chrome/keybindings-dom.ts`,
-// which needs a real `HTMLElement` to narrow against and no harness — and the five
-// pure-logic inspector tests are outside it.
+// In practice the opt-in set is every test that renders — plus
+// `chrome/keybindings-dom.test.ts`, which needs a real `HTMLElement` to narrow against and no
+// harness — and the five pure-logic inspector tests are outside it.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 // Idempotent: bun runs every test file in one process, so guard against a second
