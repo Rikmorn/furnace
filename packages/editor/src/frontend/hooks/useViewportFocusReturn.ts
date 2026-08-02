@@ -14,7 +14,34 @@
 // tests/chrome/viewport-focus-return.test.tsx; a mechanism that passes only the first is
 // the WCAG-violating one.
 //
-// WHY THIS IS TWO HANDLERS AND NOT AN `open` EDGE. The shape this was costed with —
+// THE RECORD IS TAKEN ON THE CONTENT'S ref, NOT ON `onOpenAutoFocus`, and that is a
+// correction rather than a preference. `onOpenAutoFocus` looks like "the open edge" and is
+// not: `react-focus-scope@1.1.12` guards its ENTIRE mount block on nothing inside the
+// content already holding focus (`dist/index.mjs:74-83`)
+//
+//     const previouslyFocusedElement = document.activeElement;
+//     const hasFocusedCandidate = container.contains(previouslyFocusedElement);
+//     if (!hasFocusedCandidate) { … container.dispatchEvent(mountEvent); … }
+//
+// so a surface that mounts with an `autoFocus` field inside it NEVER dispatches, and a
+// sole writer sitting on that event never runs. Its container is `useState`, so the mount
+// effect is a commit late — late enough for a parent's own effect and React's `autoFocus`
+// to land first, which is exactly the world drawer opened in save-as mode. The record then
+// kept its initial `false`, the close handler stood down, and Radix's modal fallback
+// focused `triggerRef.current` — `null` for every dialog here, none of which has a
+// `DialogTrigger`. Measured in system Chrome AND reproduced in happy-dom: `⇧⌘S` from the
+// canvas → Esc → `<body>`, with every viewport key dead, while the same drawer opened in
+// browse mode returned the canvas correctly.
+//
+// A ref callback has none of that conditionality: React calls it during the commit that
+// mounts the element, once, for every mounted content — and Radix only mounts content
+// while the surface is open, so "attached" IS "opened". It also fires BEFORE any effect,
+// so nothing the surface itself does on mount can get in front of it. That retires the
+// burger's workaround too: `DropdownMenuContent` takes a ref like every other content,
+// where `onOpenAutoFocus` is private to `MenuContentImpl` and absent from react-menu
+// 2.1.20's public types.
+//
+// WHY THE RECORD IS NOT READ AT THE OPEN EDGE AT ALL. The shape this was costed with —
 // "on the false→true edge record `document.activeElement === canvas`" — does not work:
 //   - THE DECISIVE REASON IS THE BROWSER'S. It focuses a clicked trigger as the default
 //     action of `mousedown`, before the overlay's content mounts — so at every open edge
@@ -26,16 +53,14 @@
 //     does not, measured — the broken shape would have gone green and shipped dead.
 //   - several of these surfaces have no `open` flag to edge-detect: `ConfirmDialog`
 //     derives openness from a request object, and the burger's menu was uncontrolled.
-//     `onOpenAutoFocus` fires exactly once per open regardless.
+//     A content mount is the one signal all of them share.
 // So the record is taken at GESTURE start (see `ViewportFocus.heldFocusAtGestureStart`)
 // and merely COPIED here when the overlay opens.
 //
-// `onOpenAutoFocus` IS THE EDGE, NOT THE SOURCE. Nothing in the copy reads
-// `document.activeElement`, so any observation of the same open serves — which is what lets
-// the burger's MENU call it from `onOpenChange(true)` instead. It has to: `onOpenAutoFocus`
-// is private to `MenuContentImpl` and `MenuRootContentTypeProps` omits it (react-menu
-// 2.1.20's own types), so passing it to a `DropdownMenuContent` is reaching past the public
-// surface for something a minor bump could take away silently.
+// THE MOUNT IS THE EDGE, NOT THE SOURCE. Nothing in the copy reads
+// `document.activeElement`, which is what makes the moment interchangeable: any observation
+// of the same open would serve, and the ref is chosen because it is the only one that
+// cannot be skipped.
 //
 // PER OVERLAY, never one shell-level memory, and that is what makes two open at once
 // well-defined. Open the world drawer from the world chip while flying and its record is
@@ -60,10 +85,11 @@
 // trigger-restore when the event comes back prevented (`composeEventHandlers`, verified in
 // react-popover, react-dialog and react-menu). So there is exactly one focus write per
 // dismissal, never two, and no screen reader announces a landing place twice.
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useEditor } from "../components/editor-context.ts";
 
-/** The two handlers a dismissible overlay puts on its Radix content.
+/** What a dismissible overlay puts on its Radix content: the ref that RECORDS and the
+ *  handler that RETURNS.
  *
  *  THREE RULES, and all three have already been broken once here:
  *    - SPREAD IT LAST. `{...focusReturn.overlay}` before an `onCloseAutoFocus` of the
@@ -78,7 +104,10 @@ import { useEditor } from "../components/editor-context.ts";
  *  cannot ride the spread onto a DOM element, which React would warn about at runtime and
  *  nothing would catch at build time. */
 export type OverlayFocusProps = {
-  onOpenAutoFocus: () => void;
+  /** Records this open. On the CONTENT, because a mount is the only open signal Radix
+   *  cannot skip — see the header for the dispatch it replaces and the bug that proved
+   *  it was needed. Called with `null` at unmount, which is not an open and is ignored. */
+  ref: (element: HTMLElement | null) => void;
   onCloseAutoFocus: (event: Event) => void;
 };
 
@@ -118,17 +147,36 @@ export function useViewportFocusReturn(): ViewportFocusReturn {
   const { viewportFocusRef } = useEditor();
   /** This overlay's own answer, frozen at ITS open. */
   const cameFromCanvas = useRef(false);
+  /**
+   * STABLE IDENTITY IS THE WHOLE OF THIS `useCallback`, and it is load-bearing rather
+   * than a memo. React detaches and re-attaches a callback ref whenever the callback's
+   * identity changes, so a fresh closure per render would re-record on EVERY re-render of
+   * the surface — and by then focus is inside the overlay, so the answer flips to `false`
+   * exactly when it matters. Measured: the burger's menu recorded `held=true` at its open
+   * and `held=false` on the very next render, and the canvas return was lost.
+   *
+   * With a stable identity React calls it exactly twice per open — the element, then
+   * `null` — which is precisely the "once per open" the record needs.
+   */
+  const record = useCallback(
+    (element: HTMLElement | null) => {
+      // The DETACH is not an open — React calls a ref callback with `null` as the element
+      // goes, and recording there would answer for the dismissal itself with whatever the
+      // last keystroke inside the overlay happened to leave behind.
+      if (element === null) return;
+      // Written unconditionally, so a stale `true` from a previous open (one the burger's
+      // hand-off left unconsumed, say) can never survive into the next one.
+      cameFromCanvas.current =
+        viewportFocusRef.current?.heldFocusAtGestureStart() ?? false;
+    },
+    [viewportFocusRef],
+  );
   return {
     handOff: () => {
       viewportFocusRef.current?.carryGestureOrigin(cameFromCanvas.current);
     },
     overlay: {
-      onOpenAutoFocus: () => {
-        // Written unconditionally, so a stale `true` from a previous open (one the
-        // burger's hand-off left unconsumed, say) can never survive into the next one.
-        cameFromCanvas.current =
-          viewportFocusRef.current?.heldFocusAtGestureStart() ?? false;
-      },
+      ref: record,
       onCloseAutoFocus: (event) => {
         if (!cameFromCanvas.current) return;
         // CONSUMED. Radix dispatches this once per close, but a record left standing is

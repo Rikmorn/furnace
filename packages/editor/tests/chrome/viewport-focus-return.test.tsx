@@ -382,6 +382,42 @@ test("the world drawer does NOT take the canvas when the chip was reached by key
 	expect(document.activeElement === canvas()).toBe(false);
 });
 
+test("the world drawer opened in SAVE-AS mode hands the canvas back", async () => {
+	// THE CASE RADIX SKIPS. `⇧⌘S` opens the drawer with its name form already up, and that
+	// form carries the drawer's one `autoFocus` — so by the time FocusScope runs its mount
+	// effect, focus is ALREADY inside the content. `react-focus-scope@1.1.12` guards its
+	// whole mount block on exactly that (`dist/index.mjs:74-83`):
+	//
+	//     const hasFocusedCandidate = container.contains(previouslyFocusedElement);
+	//     if (!hasFocusedCandidate) { … container.dispatchEvent(mountEvent); … }
+	//
+	// so `onOpenAutoFocus` is NEVER CALLED here. It is the sole writer of the per-overlay
+	// record, which therefore keeps its initial `false`, the close handler stands down, and
+	// Radix's modal fallback focuses `triggerRef.current` — `null` for a drawer that has no
+	// `DialogTrigger`. The user lands on `<body>` with every viewport key dead.
+	//
+	// Its container is `useState`, so that mount effect is a commit LATE — late enough for
+	// the drawer's own `setForm` effect and React's `autoFocus` to land first. Measured in
+	// system Chrome before this test was written: `focusScope.autoFocusOnMount` fires for a
+	// browse-mode open and never once for a save-as one, on a fresh page with no prior open.
+	//
+	// The browse-mode sibling two tests up is the contrast that makes this a SKIPPED-DISPATCH
+	// bug rather than a broken record: same drawer, same chord family, same dismissal — the
+	// only difference is whether anything inside held focus at mount.
+	await renderShell();
+	focus(canvas());
+	await openByChord({ key: "s", metaKey: true, shiftKey: true });
+	// The form is up, and it is what holds focus — the precondition, asserted rather than
+	// assumed, so this cannot pass one day because the autofocus quietly went away.
+	const nameField = screen.getByLabelText("save as world name");
+	expect(document.activeElement === nameField).toBe(true);
+
+	// Two rungs: the first Escape stands the form down (`onEscapeKeyDown`), the second closes.
+	await dismiss();
+	await dismiss();
+	expectCanvasHasFocus();
+});
+
 test("two stacked overlays each answer for their OWN summoning", async () => {
 	// THE per-overlay-record case. The drawer is opened from the canvas (its record: yes);
 	// the row's ⋯ menu is opened from inside the drawer (its record: no). Dismissing the

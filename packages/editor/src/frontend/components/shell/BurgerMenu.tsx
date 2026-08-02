@@ -125,27 +125,18 @@ export function BurgerMenu({
 	// by construction below: a hand-off means the surface just opened owns focus, a canvas
 	// return means the user was flying when they reached for the menu.
 	const focusReturn = useViewportFocusReturn();
-	// CONTROLLED only so the open edge is observable. Every other overlay in the chrome
-	// takes the focus record in `onOpenAutoFocus`, which a Radix MENU does not expose: it is
-	// a private prop of `MenuContentImpl` and `MenuRootContentTypeProps` omits
-	// `keyof MenuContentImplPrivateProps` outright (react-menu 2.1.20's own types). Passing
-	// it anyway works today and is exactly the kind of thing a minor bump removes with
-	// nothing thrown, so the record is taken from the public edge instead.
-	//
-	// Only on the TRUE edge. Closing this menu by pressing ☰ again is a gesture that starts
-	// with focus in the menu, so re-recording there would answer "no" and quietly lose the
-	// return for the one close a user is most likely to perform.
+	// CONTROLLED so the drawer's summon and this menu's own close cannot disagree about
+	// whether it is open. It used to be controlled for a second reason — the focus record
+	// was taken from `onOpenChange(true)`, because a Radix MENU does not expose
+	// `onOpenAutoFocus` (a private prop of `MenuContentImpl`; `MenuRootContentTypeProps`
+	// omits `keyof MenuContentImplPrivateProps` outright, react-menu 2.1.20's own types).
+	// That reason is gone: the record now rides the content's ref, which a menu content
+	// forwards like every other one, so this site composes exactly like the other eight.
 	const [menuOpen, setMenuOpen] = useState(false);
 
 	return (
 		<>
-			<DropdownMenu
-				open={menuOpen}
-				onOpenChange={(next) => {
-					setMenuOpen(next);
-					if (next) focusReturn.overlay.onOpenAutoFocus();
-				}}
-			>
+			<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
 				<DropdownMenuTrigger
 					aria-label="editor menu"
 					className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring"
@@ -155,11 +146,12 @@ export function BurgerMenu({
 				<DropdownMenuContent
 					align="start"
 					className="w-56"
-					// The ONE site that composes these by hand instead of spreading them, because
-					// it already owned this prop. The ORDER is the whole of it: a hand-off wins
-					// outright and returns, so the canvas return never fires for a close whose
-					// entire point was to give focus to the surface just opened. The record a
-					// hand-off leaves standing is harmless — `onOpenAutoFocus` writes it
+					ref={focusReturn.overlay.ref}
+					// The ONE site that composes the close by hand instead of spreading it,
+					// because it already owned this prop. The ORDER is the whole of it: a
+					// hand-off wins outright and returns, so the canvas return never fires for a
+					// close whose entire point was to give focus to the surface just opened. The
+					// record a hand-off leaves standing is harmless — the ref above writes it
 					// unconditionally on the next open rather than OR-ing into it.
 					onCloseAutoFocus={(e) => {
 						if (handingOff.current) {

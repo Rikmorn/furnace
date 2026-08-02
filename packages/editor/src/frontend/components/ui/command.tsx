@@ -55,7 +55,7 @@ function CommandDialog({
 	title,
 	description,
 	onEscapeKeyDown,
-	onOpenAutoFocus,
+	ref,
 	onCloseAutoFocus,
 	children,
 	...commandProps
@@ -68,19 +68,21 @@ function CommandDialog({
 	 *  outermost thing a press inside the palette passes through, and a handler on the
 	 *  `Command` root below would miss any press whose target is the box itself. */
 	onEscapeKeyDown?: (event: KeyboardEvent) => void;
-	/** Radix's focus hooks, on the CONTENT. Named EXPLICITLY, unlike every other prop
+	/** The focus-return seam, on the CONTENT. Named EXPLICITLY, unlike every other prop
 	 *  here: `...commandProps` goes to cmdk's `Command` root, which knows nothing about
 	 *  either — so a palette spreading `useViewportFocusReturn()` onto this component
-	 *  would land two dead props on a div and lose the focus return with nothing thrown. */
-	onOpenAutoFocus?: (event: Event) => void;
+	 *  would land two dead props on a div and lose the focus return with nothing thrown.
+	 *  `ref` is the one that RECORDS the open, and it has to reach `DialogContent`: on
+	 *  cmdk's root it would attach a commit too late and to the wrong element. */
+	ref?: (element: HTMLElement | null) => void;
 	onCloseAutoFocus?: (event: Event) => void;
-} & React.ComponentPropsWithoutRef<typeof Command>) {
+} & Omit<React.ComponentPropsWithoutRef<typeof Command>, "ref">) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
 				onEscapeKeyDown={onEscapeKeyDown}
-				onOpenAutoFocus={onOpenAutoFocus}
+				ref={ref}
 				onCloseAutoFocus={onCloseAutoFocus}
 				className="top-[84px] max-w-[480px] translate-y-0 gap-0 overflow-hidden p-0"
 			>
