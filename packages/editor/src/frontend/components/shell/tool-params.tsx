@@ -7,12 +7,18 @@
 //
 // The controls are the ones `BrushInspector` and the panel's swatch strip had, with the
 // same accessible names, resized for a 40 px bar. The hollow toggle is the house checkbox
-// (D-24). The three SELECTS here stay native, and that is now a measured exemption rather
-// than a deferral: F4.5c Task 12 drove a Radix `ui/select.tsx` from this harness with a
-// live session standing and Esc reached the cancel ladder anyway — the app-level key gate
-// recognises an `HTMLSelectElement` and cannot recognise a `<button>`. The evidence and the
-// allowlist that encodes it are in `field/form-bits.tsx` and
-// `scripts/one-control-library.grit`.
+// (D-24). The three SELECTS here stay native, and that is a measured exemption rather than
+// a deferral: swap one for a Radix `ui/select.tsx` and Esc on it reaches `host.escape()` —
+// the cancel ladder — because the app-level key gate recognises an `HTMLSelectElement` and
+// cannot recognise the `<button>` a Radix trigger is. Re-measured at the Task 12 review by
+// migrating `smooth mode`: `escape` called once, where the native control leaves it at zero.
+//
+// NOT with a live session standing, which an earlier version of this note claimed: a live
+// session swaps this whole strip for the session strip, so these three are detached before
+// any session exists to discard. The standing that matters here is the ordinary one — a
+// selection Esc would clear. The reason is written up in `field/form-bits.tsx`, the
+// allowlist that encodes it is `scripts/one-control-library.grit`, and the per-site
+// assertion is `tests/chrome/native-select-key-gate.test.tsx`.
 //
 // The hollow THICKNESS field is the exception, and it is a correction rather than a
 // carry-over: the first cut of this file hand-copied it into a raw `<input type="number">`
@@ -232,9 +238,21 @@ function HollowThickness({
  * to fit its strip today, so hollow is not one of the doubled ones — a fact about
  * {@link TOOL_OPTIONS} rather than a property to build on.)
  *
- * It cannot be a hook inside {@link PARAM_RENDERER}: those entries are plain functions
- * called conditionally per param, so a hook in one would change hook ORDER as the armed
- * effect changes.
+ * It cannot be a hook inside {@link PARAM_RENDERER}, and the reason is CONSTRUCTION rather
+ * than a symptom. {@link Param} calls `PARAM_RENDERER[id](ctx)` directly — a plain function
+ * call, not an element — so a hook written in one of those entries runs as part of `Param`'s
+ * own render and belongs to `Param`'s fiber. That is a rules-of-hooks violation by shape,
+ * and it is invisible to the linter, which sees a `Record` of ordinary functions.
+ *
+ * It does not currently BITE, and the earlier version of this note claimed it does: "a hook
+ * in one would change hook ORDER as the armed effect changes" was measured false at F4.5c
+ * Task 12 — a live `useId()` inlined into the `hollow` entry runs `tool-strip.test.tsx` 17/0
+ * with no hook-order error. Both render sites key the fiber by param id
+ * (`ToolStrip.tsx`, `StripOverflow.tsx`, each `<Param key={id} …/>`), so one `Param` fiber
+ * renders exactly one entry for its whole life and the hook count per fiber never moves.
+ * The extraction stands on the violation, not on that failure: the keying is a fact about
+ * two call sites today, and the day either drops its `key` the direct call is what turns a
+ * reconciled fiber into the classic error.
  */
 function HollowToggle({ ctx }: { ctx: ParamContext }) {
 	const id = useId();

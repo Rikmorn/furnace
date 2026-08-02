@@ -31,15 +31,20 @@ predicate in_chrome_outside_ui() {
 
 // The four native `<select>`s that survive, each pinned to the ONE file that may write it.
 //
-// They are an exemption on EVIDENCE, not a deferral. F4.5c Task 12 migrated the merge
-// policy to `ui/select.tsx` and ran the case: with a live stamp session standing, Esc to
-// dismiss the Radix listbox reached `host.escape()` and would have discarded the session.
-// Radix's `DismissableLayer` claims Escape on a capture-phase document listener and
-// `preventDefault()`s without `stopPropagation()`, and `useGlobalKeybindings` never
-// consults `defaultPrevented`; what holds the line for a native control is
+// They are an exemption on EVIDENCE, not a deferral, and the evidence is a TEST rather than
+// this paragraph: `tests/chrome/native-select-key-gate.test.tsx` walks all four sites and
+// asserts, per site, that Esc does not reach `host.escape()` — so migrating any one of them
+// to `ui/select.tsx` reddens the suite as well as tripping this rule. Read that file before
+// re-arguing the exemption; it also carries the control case proving the assertion can fail.
+//
+// The mechanism: Radix's `DismissableLayer` claims Escape on a capture-phase document
+// listener and `preventDefault()`s without `stopPropagation()`, and `useGlobalKeybindings`
+// never consults `defaultPrevented`; what holds the line for a native control is
 // `isTextInputTarget` recognising an `HTMLSelectElement`, which it cannot do for the
-// `<button>` a Radix trigger is. The full argument, including a second hazard (trigger
-// typeahead eating bare tool keys), is in `src/frontend/components/field/form-bits.tsx`.
+// `<button>` a Radix trigger is. Measured at the Task 12 review by Radix-ifying
+// `smooth mode`: `escape` called once, against zero for the native control. The full
+// argument, including a second hazard (trigger typeahead eating bare tool keys), is in
+// `src/frontend/components/field/form-bits.tsx`.
 //
 // Pinned by ACCESSIBLE NAME as well as by file, on the same reasoning as
 // `tests/frontend-no-doc-titles.test.ts`'s allowlist: a whole-file exemption would let a

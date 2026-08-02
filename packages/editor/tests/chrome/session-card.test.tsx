@@ -575,7 +575,12 @@ test("REST says the merge policy is unrecorded, beside the value it is showing",
 	).toContain("a reconfigure opens at Replace");
 	// …and the control it qualifies really is showing that value (the caveat is about a
 	// select the user can see, not a general disclaimer).
-	fireEvent.click(within(box).getByRole("button", { name: /advanced/ }));
+	//
+	// Through `openAdvanced`, not a bare click: the disclosure's memory is module-scoped, so
+	// a toggle here reads as "open" only while nothing else in the RUN opened it first. That
+	// is the order dependency `openAdvanced`'s own note describes, and it went live when
+	// `native-select-key-gate.test.tsx` started reaching the same control.
+	openAdvanced(box);
 	expect(
 		(within(openCard()).getByLabelText("merge policy") as HTMLSelectElement)
 			.value,

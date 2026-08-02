@@ -9,9 +9,14 @@
 // THE FOUR SELECTS THESE STYLE STAY NATIVE, and D-24's ban allowlists them by name in
 // `scripts/one-control-library.grit`. The reason is no longer the one this file used to
 // give — "Radix's portaled listbox buys nothing at this size and costs the harness a mock"
-// was measured FALSE at F4.5c Task 0 (the listbox mounts under happy-dom, a plain click
-// opens it, and a Radix select drives end to end with no mock). The real reason is the KEY
-// GATE, measured at Task 12 by migrating the merge-policy select and running the case:
+// was measured FALSE at F4.5c Task 0: the listbox mounts under happy-dom, a plain click
+// opens it, and a Radix select drives end to end with no mock. The condition on that, found
+// at Task 12 and written up in `tests/inspector/enum-field.test.tsx`, is module-evaluation
+// order rather than anything about the event or the DOM — Radix's `useLayoutEffect` shim
+// captures `globalThis.document` at LOAD time, so a test file that wants a Radix portal has
+// to register happy-dom first (a bare `import "…/_register.ts"`, the shell.test.tsx rule).
+// The real reason these stay native is the KEY GATE, measured at Task 12 by migrating the
+// merge-policy select and running the case:
 //
 //   with a live stamp session standing, opening the Radix listbox and pressing Esc to
 //   dismiss it called `host.escape()` — the cancel ladder — and would have discarded the
@@ -35,6 +40,13 @@
 // Both are reachable: a `ui/select.tsx` that stopped propagation on `onEscapeKeyDown` (the
 // command palette's line) plus a blur-on-close would do it. Neither was in Task 12's scope,
 // and neither is free — so these four stay native, on evidence, until someone re-argues it.
+//
+// The evidence is EXECUTABLE as of the Task 12 review:
+// `tests/chrome/native-select-key-gate.test.tsx` walks all four allowlisted sites and
+// asserts Esc does not reach `host.escape()` at each. One correction it carries — the
+// original write-up said the probe stood beside a LIVE SESSION, and three of the four
+// cannot: a live session swaps the tool strip out, detaching them. The hazard needs no
+// session; Esc runs the ladder against an ordinary selection just as well.
 
 export const SELECT_CLASS =
 	"h-8 rounded-md border border-input bg-transparent px-2";

@@ -1,3 +1,10 @@
+// Registered FIRST — the shell.test.tsx rule. A BARE side-effect import, which is the only
+// spelling that survives: Biome's `organizeImports` sorts `./_harness.tsx` below
+// `../../src/…`, so "put the harness import first" reverts on the next `bun run check`,
+// while a side-effect import keeps its position. See the module-order note below for what
+// it buys and what it cost to find.
+import "./_register.ts";
+
 // EnumField's first test, and the defect it exists to close.
 //
 // THE DEFECT: the field stringified every member for display (`schema.enum.map(String)`)
@@ -18,24 +25,45 @@
 // which consumes this same `lib/enum-options.ts` and asserts `toBe(90)` plus
 // `typeof === "number"` after a real click.
 //
-// That split is a division of labour, not a limitation, and the reason recorded here until
-// F4.5c was FALSE. It claimed a Radix `Select` item "cannot be clicked under happy-dom" —
-// 0 elements with `role="listbox"`, 0 with `role="option"`, keyboard and plain click both
-// dead ends. Re-probed at F4.5c Task 0 against happy-dom 20.10.6 through this same harness:
-// the portal mounts (1 listbox, 5 options), a plain `click` on the trigger opens it, and
-// keyboard `Enter` opens it. The one form that genuinely fails is a bare `pointerDown` with
-// no `{ button: 0, pointerType: "mouse" }`, which is what the original probe must have
-// used. `shell.test.tsx` already drove the Radix DropdownMenu's portal while this comment
-// said portals do not mount.
+// That split is a division of labour, not a limitation, and the reason recorded here has
+// now been wrong TWICE. Both wrong versions reported the SYMPTOM correctly and named the
+// wrong cause, so the symptom is worth stating once: the trigger reports
+// `aria-expanded="true"` while 0 elements carry `role="listbox"` and 0 carry `role="option"`.
 //
-// So the residue is smaller than it was written to be: this file could drive its own
-// commit if it wanted to, and does not, because `SegmentedField`'s case already drives the
-// identical `lib/enum-options.ts` mapping end to end and a second copy would pin the same
-// thing twice. What stays genuinely uncovered is narrow — rewriting `onValueChange` to
-// commit the raw index string would pass everything here (deleting it outright is caught by
-// typecheck and by the display case below).
+// The original blamed happy-dom — a Radix `Select` item "cannot be clicked" because
+// `SelectContent` positions itself from measurements happy-dom does not do. F4.5c's first
+// correction kept the symptom and blamed the EVENT FORM instead: a bare `pointerDown` with
+// no `{ button: 0, pointerType: "mouse" }`. That one is disprovable from the symptom alone —
+// a bare `pointerDown` leaves `aria-expanded="false"`, so it cannot be what produced a
+// report of `true` with zero options.
 //
-// Harness import MUST be first (happy-dom globals before any DOM-touching module).
+// The real variable is MODULE-EVALUATION ORDER, and the fix is line 6. Measured at F4.5c
+// Task 12 against this file, changing only where registration happens:
+//
+//   without line 6 (as this file stood):  expanded=true, listbox=0, option=0
+//   with line 6 (as it stands now):       expanded=true, listbox=1, option=5, and a click
+//                                         on the "270" item commits [[270]]
+//
+// A plain `click` and keyboard `Enter` behave identically to `pointerDown` in BOTH
+// directions; a bare `pointerDown` fails to open the trigger in both, which is a real fact
+// and a much smaller one. The mechanism is a feature detection captured at load:
+// `@radix-ui/react-use-layout-effect` binds `globalThis?.document ? useLayoutEffect : noop`
+// ONCE in its module body, and `@radix-ui/react-portal` mounts via
+// `useLayoutEffect(() => setMounted(true), [])`. Reach Radix before `_register.ts` installs
+// happy-dom's globals and that hook is inert for the rest of the PROCESS: `mounted` never
+// turns true, and the portal renders `null` under a trigger that opened perfectly well.
+//
+// Process-wide rather than per-file, which is why it hid for two rounds: bun evaluates a
+// module once per RUN, so a chrome file — 13 of the 16 carry line 6 — used
+// to repair this one by loading first, and the same case passed in `bun test
+// packages/editor` and failed run on its own. `shell.test.tsx` driving the Radix
+// DropdownMenu's portal was never in tension with any of it; it registers first.
+//
+// So this file CAN now drive its own commit, in any run, and does not — because
+// `SegmentedField`'s case already drives the identical `lib/enum-options.ts` mapping end to
+// end and a second copy would pin the same thing twice. What stays genuinely uncovered is
+// narrow: rewriting `onValueChange` to commit the raw index string would pass everything
+// here (deleting it outright is caught by typecheck and by the display case below).
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { EnumField } from "../../src/frontend/inspector/fields/EnumField.tsx";
