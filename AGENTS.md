@@ -126,6 +126,12 @@ When `docs/backlog/` exceeds ~100 files or one topic subdirectory exceeds ~20, p
 
 Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation → `docs/reference/`. After a piece of work completes:
 
+- **Append-only records are one file per entry.** No tracked doc may be a constant write
+  target — a file every session appends to grows without bound and rots in place. An
+  append-only record is a **directory** of dated entries plus a `README.md` index carrying one
+  line per entry and no content of its own. This governs seals (`docs/learnings/seals/`),
+  learnings, and the backlog. When a record outgrows one file, split it before adding to it.
+  (Added 2026-08-03, after `seal-log.md` reached 115 KB with one 42 KB line in it.)
 - **Resolved a backlog entry?** Delete `docs/backlog/<topic>/<slug>.md`. Don't leave done work parked as "deferred".
 - **Sealing a slice/epic?** ADD a dated seal file under `docs/learnings/seals/` plus one index line, update the relevant `docs/reference/*-architecture.md` (the canonical current-state), and update the affected **package README** (`packages/<pkg>/README.md` owns that package's detail + current-state summary). **Do NOT touch AGENTS.md at seals — ever.** AGENTS.md is operational guidance (setup, commands, foundational rules, one-line package pointers), not a status board; its package lines change only when a package is added/removed/renamed or its one-line role changes. This rule was restated 2026-07-11 after seal edits crept back twice ("operational clause" is not a loophole): package detail lives in the READMEs, status lives in seals + reference docs.
 - **Changed the `@furnace/core` public API?** Update `docs/reference/core-modules.md` to reflect the new exports / signatures. If the change is consumer-visible, also add or update the relevant `packages/cookbook` demo in the same PR.
