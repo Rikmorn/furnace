@@ -34,6 +34,7 @@ import { ConfirmDialog } from "../../src/frontend/components/ConfirmDialog.tsx";
 import type { ViewportFocus } from "../../src/frontend/components/editor-context.ts";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { groupTitle } from "../../src/frontend/lib/actions.ts";
 import type { WorldRow } from "../../src/frontend/lib/api.ts";
 import {
 	act,
@@ -267,6 +268,48 @@ test("the burger LEAVES focus on itself when opened from the keyboard", async ()
 	await openByKeyboard(trigger);
 	await dismiss();
 	expect(document.activeElement === trigger).toBe(true);
+});
+
+// The submenus (ruling 3) put a SECOND dismissable layer inside the menu, and the focus record
+// is written once per menu-content mount — so the question this pins is whether opening a
+// submenu, which raises its own layer and takes its own pointerdown, disturbs the answer the
+// ROOT already froze. It does not: `record` is a ref callback with stable identity, so it fires
+// once when the root content mounts and not again for the SubContent.
+//
+// Both halves, because only having the first would pass on a build where Esc closed nothing:
+// the submenu's own Esc, and a pick from inside it.
+test("a submenu does not disturb the burger's canvas return — Esc from inside one", async () => {
+	await renderShell();
+	focus(canvas());
+	await openByPointer(screen.getByLabelText("editor menu"));
+	// A SubTrigger opens on a plain click or on ArrowRight, and NOT on a pointerDown in
+	// either form — the asymmetry with the root trigger above is Radix's, measured.
+	await act(async () => {
+		fireEvent.click(screen.getByText(groupTitle("view")));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	// The submenu really is open, or the Esc below would be dismissing the root and this case
+	// would be the one above wearing a different name.
+	expect(screen.queryByText("Frame selection") === null).toBe(false);
+	await dismiss();
+	expectCanvasHasFocus();
+});
+
+test("a submenu does not disturb the burger's canvas return — a pick from inside one", async () => {
+	await renderShell();
+	focus(canvas());
+	await openByPointer(screen.getByLabelText("editor menu"));
+	await act(async () => {
+		fireEvent.click(screen.getByText(groupTitle("view")));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	// `Grid` opens nothing, so it takes the ORDINARY return rather than a hand-off — which is
+	// what makes it the right row for this: a hand-off would pass by suppressing the return.
+	await act(async () => {
+		fireEvent.click(screen.getByText("Grid"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expectCanvasHasFocus();
 });
 
 test("a burger HAND-OFF beats the canvas return: the surface just opened keeps focus", async () => {

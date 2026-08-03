@@ -2304,13 +2304,27 @@ test("the overlay renders the REGISTRY — every keyed action has a row, with it
 // top level is the two doors plus the five palette ticks — whose whole value is the tick
 // being VISIBLE, which a submenu would hide.
 //
-// THE FOLD IS ARITHMETIC HERE, NOT A MEASUREMENT: happy-dom runs no layout, so no case in
-// this file can see a pixel. Every row is `py-1.5 text-sm` — 6 + 20 + 6 = 32 px (tailwind
-// v4's `--text-sm--line-height` is 1.25rem and its spacing unit is 4 px, both read off
-// `tailwindcss/theme.css`) — a separator is 9 px, and the content's padding and border add
-// 10. So the top level was 37 rows + 3 separators = 1221 px and is now 11 rows + 2
-// separators = 380 px, while the DEEPEST level (View, twelve rows) is 394 px. Every level
-// fits the ~950 px window the gate was walked in, where the flat menu overflowed by ~270 px.
+// THE FOLD IS ARITHMETIC HERE, NOT A MEASUREMENT, and this comment is its ONE home — the
+// numbers are cited from `BurgerMenu.tsx`'s header and from `editor-architecture.md` rather
+// than repeated there. happy-dom runs no layout, so no case in this file can see a pixel.
+//
+// Read off the BUILT stylesheet rather than off `tailwindcss/theme.css`, because the two
+// differ in a way that matters: `--text-sm--line-height` is `calc(1.25 / .875)` — a UNITLESS
+// ratio ≈ 1.4286, not the `1.25rem` an earlier draft of this comment claimed. It happens to
+// resolve to the same 20 px line box at `--text-sm: .875rem`, so the row height below is
+// right either way; the token statement was simply false, and a false number in a comment
+// whose whole job is auditability is worth more than the two minutes it costs to fix.
+//
+// Every row is `py-1.5 text-sm` — 6 + 20 + 6 = 32 px (spacing unit 4 px) — a separator is
+// 9 px, and the content's padding and border add 10. So the top level was 37 rows + 3
+// separators = 1221 px and is now 11 rows + 2 separators = 380 px, while the DEEPEST level
+// (View, twelve rows) is 394 px.
+//
+// THE AVAILABLE HEIGHT IS ~906 px, NOT 950. The gate was walked in a ~950 px window, but the
+// menu opens BELOW a 40 px top bar (`TopBar.tsx`'s `h-10`) with `sideOffset = 4`. So the flat
+// run overflowed by ~315 px — about TEN rows, not the seven or eight the gate counted by eye
+// and not the ~270 px an earlier draft of this comment wrote. Both levels fit now with room:
+// 380 and 394 against ~906. Erring in the safe direction, and the conclusion is unchanged.
 
 test("the burger's top level is the three group submenus, the two doors and the palette ticks", async () => {
 	fetch404();

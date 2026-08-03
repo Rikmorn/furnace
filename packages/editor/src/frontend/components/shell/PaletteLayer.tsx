@@ -118,7 +118,7 @@ export function PaletteLayer({
 	const wasOpen = useRef<readonly PaletteId[] | null>(null);
 
 	// THE SUMMON GUARANTEE, safety-net half. The summon SITES raise explicitly (the ⚠
-	// chip, the burger's View group), because they must also cover the case this effect
+	// chip, the burger's palette checkboxes), because they must also cover the case this effect
 	// cannot see: a palette that is ALREADY open and merely buried, where there is no
 	// false→true transition to catch. This effect is what makes the rule hold for openers
 	// that do not know about `raise` at all — Reset Workspace re-opening a closed palette

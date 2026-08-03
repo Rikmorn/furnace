@@ -3,8 +3,10 @@
 //
 // THE TREE, since the holistic gate's ruling 3: three SUBMENUS, one per registry group the
 // burger renders, over a top level of ten rows. It was one flat run of 33 items, and on the
-// window the gate was walked in the last seven or eight of them were below the fold —
-// scrollable, and therefore not so much reachable as huntable.
+// window the gate was walked in the tail of them were below the fold — scrollable, and
+// therefore not so much reachable as huntable. The arithmetic (1221 px flat, 380 px now, and
+// the ~906 px that is actually available under a 40 px top bar) lives ONCE, in
+// `tests/chrome/shell.test.tsx`'s "the TREE" section, beside the case that pins the counts.
 //
 // WHAT STAYS AT TOP LEVEL, and the principle: things whose STATE the menu is showing, and
 // doors. The five palette checkboxes are the first — their whole value is the tick, which
@@ -16,10 +18,15 @@
 // justification for a menu whose length then defeated it — a row you scroll to is not one
 // you reach for. ⌘K post-dates the claim and is the real mid-gesture route: one chord and a
 // name, no scanning (D-12). And for the pointer user the sentence describes — hand on the
-// mouse, eyes on the field — a submenu is a rightward MOVE rather than a second click. What
-// the overrule actually costs is two rows: Normals shading and Grid, which have no chord of
-// their own, are now two steps from the burger instead of one. Hide palettes has ⌘\ and
-// Reset workspace is rare.
+// mouse, eyes on the field — a submenu is a rightward MOVE rather than a second click.
+//
+// WHAT THE OVERRULE COSTS, stated at its real size rather than at the size of the sentence it
+// answers: within that sentence's own scope it is two rows — Normals shading and Grid have no
+// chord of their own and are now two steps from the burger instead of one, while Hide palettes
+// has ⌘\ and Reset workspace is rare. MENU-WIDE it is sixteen: those two plus
+// `world.new/open/bake/makeDefault`, `edit.clearSelection/reselect/history` and the six axis
+// views, none of which carries a chord either. Every one of the sixteen is reachable in one
+// chord-and-a-name through ⌘K, which is the trade the second answer above is making.
 //
 // The World, Edit and View submenus are RENDERED FROM THE ACTION REGISTRY
 // (`lib/actions.ts`): their titles, their labels, their disabled states and the chords
@@ -70,9 +77,16 @@ import {
  *  for as long as the menu stood. The `help` copy at top level is the exception and is
  *  subscribed with the menu, which is one action's worth.
  *
- *  `onSelect` runs BEFORE the action and exists for exactly one group: `help`, whose row
- *  opens a dialog and must forward this menu's focus answer to it first. Absent everywhere
- *  else, because a verb that opens nothing wants the ordinary canvas return. */
+ *  `onSelect` exists for exactly one group: `help`, whose row opens a dialog and must forward
+ *  this menu's focus answer to it. Absent everywhere else, because a verb that opens nothing
+ *  wants the ordinary canvas return.
+ *
+ *  IT IS CALLED FIRST, AND THAT ORDER IS INCIDENTAL — deliberately stated as such rather than
+ *  as a contract, because a review swapped the two statements and the whole suite stayed green.
+ *  React batches `action.run`'s `setState` past this handler either way, so the dialog cannot
+ *  mount before the hand-off lands whichever order they are written in. Reading first is how a
+ *  reader expects "forward, then run" to look; nothing depends on it, and a comment claiming
+ *  otherwise would be an authoritative sentence nothing checks. */
 function RegistryItems({
 	group,
 	onSelect,

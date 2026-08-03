@@ -8,8 +8,8 @@
 // pure store — nothing here reaches the disk.
 //
 // It sits above the whole chrome rather than inside PaletteLayer because the layer is not
-// where palettes are OPENED: the status bar's ⚠ chip and the burger's View group are, and
-// both are the layer's siblings. A summon that could not raise what it summons is the bug
+// where palettes are OPENED: the status bar's ⚠ chip and the burger's palette checkboxes
+// are, and both are the layer's siblings. A summon that could not raise what it summons is the bug
 // this module exists to make impossible.
 //
 // Split into TWO contexts for the useWorkspace reason: the ORDER changes on every click

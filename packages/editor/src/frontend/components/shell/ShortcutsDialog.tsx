@@ -54,8 +54,14 @@ type BindingGroup = {
 };
 
 /** The condition each registry group is under — the thing that makes a row true. The
- *  groups themselves (which five, in what order, called what) come from `ACTION_GROUPS`;
- *  only these notes are the overlay's, because only the overlay has room for them. */
+ *  groups themselves (which ones, in what order, called what) come from `ACTION_GROUPS`;
+ *  only these notes are the overlay's, because only the overlay has room for them.
+ *
+ *  DELIBERATELY NOT a count: this said "which five" until `help` made it six, which is the
+ *  rot a `Record<ActionGroup, string>` is otherwise immune to — the type forces a NOTE for a
+ *  new group (that is what caught `help`), and forces nothing about a sentence describing the
+ *  set. These are RENDERED as plain text (`<p>{group.note}</p>`), so they carry no markup:
+ *  a backtick here reaches the screen as a backtick. */
 const GROUP_NOTES: Record<ActionGroup, string> = {
 	world:
 		"Live anywhere in the editor, inside a text field too (the browser default they replace is worse). Suppressed while a confirm dialog is open. ⌘ is Ctrl on Windows and Linux.",
@@ -64,7 +70,7 @@ const GROUP_NOTES: Record<ActionGroup, string> = {
 	session: "Live only while a stamp, reconfigure or move session is on screen.",
 	view: "Live anywhere. F frames the selected stamp, else the cell selection.",
 	help:
-		"Live anywhere a bare key is — so not while you are typing in a field. `?` is ⇧/ on " +
+		"Live anywhere a bare key is — so not while you are typing in a field. ? is ⇧/ on " +
 		"a US layout; the binding is on the character, so whatever your layout does to " +
 		"produce one works.",
 };

@@ -1662,7 +1662,10 @@ the order **World / Edit / View / Help** — not a menubar.
 **Since the F4.5 holistic gate (ruling 3) the three registry groups are SUBMENUS**, one each,
 over a top level of ten rows: the three submenu triggers, the two doors ("View options…",
 "Keyboard shortcuts") and the five palette checkboxes. It was one flat run of 33 items, of
-which the last seven or eight sat below the fold. What stays at top level is what the menu is
+which the gate counted seven or eight below the fold by eye — the arithmetic, which lives once
+in `packages/editor/tests/chrome/shell.test.tsx`'s "the TREE" section, puts it nearer ten,
+because the menu opens under a 40 px top bar and so has ~906 px rather than the window's ~950.
+What stays at top level is what the menu is
 SHOWING STATE for (the palette ticks — the tick is the information, and a submenu would hide
 it) plus the doors; what moved behind a chevron is the registry's own verbs, whose other route
 is ⌘K by name. `help` is the fourth group and is deliberately NOT a submenu: it carries one

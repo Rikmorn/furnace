@@ -36,14 +36,52 @@ which for two of the four does not exist as a DOM node at dismissal time and for
 That is a design question about what "where they were" means for a surface with no
 summoner, which is why it is filed rather than patched.
 
-Not provable in the current harness either: happy-dom does not focus a clicked trigger, so
-the *no* branch's landing place cannot be observed the way the *yes* branch's can.
+### It IS provable in the harness — measured at the F4.5 gate fix round, 2026-08-03
+
+**This entry used to say the opposite** (*"happy-dom does not focus a clicked trigger, so the
+no branch's landing place cannot be observed"*), and that was wrong. It does not need focus to
+move on click: the record is written by a **`pointerdown` capture listener on the window**
+(`CanvasHost.tsx:141-143` sets `heldAtGestureStart = document.activeElement === canvas`), and
+happy-dom dispatches that listener like any other. What the earlier reading missed is that
+`fireEvent.click` alone **skips the pointerdown**, so every existing case drives the *yes*
+branch by accident. Fire `pointerDown` **then** `click`, the way a mouse does, and the *no*
+branch appears:
+
+| route (real pointer: `pointerdown` then `click`) | focus after Esc |
+| --- | --- |
+| ☰ → View → `Find a command…` | **`<body>`** |
+| ☰ → World → `Open…` | **`<body>`** |
+| ☰ → World → `Save as…` | **the burger trigger** (and it holds focus while the name field is up) |
+| ☰ → `Keyboard shortcuts` | canvas ✓ (hand-written row, calls `handOff`) |
+| ☰ → `View options…` | canvas ✓ (hand-written row, calls `handOff`) |
+| ☰ → View → `Grid` (opens nothing) | canvas ✓ |
+| the SAME two routes with `click` only, no pointerdown | canvas — which is why the suite misses this |
+
+So the four dialogs' *no*-branch landing is now reproducible, and a fix can be test-driven
+rather than eyeballed in Safari.
+
+**A second fact the table makes visible:** the split is not per-DIALOG, it is per-ROW. The two
+hand-written burger items forward the answer; the REGISTRY rows do not, because forwarding is
+a fact about opening a surface and `ActionDef` has no field that says so. The affected rows are
+`world.open`, `world.saveAs`, `edit.history`, `view.commandPalette`, and the confirm-raising
+`edit.delete` / `world.new`. **PRE-EXISTING, not introduced by the submenus** — verified both
+directions: `git show 522a5d42~1:…/BurgerMenu.tsx` has the flat `RegistryGroup` rendering
+`onSelect={() => action.run(ctx)}` with no hand-off, and post-commit `RegistrySubmenu` passes no
+`onSelect` either. The submenus neither created nor widened it.
+
+**Not the same defect as F4.5c Task 17's save-as fix** (`f917b961`), which was the ⌘S path
+stranding on `<body>` because Radix never dispatched `onOpenAutoFocus`. This is a different
+path to a different landing spot; the earlier fix has not regressed.
 
 ## Trigger to revisit
 
 The Safari gate reporting it (it is on the gate pack as a keyboard walk), or a fifth
 trigger-less surface arriving — at five the per-surface answer stops being a list and starts
 being a rule.
+
+**Now also:** the next time `ActionDef` gains a field for any reason. The per-row half of this
+(above) wants one fact — "this action opens a surface" — and adding it alone is hard to justify;
+adding it alongside another field is not.
 
 ## Reference
 

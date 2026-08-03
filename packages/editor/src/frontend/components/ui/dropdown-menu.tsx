@@ -47,7 +47,20 @@ const DropdownMenuSubContent = React.forwardRef<
 	<DropdownMenuPrimitive.SubContent
 		ref={ref}
 		className={cn(
-			"z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg origin-[--radix-dropdown-menu-content-transform-origin] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
+			// The max-height/scroll pair is the ROOT's, and a submenu needs it for the same
+			// reason: F4.5c's holistic gate moved the burger's 33 rows behind three chevrons,
+			// so the LONGEST level is now a submenu (view, 12 rows ≈ 394 px) rather than the
+			// top one. Without this, a submenu taller than the space below its trigger clipped
+			// silently against `overflow-hidden` with no way to reach the rows past the edge —
+			// the same defect the submenus were introduced to remove, one level down.
+			//
+			// The variable is REAL on this element, not inherited from the root: react-dropdown-menu
+			// re-namespaces `--radix-popper-available-height` into the `dropdown-menu` scope on
+			// SubContent's own inline `style` exactly as it does on Content
+			// (`@radix-ui/react-dropdown-menu@2.1.20/dist/index.mjs:246` and `:131`). Checked in
+			// node_modules rather than assumed — this slice has shipped three separate classes
+			// whose whole defect was a class that did nothing while reading as though it did.
+			"z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg origin-[--radix-dropdown-menu-content-transform-origin] data-[state=open]:animate-[furnace-pop-in_180ms_ease-out]",
 			className,
 		)}
 		{...props}
