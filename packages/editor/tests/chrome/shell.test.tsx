@@ -27,11 +27,12 @@ import {
 	FieldHostStateProvider,
 	useFieldHostState,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import { ACTIONS, byId } from "../../src/frontend/lib/actions.ts";
+import { ACTIONS, byId, groupTitle } from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import {
 	GRIP_REACH_PX,
+	PALETTE_IDS,
 	PALETTES,
 } from "../../src/frontend/lib/palette-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
@@ -194,12 +195,88 @@ function openBurger(): void {
 	});
 }
 
-/** Open the burger and click one of its items. */
+/** Open the burger and click one of its TOP-LEVEL items. */
 function pickMenuItem(label: string | RegExp): void {
 	openBurger();
 	act(() => {
 		fireEvent.click(screen.getByText(label));
 	});
+}
+
+/** Open the burger and one of its registry submenus, leaving both open.
+ *
+ *  A `SubTrigger` opens on a plain `click` — MEASURED, and it is not the root trigger's
+ *  form: a bare `pointerDown` leaves it shut (as it does the root), and happy-dom raises no
+ *  hover intent of its own, so the pointer path a mouse user takes is unreachable here.
+ *  `keydown` ArrowRight opens it too, which is the keyboard path. */
+function openSubmenu(title: string): void {
+	openBurger();
+	act(() => {
+		fireEvent.click(screen.getByText(title));
+	});
+}
+
+/** Open a registry submenu and click one of ITS items. */
+function pickSubmenuItem(title: string, label: string | RegExp): void {
+	openSubmenu(title);
+	act(() => {
+		fireEvent.click(screen.getByText(label));
+	});
+}
+
+/** The burger's ROOT content, found by the one label only it carries. */
+function burgerRoot(): HTMLElement {
+	const root = screen.getByText("Help").closest("[role='menu']");
+	if (!(root instanceof HTMLElement)) throw new Error("no burger root menu");
+	return root;
+}
+
+/** The open menu whose items include `label` — a submenu, given one of its own rows. */
+function menuContaining(label: string): HTMLElement {
+	const menu = screen.getByText(label).closest("[role='menu']");
+	if (!(menu instanceof HTMLElement)) throw new Error(`no menu for ${label}`);
+	return menu;
+}
+
+/** The open submenu belonging to the trigger titled `title`, found THROUGH the accessible
+ *  name Radix gives it.
+ *
+ *  Deliberately not `menuContaining(title)`: a SubTrigger lives in its PARENT's content, so
+ *  that would hand back the level above and count its rows — measured, and it is how the
+ *  first version of the counting case below read 10 where it wanted 6. Going through
+ *  `aria-labelledby` also makes the labelling relationship load-bearing here: lose it and
+ *  this throws. */
+function submenuOf(title: string): HTMLElement {
+	const id = screen.getByText(title).getAttribute("id");
+	const sub = document.querySelector(`[role='menu'][aria-labelledby='${id}']`);
+	if (!(sub instanceof HTMLElement))
+		throw new Error(`no open submenu labelled by ${title}`);
+	return sub;
+}
+
+/** The item labels at ONE level of the menu, bounded to that level.
+ *
+ *  THE BOUND IS THE WHOLE OF THIS HELPER. Radix renders a `SubContent` INSIDE its parent
+ *  content in the DOM (measured: `root.contains(subItem)` is true), so a bare
+ *  `querySelectorAll` off the root counts every OPEN submenu's rows as top-level ones — a
+ *  top-level count that would then depend on which submenu happened to be open. The case
+ *  below proves the bound by asserting the same list with a submenu open and shut.
+ *
+ *  Both item roles, and the item's TEXT CHILDREN only: a chord is a trailing `<span>`, a
+ *  checkbox carries a tick indicator, and a submenu trigger carries a chevron `<svg>` —
+ *  stripping those out of `textContent` would need to know every keycap in the table, which
+ *  is the coupling the registry exists to remove. */
+function levelItems(menu: HTMLElement): string[] {
+	return [
+		...menu.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox']"),
+	]
+		.filter((el) => el.closest("[role='menu']") === menu)
+		.map((el) =>
+			[...el.childNodes]
+				.filter((n) => n.nodeType === Node.TEXT_NODE)
+				.map((n) => n.textContent)
+				.join(""),
+		);
 }
 
 // --- (a) the one full-window canvas ------------------------------------------
@@ -1394,7 +1471,7 @@ test("the Edit menu's History item is LIVE and summons the same palette", async 
 	const stub = makeStubHost();
 	await renderShell(stub);
 	expect(historyPalette()).toBeNull();
-	openBurger();
+	openSubmenu("Edit");
 	expect(screen.queryByText(/arrives with the History palette/)).toBeNull();
 	expect(screen.getByText("History…").getAttribute("aria-disabled")).not.toBe(
 		"true",
@@ -1421,7 +1498,7 @@ test("Undo and Redo NAME what they would step, in the menu (D-11)", async () => 
 	// than accidentally the right one.
 	pushHistory(stub, ["dig", "segment fill"], ["stamp Maze", "freeze Hall"]);
 
-	openBurger();
+	openSubmenu("Edit");
 	expect(screen.getByText("Undo segment fill")).toBeTruthy();
 	expect(screen.getByText("Redo freeze Hall")).toBeTruthy();
 	// …and the ops at the far end of each list are NOT what the items name.
@@ -2007,36 +2084,31 @@ test("the X-ray is a SESSION choice — ticking it writes nothing, and a stale b
 	);
 });
 
-test("the burger's View group drives the same view state, and reads it back", async () => {
+test("the burger's View submenu drives the same view state, and reads it back", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
 	// The menu is the second surface over ONE state (the popover is the first): both
 	// read `useView`, so a menu item that wrote somewhere else would show up as a host
 	// call the popover's own cases never make.
-	pickMenuItem("Grid");
+	pickSubmenuItem("View", "Grid");
 	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
 		grid: false,
 	});
-	pickMenuItem("Normals shading");
+	pickSubmenuItem("View", "Normals shading");
 	expect(stub.calls.setShading.mock.calls.at(-1)?.[0]).toBe("normals");
 
 	// …and back the other way: re-opened, both items read the state they just wrote.
 	// A menu that only WROTE would show two unticked boxes over a normals-shaded,
 	// gridless viewport.
-	act(() => {
-		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
-			button: 0,
-			pointerType: "mouse",
-		});
-	});
+	openSubmenu("View");
 	const item = (name: string): HTMLElement =>
 		screen.getByRole("menuitemcheckbox", { name });
 	expect(item("Grid").getAttribute("aria-checked")).toBe("false");
 	expect(item("Normals shading").getAttribute("aria-checked")).toBe("true");
 });
 
-test("the burger's View group carries the triad's six axis views, in the triad's own words", async () => {
+test("the burger's View submenu carries the triad's six axis views, in the triad's own words", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
@@ -2057,9 +2129,9 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 	// arguments are the assertion: a row wired to the wrong sign looks perfect in a DOM test
 	// and sends the camera to the far side of the world on screen. Two DIFFERENT pairs, so
 	// a table where every row snapped to one view would still redden here.
-	pickMenuItem("View from negative Y");
+	pickSubmenuItem("View", "View from negative Y");
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["y", -1]);
-	pickMenuItem("View from positive Z");
+	pickSubmenuItem("View", "View from positive Z");
 	expect(stub.calls.snapView.mock.calls.at(-1)).toEqual(["z", 1]);
 
 	// THE claim of this whole item: the six views are reachable somewhere other than the
@@ -2072,32 +2144,18 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 	// so the six sit with `view.frame` (the other camera verb) rather than trailing the
 	// display toggles and the workspace verbs, which are a different kind of thing.
 	//
-	// Last, because selecting an item CLOSES the menu — and `openBurger` toggles, so
-	// opening around a `pickMenuItem` shuts the menu instead of leaving it up.
-	openBurger();
-	const group = screen.getByText("View").closest("[role='group']");
-	if (!(group instanceof HTMLElement)) throw new Error("no View group");
-	// Both item roles — the toggles render as `menuitemcheckbox`, and a selector that saw
-	// only `menuitem` would leave where the six sit RELATIVE to them unpinned, which is
-	// the half of the ordering claim that is actually a judgement.
-	//
-	// The item's TEXT children only. `textContent` would drag in the `F` and `⌘\` keycaps
-	// (a chord is a trailing `<span>`) and, on a checkbox item, its tick indicator — and
-	// stripping those out with a regex would have to know every keycap in the table, which
-	// is exactly the coupling the registry exists to remove. The label is the one bare
-	// text node either shape has.
-	const labels = [
-		...group.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox']"),
-	].map((el) =>
-		[...el.childNodes]
-			.filter((n) => n.nodeType === Node.TEXT_NODE)
-			.map((n) => n.textContent)
-			.join(""),
-	);
+	// Last, because selecting an item CLOSES the menu — and `openSubmenu` opens the burger
+	// too, so opening around a `pickSubmenuItem` shuts it instead of leaving it up.
+	openSubmenu("View");
+	// The submenu, found by a row of its own: since the holistic gate the group is a
+	// `SubContent` (`role="menu"`, labelled by its trigger) rather than a `role="group"`
+	// inside the root content — so `levelItems`' bound is what keeps this the VIEW rows and
+	// not every open level's.
+	const labels = levelItems(menuContaining("Frame selection"));
 	expect(labels).toEqual([
-		// FIRST, deliberately: this group is seventeen rows once the popover door and the
-		// five palette checkboxes are counted, and the command palette is the answer to
-		// that depth (D-12) — so a user who opens the menu meets the way out of it first.
+		// FIRST, deliberately: this submenu is the longest of the three at twelve rows, and
+		// the command palette is the answer to depth (D-12) — so a user who opens it meets
+		// the way out of the menu entirely before the twelve.
 		"Find a command…",
 		"Frame selection",
 		...tipNames,
@@ -2115,7 +2173,7 @@ test("the burger's View group carries the triad's six axis views, in the triad's
 const menuItem = (name: RegExp): HTMLElement =>
 	screen.getByRole("menuitem", { name });
 
-test("the burger's Edit group steps the field's ONE history, and goes dead when there is nothing to step", async () => {
+test("the burger's Edit submenu steps the field's ONE history, and goes dead when there is nothing to step", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
@@ -2123,7 +2181,7 @@ test("the burger's Edit group steps the field's ONE history, and goes dead when 
 	// A session whose host has pushed no stats has provably done nothing yet, so both
 	// verbs read as unavailable rather than as items that swallow a click (this menu's
 	// rule — see BurgerMenu's header).
-	openBurger();
+	openSubmenu("Edit");
 	expect(menuItem(/^Undo/).getAttribute("aria-disabled")).toBe("true");
 	expect(menuItem(/^Redo/).getAttribute("aria-disabled")).toBe("true");
 
@@ -2149,7 +2207,7 @@ test("the burger's Edit group steps the field's ONE history, and goes dead when 
 	act(() => {
 		stub.fire.stats(makeStats({ totalOps: 1, undoDepth: 0, redoDepth: 1 }));
 	});
-	openBurger();
+	openSubmenu("Edit");
 	expect(menuItem(/^Undo/).getAttribute("aria-disabled")).toBe("true");
 	act(() => {
 		fireEvent.click(menuItem(/^Redo/));
@@ -2237,6 +2295,161 @@ test("the overlay renders the REGISTRY — every keyed action has a row, with it
 			listed: within(dialog).queryAllByText(keys).length,
 		}).toEqual({ id: action.id, listed: 1 });
 	}
+});
+
+// --- (c3c) the TREE: three submenus over a top level that fits on one screen ---
+//
+// The holistic gate's ruling 3. The menu was 33 items in ONE flat run and the gate counted
+// 7–8 of them below the fold; the three registry groups are submenus now, and what stays at
+// top level is the two doors plus the five palette ticks — whose whole value is the tick
+// being VISIBLE, which a submenu would hide.
+//
+// THE FOLD IS ARITHMETIC HERE, NOT A MEASUREMENT: happy-dom runs no layout, so no case in
+// this file can see a pixel. Every row is `py-1.5 text-sm` — 6 + 20 + 6 = 32 px (tailwind
+// v4's `--text-sm--line-height` is 1.25rem and its spacing unit is 4 px, both read off
+// `tailwindcss/theme.css`) — a separator is 9 px, and the content's padding and border add
+// 10. So the top level was 37 rows + 3 separators = 1221 px and is now 11 rows + 2
+// separators = 380 px, while the DEEPEST level (View, twelve rows) is 394 px. Every level
+// fits the ~950 px window the gate was walked in, where the flat menu overflowed by ~270 px.
+
+test("the burger's top level is the three group submenus, the two doors and the palette ticks", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	openBurger();
+	// DERIVED, not transcribed: the palette rows come from the same list the menu maps, so
+	// a palette added to the store joins this expectation instead of falsifying it.
+	expect(levelItems(burgerRoot())).toEqual([
+		"World",
+		"Edit",
+		"View",
+		"View options…",
+		...PALETTE_IDS.map((id) => `${PALETTES[id].title} palette`),
+		"Keyboard shortcuts",
+	]);
+});
+
+test("a submenu's rows belong to the SUBMENU — opening one does not lengthen the level above", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	openBurger();
+	const shut = levelItems(burgerRoot());
+	act(() => {
+		fireEvent.click(screen.getByText("View"));
+	});
+	// The claim that makes every count in this section mean something. Radix renders a
+	// SubContent inside its parent content, so an unbounded selector would report twelve
+	// more items here and the top-level assertion above would silently be measuring whatever
+	// was open. Sabotaging `levelItems`' filter reddens exactly this case.
+	expect(levelItems(burgerRoot())).toEqual(shut);
+
+	// …and the twelve rows are in the submenu the trigger names, LABELLED BY IT: Radix wires
+	// `aria-labelledby` from the SubTrigger's own id, which is what retired the hand-rolled
+	// `DropdownMenuGroup` + `DropdownMenuLabel` pair the flat groups carried. A submenu with
+	// no accessible name is a menu a screen-reader user meets unattributed.
+	const sub = menuContaining("Frame selection");
+	expect(sub.getAttribute("aria-labelledby")).toBe(
+		screen.getByText("View").getAttribute("id"),
+	);
+});
+
+test("each submenu holds exactly its registry group, and nothing else does", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// The counts are DERIVED from the table — 6 / 8 / 12, all different, so a submenu wired
+	// to the wrong group cannot pass by coincidence. The `tool` and `session` groups are
+	// deliberately absent from the menu entirely (arming a brush is the rail's, ending a
+	// session is the viewport's — `ActionGroup`'s own docblock), so their 8 and 3 must not
+	// appear anywhere in it.
+	for (const group of ["world", "edit", "view"] as const) {
+		const title = groupTitle(group);
+		openSubmenu(title);
+		const expected = ACTIONS.filter((a) => a.group === group).length;
+		expect({ title, rows: levelItems(submenuOf(title)).length }).toEqual({
+			title,
+			rows: expected,
+		});
+		// Every one of them is INSIDE the submenu rather than beside it: the submenu is the
+		// element the trigger opens, so a row that stayed at top level would count here and
+		// be missing from the level list above.
+		act(() => {
+			fireEvent.keyDown(document, { key: "Escape" });
+		});
+	}
+	// Tools and Session reach the user through the rail, the status bar's keymap line and the
+	// shortcuts overlay — never through this menu.
+	//
+	// BOTH SHAPES a slip could take, because the first version of this checked only the
+	// second and adding a `<RegistrySubmenu group="tool" />` walked straight past it (4 pass
+	// / 0 fail here, caught by the top-level list case alone): a TRIGGER named after the
+	// group, and a ROW of the group at top level. A submenu's rows do not exist until it is
+	// opened, so the row check cannot see one — the trigger check is what can.
+	openBurger();
+	for (const group of ["tool", "session"] as const)
+		expect({
+			group,
+			trigger: screen.queryByText(groupTitle(group)) === null,
+		}).toEqual({ group, trigger: true });
+	expect(screen.queryByText("Next brush") === null).toBe(true);
+	expect(screen.queryByText("Rotate a quarter turn") === null).toBe(true);
+});
+
+// --- (c3d) `?` ----------------------------------------------------------------
+
+test("`?` opens the shortcuts overlay — the same bare-key gate as every other letter", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	expect(screen.queryByRole("dialog") === null).toBe(true);
+	// ⇧ rides along because that is how a US layout produces the character; the binding is
+	// on the character, so it must not matter.
+	act(() => {
+		fireEvent.keyDown(window, { key: "?", shiftKey: true });
+	});
+	const dialog = await waitFor(() => screen.getByRole("dialog"));
+	expect(
+		within(dialog).getByRole("heading", { name: "Keyboard shortcuts" }),
+	).toBeTruthy();
+});
+
+test("`?` is refused while the user is typing — it is a character that appears in prose", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// A REAL text field, reached the way a user reaches it: the world chip opens the drawer,
+	// whose filter box is somewhere a `?` is an ordinary character to type. Asserted on the
+	// overlay's HEADING rather than on `role="dialog"`, because the drawer is one.
+	const chip = screen.getByRole("button", { name: /untitled/ });
+	act(() => {
+		fireEvent.pointerDown(chip, { button: 0, pointerType: "mouse" });
+		fireEvent.click(chip);
+	});
+	const field = await screen.findByLabelText("filter worlds");
+	act(() => {
+		fireEvent.keyDown(field, { key: "?", shiftKey: true });
+	});
+	expect(
+		screen.queryByRole("heading", { name: "Keyboard shortcuts" }) === null,
+	).toBe(true);
+});
+
+test("the burger's Keyboard shortcuts item advertises the chord it now HAS", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	openBurger();
+	// It declined one for a reason that has been overturned: an item advertising a key
+	// nothing listens for teaches a lie, and until the ruling nothing listened. The keycap
+	// comes from the registry, so it cannot drift from the matcher.
+	const item = screen
+		.getByText("Keyboard shortcuts")
+		.closest("[role='menuitem']");
+	if (!(item instanceof HTMLElement)) throw new Error("no shortcuts item");
+	expect(item.textContent).toBe(
+		`Keyboard shortcuts${byId("help.shortcuts").keys}`,
+	);
 });
 
 // --- (c4) the orientation triad ----------------------------------------------
@@ -2766,7 +2979,7 @@ test("Reset workspace restores the defaults AND drops the persisted arrangement"
 	await renderShell(stub, store);
 	expect(flagsPalette()).toBeNull();
 
-	pickMenuItem("Reset workspace");
+	pickSubmenuItem("View", "Reset workspace");
 	// The panel MOUNTS again here (it was closed), so let its catalog GET settle.
 	await flushCatalog();
 
@@ -3225,7 +3438,7 @@ test("the \u2318\\ latch cannot leave the cell measurement stale", async () => {
 	// nothing — and no second resize fires when the latch lifts. Nothing is stubbed here for
 	// exactly that reason: an unmeasurable rect is the state under test, and happy-dom's own
 	// zero agrees with the browser on this one point.
-	pickMenuItem("Hide palettes");
+	pickSubmenuItem("View", "Hide palettes");
 	expect(flagsPalette() === null).toBe(true);
 	act(() => {
 		window.dispatchEvent(new Event("resize"));
@@ -3237,7 +3450,7 @@ test("the \u2318\\ latch cannot leave the cell measurement stale", async () => {
 	// suppresses the event it listens for.
 	withLayerBox(
 		() => {
-			pickMenuItem("Show palettes");
+			pickSubmenuItem("View", "Show palettes");
 		},
 		{ width: 400, height: 300 },
 	);
@@ -3251,7 +3464,7 @@ test("a Reset that happens BEFORE the store arrives is not undone by the restore
 	const { rerender } = renderShellResult(stub, undefined);
 	await flushCatalog();
 
-	pickMenuItem("Reset workspace");
+	pickSubmenuItem("View", "Reset workspace");
 	await flushCatalog();
 	expect(flagsPalette()?.style.left).toBe(FLAGS_DEFAULT_LEFT);
 	expect(flagsPalette()?.style.top).toBe(FLAGS_DEFAULT_TOP);
@@ -3471,7 +3684,7 @@ test("a bare key typed into a text field is a CHARACTER, not a binding", async (
 	await renderShell(stub);
 	// The world drawer's name form is a real text input inside the shell — a place the
 	// user genuinely types letters that are also bindings.
-	pickMenuItem("Save as…");
+	pickSubmenuItem("World", "Save as…");
 	const input = await waitFor(() =>
 		screen.getByLabelText("save as world name"),
 	);
@@ -3789,12 +4002,12 @@ test("the keymap names only keys that are LIVE — under paint, ⌃ and X are no
 	expect(brush("paint")).toBe("LMB paint · [ ] radius · ⇧ smooth");
 });
 
-test("the burger's Edit group names the stamp its verbs would act on, in table order", async () => {
+test("the burger's Edit submenu names the stamp its verbs would act on, in table order", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
 	selectHall(stub);
-	openBurger();
+	openSubmenu("Edit");
 	// The chord acts on "whatever is selected" without saying so; the menu is where
 	// that noun becomes visible.
 	expect(await waitFor(() => screen.getByText("Delete hall #4"))).toBeTruthy();
@@ -3803,15 +4016,10 @@ test("the burger's Edit group names the stamp its verbs would act on, in table o
 	// position, so reordering the table silently reorders the menu. Undo/Redo lead
 	// because they are the most-reached; History closes the group as the way into the
 	// palette that lists them.
-	const group = screen.getByText("Edit").closest("[role='group']");
-	if (!(group instanceof HTMLElement)) throw new Error("no Edit group");
-	const labels = [...group.querySelectorAll("[role='menuitem']")].map(
-		// The item renders `{label}{chord}`, so the label is the FIRST child node and the
-		// chord is a trailing <span>. Read the node rather than stripping keycaps out of
-		// `textContent` with a regex — that would have to know every keycap in the table,
-		// which is exactly the coupling the registry exists to remove.
-		(el) => el.firstChild?.textContent,
-	);
+	//
+	// The Edit rows live in a `SubContent` since the holistic gate, so the level is found
+	// by one of its own rows and `levelItems` bounds the read to it.
+	const labels = levelItems(menuContaining("Reselect"));
 	expect(labels).toEqual([
 		"Undo",
 		"Redo",

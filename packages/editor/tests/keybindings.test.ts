@@ -66,6 +66,8 @@ const BINDINGS: { id: string; event: KeyboardEvent }[] = [
   { id: "view.commandPalette", event: ev({ key: "k", metaKey: true }) },
   { id: "view.frame", event: ev({ key: "f" }) },
   { id: "view.togglePalettes", event: ev({ key: "\\", metaKey: true }) },
+  // ⇧ is how a US layout produces `?`, so the event a real keyboard sends carries it.
+  { id: "help.shortcuts", event: ev({ key: "?", shiftKey: true }) },
 ];
 
 test("⌃K reaches the palette too — the pre-named Safari fallback is already live", () => {
@@ -122,6 +124,34 @@ test("⇧ means ONE thing across the table — every ⌘-chord states it", () =>
   ).toBeNull();
 });
 
+test("`?` is matched by the CHARACTER, not by ⇧ — the one binding whose keycap moves with the layout", () => {
+  // ⇧/ on a US layout, ⇧ß on a German one, and ⇧, on a French one — the modifier is the
+  // LAYOUT's business, so the matcher states the character and nothing else. Both are
+  // asserted because pinning `shiftKey === true` (what every other ⇧ binding here does)
+  // would kill this key on any layout that puts `?` unshifted, and pinning `false` would
+  // kill it on the one this editor is developed against.
+  for (const shiftKey of [true, false])
+    expect({
+      shiftKey,
+      id: matchAction(ev({ key: "?", shiftKey }))?.id,
+    }).toEqual({ shiftKey, id: "help.shortcuts" });
+  // AltGr is the exception and it is deliberate: Windows reports it as ctrl+alt, which the
+  // chord and the ⌥ exclusions both refuse, so a layout that needs AltGr for `?` cannot
+  // reach this binding. Filed rather than papered over (docs/backlog).
+  expect(matchAction(ev({ key: "?", ctrlKey: true, altKey: true }))).toBeNull();
+  // And it is not a chord in disguise: ⌘? must not open the overlay.
+  expect(matchAction(ev({ key: "?", metaKey: true }))).toBeNull();
+  // THE KEYCAP AND THE MATCHER AGREE, checked rather than reviewed. Every other row in this
+  // table spells its cap in the editor's keycap vocabulary (`⌘S`, `⇧B`) and the bridge to
+  // its matcher is the human-maintained list at the top of this file; this one's cap IS the
+  // character, so the event can be built FROM the cap. Without this, a cap edited to `⇧/`
+  // would leave every case here green while the menu advertised a key nothing answers.
+  const def = byId("help.shortcuts");
+  expect(matchAction(ev({ key: def.keys ?? "", shiftKey: true }))?.id).toBe(
+    "help.shortcuts",
+  );
+});
+
 test("⌥ is not a modifier any binding uses — with it held, nothing classifies", () => {
   // It is the viewport's eyedropper modifier, and on macOS it rewrites `e.key` anyway.
   expect(matchAction(ev({ key: "s", metaKey: true, altKey: true }))).toBeNull();
@@ -170,7 +200,16 @@ test("⌘-chords stay live inside a text input — the browser default they repl
 });
 
 test("bare keys are refused in a text input — they are characters someone is typing", () => {
-  for (const id of ["view.frame", "edit.grab", "tool.brush", "edit.delete"])
+  // `help.shortcuts` is in the list because `?` is the sharpest case in it: it is a
+  // character that appears in prose, and the world drawer's name field and every string
+  // param in the inspector are places someone types one.
+  for (const id of [
+    "view.frame",
+    "edit.grab",
+    "tool.brush",
+    "edit.delete",
+    "help.shortcuts",
+  ])
     expect({ id, ok: verdict(byId(id), { inTextInput: true }).ok }).toEqual({
       id,
       ok: false,

@@ -18,6 +18,7 @@ import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import {
 	ACTION_GROUPS,
 	ACTIONS,
+	groupTitle,
 	TOOL_FAMILIES,
 } from "../../src/frontend/lib/actions.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
@@ -223,7 +224,7 @@ test("the search box is NAMED — cmdk leaves its aria-labelledby empty otherwis
 	).toBeTruthy();
 });
 
-test("the burger's View group opens it too — one action, two routes", async () => {
+test("the burger's View submenu opens it too — one action, two routes", async () => {
 	const stub = stubWithGenerators();
 	await renderShell(stub);
 	act(() => {
@@ -231,6 +232,11 @@ test("the burger's View group opens it too — one action, two routes", async ()
 			button: 0,
 			pointerType: "mouse",
 		});
+	});
+	// Into the View submenu first: the group is a `DropdownMenuSub` since the holistic
+	// gate's ruling 3, so its rows do not exist until the trigger is clicked.
+	act(() => {
+		fireEvent.click(screen.getByText(groupTitle("view")));
 	});
 	const def = ACTIONS.find((a) => a.id === "view.commandPalette");
 	if (def === undefined) throw new Error("no view.commandPalette action");

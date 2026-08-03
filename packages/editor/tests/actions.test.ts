@@ -102,6 +102,56 @@ test("the command palette is a registry action, not a surface with its own key",
   ).not.toHaveBeenCalled();
 });
 
+test("the shortcuts overlay is a registry action on a bare key, in its own Help group", () => {
+  // The holistic gate's ruling 3: `?` opens the overlay "through the same bare-letter gate
+  // as every other key". A registry action is the only thing that gate exists for — a
+  // window listener of the burger's own would be a second key owner, which the ownership
+  // rule at the top of `lib/actions.ts` forbids outright.
+  const def = byId("help.shortcuts");
+  expect({
+    keys: def.keys,
+    gate: def.gate,
+    group: def.group,
+    // Never refused: an overlay that lists every binding is most useful in the state where
+    // the user cannot work out which key does what.
+    enabled: def.enabled(makeCtx()),
+  }).toEqual({ keys: "?", gate: "typed", group: "help", enabled: true });
+
+  // Its OWN funnel, like the ⌘K palette's beside it — the shell owns the dialog, so the
+  // action cannot reach it any other way. NOT `summonPalette`: this is a modal dialog, not
+  // a member of the floating arrangement, and NOT `openCommandPalette`, which is a
+  // different surface (a run that raised the wrong one reads identically in the menu).
+  const ctx = makeCtx();
+  def.run(ctx);
+  expect(
+    ctx.run.openShortcuts as ReturnType<typeof mock>,
+  ).toHaveBeenCalledTimes(1);
+  expect(
+    ctx.run.openCommandPalette as ReturnType<typeof mock>,
+  ).not.toHaveBeenCalled();
+  expect(
+    ctx.run.summonPalette as ReturnType<typeof mock>,
+  ).not.toHaveBeenCalled();
+});
+
+test("Help is a group of its OWN, so the overlay and ⌘K head it rather than filing it under View", () => {
+  // A group rather than a `view` row, and the reason is the burger: `view` is rendered as a
+  // SUBMENU from the table, so a shortcuts row in it would be the item's second home —
+  // the burger renders this one itself (its select hands focus to the dialog, which a
+  // registry row cannot express). One group, one home, no duplicate.
+  expect(groupTitle("help")).toBe("Help");
+  // LAST in the order every surface that lists all the groups uses. Asserted rather than
+  // assumed: `ACTION_GROUPS`' own doc makes the order data, and Help trailing is what puts
+  // the editor's verbs above the documentation about them.
+  expect(ACTION_GROUPS.at(-1)?.id).toBe("help");
+  // Exactly one action in it. The claim is not the number for its own sake — it is that
+  // `help` is not a place where things get filed: a second verb landing here should be a
+  // decision someone makes on purpose, in this test.
+  expect(ACTIONS.filter((a) => a.group === "help").map((a) => a.id)).toEqual([
+    "help.shortcuts",
+  ]);
+});
+
 test("every displayed chord is unique — one key, one action", () => {
   const keys = ACTIONS.flatMap((a) => (a.keys === undefined ? [] : [a.keys]));
   expect(new Set(keys).size).toBe(keys.length);

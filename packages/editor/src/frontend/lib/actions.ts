@@ -121,6 +121,15 @@ export type ActionCtx = {
      *  geometry to restore. A second verb rather than a `summonPalette("command")` for
      *  exactly that reason. */
     openCommandPalette: () => void;
+    /** Raise the keyboard-shortcut overlay. The same shape as `openCommandPalette` above
+     *  and for the same reason — another modal dialog the SHELL owns, which is what makes
+     *  "open it" expressible from a pure table at all.
+     *
+     *  TWO verbs rather than one `openDialog(id)` funnel: with exactly two members a keyed
+     *  funnel buys nothing and costs an id union plus a lookup at the shell (the
+     *  tolerate-duplication-until-the-third rule). A THIRD shell-owned modal is the trigger
+     *  to collapse all three. */
+    openShortcuts: () => void;
   };
 };
 
@@ -198,19 +207,36 @@ export type ActionDef = {
   run: (ctx: ActionCtx) => void;
 };
 
-/** `world` and `edit` and `view` are the burger's groups; `tool` and `session` are the
- *  keyboard's, and reach the user through the tool rail, the status bar's keymap line and
- *  the shortcuts overlay rather than through a menu. */
-export type ActionGroup = "world" | "edit" | "view" | "tool" | "session";
+/** `world`, `edit` and `view` are the burger's SUBMENUS — one each, rendered from this
+ *  table (the holistic gate's ruling 3). `tool` and `session` are the keyboard's, and reach
+ *  the user through the tool rail, the status bar's keymap line and the shortcuts overlay
+ *  rather than through a menu: arming a brush is the rail's job and ending a session is the
+ *  viewport's, so filing them in the burger would be a second, worse route to both.
+ *
+ *  `help` is the odd one and says so here rather than reading as an oversight: it carries a
+ *  single action, and the burger renders that action DIRECTLY rather than as a fourth
+ *  submenu. Two reasons, both structural. A one-row submenu is a chevron guarding one row.
+ *  And that row's select hands focus to the dialog it opens (`BurgerMenu`'s `handingOff`),
+ *  which a generic registry row cannot express — so the menu item is hand-written, and its
+ *  label, keycap and verb are read off this table through `byId` so there is still exactly
+ *  one spelling of each. */
+export type ActionGroup =
+  | "world"
+  | "edit"
+  | "view"
+  | "tool"
+  | "session"
+  | "help";
 
-/** The five groups in the order a user meets them, with what each is CALLED on a surface
+/** The six groups in the order a user meets them, with what each is CALLED on a surface
  *  that shows headings.
  *
- *  Here rather than beside each surface because three of them now name the same five sets
- *  — the burger's menu labels, the shortcuts overlay's sections and the command palette's
- *  groups — and a group renamed in one of them would silently be two groups to anyone
- *  reading both. The ORDER is part of the data for the same reason: the overlay and the
- *  palette both list all five, and two different orders is two different mental maps.
+ *  Here rather than beside each surface because three of them now name the same six sets
+ *  — the burger's submenu triggers, the shortcuts overlay's sections and the command
+ *  palette's groups — and a group renamed in one of them would silently be two groups to
+ *  anyone reading both. The ORDER is part of the data for the same reason: the overlay and
+ *  the palette both list all six, and two different orders is two different mental maps.
+ *  `help` is LAST because documentation about the verbs belongs after the verbs.
  *  Every group carrying an action must appear here (asserted in `tests/actions.test.ts`). */
 export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
   { id: "world", title: "World" },
@@ -218,6 +244,7 @@ export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
   { id: "tool", title: "Tools" },
   { id: "session", title: "Session" },
   { id: "view", title: "View" },
+  { id: "help", title: "Help" },
 ];
 
 // --- matchers ---------------------------------------------------------------
@@ -239,6 +266,22 @@ const bare = (e: KeyboardEvent, key: string): boolean =>
 /** ⇧ + a letter: the family CYCLE half of `B`/`M`/`S`. */
 const shifted = (e: KeyboardEvent, key: string): boolean =>
   !mod(e) && !e.altKey && e.shiftKey && e.key.toLowerCase() === key;
+
+/** The `?` key, however this keyboard makes one — the ONE binding in the table whose
+ *  modifier is the layout's business rather than ours.
+ *
+ *  ⇧ is deliberately NOT stated, which makes this the exception to `bare` (which pins
+ *  `shiftKey === false`) and to `shifted` (which pins it true). `?` is ⇧/ on a US layout,
+ *  ⇧ß on a German one and ⇧, on a French one, and a layout that puts it unshifted is
+ *  perfectly possible — what the user PRODUCED is a question mark, so that is the whole
+ *  test. No `toLowerCase`: punctuation has no case to fold.
+ *
+ *  AltGr is the one keyboard this cannot reach, and it is a known cost rather than an
+ *  oversight: Windows reports AltGr as ctrl+alt, which `mod` and `!altKey` both refuse. The
+ *  project is macOS-primary; the residue is filed
+ *  (`docs/backlog/editor-and-tooling/shortcut-overlay-key-on-altgr-layouts.md`). */
+const question = (e: KeyboardEvent): boolean =>
+  !mod(e) && !e.altKey && e.key === "?";
 
 // --- families ---------------------------------------------------------------
 
@@ -425,13 +468,25 @@ const axisView = <A extends Axis, S extends 1 | -1>(
  *  the tips are a redundant affordance rather than a violation. Delete this list and the
  *  finding re-opens (`field-f4-gate-ux-findings.md` §3).
  *
+ *  BEHIND THE VIEW SUBMENU since the holistic gate's ruling 3, and the paragraph this
+ *  replaces argued the opposite ("FLAT rather than behind a submenu … the stand-in route
+ *  would itself become two-step"). It is overruled on its own terms. SC 2.5.8's
+ *  equivalent-affordance exception asks that the function be reachable through a control
+ *  that MEETS the size minimum — it says nothing about how many steps away it is, and every
+ *  submenu row is a full-size target. What the old arrangement actually delivered was these
+ *  six rows sitting in a 33-item menu whose last eight rows were below the fold on the window
+ *  the gate was walked in: for the user this exception exists for, a row you scroll a menu to
+ *  find is not a better stand-in than a row behind a chevron. And the flat run cost the six a
+ *  second thing — nothing named them as a set, where a submenu trigger does.
+ *
  *  NO `keys`, and that is a decision rather than an omission: six chords would be six claims
  *  on a keyboard this editor keeps sparse, and the charter's binding table allocates none of
  *  them. The menu is the route. It follows — and reads like an oversight otherwise — that
  *  these six are absent from the REGISTRY-RENDERED part of the shortcuts overlay, which
  *  lists only actions carrying a `keys`; that overlay's static triad-tips row names the View
  *  menu instead, so a keyboard user still learns the alternative exists. The command palette
- *  Task 7 adds reads this same table.
+ *  Task 7 adds reads this same table, and reaches all six by NAME in one chord — which is the
+ *  route that makes the submenu's extra step cheap.
  *
  *  The labels come from `axisViewLabel`, which is also what each TIP is called — one
  *  spelling, so the gizmo and the menu cannot name one view two ways (D-12). That is not
@@ -840,11 +895,10 @@ export const ACTIONS: readonly ActionDef[] = [
   },
 
   // ——— view ————————————————————————————————————————————————————————————————
-  // FIRST in the group, because this is the answer to how long the group has become: the
-  // burger renders View as one unseparated run of seventeen rows (eleven here, then "View
-  // options…" and five palette checkboxes), and random access by name is what stops that
-  // depth from being a ceiling (D-12). A user who opens the menu meets the way out of the
-  // menu first.
+  // FIRST in the group, because this is the answer to how long the group has become: View
+  // is the longest of the burger's three submenus at twelve rows, and random access by name
+  // is what stops that depth from being a ceiling (D-12). A user who opens the submenu meets
+  // the way out of the menu entirely before the twelve.
   {
     id: "view.commandPalette",
     group: "view",
@@ -881,13 +935,9 @@ export const ACTIONS: readonly ActionDef[] = [
   },
   // HERE, between the other camera verb and the display toggles, because the burger renders
   // a group in table order: seven camera rows then read as one run, where appending them
-  // would file six of them behind two workspace verbs. FLAT rather than behind a submenu —
-  // this group is the ACCESSIBLE route to a control too small to click reliably, and a
-  // submenu is a hover-intent (or ArrowRight) traversal, so the stand-in route would itself
-  // become two-step. What a user sees under the View heading is longer than these eleven
-  // rows: `BurgerMenu` follows the group with "View options…" and the five palette
-  // checkboxes and NO separator, so it reads as one run of seventeen. The command palette,
-  // not a submenu, is what makes that scannable.
+  // would file six of them behind two workspace verbs. Their placement BEHIND the View
+  // submenu, and the accessibility argument that placement had to answer, are on
+  // `AXIS_VIEWS` above.
   ...AXIS_VIEWS,
   {
     id: "view.normals",
@@ -936,6 +986,28 @@ export const ACTIONS: readonly ActionDef[] = [
     label: () => "Reset workspace",
     enabled: () => true,
     run: (ctx) => ctx.run.workspace.reset(),
+  },
+
+  // ——— help ————————————————————————————————————————————————————————————————
+  {
+    id: "help.shortcuts",
+    group: "help",
+    // NO ellipsis, unlike every other surface-opener in this table (Open…, Save as…,
+    // History…, View options…, Find a command…). That is this row inheriting the burger
+    // item's existing wording rather than a considered exception — four test sites and a
+    // user's muscle memory name it as it is, and the label is out of the ruling's scope.
+    label: () => "Keyboard shortcuts",
+    // Never refused. The state where a user cannot work out which key does what is exactly
+    // the state this overlay is for, so there is nothing to gate it on.
+    enabled: () => true,
+    keys: "?",
+    hint: "Every binding this build answers to, in one list — including the viewport keys the canvas owns, which no menu can show",
+    // A `typed` gate like every other bare key: refused while the user is in a text field,
+    // where `?` is a character they meant to type, and nowhere else. Not a `chord` — there
+    // is no browser default here worth stealing a text field's punctuation for.
+    match: question,
+    gate: "typed",
+    run: (ctx) => ctx.run.openShortcuts(),
   },
 ];
 

@@ -167,9 +167,9 @@ async function openByKeyboard(trigger: HTMLElement): Promise<void> {
 	expectOpened(before);
 }
 
-/** Open by CHORD — the openers with no trigger at all (⌘K, ⌘S, ⌫). The keydown is both the
- *  gesture and the open, and it goes to the window because that is where
- *  `useGlobalKeybindings` listens. */
+/** Open by KEY — the openers with no trigger at all (⌘K, ⌘S, ⌫, and `?` since the holistic
+ *  gate bound it). The keydown is both the gesture and the open, and it goes to the window
+ *  because that is where `useGlobalKeybindings` listens. */
 async function openByChord(init: KeyboardEventInit): Promise<void> {
 	const before = document.activeElement;
 	await act(async () => {
@@ -454,9 +454,16 @@ test("two stacked overlays each answer for their OWN summoning", async () => {
 //   fly → ☰ → "Keyboard shortcuts" → Esc   → BODY
 //   fly → ⌘K → "Open…"             → Esc   → BODY
 //
-// The shortcuts overlay is the sharp case: `?` is deliberately unbound, so the burger is
-// its ONLY route, so before the hand-off its record could not be true in ANY reachable
-// state. It was wired and inert — which is worse than unwired, because it looked covered.
+// The shortcuts overlay was the sharp case: `?` was unbound, so the burger was its ONLY
+// route, so before the hand-off its record could not be true in ANY reachable state. It was
+// wired and inert — which is worse than unwired, because it looked covered.
+//
+// THE HOLISTIC GATE'S RULING 3 BOUND `?`, and that gives the overlay a SECOND route with a
+// different focus origin — the key is a gesture of its own, so the record is taken from the
+// keypress rather than forwarded from a menu. Both routes are pinned below, in both
+// polarities, because they reach one dialog through two mechanisms: the chain (☰, forwarded)
+// and the direct one (`?`, recorded). A regression in either is a dead end on `<body>` with
+// every viewport key gone.
 
 /** Pick an item out of an OPEN menu or palette, and let the surface it opens mount.
  *
@@ -498,6 +505,32 @@ test("☰ → Keyboard shortcuts → Esc does NOT take the canvas when the journ
 	await openByKeyboard(trigger);
 	await pickItem("Keyboard shortcuts");
 
+	await dismiss();
+	expect(document.activeElement === canvas()).toBe(false);
+});
+
+test("`?` pressed while flying → Esc lands on the CANVAS", async () => {
+	// The route the ruling added, and it does NOT go through the hand-off: the keypress IS
+	// the gesture, so the dialog's own record answers for it. The ⇧ rides along because that
+	// is how a US layout makes a `?`, and the matcher must not care.
+	await renderShell();
+	focus(canvas());
+	await openByChord({ key: "?", shiftKey: true });
+	expect(screen.queryByText("Keyboard shortcuts") === null).toBe(false);
+
+	await dismiss();
+	expectCanvasHasFocus();
+});
+
+test("`?` pressed with focus in the chrome does NOT take the canvas", async () => {
+	// The other polarity, and the one a blanket "return to the canvas on every dismissal"
+	// would fail (WCAG 2.4.3): a keyboard user parked on a chrome control who presses `?`
+	// must not be thrown out of the tab order they were walking. This dialog has no trigger
+	// for Radix to restore to, so the landing is `<body>` — pre-existing, and the same thing
+	// the ⌘K case one section up documents. What is asserted is the half this owns.
+	await renderShell();
+	focus(screen.getByLabelText("editor menu"));
+	await openByChord({ key: "?", shiftKey: true });
 	await dismiss();
 	expect(document.activeElement === canvas()).toBe(false);
 });

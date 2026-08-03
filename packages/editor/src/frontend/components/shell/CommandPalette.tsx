@@ -7,9 +7,11 @@
 // verb is called or when it may run; if it ever does, that is the D-12 violation this file
 // exists to make obvious.
 //
-// WHY IT EXISTS (D-F4.5-12): the burger's View group is one unseparated run of seventeen
-// rows. Menu depth is a UX ceiling, and random access by name is the standard answer —
-// this is what lets the tree keep growing without a submenu traversal for every verb.
+// WHY IT EXISTS (D-F4.5-12): the burger's View group is twelve rows, and the whole menu was
+// 33 items in one flat run before the holistic gate broke the three groups into submenus.
+// Menu depth is a UX ceiling either way — scrolled flat or traversed — and random access by
+// name is the standard answer: this is what makes the submenus' extra step cheap, and what
+// lets the tree keep growing without a traversal for every verb.
 //
 // A DIALOG, not a floating palette. It carries no `PaletteId`, nothing persists it, `⌘\`
 // does not hide it and it has no geometry to drag — it is modal, transient, and gone the

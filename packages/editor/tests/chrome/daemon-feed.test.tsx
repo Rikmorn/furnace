@@ -45,8 +45,8 @@ import {
 } from "../inspector/_harness.tsx";
 import { makeStubHost } from "./_stub-host.ts";
 
-/** The ⌘K opener the real shell supplies. These cases mount the TopBar alone, where
- *  nothing opens the command palette, so the funnel is inert. */
+/** The two shell-owned modal openers (⌘K, and `?`'s shortcut overlay). These cases mount
+ *  the TopBar alone, where neither surface is mounted, so both funnels are inert. */
 const noopOpenPalette = () => undefined;
 
 afterEach(cleanup);
@@ -206,6 +206,7 @@ function Feed({
 								<ActionContextProvider
 									host={stub.host}
 									openCommandPalette={noopOpenPalette}
+									openShortcuts={noopOpenPalette}
 								>
 									<TopBar />
 								</ActionContextProvider>

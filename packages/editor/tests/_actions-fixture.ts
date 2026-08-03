@@ -105,6 +105,7 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
       setStampCursor: mock(),
       summonPalette: mock(),
       openCommandPalette: mock(),
+      openShortcuts: mock(),
     },
     ...over,
   };

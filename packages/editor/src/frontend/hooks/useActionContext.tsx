@@ -82,6 +82,7 @@ export function useActionContext(): ActionCtx {
 export function ActionContextProvider({
 	host,
 	openCommandPalette,
+	openShortcuts,
 	children,
 }: {
 	/** The live host, as a PROP rather than read off `fieldHostRef` during render: the
@@ -94,6 +95,14 @@ export function ActionContextProvider({
 	 *  and this is the funnel that makes "open a modal the shell owns" expressible without
 	 *  putting a `setState` into the pure table. */
 	openCommandPalette: () => void;
+	/** Raise the keyboard-shortcut overlay — a PROP for `openCommandPalette`'s reason
+	 *  exactly: the shell mounts the dialog, so this is the funnel that makes "open a modal
+	 *  the shell owns" expressible from the pure table.
+	 *
+	 *  It used to be `BurgerMenu`'s own `useState`, which is what made `?` unbindable: a key
+	 *  is dispatched by the window listener below, and the registry's `run(ctx)` has no way
+	 *  to reach a flag inside a component that is not even mounted while the menu is shut. */
+	openShortcuts: () => void;
 	children: ReactNode;
 }) {
 	const { openConfirm, confirmRef } = useEditor();
@@ -168,6 +177,7 @@ export function ActionContextProvider({
 			setStampCursor,
 			summonPalette,
 			openCommandPalette,
+			openShortcuts,
 		}),
 		[
 			worldActions,
@@ -178,6 +188,7 @@ export function ActionContextProvider({
 			armBrush,
 			summonPalette,
 			openCommandPalette,
+			openShortcuts,
 		],
 	);
 

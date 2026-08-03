@@ -38,6 +38,7 @@ import { HistoryPalette } from "./HistoryPalette.tsx";
 import { LogPalette } from "./LogPalette.tsx";
 import { PaletteLayer } from "./PaletteLayer.tsx";
 import { SessionCard, SessionCardPresence } from "./SessionCard.tsx";
+import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toasts } from "./Toasts.tsx";
 import { ToolRail } from "./ToolRail.tsx";
@@ -55,7 +56,7 @@ export function Shell() {
 			{/* Front-to-back order, session-local and NOT part of the arrangement (see its
           header). It wraps the whole frame rather than living in the palette layer
           because the two surfaces that OPEN a palette — the status bar's ⚠ chip and the
-          burger's View group — are the layer's siblings, not its children. */}
+          burger's palette checkboxes — are the layer's siblings, not its children. */}
 			<PaletteStackProvider>
 				<ShellFrame />
 			</PaletteStackProvider>
@@ -109,6 +110,14 @@ function ShellChrome({
 	// a subscription: the rule this component obeys is "read nothing that moves per
 	// FRAME", and a modal a person opens by hand does not.
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+	// The shortcut overlay's, for every one of the same reasons — it MOVED here from
+	// `BurgerMenu`'s own state when the holistic gate bound `?` (ruling 3). A key is
+	// dispatched by the window listener inside the action context, so an overlay whose open
+	// flag lived in a component that unmounts with the menu was reachable from the menu and
+	// from nowhere else; a second owner for the flag, or a new `FieldHost.subscribe*` seam
+	// for it, would each have been a second home for one fact. This is the owner the other
+	// shell-modal already had.
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
 	// This component reads NO state context — not the world's, not the view's, not the
 	// arrangement's — and that is deliberate: it builds the palette bodies below, so any
@@ -119,6 +128,7 @@ function ShellChrome({
 		<ActionContextProvider
 			host={host ?? null}
 			openCommandPalette={() => setCommandPaletteOpen(true)}
+			openShortcuts={() => setShortcutsOpen(true)}
 		>
 			{/* ONE tooltip provider for the whole frame (D-25): the rail, the strip and the
           ⋯ all use real Radix tooltips rather than `title`, and Radix wants a single
@@ -190,6 +200,11 @@ function ShellChrome({
 					open={commandPaletteOpen}
 					onOpenChange={setCommandPaletteOpen}
 				/>
+				{/* Beside it, for the same reasons and one more of its own: it is reached from
+            the burger, whose content Radix UNMOUNTS on close — so rendered in there it
+            would be torn down by the very click that opened it (which is why it was
+            already a sibling of the menu before it moved up here). */}
+				<ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 			</TooltipProvider>
 		</ActionContextProvider>
 	);

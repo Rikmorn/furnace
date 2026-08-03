@@ -1659,6 +1659,15 @@ box inside the SAME cell: they take nothing from the canvas (D-1).
 The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) whose groups render in
 the order **World / Edit / View / Help** — not a menubar.
 
+**Since the F4.5 holistic gate (ruling 3) the three registry groups are SUBMENUS**, one each,
+over a top level of ten rows: the three submenu triggers, the two doors ("View options…",
+"Keyboard shortcuts") and the five palette checkboxes. It was one flat run of 33 items, of
+which the last seven or eight sat below the fold. What stays at top level is what the menu is
+SHOWING STATE for (the palette ticks — the tick is the information, and a submenu would hide
+it) plus the doors; what moved behind a chevron is the registry's own verbs, whose other route
+is ⌘K by name. `help` is the fourth group and is deliberately NOT a submenu: it carries one
+action, and a one-row submenu is a chevron guarding one row.
+
 **Since F4.5b Task 7 the bindings are DECLARED ONCE, in `frontend/lib/actions.ts`.** That
 table is the editor's action registry: per action, an id, a group, a contextual `label`,
 an `enabled` predicate, the display chord, a `match` predicate and a `gate`. Three
@@ -1676,6 +1685,15 @@ R and F. Everything else is the registry's, on `window`, which is the only liste
 carries the gates and the only one that still works after a palette click takes the
 canvas's focus. Where both bind one key the canvas branch that ACTS calls
 `stopPropagation`, and that call is the whole licence for the second owner.
+
+**`?` opens the shortcut overlay** (ruling 3), through the same `typed` gate as every other
+bare key — so it is refused while the user is typing and nowhere else. It is the registry action
+`help.shortcuts`, whose `run` calls `ctx.run.openShortcuts()`; the Shell owns the dialog's open
+flag beside the ⌘K palette's, which is what makes the key possible at all (it lived in
+`BurgerMenu`'s own state, unreachable from a window listener). Its matcher is the one in the
+table that states a CHARACTER rather than a modifier + key — `?` is ⇧/ on a US layout and ⇧ß on
+a German one — with AltGr layouts the known residue, filed under
+`docs/backlog/editor-and-tooling/` as `shortcut-overlay-key-on-altgr-layouts.md`.
 
 **The gate** has two classes plus two per-action flags. `chord` (⌘-chords) is live even
 inside a text input, because the browser default it replaces is worse; `typed` (every bare

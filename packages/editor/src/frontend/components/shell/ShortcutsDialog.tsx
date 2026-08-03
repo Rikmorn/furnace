@@ -1,6 +1,15 @@
-// The keyboard-shortcut overlay (burger → Help → Keyboard shortcuts): every binding the
-// editor answers to, in one place, because otherwise the only way to learn the viewport
+// The keyboard-shortcut overlay (`?`, or burger → Help → Keyboard shortcuts): every binding
+// the editor answers to, in one place, because otherwise the only way to learn the viewport
 // keys is to read source.
+//
+// It LISTS ITS OWN KEY, and not by writing one down: `?` is `help.shortcuts` in the registry
+// (the holistic gate's ruling 3), so it arrives here through the same derivation as every
+// other row. An overlay that could not say how to reopen itself would be the joke version of
+// the binding.
+//
+// The SHELL owns its open flag, beside the ⌘K palette's — it used to be `BurgerMenu`'s, which
+// is precisely what made `?` unbindable: the window key dispatcher cannot reach a `useState`
+// inside a component that is unmounted whenever the menu is shut.
 //
 // The app-level groups are RENDERED FROM THE ACTION REGISTRY — every entry with a `keys`
 // is listed, with the `hint` the table carries — so a binding that moves or dies cannot
@@ -54,6 +63,10 @@ const GROUP_NOTES: Record<ActionGroup, string> = {
 	tool: "Refused while a stamp session is live — which says so rather than going quiet — and S alone stands down while the right button is held, because S is also fly-backward.",
 	session: "Live only while a stamp, reconfigure or move session is on screen.",
 	view: "Live anywhere. F frames the selected stamp, else the cell selection.",
+	help:
+		"Live anywhere a bare key is — so not while you are typing in a field. `?` is ⇧/ on " +
+		"a US layout; the binding is on the character, so whatever your layout does to " +
+		"produce one works.",
 };
 
 const CANVAS_GROUP: BindingGroup = {
@@ -153,8 +166,9 @@ export function ShortcutsDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	// The dialog is mounted UNCONDITIONALLY (the burger unmounts its own content on
-	// close, so a dialog rendered inside would be torn down by the click that opened it)
+	// The dialog is mounted UNCONDITIONALLY, by the shell (`?` has to reach it from a window
+	// listener, and the burger unmounts its own content on close, so a dialog rendered in
+	// there would be torn down by the click that opened it)
 	// — which is exactly why the action context is read one level down, in the body.
 	// Radix's Portal renders nothing while closed, so the subscription does not exist
 	// then; read here, a closed overlay would rebuild five filtered groups and ~30 rows

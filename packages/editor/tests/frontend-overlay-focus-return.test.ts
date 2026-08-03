@@ -62,7 +62,7 @@ const NOT_AN_OVERLAY = new Map<string, string>([
   ],
   [
     "DropdownMenuSubContent",
-    "a submenu, whose parent menu owns the dismissal. Radix hard-overrides both autofocus handlers on `MenuSubContent` (react-menu 2.1.20), so the seam is not ours to use — and no submenu exists in this chrome today",
+    "a submenu, whose parent menu owns the dismissal. Radix hard-overrides both autofocus handlers on `MenuSubContent` — `onOpenAutoFocus` and `onCloseAutoFocus: (event) => event.preventDefault()` are set as literals rather than composed with the consumer's (react-menu 2.1.20, dist/index.mjs:759-763, re-read at the holistic gate) — so the seam is not ours to use. The burger has three of them since ruling 3, and the ROOT content it closes with is wired",
   ],
   ["SubContent", "the local alias for DropdownMenuSubContent — see above"],
 ]);

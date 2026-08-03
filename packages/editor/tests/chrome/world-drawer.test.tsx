@@ -34,8 +34,8 @@ import {
 } from "../inspector/_harness.tsx";
 import { makeStats, makeStubHost } from "./_stub-host.ts";
 
-/** The ⌘K opener the real shell supplies. These cases mount the TopBar alone, where
- *  nothing opens the command palette, so the funnel is inert. */
+/** The two shell-owned modal openers (⌘K, and `?`'s shortcut overlay). These cases mount
+ *  the TopBar alone, where neither surface is mounted, so both funnels are inert. */
 const noopOpenPalette = () => undefined;
 
 afterEach(cleanup);
@@ -129,16 +129,28 @@ function makeDirty(stub: ReturnType<typeof makeStubHost>, ops = 1): void {
 	});
 }
 
-/** Open the burger and return one of its items by exact label. Awaited rather than read
- *  synchronously: the menu content is a PORTAL behind Radix's Presence, and when the
- *  drawer has just closed (its own exit transition still settling) the mount lands a
- *  turn later than the pointerdown. */
-async function burgerItem(label: string): Promise<HTMLElement> {
+/** Open the burger, walk into `submenu`, and return one of its items by exact label.
+ *
+ *  Awaited rather than read synchronously: the menu content is a PORTAL behind Radix's
+ *  Presence, and when the drawer has just closed (its own exit transition still settling)
+ *  the mount lands a turn later than the pointerdown.
+ *
+ *  The SUBMENU step arrived with the holistic gate's ruling 3 — the World and Edit groups
+ *  are `DropdownMenuSub`s now, so their items do not exist until the trigger is clicked
+ *  (`click`, measured: a bare pointerDown leaves a SubTrigger shut). */
+async function burgerItem(
+	submenu: string,
+	label: string,
+): Promise<HTMLElement> {
 	act(() => {
 		fireEvent.pointerDown(screen.getByLabelText("editor menu"), {
 			button: 0,
 			pointerType: "mouse",
 		});
+	});
+	const trigger = await waitFor(() => screen.getByText(submenu));
+	act(() => {
+		fireEvent.click(trigger);
 	});
 	return await waitFor(() => screen.getByText(label));
 }
@@ -168,6 +180,7 @@ async function renderTopBar(
 							<ActionContextProvider
 								host={stub.host}
 								openCommandPalette={noopOpenPalette}
+								openShortcuts={noopOpenPalette}
 							>
 								<TopBar />
 							</ActionContextProvider>
@@ -429,7 +442,10 @@ test("the burger's Make default points the game at the OPEN world, without writi
 	// the same reason Bake's does: the two items sit adjacent under one gate, and the
 	// user who reads one and then the other must not have to work out that "name the
 	// world first" and "name the world first (⌘S)" are the same sentence.
-	const untitled = await burgerItem("Make default — name the world first (⌘S)");
+	const untitled = await burgerItem(
+		"World",
+		"Make default — name the world first (⌘S)",
+	);
 	expect(untitled.getAttribute("aria-disabled")).toBe("true");
 	act(() => {
 		fireEvent.keyDown(document.activeElement ?? document.body, {
@@ -456,7 +472,7 @@ test("the burger's Make default points the game at the OPEN world, without writi
 	});
 	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
 
-	const item = await burgerItem("Make default");
+	const item = await burgerItem("World", "Make default");
 	act(() => {
 		fireEvent.click(item);
 	});
@@ -1087,7 +1103,7 @@ test("a SAVE clears the discard gate — the work is on disk, so New asks nothin
 
 	// The save moved the save point to where the session already is. Without that, every
 	// New after a save would still prompt about ops that are safely on disk.
-	const newItem = await burgerItem("New");
+	const newItem = await burgerItem("World", "New");
 	act(() => {
 		fireEvent.click(newItem);
 	});
@@ -1122,9 +1138,9 @@ test("the burger's New is disabled while a write is in flight", async () => {
 	await waitFor(() => screen.getByRole("button", { name: "cavern" }));
 
 	// Not disabled yet: nothing is in flight.
-	expect((await burgerItem("New")).getAttribute("aria-disabled")).not.toBe(
-		"true",
-	);
+	expect(
+		(await burgerItem("World", "New")).getAttribute("aria-disabled"),
+	).not.toBe("true");
 	act(() => {
 		fireEvent.keyDown(document.activeElement ?? document.body, {
 			key: "Escape",
@@ -1138,7 +1154,9 @@ test("the burger's New is disabled while a write is in flight", async () => {
 		await Promise.resolve();
 		await Promise.resolve();
 	});
-	expect((await burgerItem("New")).getAttribute("aria-disabled")).toBe("true");
+	expect((await burgerItem("World", "New")).getAttribute("aria-disabled")).toBe(
+		"true",
+	);
 });
 
 // --- (h) the save point is what was WRITTEN, not where the session got to -------
@@ -1195,7 +1213,7 @@ test("ops that land DURING the upload stay unsaved — the save point is the sna
 	).toBeTruthy();
 
 	// …and the discard gate agrees, naming exactly the two that are at risk.
-	const newItem = await burgerItem("New");
+	const newItem = await burgerItem("World", "New");
 	act(() => {
 		fireEvent.click(newItem);
 	});
@@ -1353,7 +1371,7 @@ test("deleting the OPEN world leaves the session untitled AND dirty", async () =
 		screen.getByRole("button", { name: "untitled — unsaved changes" }),
 	);
 	request = null;
-	const newItem = await burgerItem("New");
+	const newItem = await burgerItem("World", "New");
 	act(() => {
 		fireEvent.click(newItem);
 	});
