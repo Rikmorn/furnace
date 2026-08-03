@@ -111,7 +111,10 @@ function BakeButton() {
 	const enabled = def.enabled(ctx);
 	return (
 		// The registry's label already states the reason ("Bake — name the world first"), so
-		// the tooltip repeats it rather than inventing a second wording.
+		// the tooltip repeats it rather than inventing a second wording — and `ReasonTip`
+		// says that same sentence out loud when the refused button is PRESSED (W-1). This
+		// is the control the gate walk caught: a tooltip is opt-in, and a user who reaches
+		// for Bake and clicks it was getting `cursor: help` and nothing else.
 		<ReasonTip reason={enabled ? undefined : def.label(ctx)}>
 			<Button
 				type="button"

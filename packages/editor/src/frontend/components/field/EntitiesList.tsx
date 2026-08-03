@@ -219,8 +219,10 @@ const COLUMNS = 6;
  *  each one was reachable only by hovering a mouse.
  *
  *  BLOCKED → `ReasonTip`, because a disabled button takes neither pointer events nor focus
- *  and no tooltip has a channel to it at all; the reason rides a wrapper span for the mouse
- *  and the `aria-label` for everyone else. The button carries no `title` in EITHER state —
+ *  and no tooltip has a channel to it at all; the reason rides a wrapper span for the mouse,
+ *  the `aria-label` for everyone else, and a toast when the verb is PRESSED (W-1) — the one
+ *  channel that does not have to be discovered first. The button carries no `title` in
+ *  EITHER state —
  *  the double-`title` this used to ship (wrapper for the blocked case, button for the live
  *  one) is what D-25 replaced.
  *

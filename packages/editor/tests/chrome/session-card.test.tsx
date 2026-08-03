@@ -336,7 +336,15 @@ test("CREATE names the stamp and offers commit/discard", async () => {
 	expect(within(box).getByText("STAMP")).toBeTruthy();
 	// The two verbs carry their KEY in the accessible name, because the visible glyph is
 	// what the user reads and "⏎" is not a word.
+	const before = notify.getSnapshot().log.length;
 	fireEvent.click(within(box).getByRole("button", { name: "commit (Enter)" }));
+	// AND A WORKING COMMIT SAYS NOTHING (W-1's other half). This button is `ReasonTip`-
+	// wrapped so that its BLOCKED state can explain itself on a press; the wrapper span is
+	// an ancestor of the live button too, so every successful commit's click bubbles
+	// straight through the same handler. What keeps it quiet is that there is no `reason`
+	// to say — not anything about the click. A refusal notice that fired on the gesture
+	// rather than on the reason would put an excuse on top of a commit that just worked.
+	expect(notify.getSnapshot().log.length).toBe(before);
 	// `confirmSession`, not `commitSession`: the button wears the ⏎ keycap, so it must be
 	// the same verb the ⏎ KEY runs — the one that knows a live grab is dropped rather than
 	// applied. Two spellings of one key is how they come to mean different things.

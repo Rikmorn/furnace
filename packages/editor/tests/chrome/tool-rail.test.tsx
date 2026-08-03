@@ -243,10 +243,17 @@ test("clicking an armed family re-arms its CURRENT member — clicking never cyc
 	// Now click the family button again. A rail that cycled on click would arm PAINT
 	// here; the rail is a mode selector, so pressing the mode you are already in is
 	// idempotent.
+	// AND AN AVAILABLE CONTROL SAYS NOTHING. The other half of W-1's mechanism, and the
+	// half that breaks silently: the refusal notice hangs off the same click path a
+	// working button uses, so a guard that read "was this clicked" instead of "is there a
+	// reason" would toast on every successful arm in the editor. Measured as GROWTH rather
+	// than emptiness — the boot logs "no catalog — rock only" under `fetch404`.
+	const before = notify.getSnapshot().log.length;
 	fireEvent.click(railButton("Brush"));
 	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
 		effect: "fill",
 	});
+	expect(notify.getSnapshot().log.length).toBe(before);
 });
 
 // The brush family is a RING, and Segment is the member that could trap it. `armedIndex`
@@ -413,6 +420,41 @@ test("a live session locks every rail family with the refusal the family KEYS gi
 	// no longer enforces that, so the handler must.
 	fireEvent.click(within(rail()).getByRole("button", { name: /^Select \(/ }));
 	expect(stub.calls.setGesture).not.toHaveBeenCalled();
+
+	// (5) …and it SAYS WHY (W-1). The rail's refusal is reachable three ways — the
+	// tooltip, the accessible name, and pressing the thing — and the third one is the
+	// gesture a user actually makes. It answered with nothing before this. Same sentence
+	// as the name carries and as the KEY gives, because all three read `controlVerdict`.
+	expect(notify.getSnapshot().log[0]?.text).toMatch(/finish the session first/);
+
+	// A SECOND press does not stack a second copy: `aria-disabled` keeps the control live,
+	// so an impatient user can hammer it, and TOAST_CAP is 3 — three presses would fill
+	// the stack with one sentence. Counted BY SENTENCE, since the boot's "no catalog —
+	// rock only" is holding a slot of its own here.
+	fireEvent.click(within(rail()).getByRole("button", { name: /^Select \(/ }));
+	const said = (): number =>
+		notify
+			.getSnapshot()
+			.toasts.filter((t) => /finish the session first/.test(t.text)).length;
+	expect(said()).toBe(1);
+
+	// (6) …AND SO DOES THE FLYOUT TAB, which is a second refused control on the same
+	// family and had its own silent branch: it vetoes Radix's toggle so the popover stays
+	// shut, and a veto with nothing said is the W-1 defect one level down. It matters more
+	// here than on the button above, not less — this tab is the mouse's ONLY route to
+	// Fill / Paint / Smooth / Segment, so a user reaching for it during a session is
+	// exactly the person owed the sentence.
+	//
+	// Cleared first BECAUSE of the coalesce: the family button's press left this very
+	// sentence on screen, so a surviving toast would make this pass without the flyout
+	// saying anything at all.
+	act(() => notify.clear());
+	fireEvent.click(within(rail()).getByRole("button", { name: "Brush tools" }));
+	expect(said()).toBe(1);
+	// The popover stayed shut — the refusal is a veto, not a silent no-op with a menu.
+	expect(screen.queryByRole("group", { name: "Brush tools" }) === null).toBe(
+		true,
+	);
 });
 
 test("a PENDING stamp presses the stamp family — and stays armable, unlike a session", async () => {

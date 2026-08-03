@@ -30,7 +30,8 @@ import "../inspector/_register.ts";
 import { afterEach, expect, test } from "bun:test";
 import { MaterialSwatches } from "../../src/frontend/components/field/MaterialSwatches.tsx";
 import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
-import { cleanup, render, screen } from "../inspector/_harness.tsx";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
+import { cleanup, fireEvent, render, screen } from "../inspector/_harness.tsx";
 
 afterEach(cleanup);
 
@@ -130,4 +131,34 @@ test("an unselected swatch keeps the house 1 px focus ring", () => {
 	const other = screen.getByLabelText("material brick");
 	expect(ringWidth(other.className, "focus-visible:")).toBe(1);
 	expect(ringWidth(other.className, "")).toBeNull();
+});
+
+// A refused swatch is the THIRD refused-control site in the chrome (the wrapper span and
+// the tool rail are the other two), and it had the same silent branch both of those had:
+// `aria-disabled` keeps it clickable on purpose, the handler drops the click, and nothing
+// whatsoever came back. This one is the least forgiving of the three — a swatch is a 24 px
+// colour square with no text, so a user who has not hovered it long enough for a tooltip
+// has been given no way at all to learn why the palette will not take their pick.
+test("a refused kit swatch SAYS why it will not take the pick", () => {
+	notify.clear();
+	renderStrip(1, true);
+	const brick = screen.getByLabelText(/^material brick/);
+	// The fixture must really be refused, or the click below proves nothing.
+	expect(brick.getAttribute("aria-disabled")).toBe("true");
+
+	fireEvent.click(brick);
+	expect(notify.getSnapshot().log[0]?.text).toBe(
+		"brick — kit classes can't be painted",
+	);
+
+	// Hammering it does not stack the sentence — `aria-disabled` means it can be pressed
+	// as often as the user likes, and TOAST_CAP is 3.
+	fireEvent.click(brick);
+	fireEvent.click(brick);
+	expect(notify.getSnapshot().log.length).toBe(1);
+
+	// …and an AVAILABLE swatch stays quiet: the notice hangs off the reason, not off the
+	// click, so picking a material the brush can write says nothing at all.
+	fireEvent.click(screen.getByLabelText("material stone"));
+	expect(notify.getSnapshot().log.length).toBe(1);
 });

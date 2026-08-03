@@ -44,7 +44,13 @@ export function useGlobalKeybindings(
         // A refusal with a reason the user cannot see gets said out loud; the rest
         // (a modal is open, they are typing, they are holding the right button) are
         // already visible and a toast would be noise.
-        if (verdict.hint !== null) notify.info(verdict.hint);
+        //
+        // Through `sayRefusal` rather than the `hint !== null` + `notify.info` this used
+        // to spell inline: that WAS the rule, and it was the only copy of it until the
+        // pointer path needed the same one (W-1). Two copies is how a refused key and a
+        // refused click come to answer differently — and the shared one also stops a HELD
+        // key, which repeats at the OS rate, from stacking one sentence up the stack.
+        notify.sayRefusal(verdict.hint);
         return;
       }
       e.preventDefault();

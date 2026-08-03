@@ -24,7 +24,10 @@ export function SessionFooter({
 	return (
 		<div className="flex gap-2 border-t border-border px-3 py-2">
 			{/* ReasonTip, not a bare title: a disabled Button's pointer-events-none would
-			    swallow the tooltip explaining the gate. */}
+			    swallow the tooltip explaining the gate — and the same wrapper is what
+			    answers a PRESS on the refused verb out loud (W-1), which a `title` never
+			    could. A successful commit stays silent: the notice hangs off the reason,
+			    and an available button has none. */}
 			<ReasonTip reason={blockedReason} className="flex-1">
 				<Button
 					type="button"

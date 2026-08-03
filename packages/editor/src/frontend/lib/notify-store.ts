@@ -59,6 +59,32 @@ export type NotifyStore = {
   success(text: string): void;
   warn(text: string): void;
   error(text: string): void;
+  /** Say why a control just refused — the ONE mechanism for it, shared by every surface
+   *  that can refuse (D-19).
+   *
+   *  A POLICY rather than a fifth severity, and it decides two things the four verbs
+   *  above cannot:
+   *
+   *  NOTHING TO SAY → NOTHING SAID. `null` is {@link ControlVerdict}'s inert case — the
+   *  gate is open and the verb simply has nothing to act on, which the control's own
+   *  label already states — and `undefined` is the shape a wrapper passes when the
+   *  control is not refused at all. Neither gets a toast: a generic "this is disabled"
+   *  is a sentence that costs a read and answers nothing, which is worse than the
+   *  silence it would replace.
+   *
+   *  THE SAME SENTENCE DOES NOT STACK WHILE IT IS STILL ON SCREEN. `push` does not
+   *  coalesce and {@link TOAST_CAP} is 3, so a refused control — which, unlike a
+   *  `disabled` one, can be pressed as often as the user likes — could otherwise fill
+   *  the entire visible stack with one sentence said three times, and evict real history
+   *  out of a 200-entry log behind it. Keyed on what is VISIBLE rather than on what has
+   *  ever been said: once the toast has gone, asking again says it again, because a user
+   *  who comes back and presses the same button must not get silence.
+   *
+   *  Here rather than at the call sites because the sites are the whole reason it needs
+   *  one home: a refusal reaches the user from a wrapper span, from a roving rail button
+   *  and from the key dispatcher, and three copies of this is how they come to disagree
+   *  about a sentence that {@link controlVerdict} went to the trouble of making one. */
+  sayRefusal(reason: string | null | undefined): void;
   /** Take one toast off the screen. It stays in the log. */
   dismiss(id: number): void;
   /** Hold every counting-down toast where it is: the pointer or the keyboard is IN the
@@ -225,6 +251,17 @@ export function createNotifyStore(deps: NotifyDeps): NotifyStore {
     success: (text) => push("success", text),
     warn: (text) => push("warn", text),
     error: (text) => push("error", text),
+    sayRefusal: (reason) => {
+      // Explicitly three-valued rather than `if (!reason)`: the three falsy inputs all
+      // mean "nothing to add", but spelling them out is what keeps this readable next to
+      // `ControlVerdict`, whose own docblock warns that a truthy read of a refusal reason
+      // is exactly how the inert case gets confused with the runnable one.
+      if (reason === null || reason === undefined || reason === "") return;
+      // Against the LIVE stack, not the log — see the docblock: this is a "you are
+      // already looking at this sentence" check, not a "you have been told once" one.
+      if (toasts.some((t) => t.text === reason)) return;
+      push("info", reason);
+    },
     dismiss: removeToast,
     pause: () => {
       // Held ON THE TIMERS rather than in a store-level "paused" mode, and that is the

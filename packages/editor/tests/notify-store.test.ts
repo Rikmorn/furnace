@@ -435,3 +435,51 @@ test("unread errors light the chip until the log is seen; clear empties everythi
   // store and notify every subscriber for nothing.
   expect(pending()).toBe(0);
 });
+
+// --- refusals -----------------------------------------------------------------
+
+// A REFUSED control that answers a click with nothing is the W-1 defect: the reason
+// existed, on a `title` nobody discovers, and pressing the thing said nothing at all.
+// The policy that turns "refused, and here is why" into a visible sentence lives HERE,
+// with the rest of what this store decides, so the pointer path and the key path cannot
+// word it — or repeat it — differently.
+test("a refusal says itself once while it is on screen, and again once it has gone", () => {
+  const { store, advance } = makeStore();
+
+  // NOTHING TO SAY → NOTHING SAID, and this is the half that must not be "helpful".
+  // `null` is `ControlVerdict`'s inert case (the control's own label already carries the
+  // reason) and `undefined` is `ReasonTip`'s enabled case. A generic "this is disabled"
+  // here would be worse than the silence it replaced.
+  store.sayRefusal(null);
+  store.sayRefusal(undefined);
+  store.sayRefusal("");
+  expect(store.getSnapshot().log).toEqual([]);
+
+  store.sayRefusal("Bake — name the world first");
+  expect(store.getSnapshot().toasts.map((t) => [t.text, t.severity])).toEqual([
+    ["Bake — name the world first", "info"],
+  ]);
+
+  // HAMMERING IT DOES NOT STACK. `push` does not coalesce, and TOAST_CAP is 3 — so
+  // without this an impatient user filled the whole visible stack with one sentence
+  // said three times, and 200 log entries with it.
+  store.sayRefusal("Bake — name the world first");
+  store.sayRefusal("Bake — name the world first");
+  expect(store.getSnapshot().toasts.length).toBe(1);
+  expect(store.getSnapshot().log.length).toBe(1);
+
+  // A DIFFERENT refusal is a different sentence, and still gets through.
+  store.sayRefusal("finish the session first — ⏎ applies it, Esc discards it");
+  expect(store.getSnapshot().toasts.length).toBe(2);
+
+  // …and once the toast has expired, asking again SAYS IT AGAIN. The coalesce is about
+  // the sentence being on screen, not about it ever having been said: a user who comes
+  // back a minute later and presses the same refused button must not get silence.
+  advance(TOAST_TTL_MS);
+  expect(store.getSnapshot().toasts).toEqual([]);
+  store.sayRefusal("Bake — name the world first");
+  expect(store.getSnapshot().toasts.map((t) => t.text)).toEqual([
+    "Bake — name the world first",
+  ]);
+  expect(store.getSnapshot().log.length).toBe(3);
+});

@@ -39,6 +39,14 @@
 // the same reason in the same words. Refused controls carry `aria-disabled`, never
 // `disabled`: a `disabled` button leaves the tab order entirely, and the refusal sentence
 // rides the accessible NAME precisely so a keyboard user gets it.
+//
+// Keeping them focusable has a second consequence, and W-1 is where it was collected: a
+// refused rail button really is PRESSED — by a click, and by ⏎/Space, which a native
+// <button> delivers to the same `onClick`. So both refused branches in this file (the
+// family button and the flyout tab) answer that press out loud through `notify.sayRefusal`,
+// the chrome's one refusal voice, shared with `ReasonTip` and the key dispatcher. A
+// refusal that swallows the gesture without a word is the defect; the wording is not this
+// file's to choose.
 import type { LucideIcon } from "lucide-react";
 import { Brush, MousePointer2, SquareDashed, Stamp } from "lucide-react";
 import type { ReactNode } from "react";
@@ -53,6 +61,10 @@ import type {
 } from "../../lib/actions.ts";
 import { controlVerdict, TOOL_FAMILIES } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
+// The refusal VOICE, shared with `ReasonTip` and the key dispatcher: this file renders
+// refusals its own way (`aria-disabled`, so they stay focusable), but what a refused
+// press SAYS is not this file's to decide.
+import { notify } from "../../lib/notify-store.ts";
 // The tooltip BODY, shared with `ActionTip` (D-25) rather than spelled twice: this file
 // keeps its own trigger — a roving-tabindex button whose props cannot move to a wrapper,
 // opening to the `side` a 44 px column needs — and takes only the keycap-and-hint layout.
@@ -277,8 +289,18 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 						aria-disabled={refused || undefined}
 						onClick={() => {
 							// `aria-disabled` keeps the control focusable, so the refusal has to be
-							// enforced here rather than by the browser.
-							if (!refused) row.run();
+							// enforced here rather than by the browser — and, since the press
+							// really does reach this handler, ANSWERED here too (W-1). A refused
+							// control that swallows a click without a word is the defect; the
+							// sentence is the same one the accessible name and the family's KEY
+							// give, because all three read the one `controlVerdict`.
+							//
+							// This is also the KEYBOARD path: `aria-disabled` leaves the button in
+							// the tab order, and ⏎/Space on a native <button> dispatch a click. One
+							// handler therefore covers both, which is why there is no key handler
+							// beside it.
+							if (refused) return notify.sayRefusal(reason);
+							row.run();
 						}}
 						className={cn(
 							BUTTON_CLASS,
@@ -324,6 +346,9 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
 function MemberFlyout({ row }: { row: RailModel }) {
 	const [open, setOpen] = useState(false);
 	const refused = !row.verdict.runnable;
+	// The family button's sentence, off the same verdict — the two halves of one control
+	// must not be able to word a refusal differently.
+	const reason = row.verdict.runnable ? null : row.verdict.reason;
 	// Picking Fill out of the brush family mid-flight must not cost the fly keys — this
 	// flyout is the mouse's only route to every member past the first.
 	const focusReturn = useViewportFocusReturn();
@@ -335,7 +360,14 @@ function MemberFlyout({ row }: { row: RailModel }) {
 					aria-label={`${row.group} tools`}
 					aria-disabled={refused || undefined}
 					onClick={(e) => {
-						if (refused) e.preventDefault();
+						// `preventDefault` is what vetoes Radix's own toggle (`composeEventHandlers`
+						// skips its handler on a defaultPrevented event) — and the refusal gets
+						// SAID, for the family button's reason above: this is the mouse's only
+						// route to every member past the first, so a user who reaches for it while
+						// a session is live is exactly the person owed the sentence.
+						if (!refused) return;
+						e.preventDefault();
+						notify.sayRefusal(reason);
 					}}
 					className={cn(
 						"grid h-6 w-8 place-items-center rounded-b-md border-border/60 border-t text-2xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

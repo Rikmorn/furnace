@@ -361,7 +361,8 @@ function FilterChip({
  *  (drive the project's actual mover at the finding) is not something `verify ▸` says, and
  *  before this it was mouse-only. REFUSED → no tooltip can reach it at all, because a
  *  disabled button takes neither pointer events nor focus; the reason rides `ReasonTip`'s
- *  span for the mouse and the accessible NAME for everyone else.
+ *  span for the mouse, the accessible NAME for everyone else, and a toast when the verb is
+ *  actually PRESSED (W-1) — that last one arrives without having to be looked for.
  *
  *  RUNNING gets NEITHER, and this is the branch the first cut got wrong: it routed on
  *  `refusal === null`, so a running verify handed the tooltip trigger a `disabled` button

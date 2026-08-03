@@ -17,8 +17,17 @@
 // `disabled` button takes no pointer events, so a tooltip on one never opens;
 // the `title` this replaces reached a mouse and nothing else, and this file's
 // own header used to argue for it. That argument predates D-25.
+//
+// Staying clickable also means the press LANDS, and since W-1 it is answered:
+// the same sentence goes to `notify.sayRefusal`, the chrome's one refusal
+// voice. It matters more here than on a labelled button — a swatch is a 24 px
+// colour square, so a user whose pick silently failed had nothing to read at
+// all unless they knew to hover and wait.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
+// The chrome's one refusal voice, shared with `ReasonTip` and the tool rail: this file
+// renders its refusal its own way, but what a refused press SAYS is not its to decide.
+import { notify } from "../../lib/notify-store.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 /** A catalog colour ([0,1] rgba) as a CSS color for the swatch face. */
@@ -57,7 +66,14 @@ export function MaterialSwatches(props: {
 								aria-pressed={c.id === props.activeId}
 								aria-disabled={refused || undefined}
 								onClick={() => {
-									if (!refused) props.onSelect(c.id);
+									// `aria-disabled` leaves the swatch clickable on purpose, so the
+									// refusal is enforced here — and ANSWERED here (W-1). A 24 px colour
+									// square has no text of its own: without this, a user whose pick
+									// silently failed has only a tooltip they must know to wait for.
+									// Same sentence as the name and the tooltip carry, off the same
+									// `reason`, through the chrome's one refusal voice.
+									if (refused) return notify.sayRefusal(reason);
+									props.onSelect(c.id);
 								}}
 								className={cn(
 									"h-6 w-6 rounded-sm border border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

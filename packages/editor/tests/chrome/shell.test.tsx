@@ -540,7 +540,20 @@ test("the top bar carries the menu, the world chip and the bake verb", async () 
 	// The reason comes from the REGISTRY entry's label since F4.5b Task 8 (`world.bake`),
 	// so the burger item and this tooltip cannot word it differently — and it names the way
 	// out, not just the blocker.
-	expect(bake.parentElement?.getAttribute("title")).toContain("⌘S");
+	const reason = bake.parentElement?.getAttribute("title") ?? "";
+	expect(reason).toContain("⌘S");
+
+	// AND PRESSING IT SAYS SO (W-1). Everything above is a tooltip: it costs a hover, a
+	// wait, and knowing there is something there to wait for. The gesture a user actually
+	// makes on a button they want is a CLICK, and before this that click did nothing at
+	// all — which is the one thing the soak bar's "every refusal visible + explained" rule
+	// forbids. The click lands on the wrapper span rather than the button because
+	// `disabled:pointer-events-none` takes the button out of hit-testing, which is the same
+	// reason the wrapper exists.
+	fireEvent.click(bake.parentElement as HTMLElement);
+	// The log is NEWEST FIRST, and the sentence is the wrapper's own — the button does not
+	// get to invent a second wording for what the registry already says.
+	expect(notify.getSnapshot().log[0]?.text).toBe(reason);
 });
 
 // --- (b2) the chords reach the world and the field's ONE history --------------

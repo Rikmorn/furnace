@@ -5,8 +5,10 @@
 // the user reach it? An available control gets `ActionTip`, a real Radix tooltip that opens
 // on focus as well as hover and can carry the registry's keycap (D-25). A REFUSED one gets
 // `ReasonTip`, because a `disabled` button takes neither pointer events nor focus and no
-// tooltip has a channel to it; its reason rides a wrapper span for the mouse and the
-// accessible NAME for everyone else. Nothing should ever carry both, and nothing that
+// tooltip has a channel to it; its reason rides a wrapper span for the mouse, the
+// accessible NAME for everyone else, and — since W-1 — a TOAST when the refused control is
+// actually pressed, which is the only one of the three that costs the user nothing to
+// discover. Nothing should ever carry both wrappers, and nothing that
 // carries either should also carry a `title` — see tests/frontend-no-doc-titles.test.ts.
 //
 // `components/` rather than `components/field/`, where these were born: `field/` is the
@@ -20,6 +22,7 @@ import type { FocusEvent, ReactElement, ReactNode } from "react";
 import { isRovingTravel } from "../hooks/useRovingList.tsx";
 import { byId } from "../lib/actions.ts";
 import { cn } from "../lib/cn.ts";
+import { notify } from "../lib/notify-store.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /** Keep a tooltip shut while a roving traversal is moving focus PAST its trigger (D-26).
@@ -74,7 +77,27 @@ export function vetoTipDuringTravel(e: FocusEvent<HTMLElement>): void {
 /** Wrap a DISABLED control so its explanation is still reachable: shadcn's Button sets
  *  `disabled:pointer-events-none` (ui/button.tsx), so a `title` on the button itself
  *  never fires a tooltip and isn't reliably exposed to AT either. The span still takes
- *  pointer events, so the reason survives the disable. */
+ *  pointer events, so the reason survives the disable.
+ *
+ *  IT ALSO TAKES THE CLICK, and that is the half a `title` alone could never do (W-1).
+ *  A hover tooltip is opt-in: it costs a wait, and it costs knowing there is something
+ *  there to wait for. The gesture a user makes on a button they want is a PRESS — and
+ *  before this, pressing a refused control did nothing whatsoever, which is precisely
+ *  the "every refusal visible + explained" rule failing on the one gesture that matters.
+ *  The disabled button is out of hit-testing, so this span is what the press lands on;
+ *  the wrapper that existed to carry the sentence is therefore also the only thing in a
+ *  position to say it.
+ *
+ *  ROUTED THROUGH {@link notify.sayRefusal}, never `notify.info` here: the "no reason →
+ *  stay silent" rule and the "do not stack the same sentence" rule are shared with the
+ *  tool rail and the key dispatcher, and this is one of three call sites, not the owner.
+ *
+ *  THE ENABLED CASE MUST STAY SILENT, and it does structurally rather than by luck: an
+ *  available control passes no `reason`, the click bubbles up through this span, and
+ *  `sayRefusal(undefined)` is a no-op. The invariant every caller honours is that a
+ *  `reason` is present only while the wrapped control is refused — worth keeping, since
+ *  a caller that passed one to a LIVE control would make its every successful click
+ *  announce an excuse. */
 export function ReasonTip(props: {
 	reason: string | undefined;
 	/** Layout classes for the wrapper. It sits BETWEEN the caller's flex container and the
@@ -84,8 +107,22 @@ export function ReasonTip(props: {
 	children: ReactNode;
 }) {
 	return (
+		// Both rules want the same thing — make the clickable element a real widget — and
+		// both are answered by what this span WRAPS rather than by what it is. The child is
+		// a `disabled` control: it takes no focus and no ⏎/Space, so there is no keyboard
+		// gesture to pair the click with, and there is no second actor to give a role to.
+		// The keyboard's channel is the accessible NAME on the control itself, which is the
+		// documented half of this pair (see the header) and reaches every input method.
+		//
+		// Giving the span `role="button"` + `tabIndex={0}` to satisfy them literally would
+		// be the harmful fix: it inserts a tab stop in front of every refused control in
+		// the chrome and announces a button whose only behaviour is to explain why the
+		// button behind it does nothing.
+		// biome-ignore lint/a11y/noStaticElementInteractions: see above — the interactive element is the wrapped control; this span exists only because a `disabled` one drops out of hit-testing, and giving it a widget role would announce a second, fake button
+		// biome-ignore lint/a11y/useKeyWithClickEvents: see above — a `disabled` child takes neither focus nor ⏎/Space, so no keyboard event can exist to pair with this click; the keyboard gets the reason from the control's accessible name instead
 		<span
 			title={props.reason}
+			onClick={() => notify.sayRefusal(props.reason)}
 			className={cn(props.reason && "cursor-help", props.className)}
 		>
 			{props.children}
@@ -153,8 +190,8 @@ export function KeyTip(props: {
  *
  *  NOT for a DISABLED control: a disabled button takes neither pointer events nor focus, so
  *  neither channel a tooltip has can reach it. That case is {@link ReasonTip} (a wrapper
- *  span the mouse can still hit) plus the reason in the accessible NAME, which is the one
- *  channel every input method gets.
+ *  span the mouse can still hit, and which answers a PRESS out loud) plus the reason in the
+ *  accessible NAME, which is the one channel every input method gets.
  *
  *  Requires the shell's single `TooltipProvider` above it — a Radix `Tooltip` outside one
  *  does not degrade, it throws. */
