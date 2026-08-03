@@ -1,4 +1,4 @@
-// packages/dungeon/src/built.ts
+// packages/dungeon/src/world/built.ts
 // Masonry collar/cap builders for organic cave mouths (the built↔organic seam's built side).
 // The built-interface kit (Slice 2.2.5b-B1). Doctrine: organic pieces PRESENT built
 // door-class portals, so every seam collapses to the proven built↔built case. A collar

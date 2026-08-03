@@ -1,4 +1,4 @@
-// packages/dungeon/src/world-loader.ts
+// packages/dungeon/src/world/world-loader.ts
 // Load a baked declarative world (Epic 3 W1): the GAME-side loader for the world
 // manifest. Reads the worlds index → the default world's manifest,
 // fragment-loads the ONE merged render-only doc, creates static bodies from the manifest's

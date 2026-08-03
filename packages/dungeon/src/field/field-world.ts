@@ -1,4 +1,4 @@
-// packages/dungeon/src/field-world.ts
+// packages/dungeon/src/field/field-world.ts
 // Load a baked v2 FIELD world (One Field · F1 + F2a + F3b): the GAME-side loader for a
 // `@furnace/core/field` bake. Where a v1 region world re-expands placed geometry from a manifest of
 // regions/connectors, a field world is a chunked density store — so this rebuilds that store from

@@ -1,4 +1,4 @@
-// packages/dungeon/src/walkability.ts
+// packages/dungeon/src/agent/walkability.ts
 /** Single source for the locomotion constants that define what the CharacterMover can
  *  traverse. `char-move.ts` reads both: SLOPE_LIMIT_COS gates which surface normals count
  *  as ground, STEP_HEIGHT sizes the step-up sweep and the ground-snap reach. The voxel

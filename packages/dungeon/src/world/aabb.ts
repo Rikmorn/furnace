@@ -1,4 +1,4 @@
-// packages/dungeon/src/aabb.ts
+// packages/dungeon/src/world/aabb.ts
 import { quat, vec3 } from "@furnace/core/transform";
 import type { Aabb, Vec3 } from "./region.ts";
 

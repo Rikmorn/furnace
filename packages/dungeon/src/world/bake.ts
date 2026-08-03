@@ -1,4 +1,4 @@
-// packages/dungeon/src/bake.ts
+// packages/dungeon/src/world/bake.ts
 // The world-writer (Epic 3 W1): regenerate a declarative world from its spec and emit
 // the baked artifact set. PURE — no FS; the editor daemon (or a test) owns the writes.
 //

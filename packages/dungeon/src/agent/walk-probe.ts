@@ -1,4 +1,4 @@
-// packages/dungeon/src/walk-probe.ts
+// packages/dungeon/src/agent/walk-probe.ts
 // Stage 2 of the walkability advisor (D-F4-10): for one stage-1 flag, build a LOCAL physics
 // scene around it and drive the REAL `CharacterMover` at it from all four cardinal directions.
 // "Test the code, not the data" — this probe runs `char-move.ts` itself, so a verdict is a

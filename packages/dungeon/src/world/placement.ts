@@ -1,4 +1,4 @@
-// packages/dungeon/src/placement.ts
+// packages/dungeon/src/world/placement.ts
 // The placement-transform core: rigid yaw-about-Y + translation placements and the
 // three operations the world pipeline runs on — `join` (derive the placement that
 // seats one portal onto another), `placeConnection` (transform one portal),
