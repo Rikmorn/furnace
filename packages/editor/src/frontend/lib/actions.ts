@@ -896,9 +896,9 @@ export const ACTIONS: readonly ActionDef[] = [
 
   // ——— view ————————————————————————————————————————————————————————————————
   // FIRST in the group, because this is the answer to how long the group has become: View
-  // is the longest of the burger's three submenus at twelve rows, and random access by name
+  // is the longest of the burger's three submenus at thirteen rows, and random access by name
   // is what stops that depth from being a ceiling (D-12). A user who opens the submenu meets
-  // the way out of the menu entirely before the twelve.
+  // the way out of the menu entirely before the thirteen.
   {
     id: "view.commandPalette",
     group: "view",
@@ -950,7 +950,7 @@ export const ACTIONS: readonly ActionDef[] = [
     run: (ctx) => ctx.host?.frameWorld(),
   },
   // HERE, between the other camera verb and the display toggles, because the burger renders
-  // a group in table order: seven camera rows then read as one run, where appending them
+  // a group in table order: eight camera rows then read as one run, where appending them
   // would file six of them behind two workspace verbs. Their placement BEHIND the View
   // submenu, and the accessibility argument that placement had to answer, are on
   // `AXIS_VIEWS` above.

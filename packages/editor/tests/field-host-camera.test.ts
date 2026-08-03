@@ -371,8 +371,18 @@ test("frameWorld FITS the world's allocated box, capped at what was BUILT, keepi
   // "the camera was already there".
   host.snapView("x", 1);
   const angle = lastPose(poses);
+  const pushes = poses.length;
 
   host.frameWorld();
+
+  // EVERY camera path publishes, and this line is why the case is not vacuous:
+  // `angle` is already the last entry `snapView` left, so comparing against it below
+  // is satisfied by the fixture's prior state whether or not `frameWorld` published
+  // anything. Deleting `applyOrbit()` from `frameWorld` — the only thing that writes
+  // the camera AND pushes the pose — left the whole suite green until this assertion
+  // existed. `readCameraEye` cannot cover it either: it reads `orbitState` back
+  // through `exportArtifact`, never `cam`.
+  expect(poses.length).toBe(pushes + 1);
 
   // Stated through `frameBox` and `occupiedTopY` rather than against literals,
   // because that IS the claim: the fit is the world's chunk box with its ceiling

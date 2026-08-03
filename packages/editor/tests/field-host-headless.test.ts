@@ -469,10 +469,12 @@ test("the radius rides ALONGSIDE the tool rather than inside it", () => {
   // suite; what is checkable here is that the two are separate fields, which is the
   // property the momentary swap cannot reach through.
   //
-  // `setTool` is deliberately absent from this case: it is a chrome→host verb and the
-  // host does NOT echo it back on the seam (that would re-derive → re-fire → loop), so
-  // there is no push to inspect. Found by writing the obvious version of this test and
-  // watching `pushes.at(-1)` come back undefined.
+  // `setTool` is deliberately absent from this case: on the ORDINARY path it is a
+  // chrome→host verb the host does not echo back (that would re-derive → re-fire →
+  // loop), so there is no push to inspect. Found by writing the obvious version of this
+  // test and watching `pushes.at(-1)` come back undefined. It is not absolute — with a
+  // momentary ⇧/⌃ still held, `setTool` runs `deriveMomentary`, which DOES notify — so
+  // the claim is about the path a chrome slider takes, not about the verb.
   const host = createFieldHost();
   const pushes: { tool: Record<string, unknown>; radius: number }[] = [];
   host.subscribeTool((p) =>

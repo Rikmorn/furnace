@@ -246,6 +246,11 @@ async function saveAsScratch(): Promise<void> {
 // --- (a) it happens -----------------------------------------------------------
 
 test("boot reopens the world the last session left, through the ordinary Open", async () => {
+	// …and FRAMES it (F4.5 gate, ruling 5). Asserted here as well as on the drawer's own
+	// Open because this is the instance that matters most — a returning user's FIRST sight
+	// of the editor is the case the ruling's closing line describes — and because deleting
+	// the chrome's `frameWorld()` call reddened only the drawer suite until this existed.
+	// At boot `cameraAimedByHand()` is necessarily false, so the frame always runs.
 	const daemon = stubDaemon({
 		worlds: [row({ name: "cavern" })],
 		holdCatalog: true,
@@ -294,6 +299,12 @@ test("boot reopens the world the last session left, through the ordinary Open", 
 	await waitFor(() => screen.getByText("world:scratch"));
 	await flush();
 	expect(daemon.countOf("field.load")).toBe(1);
+
+	// AND it frames what it reopened (F4.5 gate, ruling 5) — after the load lands, which
+	// is where the chrome's `open()` calls it. Placed at the END for that reason: asserted
+	// beside the `field.load` request it reads 0, because `holdLoad` means the load has not
+	// resolved yet and the frame is downstream of the outcome.
+	expect(stub.calls.frameWorld).toHaveBeenCalledTimes(1);
 });
 
 test("a store that arrives after the catalog still restores", async () => {

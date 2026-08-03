@@ -163,8 +163,9 @@ export function makeStubHost(
   // and a stub that could only ever say `null` would make the seeded branch unreachable.
   let occupiedTop: number | null = null;
   /** What `cameraAimedByHand()` answers. `false` is the honest default for a stub
-   *  nobody has dragged; `setCameraAimed` below is for the cases that need the
-   *  other branch of `loadWorld`'s automatic frame. */
+   *  nobody has dragged; `setCameraAimed` below is for the cases that need the other
+   *  branch of the chrome Open's automatic frame (`hooks/useWorld.tsx` — NOT
+   *  `loadWorld`, which frames nothing). */
   let cameraAimed = false;
   const calls = {
     init: mock(),
@@ -477,9 +478,9 @@ export function makeStubHost(
     setOccupiedTopY: (y: number | null): void => {
       occupiedTop = y;
     },
-    /** Set what `host.cameraAimedByHand()` will answer — the guard on `loadWorld`'s
-     *  automatic frame, so this is how a case reaches the "the user has arranged this
-     *  camera, leave it alone" branch. */
+    /** Set what `host.cameraAimedByHand()` will answer — the guard on the chrome
+     *  Open's automatic frame, so this is how a case reaches the "the user has arranged
+     *  this camera, leave it alone" branch. */
     setCameraAimed: (aimed: boolean): void => {
       cameraAimed = aimed;
     },

@@ -126,8 +126,10 @@ export type FieldToolState = {
 	 *  keymap line reads it. A per-surface copy would disagree the moment a key armed
 	 *  something a button was showing. */
 	gesture: ViewportGesture | null;
-	/** The brush radius. CHROME state, not a mirror: FieldTool does not carry radius and
-	 *  no seam reports one, so this is one-way (see `setRadius`). */
+	/** The brush radius — a MIRROR since the F4.5 gate's W-2, not chrome-only state.
+	 *  `FieldTool` still does not carry it (the momentary overrides are why — see
+	 *  `FieldToolPush`), but the tool seam pushes it alongside, so the wheel and `[` / `]`
+	 *  reach this value now. See `setRadius` for the two-way contract. */
 	radius: number;
 	/** The stamp ARMED for region-draw — `null` = none (D-F4.5-7). Unlike `gesture` this
 	 *  is HOST state with a real seam behind it (`subscribePendingStamp`): the host

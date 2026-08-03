@@ -7,7 +7,7 @@
 // verb is called or when it may run; if it ever does, that is the D-12 violation this file
 // exists to make obvious.
 //
-// WHY IT EXISTS (D-F4.5-12): the burger's View group is twelve rows, and the whole menu was
+// WHY IT EXISTS (D-F4.5-12): the burger's View group is thirteen rows, and the whole menu was
 // 33 items in one flat run before the holistic gate broke the three groups into submenus.
 // Menu depth is a UX ceiling either way — scrolled flat or traversed — and random access by
 // name is the standard answer: this is what makes the submenus' extra step cheap, and what

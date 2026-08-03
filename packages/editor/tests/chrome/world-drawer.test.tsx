@@ -81,7 +81,11 @@ function stubDaemon(
 		 *  That is fine for what they test (the gate, the filter, the confirm) and it is
 		 *  not fine for anything AFTER the load, which is what ruling 5's frame is.
 		 *  Opt-in rather than flipped, because flipping it would change what a dozen
-		 *  cases exercise in the same commit that adds one. */
+		 *  cases exercise in the same commit that adds one. **It should not stay opt-in.**
+		 *  The end state is `loadable: true` by default with an explicit `loadable: false`
+		 *  on the cases that genuinely want the failure — otherwise the next person to add
+		 *  an assertion AFTER the load gets a pass or a fail for the wrong reason and will
+		 *  not have read this docblock first. */
 		loadable?: boolean;
 	} = {},
 ) {

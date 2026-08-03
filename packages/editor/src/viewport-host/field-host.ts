@@ -191,19 +191,17 @@ export type FieldTool = {
   hollow: number | null;
 };
 
-/** Which selection gesture LMB performs while a selection mode is armed:
- *  `box` = two clicks spanning a lattice-snapped region; `material` = flood
- *  the same-class solid from the hit voxel; `void` = flood the air pocket the
- *  cursor ray crosses just before its hit. */
 /** What {@link FieldHost.subscribeTool} pushes: the effective tool AND the brush
  *  radius.
  *
  *  TWO FIELDS RATHER THAN A RADIUS INSIDE {@link FieldTool}, and the reason is the
- *  momentary overrides. `tool` is swapped WHOLESALE while ⇧ or ⌃ is held
- *  (`deriveMomentary` builds a different tool and `notifyTool` pushes it), so a
- *  radius living in that value would be replaced by the override's — holding ⇧ to
- *  smooth would silently resize the brush, and releasing it would resize it back.
- *  The radius is not part of what a modifier changes, so it rides ALONGSIDE.
+ *  momentary overrides — stated precisely, because the obvious version of it is wrong.
+ *  `deriveMomentary` SPREADS the saved tool (`{ ...momentarySaved, effect }`), so a
+ *  radius inside `FieldTool` would survive the press intact. The defect is on RELEASE:
+ *  that path assigns `tool = momentarySaved` wholesale, so any resize made while the
+ *  modifier was held would be silently reverted — the brush changing size because the
+ *  user let go of ⇧. The radius is not part of what a modifier changes, so it rides
+ *  ALONGSIDE.
  *
  *  It rides this seam rather than {@link FieldStats} or a seam of its own for the
  *  reason `FieldStats.voidCastPending` gives from the other side: the seams are
@@ -218,6 +216,10 @@ export type FieldToolPush = {
   radius: number;
 };
 
+/** Which selection gesture LMB performs while a selection mode is armed:
+ *  `box` = two clicks spanning a lattice-snapped region; `material` = flood
+ *  the same-class solid from the hit voxel; `void` = flood the air pocket the
+ *  cursor ray crosses just before its hit. */
 export type SelectionMode = "box" | "material" | "void";
 
 /** What an LMB click DOES in the viewport — ONE slot, so arming any of these
@@ -1019,7 +1021,8 @@ export type FieldHost = {
    *  once and either can be the more recent — and the entity wins
    *  UNCONDITIONALLY. Not a recency rule: an object selection names one thing,
    *  a cell selection names a volume, and the more specific intent is the one
-   *  worth flying to.
+   *  worth flying to. Framing EVERYTHING is a different verb, and it exists now:
+   *  {@link frameWorld}.
    *
    *  With neither selected it moves no camera and pushes no
    *  {@link subscribeCameraPose} — it reports through {@link subscribeToolError}
@@ -1079,7 +1082,9 @@ export type FieldHost = {
    *  yanking a camera somebody arranged, and "did they arrange it" is the
    *  question a latch answers exactly.
    *
-   *  Read by {@link loadWorld}'s automatic frame. Exposed because the chrome's
+   *  Read by the chrome's Open (`hooks/useWorld.tsx`), where ruling 5's automatic frame
+   *  lives — NOT by {@link loadWorld}, which deliberately frames nothing (its own
+   *  comment says why). Exposed because the chrome's
    *  own surfaces may want the same question later; nothing pushes it, because
    *  nothing needs to re-render when it changes. */
   cameraAimedByHand(): boolean;
@@ -1997,9 +2002,9 @@ export function createFieldHost(deps?: {
    *  verb goes through this rather than assigning `orbitState` directly.
    *
    *  A FUNNEL rather than a flag set at each of the seven call sites, and the
-   *  reason is that the eighth is the one that would forget. `loadWorld`'s
-   *  automatic frame reads the latch to decide whether the user has arranged this
-   *  camera, so a new camera verb that assigned `orbitState` on its own would
+   *  reason is that the eighth is the one that would forget. The chrome's Open reads
+   *  the latch to decide whether the user has arranged this camera, so a new camera
+   *  verb that assigned `orbitState` on its own would
    *  silently make Open start yanking an arranged view. Now it cannot: assigning
    *  `orbitState` outside these two helpers is the only way to get it wrong, and
    *  `tests/field-host-camera.test.ts` pins that every verb sets the latch. */
@@ -2007,8 +2012,8 @@ export function createFieldHost(deps?: {
     orbitState = next;
     cameraAimed = true;
   };
-  /** Move the camera WITHOUT claiming the user aimed it — {@link FieldHost.frameWorld}
-   *  and the automatic frame behind `loadWorld`. See
+  /** Move the camera WITHOUT claiming the user aimed it — {@link FieldHost.frameWorld},
+   *  including when the chrome's Open calls it. See
    *  {@link FieldHost.cameraAimedByHand} for why framing the world is not aiming. */
   const placeCamera = (next: OrbitState): void => {
     orbitState = next;
@@ -3251,12 +3256,16 @@ export function createFieldHost(deps?: {
     // argument the clamp above already makes: this is the one funnel, so a fourth
     // way to change the radius cannot forget to announce it.
     //
-    // The early return above is also the echo guard, and it is why this needs no
-    // other one: the chrome's own `setRadius` lands here, finds `clamped ===
-    // digRadius` on the way back, and returns before pushing. A slider drag
-    // therefore produces no push at all, so there is no round trip to fight the
-    // gesture — only a wheel notch or a keypress the chrome did not originate
-    // reaches the line below.
+    // WHAT THE EARLY RETURN ABOVE DOES AND DOES NOT DO, measured rather than assumed:
+    // it suppresses a NO-OP set only. A chrome slider drag changes the value every step,
+    // so every step DOES round-trip (measured: a four-step drag pushes 1.3, 1.35, 1.4,
+    // 1.45). That is harmless for a different reason — `useFieldHostState` adopts the
+    // pushed number with a plain `setState`, and React bails out on an identical value,
+    // so the drag's own echo costs no render.
+    //
+    // The CLAMP not looping IS this guard's work: a set outside the range pushes once at
+    // the boundary, and the next out-of-range set finds the boundary already current and
+    // returns (measured: [4, 0.25], then silence).
     notifyTool();
   };
 
@@ -3865,12 +3874,13 @@ export function createFieldHost(deps?: {
     applyOrbit();
   };
 
-  /** The world-space AABB of a set of chunk keys. Shared by {@link frameChunks}
-   *  (which takes its centre) and {@link frameWorld} (which fits to the whole
-   *  box), because two copies of this arithmetic is how a re-centre and a fit come
-   *  to disagree about where a world is. `null` for an empty set — a box with no
-   *  chunks in it has no centre and no edges, and both callers need to say so
-   *  rather than fit to infinities. */
+  /** The world-space AABB of a set of chunk keys. Used by {@link frameChunks} (which
+   *  takes its centre) and {@link frameWorld} (which fits to the whole box), because
+   *  two copies of this arithmetic is how a re-centre and a fit come to disagree
+   *  about where a world is — and there WERE two until the F4.5 gate added the second
+   *  verb and a review noticed the docblock claiming a de-duplication that had not
+   *  happened. `null` for an empty set: a box with no chunks in it has no centre and
+   *  no edges, and both callers refuse rather than fit to infinities. */
   const chunkSetBox = (
     chunks: Iterable<field.ChunkKey>,
   ): { min: Vec3T; max: Vec3T } | null => {
@@ -6647,9 +6657,8 @@ export function createFieldHost(deps?: {
       for (const op of ops) log.ops.push(op);
       log.nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
       // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn, and the
-      // editor still never adopts them as its own camera — the automatic frame at
-      // the end of this method aims at the world's BOX, not at where a player
-      // would stand. `playerStart` IS read, as the walkability advisor's seed: it is
+      // editor never adopts them as its own camera. `playerStart` IS read, as the
+      // walkability advisor's seed: it is
       // where the agent starts, which is exactly what "can it get there" and
       // "can it get back" are asked from. Copied, not aliased — the manifest is
       // the caller's. A world with no manifest (newWorld) leaves the seeds empty
@@ -7145,27 +7154,13 @@ export function createFieldHost(deps?: {
       notifyDrift();
     },
     frameChunks(chunks) {
-      if (chunks.length === 0) return;
-      const dim = field.CHUNK_DIM * store.cellSize;
-      let minX = Number.POSITIVE_INFINITY;
-      let minY = Number.POSITIVE_INFINITY;
-      let minZ = Number.POSITIVE_INFINITY;
-      let maxX = Number.NEGATIVE_INFINITY;
-      let maxY = Number.NEGATIVE_INFINITY;
-      let maxZ = Number.NEGATIVE_INFINITY;
-      for (const key of chunks) {
-        const [cx, cy, cz] = field.parseChunkKey(key);
-        minX = Math.min(minX, cx * dim);
-        maxX = Math.max(maxX, (cx + 1) * dim);
-        minY = Math.min(minY, cy * dim);
-        maxY = Math.max(maxY, (cy + 1) * dim);
-        minZ = Math.min(minZ, cz * dim);
-        maxZ = Math.max(maxZ, (cz + 1) * dim);
-      }
-      aimCamera({
-        ...orbitState,
-        target: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
-      });
+      // Through `chunkSetBox`, which `frameWorld` also uses — a re-centre and a fit
+      // disagreeing about where a world IS would be two copies of this arithmetic
+      // drifting apart, and this method held the second copy until the F4.5 gate.
+      // `null` is the empty set, which was this method's own early return.
+      const box = chunkSetBox(chunks);
+      if (box === null) return;
+      aimCamera({ ...orbitState, target: boxCentre(box) });
       // Before init this moves the target and publishes the pose, and writes no
       // camera — applyOrbit guards on `cam`, and there is none yet.
       applyOrbit();

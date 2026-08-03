@@ -49,7 +49,7 @@ const DropdownMenuSubContent = React.forwardRef<
 		className={cn(
 			// The max-height/scroll pair is the ROOT's, and a submenu needs it for the same
 			// reason: F4.5c's holistic gate moved the burger's 33 rows behind three chevrons,
-			// so the LONGEST level is now a submenu (view, 12 rows ≈ 394 px) rather than the
+			// so the LONGEST level is now a submenu (view, 13 rows ≈ 426 px) rather than the
 			// top one. Without this, a submenu taller than the space below its trigger clipped
 			// silently against `overflow-hidden` with no way to reach the rows past the edge —
 			// the same defect the submenus were introduced to remove, one level down.
