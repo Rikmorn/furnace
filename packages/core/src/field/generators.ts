@@ -213,7 +213,9 @@ const requiredKeys = (props: Record<string, unknown>): string[] =>
  *  String members also keep ONE spelling in persisted `GeneratorEntity.params`
  *  rather than two (`90` from an API caller, `"90"` from the form), which is
  *  what a later migration or equality check would otherwise have to reconcile.
- *  See `docs/backlog/editor-and-tooling/enum-field-stringifies-numeric-members.md`. */
+ *  See `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md`
+ *  § *EnumField stringifies enum members and never coerces back — numeric enums are
+ *  dead on arrival*. */
 const ROTATIONS = ["0", "90", "180", "270"] as const;
 type Rotation = (typeof ROTATIONS)[number];
 const isRotation = (v: unknown): v is Rotation =>
