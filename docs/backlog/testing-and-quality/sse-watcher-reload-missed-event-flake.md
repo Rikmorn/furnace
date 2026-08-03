@@ -69,5 +69,13 @@ green — so do not widen every wait either.
 **Trigger to revisit:** the next time `server.test.ts` fails in CI or a local full run, or when
 the daemon's watcher arming or debounce changes.
 
+**2026-08-04 — trigger fired, still unfixed.** One failure in the first of 9 whole-suite runs
+during the `field-segment` extraction work, then `server.test.ts` failed once in isolation
+(11 pass / 1 fail) in the same session. It did not reproduce in 4 further isolated runs with
+that tree, nor in 6 with the tree's changes stashed, nor in 8 further whole-suite runs. The
+failing run's detail was not captured, so the identification rests on the isolated repro rather
+than on the run itself. Rate is consistent with the ~2/12 above; nothing new about the
+mechanism, and the change in flight touched neither the daemon nor the watcher.
+
 **Reference:** surfaced during F4 tranche B, Task 12 (verify e2e + segment clamp + `emits` swap);
 causation corrected and the 36-run measurement added during that task's spec review.

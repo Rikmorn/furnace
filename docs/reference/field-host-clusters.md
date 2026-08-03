@@ -63,6 +63,31 @@ stateful residue.
   assignment, and container mutation (`.set` `.add` `.delete` `.clear` `.push` `.pop`
   `.shift` `.unshift` `.splice` `.sort` `.fill` `.copyWithin`) on a `const` binding.
 
+### 2.1 Two corrections, from extracting `segment` against this map
+
+Both were found by doing the work; both would mislead the next extraction if left only in
+the map's original terms.
+
+- **`let`-vs-`const` decides what may be passed by value — NOT the read/MUTATION split.**
+  When a cluster moves into its own module, every dependency the map classifies as a plain
+  READ is still unsafe to pass as a value if it names a `let` that another cluster
+  reassigns: the module gets a snapshot the host's later writes never reach. Worked
+  example: `tool.digRadius` is recorded as a read by `segment` (§6, 2 sites) and carries no
+  mutation edge, but `tool.applyRadius` reassigns it — passed as a number, the preview
+  capsule would have gone on drawing at the radius held when the module was built while the
+  committed op used the live one. It has to be passed as `() => digRadius`. §5's 58-`let`
+  /12-`const` count is the right lens for this question; the mutation register is not.
+- **Cross-cluster function CALLS are not counted as edges.** The edge counts throughout are
+  over DATA bindings only, so every cluster understates its inbound coupling by however many
+  sibling functions it invokes. `segment` is recorded with a single inbound dependency
+  (`tool.digRadius`); extracting it needed three more — `targeting.selectionPoint`,
+  `tool.reportToolError` and `tool.commitToolOp` — which is half its `deps` record and two
+  partner clusters the "Partners: 3" figure does not name. Size a cluster off its edge count
+  and you will be reading half its coupling. (Calls are cheaper to satisfy than data —
+  all three of `segment`'s are `const` arrows, so they pass safely by reference — but they
+  are still boundary surface, and a cluster whose neighbours' functions are numerous is more
+  entangled than its row suggests.)
+
 ## 3. Where the public-surface hypothesis was wrong
 
 The clusters were first hypothesised from the `FieldHost` type. Following the code changed
