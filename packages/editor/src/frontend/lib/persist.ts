@@ -20,14 +20,24 @@
 const VERSION = 2;
 
 /** One floating palette's placement: viewport-relative position, which edge it is
- *  snapped to (`null` = free-floating), whether its body is rolled up, and whether it
- *  is on screen at all. */
+ *  snapped to (`null` = free-floating), whether its body is rolled up, whether it is on
+ *  screen at all — and, once the user has dragged a resize handle, how big it is.
+ *
+ *  `width` / `height` are ABSENT until the user sizes the palette, and that absence is
+ *  the whole model rather than an economy. A number means sized and `undefined` means
+ *  "take the declared default" (`PALETTES[id]`), so "has the user sized this?" needs no
+ *  flag beside it and no comparison against the shipped figures; Reset Workspace clears a
+ *  size by simply not writing one; and a later change to a declared default still reaches
+ *  everyone who never dragged a handle. `palette-store.ts`'s `paletteBox` is the one place
+ *  the two are reconciled. */
 export type PaletteState = {
   x: number;
   y: number;
   edge: "right" | "left" | null;
   collapsed: boolean;
   open: boolean;
+  width?: number;
+  height?: number;
 };
 
 /** The full persisted UI state. Fields are independent — each caller reads/writes its

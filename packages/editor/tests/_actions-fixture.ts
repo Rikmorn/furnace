@@ -92,6 +92,8 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
       workspace: {
         move: mock(),
         nudge: mock(),
+        resize: mock(),
+        grow: mock(),
         setCollapsed: mock(),
         setOpen: mock(),
         setDrivenOpen: mock(),

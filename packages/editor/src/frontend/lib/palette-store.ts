@@ -1,11 +1,20 @@
-// The palette arrangement, as pure data: where each floating palette sits, whether it
-// is rolled up or closed, and whether the whole layer is latched away by ⌘\.
+// The palette arrangement, as pure data: where each floating palette sits, how big the
+// user has made it, whether it is rolled up or closed, and whether the whole layer is
+// latched away by ⌘\.
 //
 // PURE on purpose — no DOM, no persistence, no React. The cell's size is the one fact
-// this module cannot know, so it arrives as an argument (`OriginBounds`); the layer
-// component owns measuring it, owns the debounced write, and owns nothing else.
-// Everything here is a value→value function, which is what makes the geometry rules
-// (clamp, snap, what survives a hide) testable without a browser.
+// this module cannot know, so it arrives as an argument (`OriginBounds`, `SizeBounds`);
+// the layer component owns measuring it, owns the debounced write, and owns nothing else.
+// A palette's own CONTENT height is the second such fact, and the only one a caller has to
+// hand in per gesture (`growPalette`) rather than per cell. Everything here is a
+// value→value function, which is what makes the geometry rules (clamp, snap, what survives
+// a hide) testable without a browser.
+//
+// TWO NUMBERS FOR ONE FACT, and `paletteBox` is where that stops. `PALETTES[id]` holds what
+// a palette SHIPS as — the figures the default-arrangement proof reasons about, which stay
+// the proof's whatever any user does (D-3). `PaletteState.width/height` hold what the user
+// dragged. Everything that wants the LIVE size goes through `paletteBox`, so the width the
+// layer renders and the width the projection subtracts cannot come apart.
 import type { PaletteState, UiState } from "./persist.ts";
 
 /** Every palette the cockpit knows, in rail order. The union is closed on purpose: a
@@ -73,23 +82,35 @@ export const PALETTES: Record<
   {
     title: string;
     default: PaletteState;
-    /** How wide this palette renders, in px — the layer's inline width, the projection's
-     *  `maxX`, and the rect the default-arrangement check reasons about, all from here.
-     *  ONE number rather than a Tailwind class, because a `w-[360px]` is a number in
-     *  disguise that only CSS can read, and half of this module's job is arithmetic on it.
+    /** How wide this palette renders BEFORE the user sizes it, in px — the default the
+     *  projection's `maxX` and the default-arrangement check both reason about. ONE number
+     *  rather than a Tailwind class, because a `w-[360px]` is a number in disguise that only
+     *  CSS can read, and half of this module's job is arithmetic on it.
+     *
+     *  A DEFAULT rather than the width, since the F4.5 gate ruling: `PaletteState.width`
+     *  overrides it once a handle has been dragged, and `paletteBox` is the one place the
+     *  two are reconciled. What is asserted against these figures stays asserted against
+     *  THESE — the shipped arrangement is a claim about how the cockpit opens, and a user's
+     *  own arrangement is theirs to overlap (D-3).
      *
      *  Every figure is set by the WIDEST row that palette must render without truncating;
      *  each one carries its own argument below. */
     width: number;
-    /** How far down this palette may grow, in px — `undefined` for one that may run to the
-     *  bottom of the cell.
+    /** How far down this palette may grow before the user sizes it, in px — `undefined` for
+     *  one that may run to the bottom of the cell.
      *
      *  A BUDGET, not a measurement, and the layer enforces it (`max-height`, so the body
      *  scrolls past it). It exists because the default arrangement has to be PROVABLE: at
      *  the design floor there are three columns and four palettes that must not collide, so
      *  one column stacks two of them — and a stack cannot be proven clear when the upper
      *  palette's height is whatever its content happens to be. The budget is the upper
-     *  one's half of that proof; see `tests/palette-store.test.ts`. */
+     *  one's half of that proof; see `tests/palette-store.test.ts`.
+     *
+     *  A CEILING ON CONTENT while it applies, and that is the half the F4.5 ruling did NOT
+     *  change: an entities palette holding two rows is two rows tall, not 320. What the
+     *  ruling changed is that it STOPS applying the moment the user sets a height — the
+     *  extent is the default size rather than a ceiling, so nobody has to argue with a
+     *  budget they can simply drag past (`paletteBox` drops it). */
     maxHeight?: number;
     /** This palette's default DELIBERATELY lands on another palette's, and the pairwise
      *  check is told so here rather than in the check. A declaration, not a suppression:
@@ -122,9 +143,10 @@ export const PALETTES: Record<
     //
     // It applies WHEREVER the user drags this palette, not only at its default, because a
     // cap that switched itself off once the palette moved would be a rule nobody could
-    // predict. The cost is honest: on a tall screen this list shows ten rows and scrolls
-    // where it could have shown twenty. The day palettes can be resized, this becomes the
-    // initial height instead of a ceiling.
+    // predict. What it does NOT outlive is the user saying otherwise: dragging the resize
+    // handle sets a height and this budget stops applying to that palette (the F4.5 gate
+    // ruling — see `paletteBox`). So on a tall screen the ten rows are where the list
+    // STARTS rather than where it is stuck.
     maxHeight: 320,
   },
   session: {
@@ -138,10 +160,12 @@ export const PALETTES: Record<
     // the surface a user reads WHILE looking at the entity list, so overlapping the two
     // by default would make the first drag mandatory.
     default: { x: 420, y: 56, edge: null, collapsed: false, open: false },
-    // The mock's card is a 264 px form; 280 px is that plus the palette's own 8 px of
-    // padding either side. Narrower than every other palette on purpose — it is a
-    // label-column form, not a list, and a wide one puts the labels a long way from the
-    // values they name.
+    // 280 px leaves the card's own rows a 254 px text column, and that is the figure the
+    // form was drawn against: the palette body carries NO padding of its own (see
+    // `Palette`), so what 280 pays for is the section's 1 px border either side and the
+    // card's `px-3` either side — 280 − 2 − 24. Narrower than every other palette on
+    // purpose: it is a label-column form, not a list, and a wide one puts the labels a long
+    // way from the values they name.
     width: 280,
     drivenOpen: true,
   },
@@ -239,8 +263,83 @@ export const DESIGN_FLOOR_CELL = {
  *  is the floor on an unbounded default's height as well. */
 export const GRIP_REACH_PX = 20 + 6 + 6 + 1;
 
+/** The smallest a user may drag a palette on each axis, in px — the resize's whole
+ *  "keep the grip reachable" and, per the ruling's scope guard, its only floor.
+ *
+ *  HEIGHT is the header itself (`GRIP_REACH_PX`). The box is `overflow-hidden`, so a
+ *  palette dragged shorter than its own header does not merely look wrong — it clips away
+ *  the one control that could drag it back, and the rail chip is only reachable through a
+ *  collapse button that went with it.
+ *
+ *  WIDTH is that same header's furniture, added up rather than picked: the section's 1 px
+ *  border either side, `px-2` either side, the collapse and close buttons at `w-5` apiece,
+ *  the two `gap-1`s between the three children — and `GRIP_REACH_PX` once more for the
+ *  title button, which is the same "one grip's worth" figure the Y axis uses, applied to
+ *  the axis the grip is long on. Anything narrower is a header with no draggable title in
+ *  it. Kept as the arithmetic so a header that grows a fourth control reddens the sum
+ *  rather than silently outgrowing a round number. */
+export const MIN_PALETTE_SIZE = {
+  width: 1 * 2 + 8 * 2 + 20 * 2 + 4 * 2 + GRIP_REACH_PX,
+  height: GRIP_REACH_PX,
+} as const;
+
 /** The cell as the layer measured it. */
 export type CellSize = { width: number; height: number };
+
+/** A palette's own box, in px. Both the size a resize sets and the size the layer measures
+ *  off a rendered palette — the same two numbers, so they are the same type. */
+export type PaletteSize = { width: number; height: number };
+
+/** How big a palette renders RIGHT NOW: the declared defaults and the user's own size,
+ *  already reconciled. `paletteBox` is the only thing that builds one, and everything that
+ *  needs a palette's size — the inline style, the projection's bounds — reads it, which is
+ *  what makes "the width the layer renders IS the width the projection subtracts" true by
+ *  construction rather than by two modules agreeing to read the same field. */
+export type PaletteBox = {
+  /** The rendered width. Always a number: a palette has no content-sized width to fall
+   *  back to, so either the user set one or the declared default stands. */
+  width: number;
+  /** The user's own height, or `null` if they have never set one — in which case the box
+   *  is content-sized and {@link PaletteBox.extent} is what stops it growing. */
+  height: number | null;
+  /** The declared extent budget (`PALETTES[id].maxHeight`), or `null`.
+   *
+   *  ALWAYS `null` once `height` is set, and that is the F4.5 ruling in one line: the
+   *  extent is the DEFAULT size, not a ceiling, so the moment a user drags a height it
+   *  stops applying. Null also when the palette declares no budget at all — the two read
+   *  the same to the renderer, which only ever asks "is there a cap".
+   *
+   *  The cell's own ceiling is NOT here. `Palette.placement` adds `calc(100% - y)`
+   *  separately, because it is a fact about the viewport rather than about the palette,
+   *  and it applies to a user-set height as much as to a content-sized one. */
+  extent: number | null;
+};
+
+/** A user-set figure, floored — or `null` when there is none.
+ *
+ *  The read side of the resize's clamp, and it is a projection in exactly `clampToCell`'s
+ *  sense: `resizePalette` clamps what gets STORED, this pins what gets SHOWN, and a blob
+ *  hand-edited to a 4 px palette is the case only this one covers. */
+const sized = (value: number | undefined, floor: number): number | null =>
+  value === undefined ? null : Math.max(value, floor);
+
+/** How big this palette renders — the user's size where they set one, the declared default
+ *  everywhere else.
+ *
+ *  THE ONE RECONCILIATION. `PALETTES[id]` holds what the palette ships as and what the
+ *  default-arrangement proof reasons about; the record holds what the user dragged. Two
+ *  readers wanting the live size (the layer's inline style, `cellBounds`) go through here
+ *  rather than each deciding for themselves, because the moment they disagree a drag and
+ *  the projection are clamping to different boxes. */
+export function paletteBox(id: PaletteId, geom: PaletteState): PaletteBox {
+  const declared = PALETTES[id];
+  const height = sized(geom.height, MIN_PALETTE_SIZE.height);
+  return {
+    width: sized(geom.width, MIN_PALETTE_SIZE.width) ?? declared.width,
+    height,
+    extent: height === null ? (declared.maxHeight ?? null) : null,
+  };
+}
 
 /** How close (px) a dragged palette's edge must come to the cell's edge to dock there.
  *  24 px is roughly a coarse pointer's slop — close enough that "shove it to the side"
@@ -351,6 +450,71 @@ export function nudgePalette(
   );
 }
 
+/** Set a palette's own size, clamped into `bounds` and floored at {@link MIN_PALETTE_SIZE}.
+ *
+ *  The F4.5 gate ruling's write side. Size is the user's, so it joins the D-3 blob beside
+ *  the position and Reset Workspace clears it the same way — by handing back a record that
+ *  simply has no size on it.
+ *
+ *  BOTH AXES EVERY CALL, even from a handle the user dragged on one of them: the caller
+ *  reads the current box (`paletteBox`) and passes what it wants, which keeps this function
+ *  from having to know that an absent height means "content-sized" — and means the first
+ *  drag on either axis pins both, which is what a user who grabs a corner expects.
+ *
+ *  Returns the SAME state when nothing about the size changed. A drag against a clamped
+ *  edge produces one of these per pointer event; `movePalette`'s reason, verbatim. */
+export function resizePalette(
+  state: WorkspaceState,
+  id: PaletteId,
+  size: PaletteSize,
+  bounds: SizeBounds,
+): WorkspaceState {
+  // The floor wins over the ceiling when a cell is smaller than a usable palette, exactly
+  // as `movePalette`'s clamp pins to 0 when both maxima go negative: un-grabbable-but-there
+  // beats gone.
+  const fit = (v: number, min: number, max: number): number =>
+    Math.max(min, Math.min(v, max));
+  const width = fit(size.width, MIN_PALETTE_SIZE.width, bounds.maxWidth);
+  const height = fit(size.height, MIN_PALETTE_SIZE.height, bounds.maxHeight);
+  const geom = state.palettes[id];
+  if (geom.width === width && geom.height === height) return state;
+  return withPalette(state, id, { ...geom, width, height });
+}
+
+/** Step a palette's size by a keyboard delta — the resize's half of D-26, and `growPalette`
+ *  is to `resizePalette` exactly what `nudgePalette` is to `movePalette`.
+ *
+ *  It is `resizePalette` with the current size worked out first, and that is the whole of
+ *  it: the floor, the cell clamp and the identity return are the DRAG's, not a second set.
+ *
+ *  The size has to be RESOLVED rather than read, for the reason the origin does one function
+ *  up — and on one axis only. `paletteBox` states the width outright, but a height the user
+ *  has never set is CONTENT, and the DOM is the only thing that knows a content height. So
+ *  the caller measures it and this decides whether it was needed: once a height is stored,
+ *  `measured` is ignored entirely.
+ *
+ *  Resolving HERE rather than at the call site is what makes a burst of presses compound.
+ *  React batches updates inside one task, so a component that worked the target out from its
+ *  own props would read the same stale size for every press in the burst and all but the
+ *  first would resolve to the identical state — a held arrow that moved the handle once. */
+export function growPalette(
+  state: WorkspaceState,
+  id: PaletteId,
+  delta: { dw: number; dh: number },
+  measured: { height: number; bounds: SizeBounds },
+): WorkspaceState {
+  const box = paletteBox(id, state.palettes[id]);
+  return resizePalette(
+    state,
+    id,
+    {
+      width: box.width + delta.dw,
+      height: (box.height ?? measured.height) + delta.dh,
+    },
+    measured.bounds,
+  );
+}
+
 /** A step that LEAVES a dock, enlarged to clear the snap gutter.
  *
  *  The one place the keyboard cannot simply inherit the drag's geometry, and it is a
@@ -371,29 +535,61 @@ function departing(edge: PaletteState["edge"], dx: number): number {
   return Math.sign(dx) * Math.max(Math.abs(dx), SNAP_PX + 1);
 }
 
-/** The origin bounds the LAYER projects against: the cell minus this palette's declared
- *  width, and minus one grip's worth of height.
+/** The origin bounds the LAYER projects against: the cell minus this palette's live width,
+ *  and minus one grip's worth of height.
  *
- *  Asymmetric on purpose. The width is declared (this module owns it and the layer renders
- *  it), so x gets the drag's own rule — the whole box stays in. The height is content, and
- *  the projection runs on every render without measuring anything, so the strongest honest
- *  promise on that axis is that the header is still there to grab.
+ *  Asymmetric on purpose. The width is a number this module can state without measuring
+ *  anything (`paletteBox` — the user's, or the declared default), so x gets the drag's own
+ *  rule: the whole box stays in. The height is content unless the user has set one, and the
+ *  projection runs on every render, so the strongest honest promise on that axis is that the
+ *  header is still there to grab.
  *
  *  FOUR rules decide where a palette may be, and this is the invariant that keeps them
  *  agreeing. `movePalette` clamps a drag, `clampToCell` clamps the projection, this
  *  function derives the projection's bounds, and `PaletteLayer.measureBounds` derives the
  *  drag's. The two derivations differ on BOTH axes: the drag measures the palette, this one
- *  declares its width and gives the Y axis a grip instead of a height. On x they agree
- *  exactly, because the declared width IS the rendered width (`box-sizing: border-box`). On
- *  y they do not, and the thing that stops the difference from being visible is
- *  `Palette.placement`'s `calc(100% - y)` height cap on the SHOWN y: it is what keeps a
- *  projected palette inside the cell it was projected into, so the drag's own maxY is never
- *  smaller than where the projection put it. Remove that cap and the first arrow press
- *  after a shrink re-measures a palette that is taller than the cell and teleports it. */
-export function cellBounds(cell: CellSize, id: PaletteId): OriginBounds {
+ *  states its width and gives the Y axis a grip instead of a height. On x they agree
+ *  exactly, and the reason changed shape when palettes became resizable: it used to be that
+ *  the DECLARED width is the rendered width, and it is now that both this function and the
+ *  layer's inline style read the same `paletteBox` (`box-sizing: border-box`, and no
+ *  `max-width` anywhere — a CSS width cap is the one thing that would break the agreement,
+ *  which is why the Y axis's cap has no X twin). On y they do not agree, and the thing that
+ *  stops the difference from being visible is `Palette.placement`'s `calc(100% - y)` height
+ *  cap on the SHOWN y: it is what keeps a projected palette inside the cell it was projected
+ *  into — a user-set height included, which is why that cap survives one — so the drag's own
+ *  maxY is never smaller than where the projection put it. Remove that cap and the first
+ *  arrow press after a shrink re-measures a palette taller than the cell and teleports it. */
+export function cellBounds(
+  cell: CellSize,
+  id: PaletteId,
+  geom: PaletteState,
+): OriginBounds {
   return {
-    maxX: cell.width - PALETTES[id].width,
+    maxX: cell.width - paletteBox(id, geom).width,
     maxY: cell.height - GRIP_REACH_PX,
+  };
+}
+
+/** How big a palette may range over, for the RESIZE what `cellBounds` is for the move.
+ *
+ *  `maxHeight` here is the cell's, and is a different fact from `PaletteBox.extent` (a
+ *  declared budget) — this one is how far the handle can travel before it leaves the cell. */
+export type SizeBounds = { maxWidth: number; maxHeight: number };
+
+/** The size bounds a resize clamps into: as far as this palette can grow before its resize
+ *  handle leaves the cell. The ruling's scope guard grants exactly this much and no more —
+ *  the handle rides the palette's far corner, so a palette sized past the cell puts the one
+ *  control that could shrink it out of reach.
+ *
+ *  `geom` is the SHOWN geometry (post-`clampToCell`), because that is where the palette
+ *  actually is. A DOCKED palette is placed FROM its edge and its stored x says nothing about
+ *  that, so it may grow to fill the cell — the same fact `clampToCell` and `nudgePalette`
+ *  already turn on, and reading `x` here would let a palette docked in a wider window
+ *  compute a negative width for itself. */
+export function sizeBounds(cell: CellSize, geom: PaletteState): SizeBounds {
+  return {
+    maxWidth: geom.edge === null ? cell.width - geom.x : cell.width,
+    maxHeight: cell.height - geom.y,
   };
 }
 
@@ -481,6 +677,18 @@ export function serializeWorkspace(
   return { palettes: state.palettes, hidden: state.hidden };
 }
 
+/** An OPTIONAL persisted figure: absent, or a real number. The user's size is the only
+ *  field on the record that a blob is allowed not to carry — absent means "never resized",
+ *  which is every blob written before palettes could be resized and therefore the whole of
+ *  that migration.
+ *
+ *  Strict about what counts as present: only `undefined` passes as absent, so a
+ *  hand-written `null` fails the record rather than being read as "unset". Nothing here
+ *  ever writes one (`JSON.stringify` omits an undefined-valued property outright), so
+ *  tolerating it would be a second spelling of absence with no producer. */
+const isOptionalSize = (value: unknown): boolean =>
+  value === undefined || Number.isFinite(value);
+
 /** Structural check on ONE persisted record. Necessary despite the static type: the
  *  blob is JSON off localStorage — hand-editable, half-written, or written by a build
  *  that spelled these fields differently. */
@@ -492,7 +700,9 @@ function isPaletteState(value: unknown): value is PaletteState {
     Number.isFinite(r["y"]) &&
     (r["edge"] === "left" || r["edge"] === "right" || r["edge"] === null) &&
     typeof r["collapsed"] === "boolean" &&
-    typeof r["open"] === "boolean"
+    typeof r["open"] === "boolean" &&
+    isOptionalSize(r["width"]) &&
+    isOptionalSize(r["height"])
   );
 }
 
@@ -514,7 +724,14 @@ function isPaletteState(value: unknown): value is PaletteState {
  *  Deliberately does NOT clamp to the current window: bounds need the palette's own
  *  measured size, which does not exist until it renders. A window that shrank between
  *  sessions can therefore restore a palette out of reach — the case Reset Workspace
- *  exists for (D-3, the Photoshop mechanism). */
+ *  exists for (D-3, the Photoshop mechanism).
+ *
+ *  A restored SIZE is not clamped here either, and for once that costs nothing: the
+ *  ceiling is the window (same problem), but the FLOOR is a static constant, so
+ *  `paletteBox` applies it at render — a hand-edited 4 px palette is shown at the minimum
+ *  rather than clipped away. Absent is the case that matters, and it is the whole
+ *  migration: every blob written before palettes could be resized has no size, which reads
+ *  as "never resized" and takes the declared default. */
 export function deserializeWorkspace(
   raw: UiState["workspace"],
 ): WorkspaceState {

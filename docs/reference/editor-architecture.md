@@ -1493,6 +1493,16 @@ without a browser.
   eyeballed, and `tests/palette-store.test.ts` checks all ten pairs. A default that
   deliberately shares a corner declares it (`sharesCornerWith`), beside the default it
   excuses, so a palette added later inherits nothing.
+- **Both figures are DEFAULTS, not limits** (the F4.5 gate ruling). `PaletteState` carries
+  an optional `width`/`height` the user sets by dragging a palette's resize handle;
+  `paletteBox(id, geom)` is the ONE place the declared and the dragged are reconciled, and
+  the layer's inline style and `cellBounds`' projection both read it, which is what keeps
+  the rendered width and the projected width the same number. Absent means never resized,
+  so Reset Workspace clears a size by simply not writing one and an old blob migrates by
+  carrying no field. A user-set height REPLACES the extent rather than being capped by it —
+  that is what "the extent is the default size, not a ceiling" means — while the cell's own
+  `calc(100% - y)` cap survives it. The pairwise proof keeps reading the DECLARED figures
+  only: a user's arrangement is theirs to overlap (D-3).
 - **Nothing docks by default and no default claims the RIGHT edge** — `controls` was the
   one that did. Past history's 960 the cell is clear, which leaves the top-right corner to
   the axis triad and the strip a right-handed user orbits in unclaimed. `log` and `history`
@@ -2395,6 +2405,22 @@ that clears the palette below. It is the check that pays the two F4.5b gate ride
 entity list growing through the flags palette) and R27 (the summoned History palette landing on the
 live session card). Past history's right edge at 960 the cell is clear, which leaves the top-right to
 the axis triad and the bottom-left to the collapsed-chip rail.
+
+**A palette is RESIZABLE** (the F4.5 gate ruling, closing the Flags palette truncating its coordinate
+on most rows and the extent-cap question in one mechanism). Each palette carries a corner handle — a
+real `button`, so the arrow keys size it too (Right/Down = bigger, `⇧` = the long step) — and the size
+it sets joins the D-3 workspace blob beside the position: persisted, restored, cleared by Reset
+Workspace. It is stored as an OPTIONAL `width`/`height` on `PaletteState`, absent until the user drags,
+so "has this been sized?" needs no flag, an old blob migrates by having no field, and a later change
+to a declared default still reaches everyone who never dragged. `paletteBox(id, geom)` reconciles the
+declared default with the user's size and is read by both the inline style and `cellBounds`, so the
+rendered width IS the width the projection subtracts. The clamps are the scope guard's and no more:
+a floor that keeps the header (and therefore the move grip) reachable, and a ceiling at the cell so
+the handle itself cannot leave it. A user-set height REPLACES the declared extent — that is the
+ruling, "the extent is the default size, not a ceiling" — while the cell's `calc(100% - y)` cap
+survives it, because that cap is what stops a projected palette teleporting after a window shrink.
+The pairwise proof above still reads the DECLARED figures only: a user's own arrangement is theirs to
+overlap.
 
 Two other F4.5c Task 11 facts about the same geometry. **A palette moves by keyboard** (D-26): its
 title is the grip — a real `button` INSIDE its `h2`, because a `role="button"` header would make the

@@ -13,7 +13,7 @@
 // the advisor's filter bands, the brush radius — is the shell provider's rather than a
 // palette's. `hidden` also takes it out of the accessibility tree, so the rail chip is the
 // only thing a screen reader finds — which is what the collapsed state actually is.
-import { ChevronUp, X } from "lucide-react";
+import { ChevronUp, MoveDiagonal, MoveDiagonal2, X } from "lucide-react";
 import type {
 	CSSProperties,
 	KeyboardEvent as ReactKeyboardEvent,
@@ -23,13 +23,14 @@ import type {
 } from "react";
 import { useRef } from "react";
 import { cn } from "../../lib/cn.ts";
-import type { OriginBounds } from "../../lib/palette-store.ts";
+import type {
+	OriginBounds,
+	PaletteBox,
+	PaletteSize,
+	SizeBounds,
+} from "../../lib/palette-store.ts";
 import type { PaletteState } from "../../lib/persist.ts";
 import { Button } from "../ui/button.tsx";
-
-/** A palette's measured box, handed to the layer with a move so it can turn the cell's
- *  size into bounds for THIS palette's origin. */
-export type PaletteSize = { width: number; height: number };
 
 /** How far one arrow press moves a palette, and how far a ⇧-arrow does. 8 px is the
  *  chrome's spacing step, so a nudged palette stays on the same rhythm as everything
@@ -47,6 +48,21 @@ const NUDGE_KEYS: Record<string, { dx: number; dy: number }> = {
 	ArrowDown: { dx: 0, dy: 1 },
 };
 
+/** The same four keys on the RESIZE handle, as BIGGER/SMALLER rather than as a direction.
+ *
+ *  Deliberately not the handle's own travel, which is the one thing the pointer and the
+ *  keyboard do differently here: a right-docked palette's handle grows it LEFTWARD (see
+ *  `growX`), and a keyboard user cannot see which corner they are on. Right and Down mean
+ *  bigger on every palette, which is a rule that can be stated. Nothing diverges by it —
+ *  both inputs reach exactly the same sizes, which is the invariant the move's own
+ *  "one geometry" rule is about. */
+const RESIZE_KEYS: Record<string, { dw: number; dh: number }> = {
+	ArrowLeft: { dw: -1, dh: 0 },
+	ArrowRight: { dw: 1, dh: 0 },
+	ArrowUp: { dw: 0, dh: -1 },
+	ArrowDown: { dw: 0, dh: 1 },
+};
+
 /** What a pointer-capture drag needs to survive between events: which pointer owns the
  *  gesture, where it started, where the palette was when it did, and the box its origin
  *  may range over. All measured ONCE at pointerdown — neither the palette nor the layer
@@ -61,14 +77,38 @@ type Drag = {
 	bounds: OriginBounds;
 };
 
-/** Absolute placement from stored geometry. A docked palette is placed FROM its edge, so
- *  a window resize keeps it welded there; a free one is placed from its x.
+/** The same, for the resize handle: the size the palette was when the gesture opened, and
+ *  the box it may grow into. Both taken ONCE, for the move drag's reason — and the START
+ *  SIZE especially, because the palette really is changing size under the pointer, so
+ *  reading it per event would compound its own rounding into a drift. */
+type Resize = {
+	pointerId: number;
+	fromX: number;
+	fromY: number;
+	width: number;
+	height: number;
+	bounds: SizeBounds;
+};
+
+/** Absolute placement from stored geometry and the box the store resolved. A docked palette
+ *  is placed FROM its edge, so a window resize keeps it welded there; a free one is placed
+ *  from its x.
  *
  *  TWO ceilings on the height, and they answer different questions. `calc(100% - y)` is
- *  the cell's: a tall palette scrolls inside the cell instead of running under the status
- *  bar. The declared extent is the ARRANGEMENT's (see `PALETTES[id].maxHeight`): it is what
- *  stops a growing list from reaching the palette below it, and it is absent for the
- *  palettes that have nothing below them. The smaller wins, which is what `min` says.
+ *  the CELL's: a tall palette scrolls inside the cell instead of running under the status
+ *  bar. The declared extent is the ARRANGEMENT's (`PaletteBox.extent`, from
+ *  `PALETTES[id].maxHeight`): it is what stops a growing list from reaching the palette
+ *  below it, and it is absent both for a palette that has nothing below it AND for one the
+ *  user has sized — the F4.5 ruling, where the extent is a default rather than a ceiling.
+ *  Where both apply the smaller wins, which is what `min` says.
+ *
+ *  A USER HEIGHT IS A HEIGHT, not a third ceiling: a palette holding two rows has to GROW
+ *  when the handle is dragged down, or the handle moves and nothing follows it. The cell's
+ *  cap still outranks it (`max-height` beats `height` in CSS), which is deliberate — it is
+ *  what keeps a projected palette inside the cell it was projected into, and `cellBounds`'s
+ *  own docblock rests on that. There is NO width twin of that cap, for the reason stated
+ *  there: a CSS width cap would make the rendered width differ from the width the
+ *  projection subtracts, and those two agreeing is the x axis's whole invariant.
  *
  *  GEOMETRY ONLY. The click-to-front z-index is merged in at the call site rather than
  *  threaded through here: it is not part of the stored record and never will be (see
@@ -80,19 +120,15 @@ function placement(geom: PaletteState, box: PaletteBox): CSSProperties {
 		top: geom.y,
 		width: box.width,
 		maxHeight:
-			box.maxHeight === undefined
+			box.extent === null
 				? toCellBottom
-				: `min(${box.maxHeight}px, ${toCellBottom})`,
+				: `min(${box.extent}px, ${toCellBottom})`,
 	};
+	if (box.height !== null) style.height = box.height;
 	if (geom.edge === "right") return { ...style, right: 0 };
 	if (geom.edge === "left") return { ...style, left: 0 };
 	return { ...style, left: geom.x };
 }
-
-/** How big this palette is allowed to be, straight off `PALETTES[id]` — the store owns
- *  both numbers because both are arithmetic it has to do (the projection's bounds, the
- *  default-arrangement proof). */
-export type PaletteBox = { width: number; maxHeight?: number };
 
 export function Palette({
 	title,
@@ -102,6 +138,9 @@ export function Palette({
 	measureBounds,
 	onMove,
 	onNudge,
+	measureSizeBounds,
+	onResize,
+	onGrow,
 	onRaise,
 	onCollapse,
 	onClose,
@@ -119,6 +158,17 @@ export function Palette({
 	onMove: (pos: { x: number; y: number }, bounds: OriginBounds) => void;
 	/** Step the palette by a keyboard delta, against the same bounds a drag would use. */
 	onNudge: (delta: { dx: number; dy: number }, bounds: OriginBounds) => void;
+	/** How big THIS palette may grow, from the layer that owns the measurement. Null when
+	 *  the layer is not mounted, which refuses the gesture rather than guessing. */
+	measureSizeBounds: () => SizeBounds | null;
+	onResize: (size: PaletteSize, bounds: SizeBounds) => void;
+	/** Step the palette's size by a keyboard delta, against the same bounds a drag uses.
+	 *  `measured.height` is what the palette currently MEASURES, which the store needs only
+	 *  while the user has never set a height of their own. */
+	onGrow: (
+		delta: { dw: number; dh: number },
+		measured: { height: number; bounds: SizeBounds },
+	) => void;
 	/** Bring this palette to the front — ANY pointer down on it, header or body, so
 	 *  reaching for a control on a buried palette also uncovers it. */
 	onRaise: () => void;
@@ -132,6 +182,24 @@ export function Palette({
 	const rootRef = useRef<HTMLElement | null>(null);
 	const gripRef = useRef<HTMLButtonElement | null>(null);
 	const drag = useRef<Drag | null>(null);
+	const resize = useRef<Resize | null>(null);
+
+	/** Which way the handle grows the palette on x. A RIGHT-DOCKED palette is placed from
+	 *  that edge, so its box grows LEFTWARD and its handle rides the bottom-LEFT corner —
+	 *  put it on the right and the corner is welded to the cell edge while the palette
+	 *  changes width somewhere else, which is a handle that does not track the pointer that
+	 *  is holding it. One sign, read by the corner's position and by the pointer delta, so
+	 *  the two cannot come apart. */
+	const growX = geom.edge === "right" ? -1 : 1;
+
+	/** What the palette MEASURES right now — the one size fact the store cannot state, and
+	 *  the only one either gesture has to go to the DOM for. `paletteBox` states the width
+	 *  outright; a height the user has never set is CONTENT, so where they have not set one
+	 *  this is the only true answer. */
+	const measuredHeight = (): number | null => {
+		const el = rootRef.current;
+		return el === null ? null : el.getBoundingClientRect().height;
+	};
 
 	/** Bounds for THIS palette's origin, measured NOW. The pointer gesture takes it once at
 	 *  pointerdown and caches it; the keyboard takes it per press, which is the same cost
@@ -231,6 +299,75 @@ export function Palette({
 		e.preventDefault();
 	};
 
+	const onHandleDown = (e: ReactPointerEvent<HTMLElement>): void => {
+		if (e.button !== 0) return;
+		const bounds = measureSizeBounds();
+		const content = measuredHeight();
+		if (!bounds || content === null) return;
+		resize.current = {
+			pointerId: e.pointerId,
+			fromX: e.clientX,
+			fromY: e.clientY,
+			width: box.width,
+			height: box.height ?? content,
+			bounds,
+		};
+		e.currentTarget.setPointerCapture(e.pointerId);
+	};
+
+	const endResize = (e: ReactPointerEvent<HTMLElement>): void => {
+		const r = resize.current;
+		if (!r || r.pointerId !== e.pointerId) return;
+		resize.current = null;
+		if (e.currentTarget.hasPointerCapture(e.pointerId))
+			e.currentTarget.releasePointerCapture(e.pointerId);
+	};
+
+	const onHandleMove = (e: ReactPointerEvent<HTMLElement>): void => {
+		const r = resize.current;
+		if (!r || r.pointerId !== e.pointerId) return;
+		// The header drag's brace, and it earns its place here for the same reason: the
+		// button is no longer down, so the pointerup that should have ended this gesture
+		// never reached us (⌘\ or a collapse hiding the palette mid-gesture does exactly
+		// that), and without this the palette keeps resizing to follow a bare cursor.
+		if (e.buttons === 0) {
+			endResize(e);
+			return;
+		}
+		onResize(
+			{
+				width: r.width + (e.clientX - r.fromX) * growX,
+				height: r.height + (e.clientY - r.fromY),
+			},
+			r.bounds,
+		);
+	};
+
+	/** The keyboard half of the resize — the grip's `onGripKeyDown`, on the other verb, and
+	 *  modeless for the same reason (each press is one whole resize, so Esc is not ours).
+	 *
+	 *  It hands the store a DELTA rather than a target, which is `nudge`'s split and matters
+	 *  here for a sharper reason: the size this component can see is a prop, and React
+	 *  batches every press it can into one render — so a target computed here would be
+	 *  computed from the same stale box for a whole burst, and a held arrow would move the
+	 *  handle exactly once. */
+	const onHandleKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		const dir = RESIZE_KEYS[e.key];
+		if (dir === undefined) return;
+		const bounds = measureSizeBounds();
+		const content = measuredHeight();
+		if (!bounds || content === null) return;
+		const step = e.shiftKey ? NUDGE_FAR_PX : NUDGE_PX;
+		onGrow(
+			{ dw: dir.dw * step, dh: dir.dh * step },
+			{ height: content, bounds },
+		);
+		e.preventDefault();
+	};
+
+	const HandleGlyph = growX === -1 ? MoveDiagonal2 : MoveDiagonal;
+
 	return (
 		<section
 			ref={rootRef}
@@ -323,6 +460,45 @@ export function Palette({
 				</Button>
 			</header>
 			<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+			{/* THE RESIZE HANDLE (the F4.5 gate ruling). ONE corner handle rather than an edge
+			    per axis: it is the width handle and the height handle at once, which is the
+			    least chrome — and the least tab stop — that satisfies "width + height handles",
+			    and it is the affordance every windowed app already taught.
+
+			    A real `button`, for the grip's reasons rather than by analogy with it. A bare
+			    `div` with a pointer handler is invisible to a keyboard and to a screen reader,
+			    and the whole point of the ruling is that the 320 px extent stops being a
+			    ceiling — for everyone, not for people holding a mouse. The name leads with the
+			    VERB because a corner glyph says nothing about what it does.
+
+			    It is OUTSIDE the header, so the header's own drag never sees it (that handler
+			    refuses every button but the grip anyway) — and it is inside the section, so a
+			    pointerdown on it still bubbles to the raise. The `absolute` is against the
+			    section's own box, which is what keeps the handle on the corner while the body
+			    scrolls under it. */}
+			<button
+				type="button"
+				aria-label={`resize ${title} palette`}
+				aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowUp Shift+ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+				onPointerDown={onHandleDown}
+				onPointerMove={onHandleMove}
+				onPointerUp={endResize}
+				onPointerCancel={endResize}
+				onLostPointerCapture={endResize}
+				onKeyDown={onHandleKeyDown}
+				className={cn(
+					// `text-muted-foreground` at FULL opacity, which is the house rule rather than
+					// a preference: an alpha on a `-foreground` token makes the measured contrast
+					// pair describe a colour that is not on screen (`design-tokens.test.ts`). The
+					// glyph is subordinate by size and by corner already.
+					"absolute bottom-0 grid h-4 w-4 touch-none place-items-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+					growX === -1
+						? "left-0 cursor-nesw-resize"
+						: "right-0 cursor-nwse-resize",
+				)}
+			>
+				<HandleGlyph className="h-3 w-3" />
+			</button>
 		</section>
 	);
 }

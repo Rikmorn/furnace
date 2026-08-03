@@ -10,16 +10,20 @@ import {
   defaultWorkspace,
   deserializeWorkspace,
   GRIP_REACH_PX,
+  MIN_PALETTE_SIZE,
   movePalette,
   nudgePalette,
   PALETTE_IDS,
   PALETTES,
   type PaletteId,
+  paletteBox,
+  resizePalette,
   SNAP_PX,
   serializeWorkspace,
   setPaletteCollapsed,
   setPaletteOpen,
   setPalettesHidden,
+  sizeBounds,
   type WorkspaceState,
 } from "../src/frontend/lib/palette-store.ts";
 import type { PaletteState } from "../src/frontend/lib/persist.ts";
@@ -668,18 +672,329 @@ test("a shrunken cell projects a palette back into reach WITHOUT moving it", () 
 
 test("the projection's bounds keep the GRIP inside the cell, per palette width", () => {
   // The two axes are bounded by different facts, and the asymmetry is the honest one: the
-  // width is declared (the layer renders it), so x gets the drag's own "the whole box
-  // stays in" rule; the HEIGHT is content, so the most that can be promised is that the
-  // header is still there to grab.
+  // width is a number this module can state without measuring (the layer renders exactly
+  // it), so x gets the drag's own "the whole box stays in" rule; the HEIGHT is content, so
+  // the most that can be promised is that the header is still there to grab.
   const cell = { width: 1000, height: 600 };
-  expect(cellBounds(cell, "entities")).toEqual({
+  const fresh = defaultWorkspace().palettes;
+  expect(cellBounds(cell, "entities", fresh.entities)).toEqual({
     maxX: 1000 - PALETTES.entities.width,
     maxY: 600 - GRIP_REACH_PX,
   });
   // Per palette, not one figure for all of them: a 380 px log and a 240 px history have
   // different right-most origins, and a shared number would strand one or clip the other.
-  expect(cellBounds(cell, "history").maxX).toBe(1000 - PALETTES.history.width);
+  expect(cellBounds(cell, "history", fresh.history).maxX).toBe(
+    1000 - PALETTES.history.width,
+  );
   expect(PALETTES.history.width).not.toBe(PALETTES.entities.width);
+});
+
+// --- the user's own size (the F4.5 gate ruling) ------------------------------
+//
+// The gate's defect was the Flags palette truncating 22 of its 25 coordinates, and the
+// ruling made it one mechanism: a palette the user can size, whose size joins the D-3
+// blob. The declared `width` and `maxHeight` stay — they are the DEFAULT and the proof
+// the shipped arrangement rests on — and `paletteBox` is the one place the two are
+// reconciled, which is what keeps the renderer and the projection reading one number.
+
+test("an unsized palette renders its declared default, size and extent both", () => {
+  const geom = defaultWorkspace().palettes.entities;
+  // No user size on a fresh record — that is what "reset clears it" is, by construction
+  // rather than by a clearing step, and what makes "has the user sized this?" answerable
+  // without comparing floats to the declared numbers.
+  expect(geom.width).toBeUndefined();
+  expect(geom.height).toBeUndefined();
+  expect(paletteBox("entities", geom)).toEqual({
+    width: PALETTES.entities.width,
+    height: null,
+    // The extent is still a CEILING here: an entities palette with two rows is two rows
+    // tall, capped at 320. Reading "the cap becomes the default size" as a literal height
+    // would render every fresh palette as a mostly-empty 320 px box.
+    extent: PALETTES.entities.maxHeight ?? null,
+  });
+  // A palette that declares no extent says so, rather than inheriting one.
+  expect(
+    paletteBox("flags", defaultWorkspace().palettes.flags).extent,
+  ).toBeNull();
+});
+
+test("a user size overrides the width, and the extent stops being a ceiling", () => {
+  const bounds = { maxWidth: 900, maxHeight: 700 };
+  const sized = resizePalette(
+    defaultWorkspace(),
+    "entities",
+    {
+      width: 520,
+      height: 600,
+    },
+    bounds,
+  );
+  expect(paletteBox("entities", sized.palettes.entities)).toEqual({
+    width: 520,
+    height: 600,
+    // THE RULING, in one assertion: 320 was the default size, not a ceiling, so a user
+    // who has sized this palette is not capped by it any more.
+    extent: null,
+  });
+  // Purely additive on the record — a resize is not a move.
+  const before = defaultWorkspace().palettes.entities;
+  expect(sized.palettes.entities.x).toBe(before.x);
+  expect(sized.palettes.entities.y).toBe(before.y);
+  expect(sized.palettes.entities.edge).toBe(before.edge);
+  // One axis at a time is a real case (the width handle on a palette never sized
+  // vertically), so height stays null and the extent survives.
+  const wideOnly = resizePalette(
+    defaultWorkspace(),
+    "entities",
+    {
+      width: 520,
+      height: PALETTES.entities.maxHeight ?? 0,
+    },
+    bounds,
+  );
+  expect(paletteBox("entities", wideOnly.palettes.entities).height).toBe(320);
+});
+
+test("resize clamps to the grip floor and to the cell, and is identity when it changes nothing", () => {
+  const start = defaultWorkspace();
+  const bounds = { maxWidth: 900, maxHeight: 700 };
+
+  // THE FLOOR, which is the scope guard's whole "keep the grip reachable": a palette
+  // dragged to nothing would take its own header with it (the box is `overflow-hidden`),
+  // and the header is the only thing that moves it back.
+  const tiny = resizePalette(
+    start,
+    "entities",
+    { width: 4, height: 4 },
+    bounds,
+  );
+  expect(tiny.palettes.entities.width).toBe(MIN_PALETTE_SIZE.width);
+  expect(tiny.palettes.entities.height).toBe(MIN_PALETTE_SIZE.height);
+
+  // THE CEILING is the cell, for the same reason: the resize handle rides the palette's
+  // far corner, so a palette sized past the cell puts the one control that could shrink
+  // it out of reach.
+  const huge = resizePalette(
+    start,
+    "entities",
+    {
+      width: 5000,
+      height: 5000,
+    },
+    bounds,
+  );
+  expect(huge.palettes.entities.width).toBe(900);
+  expect(huge.palettes.entities.height).toBe(700);
+
+  // A cell smaller than the floor: the floor wins, exactly as `movePalette`'s clamp pins
+  // to 0 when both maxima go negative. Un-grabbable-but-present beats absent.
+  const cramped = resizePalette(
+    start,
+    "entities",
+    {
+      width: 300,
+      height: 300,
+    },
+    { maxWidth: 10, maxHeight: 10 },
+  );
+  expect(cramped.palettes.entities.width).toBe(MIN_PALETTE_SIZE.width);
+
+  // The sibling discipline: a resize that resolves to the size already stored hands back
+  // the SAME state. A drag against a clamped edge produces one of these per pointer
+  // event, and each new record re-renders the layer and re-arms the persist debounce.
+  const sized = resizePalette(
+    start,
+    "entities",
+    {
+      width: 520,
+      height: 600,
+    },
+    bounds,
+  );
+  expect(
+    resizePalette(sized, "entities", { width: 520, height: 600 }, bounds),
+  ).toBe(sized);
+  expect(
+    resizePalette(sized, "entities", { width: 9000, height: 9000 }, bounds),
+  ).not.toBe(sized);
+  // Pure: the input state is untouched.
+  expect(start.palettes.entities.width).toBeUndefined();
+});
+
+test("the size a palette may reach is the cell it can still be grabbed in", () => {
+  const cell = { width: 1000, height: 600 };
+  const free = { ...defaultWorkspace().palettes.entities, x: 240, y: 100 };
+  // A FREE palette grows right and down from where it sits, so the cell's far edges are
+  // what it may reach.
+  expect(sizeBounds(cell, free)).toEqual({ maxWidth: 760, maxHeight: 500 });
+
+  // A DOCKED one is placed FROM its edge and ignores its stored x — the same fact
+  // `clampToCell` and `nudgePalette` already turn on — so it may grow to fill the cell
+  // whatever that stale x says. A bound computed from `x` would let a right-docked
+  // palette that was docked in a wider window grow to a negative width.
+  const docked = { ...free, x: 900, edge: "right" as const };
+  expect(sizeBounds(cell, docked).maxWidth).toBe(1000);
+  expect(
+    sizeBounds(cell, { ...free, x: 0, edge: "left" as const }).maxWidth,
+  ).toBe(1000);
+});
+
+test("the projection's bounds follow the LIVE width, not the declared one", () => {
+  // THE INVARIANT the four placement rules rest on. `cellBounds` derives the projection's
+  // bounds, `PaletteLayer.measureBounds` derives the drag's by MEASURING the palette, and
+  // on x they have to agree exactly — which they do only while the number `cellBounds`
+  // subtracts is the number the layer renders. `paletteBox` is that one number, and this
+  // case is what catches a `cellBounds` that went back to reading `PALETTES[id].width`.
+  const cell = { width: 1000, height: 600 };
+  const fresh = defaultWorkspace().palettes.entities;
+  expect(cellBounds(cell, "entities", fresh).maxX).toBe(
+    1000 - PALETTES.entities.width,
+  );
+
+  const sized = resizePalette(
+    defaultWorkspace(),
+    "entities",
+    {
+      width: 520,
+      height: 600,
+    },
+    { maxWidth: 900, maxHeight: 700 },
+  ).palettes.entities;
+  expect(cellBounds(cell, "entities", sized).maxX).toBe(1000 - 520);
+  expect(cellBounds(cell, "entities", sized).maxX).toBe(
+    cell.width - paletteBox("entities", sized).width,
+  );
+  // The Y axis is unchanged and deliberately weaker — the projection runs without
+  // measuring anything, so a grip is the strongest honest promise on that axis even for a
+  // palette whose height the user HAS set.
+  expect(cellBounds(cell, "entities", sized).maxY).toBe(600 - GRIP_REACH_PX);
+});
+
+test("a user's size never enters the default-arrangement proof (D-3)", () => {
+  // The pairwise check reasons about the SHIPPED defaults and must keep doing so: a user
+  // arrangement is theirs to overlap, and a proof that read live sizes would redden on
+  // somebody widening a palette in their own editor.
+  const sized = resizePalette(
+    defaultWorkspace(),
+    "entities",
+    {
+      width: 1000,
+      height: 1000,
+    },
+    { maxWidth: 4000, maxHeight: 4000 },
+  );
+  expect(sized.palettes.entities.width).toBe(1000);
+  // The claims are computed from `PALETTES`, which the resize cannot reach…
+  expect(claims.find((c) => c.id === "entities")).toEqual({
+    id: "entities",
+    x: 24,
+    y: 24,
+    width: 360,
+    maxHeight: 320,
+  });
+  expect(proofFor("entities", "flags")).toBe("extent");
+  // …while the PROJECTION, which is presentation rather than proof, follows the user.
+  expect(
+    cellBounds(
+      { width: 1200, height: 900 },
+      "entities",
+      sized.palettes.entities,
+    ).maxX,
+  ).toBe(200);
+});
+
+test("a user size round-trips through the blob, and an old blob without one is the default", () => {
+  const sized = resizePalette(
+    defaultWorkspace(),
+    "flags",
+    {
+      width: 460,
+      height: 520,
+    },
+    { maxWidth: 900, maxHeight: 700 },
+  );
+  const blob = serializeWorkspace(sized);
+  expect(JSON.parse(JSON.stringify(blob))).toEqual(blob);
+  const back = deserializeWorkspace(JSON.parse(JSON.stringify(blob)));
+  expect(back.palettes.flags.width).toBe(460);
+  expect(back.palettes.flags.height).toBe(520);
+
+  // EVERY blob written before this shipped is this case, and it must cost nothing: no
+  // size means never resized means the declared default. That is the whole migration.
+  const old = deserializeWorkspace({
+    palettes: {
+      flags: { x: 10, y: 20, edge: null, collapsed: false, open: true },
+    },
+    hidden: false,
+  });
+  expect(old.palettes.flags.width).toBeUndefined();
+  expect(paletteBox("flags", old.palettes.flags).width).toBe(
+    PALETTES.flags.width,
+  );
+
+  // A size that is not a number costs the record, not just the size — the module's
+  // existing whole-record posture, so one bad palette still costs only itself.
+  const corrupt = deserializeWorkspace({
+    palettes: {
+      // Boundary cast: the blob is JSON off localStorage, so its static type is what we
+      // hope for rather than what a parse actually returns.
+      flags: {
+        x: 10,
+        y: 20,
+        edge: null,
+        collapsed: false,
+        open: true,
+        width: "wide",
+      } as unknown as PaletteState,
+      history: { x: 30, y: 40, edge: null, collapsed: false, open: true },
+    },
+    hidden: false,
+  });
+  expect(corrupt.palettes.flags).toEqual(defaultWorkspace().palettes.flags);
+  expect(corrupt.palettes.history.x).toBe(30);
+
+  // Reset drops it, because a fresh record simply has no such field.
+  expect(defaultWorkspace().palettes.flags.width).toBeUndefined();
+});
+
+test("a stored size below the floor is SHOWN at the floor, not clipped away", () => {
+  // The read side of the resize's clamp, and it is a projection in exactly `clampToCell`'s
+  // sense: `resizePalette` clamps what gets STORED, `paletteBox` pins what gets SHOWN.
+  //
+  // It is not dead code, because the writer is not the only source. `deserializeWorkspace`
+  // deliberately does not clamp — a blob is hand-editable JSON off localStorage, and a size
+  // written by a build whose floor was smaller is the same case. Without this a 4 px palette
+  // renders as 4 px, which (the box being `overflow-hidden`) clips away its own header: the
+  // grip that moves it, the chevron that rails it and the × that closes it, all at once.
+  const stunted = deserializeWorkspace({
+    palettes: {
+      flags: {
+        x: 10,
+        y: 20,
+        edge: null,
+        collapsed: false,
+        open: true,
+        width: 4,
+        height: 4,
+      },
+    },
+    hidden: false,
+  });
+  // Restored verbatim — the record is the user's intent, and this module does not rewrite
+  // it any more than `clampToCell` rewrites a stranded position.
+  expect(stunted.palettes.flags.width).toBe(4);
+  const box = paletteBox("flags", stunted.palettes.flags);
+  expect([box.width, box.height]).toEqual([
+    MIN_PALETTE_SIZE.width,
+    MIN_PALETTE_SIZE.height,
+  ]);
+  // …and the projection agrees with what is rendered, which is the x-axis invariant: a
+  // `cellBounds` computed off the raw 4 would let the palette hang a floor's width out of
+  // the cell.
+  expect(
+    cellBounds({ width: 1000, height: 600 }, "flags", stunted.palettes.flags)
+      .maxX,
+  ).toBe(1000 - MIN_PALETTE_SIZE.width);
 });
 
 test("a closed flags palette stays closed across a restore", () => {

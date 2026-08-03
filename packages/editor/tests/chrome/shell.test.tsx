@@ -20,7 +20,10 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { ReactElement } from "react";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
-import { NUDGE_PX } from "../../src/frontend/components/shell/Palette.tsx";
+import {
+	NUDGE_FAR_PX,
+	NUDGE_PX,
+} from "../../src/frontend/components/shell/Palette.tsx";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import { armedKeymap } from "../../src/frontend/components/shell/status-keymap.ts";
 import {
@@ -32,6 +35,7 @@ import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import {
 	GRIP_REACH_PX,
+	MIN_PALETTE_SIZE,
 	PALETTE_IDS,
 	PALETTES,
 } from "../../src/frontend/lib/palette-store.ts";
@@ -3456,6 +3460,321 @@ test("a shrunken window brings a stranded palette back into reach, and growing i
 	);
 	expect(flagsPalette()?.style.left).toBe("900px");
 	expect(flagsPalette()?.style.top).toBe("500px");
+});
+
+// --- (d3) the size the user set (the F4.5 gate ruling) -----------------------
+
+/** A persisted arrangement whose flags palette the user has SIZED \u2014 the D-3 blob's new
+ *  field, arriving the way it really arrives (a restore). The gate's defect was this
+ *  palette truncating its coordinate on 22 of 25 rows at the declared 320. */
+const FLAGS_SIZED = {
+	palettes: {
+		flags: {
+			...PALETTES.flags.default,
+			width: 460,
+			height: 520,
+		},
+	},
+	hidden: false,
+};
+
+test("a palette the user sized renders THAT box, and its extent stops being a ceiling", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: FLAGS_SIZED }));
+	const flags = flagsPalette();
+	if (!(flags instanceof HTMLElement)) throw new Error("flags palette missing");
+	// The rendered width IS what the projection subtracts (`paletteBox`), which is the
+	// whole of how the four placement rules stay in agreement on x.
+	expect(flags.style.width).toBe("460px");
+	// A user height is a HEIGHT, not a cap: grabbing the handle on a palette holding two
+	// rows has to grow the box, or the handle moves and nothing follows it.
+	expect(flags.style.height).toBe("520px");
+	// \u2026and the CELL's ceiling survives it. That cap is what keeps a projected palette
+	// inside the cell it was projected into; without it the first arrow press after a
+	// shrink re-measures a palette taller than the cell and teleports it.
+	expect(flags.style.maxHeight).toBe(
+		`calc(100% - ${PALETTES.flags.default.y}px)`,
+	);
+
+	// An UNSIZED palette that declares an extent still wears it, and still wears it as a
+	// cap on content rather than as a height \u2014 an entities palette holding two rows is two
+	// rows tall. Reading the ruling's "the cap becomes the default size" literally would
+	// render every fresh palette as a mostly-empty 320 px box.
+	const entities = entitiesPalette();
+	if (!(entities instanceof HTMLElement)) throw new Error("entities missing");
+	expect(entities.style.height).toBe("");
+	expect(entities.style.width).toBe(`${PALETTES.entities.width}px`);
+	expect(entities.style.maxHeight).toBe(
+		`min(${PALETTES.entities.maxHeight}px, calc(100% - ${PALETTES.entities.default.y}px))`,
+	);
+});
+
+test("a sized palette is projected against ITS width, not the declared one", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: FLAGS_SIZED }));
+
+	// The regression this pins is a `cellBounds` that went back to reading
+	// `PALETTES[id].width`: the projection would then let a 460 px palette hang 140 px out
+	// of the cell, with the drag's own bounds (which MEASURE the palette) disagreeing about
+	// where it may be.
+	//
+	// 470 px of cell is chosen to DISCRIMINATE, which a roomier one cannot: the palette
+	// sits at x = 24, so against its real 460 the projection has to pull it back to 10, and
+	// against the declared 320 it would have 150 px of room and leave it exactly where it
+	// is. A cell that bit on both widths would pass either way.
+	withLayerBox(
+		() => {
+			act(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
+		},
+		{ width: 470, height: 300 },
+	);
+	expect(flagsPalette()?.style.left).toBe(`${470 - 460}px`);
+	expect(PALETTES.flags.default.x).toBeLessThan(470 - PALETTES.flags.width);
+});
+
+/** The palette's resize handle: the one control that sets its size. Named for the VERB
+ *  like the grip beside it — a corner that reads as texture to the eye has to say what it
+ *  DOES to a reader who cannot see where it sits. */
+const flagsHandle = () =>
+	screen.getByRole("button", { name: "resize Flags palette" });
+
+test("dragging the handle sizes the palette, and persists it once, debounced", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	const store = fakeUiStore();
+	await renderShell(stub, store);
+	const handle = flagsHandle();
+	// It is the palette's own control, not the layer's — a handle that escaped its box
+	// would size whichever palette happened to be under the pointer.
+	expect(handle.closest("section")).toBe(flagsPalette());
+
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(handle, {
+				button: 0,
+				pointerId: 1,
+				clientX: 344,
+				clientY: 500,
+			});
+			fireEvent.pointerMove(handle, {
+				pointerId: 1,
+				buttons: 1,
+				clientX: 484,
+				clientY: 600,
+			});
+			fireEvent.pointerUp(handle, { pointerId: 1, clientX: 484, clientY: 600 });
+		});
+	});
+	// The width starts from the declared 320 and takes the pointer's delta; the height has
+	// no declared figure to start from, so it starts from what the palette MEASURES (zero
+	// in a DOM that runs no layout) and takes the delta from there.
+	expect(flagsPalette()?.style.width).toBe("460px");
+	expect(flagsPalette()?.style.height).toBe("100px");
+
+	// The size is the USER's, so it joins the D-3 blob beside the position — once, when the
+	// gesture settles, on the same debounce a drag uses.
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 250));
+	});
+	expect(store.get("workspace")?.palettes["flags"]?.width).toBe(460);
+	expect(store.get("workspace")?.palettes["flags"]?.height).toBe(100);
+});
+
+test("sizing a palette drops the extent it shipped with", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const entities = entitiesPalette();
+	if (!(entities instanceof HTMLElement)) throw new Error("entities missing");
+	// THE RULING, through the door a user actually uses. Before: 320 px is a ceiling on a
+	// content-sized box, and it is what pays gate rider R21 at the shipped arrangement.
+	expect(entities.style.maxHeight).toBe(
+		`min(${PALETTES.entities.maxHeight}px, calc(100% - 24px))`,
+	);
+
+	const handle = screen.getByRole("button", {
+		name: "resize Entities palette",
+	});
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(handle, {
+				button: 0,
+				pointerId: 3,
+				clientX: 384,
+				clientY: 344,
+			});
+			fireEvent.pointerMove(handle, {
+				pointerId: 3,
+				buttons: 1,
+				clientX: 384,
+				clientY: 844,
+			});
+			fireEvent.pointerUp(handle, { pointerId: 3, clientX: 384, clientY: 844 });
+		});
+	});
+	// After: the extent is gone and only the CELL's ceiling is left. 320 was the default
+	// size, not a ceiling, and a user who has said otherwise is not capped by it.
+	expect(entitiesPalette()?.style.maxHeight).toBe("calc(100% - 24px)");
+	expect(entitiesPalette()?.style.height).toBe("500px");
+});
+
+/** The same palette, DOCKED RIGHT — placed from that edge rather than from its x. */
+const FLAGS_DOCKED = {
+	palettes: {
+		flags: { ...PALETTES.flags.default, x: 900, edge: "right" as const },
+	},
+	hidden: false,
+};
+
+test("the handle rides the corner the palette GROWS from, and pulls the right way there", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: FLAGS_DOCKED }));
+	expect(flagsPalette()?.style.right).toBe("0px");
+	const handle = flagsHandle();
+
+	// A right-docked palette is placed FROM the right edge, so its box grows LEFTWARD. Put
+	// the handle on the right and it is welded to the cell edge while the palette changes
+	// width somewhere else — a handle that does not track the pointer holding it.
+	expect(handle.classList.contains("left-0")).toBe(true);
+	expect(handle.classList.contains("right-0")).toBe(false);
+
+	// …and the pull follows the corner. Dragging LEFT from a bottom-left handle has to make
+	// the palette BIGGER; a delta that ignored the dock would shrink it to the floor here,
+	// which is the whole of what this case discriminates.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(handle, {
+				button: 0,
+				pointerId: 7,
+				clientX: 500,
+				clientY: 500,
+			});
+			fireEvent.pointerMove(handle, {
+				pointerId: 7,
+				buttons: 1,
+				clientX: 400,
+				clientY: 500,
+			});
+			fireEvent.pointerUp(handle, { pointerId: 7, clientX: 400, clientY: 500 });
+		});
+	});
+	expect(flagsPalette()?.style.width).toBe(`${PALETTES.flags.width + 100}px`);
+
+	// The FREE palette beside it is the control: same handle, opposite corner, and the sign
+	// that goes with it — so "the corner moved" and "the sign flipped" cannot pass one at a
+	// time.
+	const entitiesHandle = screen.getByRole("button", {
+		name: "resize Entities palette",
+	});
+	expect(entitiesHandle.classList.contains("right-0")).toBe(true);
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.pointerDown(entitiesHandle, {
+				button: 0,
+				pointerId: 8,
+				clientX: 500,
+				clientY: 500,
+			});
+			fireEvent.pointerMove(entitiesHandle, {
+				pointerId: 8,
+				buttons: 1,
+				clientX: 400,
+				clientY: 500,
+			});
+		});
+	});
+	expect(entitiesPalette()?.style.width).toBe(
+		`${PALETTES.entities.width - 100}px`,
+	);
+});
+
+test("the handle is a KEYBOARD control too: arrows size it, ⇧ sizes it further", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	const handle = flagsHandle();
+	// The same tab stop discipline as the grip: a real button, so it is reachable, and it
+	// says what it does rather than what it looks like.
+	expect(handle.tagName).toBe("BUTTON");
+
+	// One arrow, one step of the chrome's own 8 px rhythm, measured off the shipped width.
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.keyDown(handle, { key: "ArrowRight" });
+		});
+	});
+	expect(flagsPalette()?.style.width).toBe(
+		`${PALETTES.flags.width + NUDGE_PX}px`,
+	);
+
+	// ⇧ is four of them, and on the other axis — so a handler that ignored `shiftKey`, or
+	// one that wired the height to the width, reddens here rather than passing on symmetry.
+	//
+	// It steps from the FLOOR rather than from zero, and that is the resize verb taking both
+	// axes on every call: the press above already pinned a height, and it pinned it to the
+	// floor because this DOM runs no layout and the palette measured zero. On a real screen
+	// the same press pins the height the content had. Either way the rule is the one a user
+	// who grabs a corner expects — the first drag on either axis fixes both.
+	expect(flagsPalette()?.style.height).toBe(`${MIN_PALETTE_SIZE.height}px`);
+	withLayerBox(() => {
+		act(() => {
+			fireEvent.keyDown(handle, { key: "ArrowDown", shiftKey: true });
+		});
+	});
+	expect(flagsPalette()?.style.height).toBe(
+		`${MIN_PALETTE_SIZE.height + NUDGE_FAR_PX}px`,
+	);
+
+	// SMALLER is the other direction, and it stops at the floor rather than at zero: below
+	// its own header a palette clips away the grip that moves it and the collapse button
+	// that rails it, and the box is `overflow-hidden` — so what is left is unreachable.
+	withLayerBox(() => {
+		act(() => {
+			for (let i = 0; i < 8; i++)
+				fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
+		});
+	});
+	expect(flagsPalette()?.style.width).toBe(`${MIN_PALETTE_SIZE.width}px`);
+});
+
+test("a palette resize cannot reflow the canvas cell", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub, fakeUiStore({ workspace: FLAGS_SIZED }));
+	const canvas = screen.getByLabelText("field viewport");
+	const cell = canvas.parentElement;
+	const flags = flagsPalette();
+	if (!(cell instanceof HTMLElement) || !(flags instanceof HTMLElement))
+		throw new Error("cell or flags palette missing");
+	const layer = flags.parentElement;
+	if (!(layer instanceof HTMLElement)) throw new Error("palette layer missing");
+
+	// THREE BARRIERS, and a resize must not weaken any of them. happy-dom runs no layout,
+	// so this is an authoring assertion in `frontend-focus-vocabulary.test.ts`'s sense \u2014
+	// what a scan CAN hold is the structure, and every way the canvas could start reflowing
+	// is one of these three going away.
+	//
+	// (1) The layer takes its box FROM the cell and intercepts nothing, so it can neither
+	//     grow the cell nor be grown by a palette.
+	for (const cls of ["pointer-events-none", "absolute", "inset-0"])
+		expect([cls, layer.classList.contains(cls)]).toEqual([cls, true]);
+	// (2) Every palette is ABSOLUTE, so it is out of flow: no width or height on it can
+	//     participate in the layer's (or the cell's) sizing at all.
+	expect(flags.classList.contains("absolute")).toBe(true);
+	// (3) \u2026and clips its own content, so a body wider than the box cannot push it open.
+	expect(flags.classList.contains("overflow-hidden")).toBe(true);
+	// The cell itself is sized by the flex row above it and carries no inline geometry \u2014
+	// a resize that wrote to the cell instead of the palette would show up right here.
+	expect(cell.getAttribute("style")).toBeNull();
+	expect(layer.getAttribute("style")).toBeNull();
+	// \u2026and the sized palette really is 460 wide while all of that holds, so this case
+	// cannot pass by the palette simply having no size to reflow with.
+	expect(flags.style.width).toBe("460px");
 });
 
 test("the \u2318\\ latch cannot leave the cell measurement stale", async () => {

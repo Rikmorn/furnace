@@ -28,10 +28,14 @@ import {
 import {
 	defaultWorkspace,
 	deserializeWorkspace,
+	growPalette,
 	movePalette,
 	nudgePalette,
 	type OriginBounds,
 	type PaletteId,
+	type PaletteSize,
+	resizePalette,
+	type SizeBounds,
 	serializeWorkspace,
 	setPaletteCollapsed,
 	setPaletteOpen,
@@ -63,6 +67,19 @@ export type WorkspaceActions = {
 		id: PaletteId,
 		delta: { dx: number; dy: number },
 		bounds: OriginBounds,
+	) => void;
+	/** Set a palette's own size, clamped against bounds the CALLER measured — `move`'s
+	 *  twin, and the same division of labour: this module owns no DOM, so how big the cell
+	 *  is arrives as an argument. */
+	resize: (id: PaletteId, size: PaletteSize, bounds: SizeBounds) => void;
+	/** Step a palette's size by a keyboard delta (D-26). A SEPARATE verb for `nudge`'s
+	 *  reason, sharpened: the size a step starts from is not on the record at all when the
+	 *  user has never set a height, and a caller that worked the target out from its own
+	 *  props would read the same stale size for every press React batched together. */
+	grow: (
+		id: PaletteId,
+		delta: { dw: number; dh: number },
+		measured: { height: number; bounds: SizeBounds },
 	) => void;
 	/** Roll a palette up or down, ABSOLUTELY. Same caller and same reason as
 	 *  `setHidden`: summoning a palette has to put it in a state the user can READ, and
@@ -207,6 +224,10 @@ export function WorkspaceProvider({
 			move: (id, pos, bounds) => edit((s) => movePalette(s, id, pos, bounds)),
 			nudge: (id, delta, bounds) =>
 				edit((s) => nudgePalette(s, id, delta, bounds)),
+			resize: (id, size, bounds) =>
+				edit((s) => resizePalette(s, id, size, bounds)),
+			grow: (id, delta, measured) =>
+				edit((s) => growPalette(s, id, delta, measured)),
 			setCollapsed: (id, collapsed) =>
 				edit((s) => setPaletteCollapsed(s, id, collapsed)),
 			setOpen: (id, open) => edit((s) => setPaletteOpen(s, id, open)),

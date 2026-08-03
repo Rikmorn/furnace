@@ -27,8 +27,12 @@ import {
 	PALETTE_IDS,
 	PALETTES,
 	type PaletteId,
+	type PaletteSize,
+	paletteBox,
+	type SizeBounds,
+	sizeBounds,
 } from "../../lib/palette-store.ts";
-import { Palette, type PaletteSize } from "./Palette.tsx";
+import { Palette } from "./Palette.tsx";
 
 /** Per-palette presentation: the rail glyph, and nothing else. How WIDE a palette is used
  *  to live beside it as a Tailwind class; it moved into the store at F4.5c Task 11, because
@@ -186,7 +190,23 @@ export function PaletteLayer({
 	const shownGeom = (id: PaletteId) =>
 		cell === null
 			? palettes[id]
-			: clampToCell(palettes[id], cellBounds(cell, id));
+			: clampToCell(palettes[id], cellBounds(cell, id, palettes[id]));
+
+	/** How big THIS palette may be dragged, from the cell as it is right now —
+	 *  `measureBounds`' twin for the resize handle, and measured off the same rect for the
+	 *  same reason (the `cell` state settles a render later than a gesture can start).
+	 *
+	 *  It takes the SHOWN geometry rather than the stored record, because how far a palette
+	 *  may grow is a question about where it actually is: a docked one is placed from its
+	 *  edge and its stored x says nothing about that. `sizeBounds` states the rest. */
+	const measureSizeBounds = (id: PaletteId): SizeBounds | null => {
+		const rect = layerRef.current?.getBoundingClientRect();
+		if (!rect) return null;
+		return sizeBounds(
+			{ width: rect.width, height: rect.height },
+			shownGeom(id),
+		);
+	};
 
 	const collapse = (id: PaletteId): void => {
 		focusAfter.current = { id, to: "chip" };
@@ -223,14 +243,17 @@ export function PaletteLayer({
 						key={id}
 						title={PALETTES[id].title}
 						geom={shownGeom(id)}
-						box={{
-							width: PALETTES[id].width,
-							maxHeight: PALETTES[id].maxHeight,
-						}}
+						// The store reconciles the declared default with the user's own size —
+						// ONE function, so the width rendered here is exactly the width
+						// `cellBounds` subtracted for the projection a few lines up.
+						box={paletteBox(id, palettes[id])}
 						zIndex={order.indexOf(id) + 1}
 						measureBounds={measureBounds}
 						onMove={(pos, bounds) => actions.move(id, pos, bounds)}
 						onNudge={(delta, bounds) => actions.nudge(id, delta, bounds)}
+						measureSizeBounds={() => measureSizeBounds(id)}
+						onResize={(size, bounds) => actions.resize(id, size, bounds)}
+						onGrow={(delta, measured) => actions.grow(id, delta, measured)}
 						onRaise={() => raise(id)}
 						onCollapse={() => collapse(id)}
 						onClose={() => actions.setOpen(id, false)}
