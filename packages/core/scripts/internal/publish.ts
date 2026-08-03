@@ -96,6 +96,10 @@ export async function emitDeclarations(
           rootDir: srcDir,
         },
         include: [join(srcDir, "**/*.ts")],
+        // Co-located tests live in src/ but never ship — `stageTypeScript` already
+        // skips them when copying sources, and emitting .d.ts for them would put
+        // test types in the published surface.
+        exclude: [join(srcDir, "**/*.test.ts")],
         files: opts.extraDeclarationFiles ?? [],
       }),
     );

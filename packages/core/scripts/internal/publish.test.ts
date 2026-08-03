@@ -83,6 +83,45 @@ test("emitDeclarations: emits .d.ts files for a small TS project", async () => {
   }
 });
 
+test("emitDeclarations: does not emit .d.ts for co-located .test.ts files", async () => {
+  const tmp = await mkdtemp(join(tmpdir(), "furnace-emit-dts-notest-"));
+  try {
+    const srcDir = join(tmp, "src");
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(srcDir, "thing.ts"), "export const thing = 1;\n");
+    await writeFile(
+      join(srcDir, "thing.test.ts"),
+      "export const thingTest = 2;\n",
+    );
+
+    const baseConfig = join(tmp, "base-tsconfig.json");
+    await writeFile(
+      baseConfig,
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          target: "ESNext",
+          module: "Preserve",
+          moduleResolution: "bundler",
+          allowImportingTsExtensions: true,
+          verbatimModuleSyntax: true,
+          skipLibCheck: true,
+        },
+      }),
+    );
+
+    const outDir = join(tmp, "types");
+    await emitDeclarations({ srcDir, outDir, baseConfig });
+
+    expect(await Bun.file(join(outDir, "thing.d.ts")).exists()).toBe(true);
+    expect(await Bun.file(join(outDir, "thing.test.d.ts")).exists()).toBe(
+      false,
+    );
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test("emitDeclarations: extraDeclarationFiles makes ambient types from outside src visible", async () => {
   const tmp = await mkdtemp(join(tmpdir(), "furnace-emit-ambient-"));
   try {
