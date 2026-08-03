@@ -125,6 +125,50 @@ function showEntities(
 const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
 	screen.getByLabelText(`${verb} entity ${entityId}`) as HTMLButtonElement;
 
+/** The same button when the verb is REFUSED. A blocked verb's label carries its reason
+ *  after the id, so the available spelling above misses it entirely — which is how the
+ *  completeness guard below came to be vacuous on a fixture where nothing is refused.
+ *
+ *  Anchored on `(` and NOT on the reason's first word: the three refusal sentences are
+ *  prose owned by `lib/field-entity.ts`, and a test that quotes their opening breaks when
+ *  someone rewords one. */
+const blockedRowButton = (verb: string, entityId: number): HTMLButtonElement =>
+	screen.getByLabelText(
+		new RegExp(`^${verb} entity ${entityId} \\(`),
+	) as HTMLButtonElement;
+
+/** THE ROW VERB SET — one table, and the only spelling of it in this file. Every
+ *  quantified assertion below derives from it (the reason convention, the D-23 tones, the
+ *  refused-state dim, the glyph map), so a fifth verb cannot be added to the row and
+ *  answer only some of them.
+ *
+ *  `destructive: true` means the D-23 destructive TEXT/ICON token (`--destructive-text`,
+ *  spelled `text-destructive-text`) — never the bare `text-destructive` fill colour, which
+ *  `tests/design-tokens.test.ts` bans outright.
+ *
+ *  `visible: ""` is the assertion that the glyph is an SVG and NOT a character: a lucide
+ *  icon contributes no text, so any surviving pictograph shows up here as a non-empty
+ *  string.
+ *
+ *  `icon` is the lucide class the rendered `<svg>` must carry — `lucide-react` stamps
+ *  `lucide-<kebab-name>` on every icon it builds, so the glyph's IDENTITY is assertable in
+ *  happy-dom even though nothing here lays out or paints. That is the column D-14 needs:
+ *  the verb routing is pinned elsewhere, but nothing held WHICH GLYPH sat on it, and a
+ *  swap to `Copy` — the exact misreading `EntitiesList`'s comment warns about at length —
+ *  left all 1310 tests green while shipping a duplicate-looking button that severs a
+ *  recipe on click. `null` is the one verb that shows a WORD instead. */
+const ROW_VERBS = [
+	{ verb: "open", destructive: false, visible: "Open", icon: null },
+	{ verb: "freeze", destructive: false, visible: "", icon: "lucide-snowflake" },
+	{
+		verb: "sever",
+		destructive: true,
+		visible: "",
+		icon: "lucide-arrow-down-to-line",
+	},
+	{ verb: "delete", destructive: true, visible: "", icon: "lucide-trash-2" },
+] as const;
+
 // --- the seam itself: one subscription, guarded ------------------------------
 
 test("the palette subscribes to nothing — the provider owns all three entity seams", () => {
@@ -285,8 +329,18 @@ test("Open on a plain row starts a reconfigure session through the host", () => 
 test("a frozen row badges its state and refuses Open; a baked row does both too", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [FROZEN, BAKED]);
-	expect(screen.getByText("frozen")).toBeTruthy();
+	const frozenChip = screen.getByText("frozen").parentElement;
+	expect(frozenChip).not.toBeNull();
 	expect(screen.getByText("baked")).toBeTruthy();
+	// THE CHIP'S GLYPH, by identity — the row verbs' assertion applied to the one icon
+	// that is not a verb and that `ROW_VERBS` therefore does not reach. `Lock` is a
+	// PADLOCK because the chip states a STATE ("this is protected"), while the freeze
+	// verb beside it shows the ACTION; putting a trash can here would read as "this
+	// deletes" and used to leave the whole suite green. `baked` carries no glyph at all
+	// by design (no second pictograph for a state the word already names), which is why
+	// `StateBadge`'s `Icon` is optional and this asserts only the frozen one.
+	expect(frozenChip?.querySelector(".lucide-lock")).toBeTruthy();
+	expect(frozenChip?.querySelector(".lucide-trash-2")).toBeNull();
 	// A blocked Open's accessible name carries the reason too (see its own
 	// test), so these match by prefix.
 	const frozenOpen = screen.getByLabelText(
@@ -324,15 +378,13 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 // Every row verb states its reason the same way, which is a convention that had to
 // be EXTENDED rather than invented: Open and delete shipped with reasons in the
 // accessible name while freeze and bake were bare `disabled` with a tooltip that still
-// promised to sever a recipe already severed. Quantified over the set so a fifth
+// promised to sever a recipe already severed. Quantified over `ROW_VERBS` so a fifth
 // verb cannot quietly ship bare.
 test("a baked row disables every verb it cannot run, each naming its reason", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [BAKED]);
-	for (const verb of ["open", "freeze", "sever", "delete"]) {
-		const button = screen.getByLabelText(
-			new RegExp(`^${verb} entity 3 \\(baked`),
-		) as HTMLButtonElement;
+	for (const { verb } of ROW_VERBS) {
+		const button = blockedRowButton(verb, 3);
 		expect([verb, button.disabled]).toEqual([verb, true]);
 	}
 });
@@ -626,14 +678,19 @@ test("the entity-selection seam styles the row — the read half, from the viewp
 	expect(currentFlags()).toEqual([null, null]);
 });
 
-// D-14's glyph map: the DOWN ARROW is BAKE, and duplicate is a burger item rather than
-// a row verb (Task 7 binds it to ⌘J). Pinned from the side that would break it — a
-// downward arrow reads so naturally as "duplicate" that wiring it there is the obvious
-// mistake, and it would be a SILENT one: the row would look right and sever a
-// recipe on click. (The glyph is lucide's `ArrowDownToLine` since the F4.5 gate; the
-// assertion is on the VERB and its confirmation, so it survived the swap untouched,
-// which is the point of never asserting a pictograph.)
-test("the row's down-arrow verb is BAKE, and duplicate has no row affordance at all", () => {
+// D-14's glyph map, pinned from BOTH sides. The mock puts the down arrow on BAKE and
+// duplicate in the burger (Task 7 binds it to ⌘J), and a downward arrow reads so naturally
+// as "duplicate" that wiring it there is the obvious mistake — a SILENT one, because the
+// row would look right and sever a recipe on click.
+//
+// So the routing is asserted (this verb opens the BAKE confirmation and never reaches
+// `duplicateEntity`) AND the glyph is: `ROW_VERBS` carries the lucide class each icon must
+// stamp. The second half is not a stylistic pin — swapping `ArrowDownToLine` for `Copy`
+// used to leave the whole suite green, which is a duplicate-LOOKING button wired to the
+// irreversible verb. Asserting the glyph's identity is different from asserting a
+// pictograph as a NAME: the accessible name is still the verb, and none of the lookups in
+// this file moved when these four stopped being emoji.
+test("the sever verb carries D-14's BAKE glyph, and duplicate has no row affordance at all", () => {
 	const stub = makeStubHost();
 	let request: ConfirmRequest | null = null;
 	renderPalette(stub, {
@@ -644,6 +701,26 @@ test("the row's down-arrow verb is BAKE, and duplicate has no row affordance at 
 	pushEntities(stub, [ENTITY]);
 	fireEvent.click(screen.getByText("Entities (1)"));
 	expect(screen.queryByLabelText(/^duplicate entity/)).toBeNull();
+
+	// Every verb's glyph, by identity. happy-dom lays nothing out and resolves no styles,
+	// but it DOES render lucide's real `<svg>` and the class it stamps on it.
+	expect(
+		ROW_VERBS.map(({ verb }) => [
+			verb,
+			rowButton(verb, 1).querySelector("svg")?.getAttribute("class") ?? null,
+		]),
+	).toEqual(
+		ROW_VERBS.map(({ verb, icon }) => [
+			verb,
+			icon === null ? null : expect.stringContaining(icon),
+		]),
+	);
+	// …and the ONE glyph that must not exist anywhere on this row, named rather than
+	// implied. `Copy` is two offset rectangles — what duplicate would take if it were ever
+	// a row verb — and it is the swap the source comment spends fifteen lines warning
+	// about. Scoped to the document because the claim is about the whole rendered chrome,
+	// not one button.
+	expect(document.querySelectorAll(".lucide-copy").length).toBe(0);
 
 	fireEvent.click(rowButton("sever", 1));
 	expect(stub.calls.duplicateEntity).not.toHaveBeenCalled();
@@ -708,46 +785,42 @@ test("delete is disabled with its reason on a frozen or baked row", () => {
 const classTokens = (el: Element): Set<string> =>
 	new Set(el.className.split(/\s+/).filter((c) => c.length > 0));
 
-/** Every row verb, with the tone it must carry and how it names itself visibly.
- *
- *  `destructive: true` means the D-23 destructive TEXT/ICON token (`--destructive-text`,
- *  spelled `text-destructive-text`) — never the bare `text-destructive` fill colour, which
- *  `tests/design-tokens.test.ts` bans outright.
- *
- *  `visible: ""` is the assertion that the glyph is an SVG and NOT a character: a lucide
- *  icon contributes no text, so any surviving pictograph shows up here as a non-empty
- *  string. That is the half the emoji could never do — a colour-emoji glyph ignores
- *  `color`, so a tone class on it was styling that did nothing. */
-const ROW_VERB_TONES = [
-	{ verb: "open", destructive: false, visible: "Open" },
-	{ verb: "freeze", destructive: false, visible: "" },
-	{ verb: "sever", destructive: true, visible: "" },
-	{ verb: "delete", destructive: true, visible: "" },
-] as const;
-
 test("the destructive row verbs wear D-23's destructive TONE and the neutral ones do not", () => {
 	const stub = makeStubHost();
 	showEntities(stub, [ENTITY]);
 
-	// COMPLETENESS, first: the table above has to describe every verb on the row, or a
-	// fifth one added later ships untoned and every assertion below still passes. Every
-	// available verb's label ENDS in the entity id (a blocked one carries its reason
-	// after it, and the row here has none); the Δ badge is absent on an undrifted row
-	// and the expand button carries no label at all.
-	expect(screen.getAllByLabelText(/ entity 1$/).length).toBe(
-		ROW_VERB_TONES.length,
+	// COMPLETENESS, first: `ROW_VERBS` has to describe every verb on the row, or a fifth
+	// one added later ships untoned and every assertion below still passes.
+	//
+	// COUNTED IN BOTH SPELLINGS, which is the whole point of the pattern. This guard used
+	// to match `/ entity 1$/` — the AVAILABLE form only — and was therefore vacuous for a
+	// verb REFUSED on this fixture, whose label carries its reason after the id. Proven:
+	// a fifth `RowVerb` with `blocked` set left it passing at 4 === 4, because `4` was a
+	// coincidence of a row where every verb happens to be live. The old comment even named
+	// the dependency ("a blocked one carries its reason after it, and the row here has
+	// none") and then rested on it.
+	//   What DID catch that fifth verb was `expect(…querySelectorAll("button").length)
+	// .toBe(15)` in the D-26 section far below — a hard-coded count in a test about tab
+	// stops. So the ceiling on this defect was never zero; it was "someone reads a
+	// button-count failure 140 lines from the cause and works out what it means".
+	//
+	// The Δ badge is `show drift near entity 1`, which this pattern does not match (one
+	// word before ` entity`), and is absent on an undrifted row anyway; the expand button
+	// carries no label at all.
+	expect(screen.getAllByLabelText(/^\w+ entity 1( \(|$)/).length).toBe(
+		ROW_VERBS.length,
 	);
 
-	for (const { verb, destructive, visible } of ROW_VERB_TONES) {
+	for (const { verb, destructive, visible } of ROW_VERBS) {
 		const button = rowButton(verb, 1);
 		const cls = classTokens(button);
 		expect({
 			verb,
 			rest: cls.has("text-destructive-text"),
-			// The destructive lane must OVERRIDE `ghost`'s neutral hover rather than sit
-			// beside it: both are `hover:` text colours, so whichever twMerge keeps is the
-			// one on screen, and a destructive icon that turns grey under the cursor loses
-			// the tone exactly as the click is about to land.
+			// BOTH halves, and the argument for the pair is at `DESTRUCTIVE_VERB_CLASS`
+			// rather than repeated here — the short version is that `ghost`'s own
+			// `hover:text-accent-foreground` is in the same twMerge group, so exactly one of
+			// the two survives into the rendered list and this asserts which.
 			hover: cls.has("hover:text-destructive-text"),
 			neutralHover: cls.has("hover:text-accent-foreground"),
 			svg: button.querySelector("svg") !== null,
@@ -769,12 +842,24 @@ test("a BLOCKED destructive verb dims to D-23's 50% and keeps its hue", () => {
 	// (ui/button.tsx). So a refused sever/delete stays red and goes to 50% — which keeps
 	// a dead delete distinguishable from a dead freeze, information the fill swap would
 	// have thrown away for a control WCAG asks nothing of.
+	//
+	// TWO OF THESE FOUR ARE FACTS ABOUT A FOREIGN FILE, and the coupling is deliberate
+	// rather than overlooked: `dim` and `fillSwap` are `ghost`'s own strings from
+	// `ui/button.tsx`, true of every ghost button in the app, and this is currently the
+	// only place in the suite asserting them — so editing that variant reds a test in the
+	// entities palette. They stay because what D-23's third rule is ABOUT is observable
+	// here and nowhere else (a refused destructive verb), and because the alternative is a
+	// new D-23 disabled-vocabulary pin with its own scoping questions — the shape
+	// `frontend-focus-vocabulary.test.ts` gives the ring strings. That is a build, not a
+	// fix, and it is the right home for these two the day it exists.
+	//
+	// `hue` is NOT the tone test's `rest` again: the class list is computed from `tone`
+	// alone, so this is the assertion that a refusal does not gate it off — the one thing
+	// about the tone that only a blocked row can show.
 	const stub = makeStubHost();
 	showEntities(stub, [BAKED]);
-	for (const verb of ["sever", "delete"]) {
-		const blocked = screen.getByLabelText(
-			new RegExp(`^${verb} entity 3 \\(baked`),
-		) as HTMLButtonElement;
+	for (const { verb } of ROW_VERBS.filter((v) => v.destructive)) {
+		const blocked = blockedRowButton(verb, 3);
 		const cls = classTokens(blocked);
 		expect({
 			verb,

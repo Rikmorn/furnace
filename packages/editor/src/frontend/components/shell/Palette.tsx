@@ -309,7 +309,7 @@ export function Palette({
 					className="h-5 w-5 p-0"
 					onClick={onCollapse}
 				>
-					<ChevronUp className="h-3.5 w-3.5" />
+					<ChevronUp />
 				</Button>
 				<Button
 					type="button"
@@ -319,7 +319,7 @@ export function Palette({
 					className="h-5 w-5 p-0"
 					onClick={onClose}
 				>
-					<X className="h-3.5 w-3.5" />
+					<X />
 				</Button>
 			</header>
 			<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>

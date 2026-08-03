@@ -1874,15 +1874,18 @@ brings a viewport-made selection to a row that may be scrolled out of view.
 `field/EntitiesList.tsx` carries the row verb set — Open, freeze / unfreeze, bake ("sever"),
 delete, each through one `RowVerb` component that owns the wrapper a disabled button needs
 (a disabled button swallows the pointer events a `title` wants, so the reason rides the
-`aria-label` too). The three pictographs are **lucide SVG** since the F4.5 holistic gate
-(`Snowflake` / `LockOpen`, `ArrowDownToLine`, `Trash2`, with `Lock` on the frozen badge):
-they shipped as bare emoji, which render from the colour-emoji face and ignore `color`, so
-the two destructive verbs could carry no tone at all. As `currentColor` SVG they take D-23's
-destructive lane — `text-destructive-text` at rest AND on hover (a `ghost` button's own
-`hover:text-accent-foreground` would otherwise turn them grey under the cursor), 50 % dim
+`aria-label` too). The pictographs are **lucide SVG** since the F4.5 holistic gate
+(`Snowflake` / `LockOpen`, `ArrowDownToLine`, `Trash2`, with `Lock` on the frozen badge);
+they replaced bare emoji, which could carry no tone — the measured mechanism is argued once,
+at `DESTRUCTIVE_VERB_CLASS` in that file, and is not repeated here. Being `currentColor`
+SVG they take D-23's destructive lane: `text-destructive-text` at rest AND on hover (a
+`ghost` button's own `hover:text-accent-foreground` is in the same twMerge group), 50 % dim
 when refused. `--destructive-text` is pinned on `--accent`, the hover surface, in
-`tests/design-tokens.test.ts`; the tone rule itself is pinned from both sides in
-`tests/chrome/entities-palette.test.tsx`. **Duplicate is deliberately NOT a row verb** —
+`tests/design-tokens.test.ts` (4.86:1, the tightest of its three ledger pairs); the tone
+rule is pinned from both sides and **each verb's glyph is pinned by identity** — the
+`lucide-*` class on the rendered svg — in `tests/chrome/entities-palette.test.tsx`.
+`RowVerb`'s glyph props are an exclusive union (`Icon` xor `label`), so neither "shows
+nothing" nor "shows both and discards one" typechecks. **Duplicate is deliberately NOT a row verb** —
 D-14's glyph map puts the down arrow on bake and the mock puts duplicate in the burger, and
 `ArrowDownToLine` (an arrow landing on a baseline) was chosen over anything resembling
 lucide's `Copy` to keep that reading intact. The `Δ` drift badge appears on any row the

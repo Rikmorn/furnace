@@ -27,30 +27,25 @@
 //     POINTER to the report rather than a copy of it — the DriftReport section
 //     stays where it is, and the badge scrolls it into view.
 //
-// THE ROW VERBS ARE SVG GLYPHS, and the F4.5 holistic gate is what settled that. The
-// four pictographs above shipped as bare EMOJI, and the two destructive ones therefore
-// carried no tone at all: not one of ⬇ / 🗑 / ❄ / 🔒 exists in this chrome's font stack
-// (Inter Variable → system sans), so each fell back to the colour-emoji face, which
-// paints its own colour and IGNORES `color`. A destructive class on one of them was
-// styling that did nothing while reading as though it did — which is why the class was
-// deleted rather than moved when the worded verbs became pictographs, and why the
-// comment that stood here deferred the real answer to a design decision instead of
-// guessing. That decision is taken: lucide icons, which are `currentColor` SVG and can
-// therefore take the tones the words used to.
+// THE ROW VERBS ARE SVG GLYPHS (lucide), and the F4.5 holistic gate is what settled it.
+// FIVE bare emoji shipped here — ⬇ sever, 🗑 delete, ❄ freeze, 🔓 unfreeze and 🔒 on the
+// badge — and the two destructive ones carried no tone: the class was deleted rather than
+// moved when the worded verbs became pictographs, and the comment that stood here deferred
+// the real answer to a design decision instead of guessing. That decision is taken. A
+// lucide icon is `currentColor` SVG, so the destructive pair takes `--destructive-text`
+// exactly as the WORDED verbs used to — see `DESTRUCTIVE_VERB_CLASS` below for the class
+// string, why it is a pair, and what the emoji actually did (spelled ONCE, there).
 //
-// The two DESTRUCTIVE verbs (sever, delete) wear `--destructive-text`, the text/icon
-// sibling of the fill — `text-destructive` itself is banned outright, and measured, by
-// tests/design-tokens.test.ts. All three of D-23's state rules come from ui/button.tsx
-// rather than being re-decided here: hover KEEPS the tone and lets `bg-accent` do the
-// lightening, and disabled dims to 50% and keeps the hue, because a `ghost` verb has no
-// coloured fill to swap for `--muted`. Pinned from BOTH sides in
-// tests/chrome/entities-palette.test.tsx — the destructive pair carries the tone, the
-// neutral pair must not.
+// D-23's three state rules are ui/button.tsx's and are not re-decided here. Pinned from
+// BOTH sides in tests/chrome/entities-palette.test.tsx: the destructive pair carries the
+// tone, the neutral pair must not, and each verb's glyph is asserted BY IDENTITY (the
+// `lucide-*` class lucide stamps on the svg) — which is what stops the sever arrow
+// quietly becoming a `Copy`.
 //
-// NOT every pictograph in this file moved, and the line is measured rather than
-// preferred: `▦` (U+25A6) and the view chip's `⬒` (U+2B12) carry no Unicode emoji
-// property at all, so they render from the text face and take `color` correctly as they
-// stand. The four that moved are the four with `Emoji=Yes`.
+// `▦` (U+25A6) and the view chip's `⬒` (U+2B12) STAY, and the line is measured rather
+// than preferred: neither carries a Unicode emoji property, and both were checked on this
+// chrome's own stack to take `color` as they stand. The five that moved are the five that
+// carry one.
 //
 // Verb spelling, from the spec rather than from the shape of the code: D-14 maps the
 // row's glyph trio as freeze ❄ / BAKE ⬇ / delete 🗑, and the mock's own caption says
@@ -96,7 +91,7 @@
 //
 // F4.5c Task 8 closes the other half of that (D-25): while a verb is AVAILABLE its
 // sentence is a real Radix tooltip, which opens on FOCUS as well as hover — so the
-// documentation on this row's three destructive verbs is no longer mouse-only. The
+// documentation on the three verbs that CHANGE the stamp is no longer mouse-only. The
 // keycap on delete is READ off the action registry rather than written here, and
 // only on the selected row, because that is the only row ⌫ would act on.
 //
@@ -177,7 +172,27 @@ const ROW_BUTTON_CLASS = "h-5 px-1.5 text-xs";
  *  same tailwind-merge group, and this one is appended later, so it is the one that
  *  survives; the rendered class list is asserted rather than assumed, in
  *  tests/chrome/entities-palette.test.tsx. D-23's "hover LIGHTENS" is satisfied by
- *  `bg-accent` stepping up underneath, which is the neutral ramp's own hover. */
+ *  `bg-accent` stepping up underneath, which is the neutral ramp's own hover.
+ *
+ *  WHAT THE EMOJI DID — the mechanism, once, here, because this is the class that was
+ *  deleted. Absence from the webfont is NOT the reason on its own, and the paragraph that
+ *  used to say so had its own counterexample twenty lines away: `fontTools` on the shipped
+ *  `fonts/inter-variable-latin.woff2` (230 cmap entries) reports ALL of ⬇ 🗑 ❄ 🔒 🔓 absent
+ *  — and `▦`, `⬒` and `Δ` absent too, and those three render monochrome and take `color`
+ *  fine. Absence only hands the codepoint to the system cascade; which face the cascade
+ *  reaches FIRST is what decides whether `color` survives.
+ *
+ *  Measured, rather than reasoned: rendered at `color: red` on this chrome's stack in
+ *  Chrome, 🗑 / ❄ / 🔒 / 🔓 come back in full colour (Apple Color Emoji is the first face
+ *  covering them) and ignore it, while `▦` / `⬒` / `Δ` come back red. So for DELETE the
+ *  old destructive class was genuinely inert.
+ *
+ *  ⬇ IS THE EXCEPTION, and it is worth stating because it is the sever verb: Apple Symbols
+ *  covers U+2B07, the cascade reaches it before the emoji face, and the arrow renders
+ *  MONOCHROME and red. The sever verb's deleted `text-destructive` was therefore not dead
+ *  code — it worked, and dropping it lost a tone that was really being painted. Which is
+ *  also the argument for the swap over restoring the class: a `currentColor` SVG carries
+ *  the tone on every machine, and the old behaviour was one font cascade's accident. */
 const DESTRUCTIVE_VERB_CLASS =
 	"text-destructive-text hover:text-destructive-text";
 
@@ -199,8 +214,9 @@ const COLUMNS = 6;
  *
  *  AVAILABLE → `ActionTip`, a real tooltip that opens on FOCUS as well as hover (D-25).
  *  That is the half a `title` never had: these are the verbs that open, freeze, sever and
- *  delete a committed stamp, three of them destructive, and until F4.5c Task 8 the sentence
- *  explaining each one was reachable only by hovering a mouse.
+ *  delete a committed stamp — three of them CHANGE it and two are in D-23's destructive
+ *  lane (`tone`; freeze is protective) — and until F4.5c Task 8 the sentence explaining
+ *  each one was reachable only by hovering a mouse.
  *
  *  BLOCKED → `ReasonTip`, because a disabled button takes neither pointer events nor focus
  *  and no tooltip has a channel to it at all; the reason rides a wrapper span for the mouse
@@ -211,37 +227,54 @@ const COLUMNS = 6;
  *  A verb shows EITHER an `Icon` or a `label`, and an `Icon` is `aria-hidden`: the
  *  accessible name is the `aria-label` built below from `verb` + the entity id (+ the
  *  blocked reason), never the pictograph. So the icon set can change without a single
- *  lookup in the tests moving — and none did when these four stopped being emoji. */
-function RowVerb(props: {
-	entityId: number;
-	/** The verb, as it appears in the accessible name: `freeze entity 7`. */
-	verb: string;
-	/** The verb's glyph. Rendered at the size ui/button.tsx's own `[&_svg]:size-4` sets —
-	 *  a per-icon `h-3 w-3` here would be dead code, because that arbitrary variant
-	 *  compiles to a descendant selector (`.…size-4 svg`) which outranks a class on the
-	 *  svg itself. Writing one anyway is the same "styling that does nothing" this whole
-	 *  swap exists to remove. */
-	Icon?: LucideIcon;
-	label?: string;
-	/** Which of D-23's two lanes this verb is in. REQUIRED, and a union rather than an
-	 *  optional flag, so a fifth verb has to answer the question instead of defaulting
-	 *  quietly into neutral — which is exactly how the destructive pair lost its colour
-	 *  the first time. */
-	tone: "neutral" | "destructive";
-	/** Why the verb is unavailable, or null when it is. */
-	blocked: string | null;
-	/** The sentence the verb's own label has no room for, shown while it is available. */
-	hint: string;
-	/** The registry action whose KEY does this same thing to this same row, when one does.
-	 *  Absent on a row the key would not reach — see the delete verb's call below. */
-	actionId?: string;
-	/** Which grid column this verb occupies ({@link COLUMNS}). Passed per verb rather
-	 *  than counted, because the Δ cell is conditional — a counted index would report a
-	 *  different column for `freeze` depending on whether the row happened to drift. */
-	colIndex: number;
-	onClick: () => void;
-}) {
-	const { blocked, Icon } = props;
+ *  lookup in the tests moving — and none did when the row's glyphs stopped being emoji.
+ *  (Which is also why the glyphs need their OWN assertion; the accessible name cannot
+ *  notice a sever arrow turning into a `Copy`.) */
+/** What a verb SHOWS, as an exclusive pair rather than two independent optionals.
+ *
+ *  Exactly one of the two is required, and the type now says so. As two `?:` fields it
+ *  admitted both nonsense shapes: NEITHER (a button with no visible content, caught only
+ *  by the tone test's `visible` column) and BOTH — where the render below silently
+ *  discards the `label`, which is precisely the "styling that reads as though it does
+ *  something" this whole swap exists to remove. Both typechecked clean, and BOTH left the
+ *  full suite green. `never` on the absent side is what makes them exclusive, and it costs
+ *  nothing at runtime.
+ *
+ *  `Icon` is rendered at the size ui/button.tsx's own `[&_svg]:size-4` sets — a per-icon
+ *  `h-3 w-3` here would be DEAD CODE, because that arbitrary variant compiles to a
+ *  descendant selector (`.…size-4 svg`) which outranks a class on the svg itself.
+ *  `tests/design-tokens.test.ts` scans for that mistake across the whole chrome now, since
+ *  this file is where it was noticed and `Palette.tsx` was already shipping two. */
+type RowVerbGlyph =
+	| { Icon: LucideIcon; label?: never }
+	| { Icon?: never; label: string };
+
+function RowVerb(
+	props: {
+		entityId: number;
+		/** The verb, as it appears in the accessible name: `freeze entity 7`. */
+		verb: string;
+		/** Which of D-23's two lanes this verb is in. REQUIRED, and a union rather than an
+		 *  optional flag, so a fifth verb has to answer the question instead of defaulting
+		 *  quietly into neutral — which is exactly how the destructive pair lost its colour
+		 *  the first time. */
+		tone: "neutral" | "destructive";
+		/** Why the verb is unavailable, or null when it is. */
+		blocked: string | null;
+		/** The sentence the verb's own label has no room for, shown while it is available. */
+		hint: string;
+		/** The registry action whose KEY does this same thing to this same row, when one
+		 *  does. Absent on a row the key would not reach — see the delete verb's call
+		 *  below. */
+		actionId?: string;
+		/** Which grid column this verb occupies ({@link COLUMNS}). Passed per verb rather
+		 *  than counted, because the Δ cell is conditional — a counted index would report a
+		 *  different column for `freeze` depending on whether the row happened to drift. */
+		colIndex: number;
+		onClick: () => void;
+	} & RowVerbGlyph,
+) {
+	const { blocked } = props;
 	const control = (
 		<Button
 			type="button"
@@ -264,7 +297,14 @@ function RowVerb(props: {
 			}
 			onClick={props.onClick}
 		>
-			{Icon === undefined ? props.label : <Icon aria-hidden="true" />}
+			{/* Read off `props` rather than a destructured local ON PURPOSE: the check is
+			    what NARROWS `RowVerbGlyph`, and pulling `Icon` out first makes the two
+			    fields independent again and `props.label` `string | undefined`. */}
+			{props.Icon === undefined ? (
+				props.label
+			) : (
+				<props.Icon aria-hidden="true" />
+			)}
 		</Button>
 	);
 	return (
@@ -285,14 +325,21 @@ function RowVerb(props: {
  *  glyph is decorative and the WORD is the accessible text, so a lookup by
  *  visible text still finds "frozen" / "baked".
  *
- *  "Muted" was a HALF-TRUTH while the glyph was a 🔒, for the row verbs' reason: the
- *  padlock came from the colour-emoji face and ignored `text-muted-foreground`, so the
- *  chip read as grey text beside a full-colour pictograph. A lucide `Lock` inherits the
- *  chip's own colour and the claim above becomes true of the whole chip.
+ *  "Muted" was a HALF-TRUTH while the glyph was a 🔒: the padlock ignored
+ *  `text-muted-foreground` (see `DESTRUCTIVE_VERB_CLASS` for why), so the chip read as
+ *  grey text beside a full-colour pictograph. A lucide `Lock` inherits the chip's own
+ *  colour and the claim above becomes true of the whole chip. The glyph's IDENTITY is
+ *  asserted in tests/chrome/entities-palette.test.tsx — a padlock states the STATE while
+ *  the freeze verb beside it shows the ACTION, and nothing else in the file holds that.
  *
- *  It carries its own size, unlike a verb's icon: this is not a `Button`, so nothing above
- *  it sets one. 12 px sits inside the 16 px line box the chip's `text-2xs` inherits, which
- *  is what keeps the swap off the row's height. */
+ *  It carries its own size, unlike a verb's icon, and the `h-3 w-3` is LIVE: this is a
+ *  plain `<span>`, not a `Button`, so no `[&_svg]:size-4` outranks it. 12 px fits the
+ *  13.33 px line box the chip inherits — `--text-xs--line-height` is `calc(1 / 0.75)`,
+ *  which is UNITLESS, so it inherits as a number and recomputes against the child's own
+ *  10 px rather than staying the parent's 16 px box. (`text-2xs` sets no leading of its
+ *  own, deliberately — styles.css argues that at `--text-2xs`.) Verified in Chrome:
+ *  13.3333 px. So the headroom is 1.33 px, not 4, which is still enough to keep the swap
+ *  off the row's height but is not the number to reason from next time. */
 function StateBadge({ label, Icon }: { label: string; Icon?: LucideIcon }) {
 	return (
 		<span className="flex items-center gap-0.5 rounded bg-muted px-1 text-2xs uppercase tracking-wide text-muted-foreground">

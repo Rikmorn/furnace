@@ -199,8 +199,10 @@ test("body text clears AA on every surface of the ramp", () => {
 
 test("error text clears AA on the surfaces it is used on", () => {
   // `--destructive-text` sites: toast + log rows (--popover); status bar, world drawer,
-  // palettes, inspector field errors (--card). The FILL it split from does NOT clear the
-  // floor as text (see the ledger) — that gap is the whole reason the token exists.
+  // palettes, inspector field errors (--card) — enumerated file by file, and bound to the
+  // source, in `DESTRUCTIVE_TEXT_FILES` below rather than trusted from this sentence. The
+  // FILL it split from does NOT clear the floor as text (see the ledger) — that gap is the
+  // whole reason the token exists.
   //
   // `--accent` JOINED THE LIST at the F4.5 holistic gate, and it is the first HOVER surface
   // in here. The entities row's sever and delete became `currentColor` lucide icons wearing
@@ -769,6 +771,7 @@ test("the measured ratios, recorded", () => {
     "--success-text/--card": contrast("--success-text", "--card"),
     "--destructive-text/--card": contrast("--destructive-text", "--card"),
     "--destructive-text/--popover": contrast("--destructive-text", "--popover"),
+    "--destructive-text/--accent": contrast("--destructive-text", "--accent"),
     "--warning/--card": contrast("--warning", "--card"),
     "--warning/--popover": contrast("--warning", "--popover"),
     "--success/--card": contrast("--success", "--card"),
@@ -807,6 +810,13 @@ test("the measured ratios, recorded", () => {
     "--success-text/--card": 7.83,
     "--destructive-text/--card": 5.96,
     "--destructive-text/--popover": 5.72,
+    // The TIGHTEST of the three, and the only HOVER surface in the ledger: a `ghost` verb
+    // paints `bg-accent` under its icon, so this is the pair a user reads for as long as
+    // the cursor sits on the control it is about to click. The floor test above holds it
+    // over 4.5; this row is what stops a hover-tuning nudge of `--accent` moving the
+    // number three prose passages quote while the floor still passes (0.27 → 0.29 leaves
+    // the floor green at 4.5557 and makes every one of them false).
+    "--destructive-text/--accent": 4.86,
     "--warning/--card": 5.63,
     "--warning/--popover": 5.4,
     "--success/--card": 4.9,
@@ -1069,6 +1079,43 @@ test("no text wears the destructive FILL colour", () => {
   expect(offenders).toEqual([]);
 });
 
+/** `text-destructive-text` in any modifier position (`hover:`, `/70`), which is what makes
+ *  this a FILE-set scan rather than a spelling one. */
+const DESTRUCTIVE_TEXT = /text-destructive-text(?![\w-])/g;
+
+/** Every file that spells the destructive text/icon token, with the surface it is read on.
+ *
+ *  The CHEAP HALF of what `PRIMARY_TEXT_SITES` does, and deliberately only that. This token
+ *  clears the floor on every flat surface in the ramp, so the risk a per-site ledger buys
+ *  is genuinely lower than it was for `text-primary` — which FAILS on the interaction
+ *  neutrals, and whose full file+surface+site table was earned by an actual 4.2:1 defect.
+ *  What this list buys is the one thing a comment cannot: a new site cannot land without
+ *  someone adding a row and therefore answering "on what surface?". The F4.5 gate is that
+ *  gap failing — the entities row's new `--accent` hover got its floor assertion because
+ *  someone thought to add one, and nothing would have asked. */
+const DESTRUCTIVE_TEXT_FILES: readonly string[] = [
+  "components/field/EntitiesList.tsx", // the row's sever/delete verbs: --card, --accent on hover
+  "components/shell/FlagsPalette.tsx", // candidate verdict (--card) + trapped chip (bg-destructive/20, pinned below)
+  "components/shell/LogPalette.tsx", // the error log row
+  "components/shell/SessionCard.tsx", // commit refusal + error line (--card)
+  "components/shell/StatusBar.tsx", // over-cap count, warning icon, error text (--card)
+  "components/shell/Toasts.tsx", // the destructive toast (--popover)
+  "components/shell/WorldDrawer.tsx", // invalid name hint + load failure (--card)
+  "inspector/SchemaForm.tsx", // field validation errors (--card)
+];
+
+test("the destructive-text ledger names every file that spells it", () => {
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const found: string[] = [];
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    if (DESTRUCTIVE_TEXT.test(src)) found.push(relative(FRONTEND, file));
+    DESTRUCTIVE_TEXT.lastIndex = 0;
+  }
+  expect(found.sort()).toEqual([...DESTRUCTIVE_TEXT_FILES].sort());
+});
+
 /** A `-foreground` token with an opacity modifier: `text-primary-foreground/80` and friends.
  *  The `(?![\w-])` tail is what keeps `text-primary-foreground` itself out of the match. */
 const FADED_ON_FILL_FOREGROUND = /text-[a-z-]+-foreground\/\d+(?![\w-])/g;
@@ -1156,5 +1203,120 @@ test("no arbitrary font size survives outside the scale", () => {
       offenders.push(`${relative(FRONTEND, file)}: ${m[0]}`);
     }
   }
+  expect(offenders).toEqual([]);
+});
+
+// ── a size class that never applies ────────────────────────────────────────────────
+// The defect class the F4.5 emoji→lucide swap discovered, closed here rather than noted in
+// the one file that noticed it. `ui/button.tsx`'s base carries `[&_svg]:size-4`, which
+// compiles to a DESCENDANT selector — `.…size-4 svg`, specificity (0,1,1) — and an `h-3.5`
+// on the svg itself is (0,1,0). The descendant rule wins on specificity whatever the source
+// order, so the authored size is dead styling: it reads as a deliberate 14 px and paints
+// 16 px. Measured in Chrome against the real compiled sheet: 16 px × 16 px with the class
+// and 16 px × 16 px without it, so removing one changes no pixel.
+//
+// This is the same failure the swap existed to remove ("styling that did nothing while
+// reading as though it did"), and it had two live instances in `Palette.tsx` while
+// `EntitiesList` was writing a comment explaining why it must not write one.
+
+/** Either arbitrary-variant spelling of a forced descendant svg size. */
+const FORCES_SVG_SIZE = /\[&[_>]svg\]:size-\d/g;
+
+/** A top-level `const X` / `function X` declaration — the anchor for "which component owns
+ *  this class string". */
+const TOP_LEVEL_DECL = /^(?:const|function)\s+(\w+)/gm;
+
+/** Every component whose own class string forces a size onto its descendant `<svg>`s,
+ *  DERIVED FROM SOURCE rather than named here.
+ *
+ *  Enumerating them would be the thing that goes stale — a new `ui/` wrapper adopting the
+ *  shadcn base string would silently fall outside the scan. So the class string is the
+ *  input: for each occurrence, the owner is the nearest preceding top-level declaration,
+ *  and a LOWERCASE owner means the string lives in a variant factory (`buttonVariants`, a
+ *  cva) rather than a component — in which case the containers are the components that call
+ *  it. That branch is what makes `Button` reachable at all, and it is why this is derived
+ *  instead of typed: nobody would have guessed the indirection twice. */
+function svgSizingContainers(files: readonly string[]): string[] {
+  const names = new Set<string>();
+  for (const file of files) {
+    const src = stripComments(readFileSync(file, "utf8"));
+    const decls = [...src.matchAll(TOP_LEVEL_DECL)].map((m) => ({
+      at: m.index,
+      name: m[1] as string,
+    }));
+    for (const hit of src.matchAll(FORCES_SVG_SIZE)) {
+      const owner = decls.filter((d) => d.at < hit.index).at(-1);
+      if (owner === undefined) continue;
+      if (/^[A-Z]/.test(owner.name)) {
+        names.add(owner.name);
+        continue;
+      }
+      const callsFactory = new RegExp(`\\b${owner.name}\\s*\\(`);
+      for (const d of decls) {
+        if (!/^[A-Z]/.test(d.name)) continue;
+        const body = src.slice(d.at, decls.find((o) => o.at > d.at)?.at);
+        if (callsFactory.test(body)) names.add(d.name);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+/** The names a file imports from `lucide-react` — the elements that actually render an
+ *  `<svg>`, which is what makes a size class on one of them the thing at issue. A `h-5 w-5`
+ *  on the `<Button>` itself is sizing the BUTTON and is perfectly live. */
+function lucideNames(src: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of src.matchAll(
+    /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*"lucide-react"/g,
+  ))
+    for (const name of (m[1] as string).split(","))
+      if (/^[A-Z]/.test(name.trim())) out.add(name.trim());
+  return out;
+}
+
+test("no icon carries a size class inside a container that forces one", () => {
+  const files = sourceFiles(FRONTEND);
+  expect(files.length).toBeGreaterThan(50);
+  const containers = svgSizingContainers(files);
+  // THE ANTI-VACUITY FLOOR, and it is three claims rather than one, because this scan has
+  // three ways to empty out: no files, no containers derived (the `svgSizingContainers`
+  // indirection silently returning nothing is the likeliest), and no container INSTANCE
+  // examined (a JSX-shape change defeating the `<Name …>…</Name>` match). A scan whose
+  // corpus empties is the failure this slice hit most often.
+  expect(containers).toEqual([
+    "Button",
+    "DropdownMenuItem",
+    "DropdownMenuSubTrigger",
+  ]);
+  let examined = 0;
+  const offenders: string[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".tsx")) continue;
+    const src = stripComments(readFileSync(file, "utf8"));
+    const icons = lucideNames(src);
+    if (icons.size === 0) continue;
+    for (const name of containers) {
+      for (const open of src.matchAll(new RegExp(`<${name}(?=[\\s/>])`, "g"))) {
+        const bodyStart = src.indexOf(">", open.index) + 1;
+        const end = src.indexOf(`</${name}>`, bodyStart);
+        // A self-closing container holds no children. Under-reporting on same-name nesting
+        // is the other side of this `indexOf`, and it is the safe direction.
+        if (end === -1) continue;
+        examined++;
+        const body = src.slice(bodyStart, end);
+        for (const el of body.matchAll(/<([A-Z]\w*)\b([^>]*)>/g)) {
+          if (!icons.has(el[1] as string)) continue;
+          const cls = (el[2] as string).match(/className="([^"]*)"/);
+          if (cls === null || !/\b(?:h|w|size)-[\d.]+/.test(cls[1] as string))
+            continue;
+          offenders.push(
+            `${relative(FRONTEND, file)}: <${el[1]} className="${cls[1]}"> inside <${name}>`,
+          );
+        }
+      }
+    }
+  }
+  expect(examined).toBeGreaterThan(10);
   expect(offenders).toEqual([]);
 });
