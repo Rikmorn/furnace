@@ -1162,9 +1162,15 @@ mind.
   SEEDS are the loaded world's manifest `playerStart`, and EMPTY for a new world honestly
   so: both passes refuse an empty seed set outright rather than demoting everything or
   guessing where the agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1
-  queued; the latch admits no more) and stays 0 with no profile — off, not busy. The footer
-  renders `· analyzing…` while it is above 0 and nothing at 0, because the count is PASSES
-  owed, not chunks.
+  queued; the latch admits no more) and counts work the pump would actually RUN, not flags
+  the host happens to hold. Two states set a flag and owe nothing, and both read 0: no
+  profile — off, not busy — and a world with no chunks in it, where the whole-world request
+  `analyzerFire` DEFERS rather than consumes has nothing to analyse until something is dug
+  or loaded. `analyzerFire` and `analyzerPendingCount` decide that on ONE predicate
+  (`analyzerHasWork`), so the meter cannot claim a pass the pump has already declined — the
+  F4.5 gate's F-3, where a brand-new world read "1 pass owed" for the life of the session.
+  `StatusBar`'s analyzer chip is absent at 0 and names the count above it, because the count
+  is PASSES owed, not chunks.
 - **Flag presentation state — `viewport-host/field-flags.ts`**, pure and GPU-free (the
   `field-ghost.ts` / `field-placements.ts` sibling). `createFlagStore()` holds stage-1
   findings by OWNER chunk, pits beside them (a pit region can span chunks, so its anchor's

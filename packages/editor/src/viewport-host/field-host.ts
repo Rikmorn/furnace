@@ -384,9 +384,13 @@ export type FieldStats = {
    *  posted-and-unanswered pass, plus 1 for edits queued behind it. 0 means the
    *  flag markers describe the field as it stands. Never above 2 — the analyze
    *  pump is a latest-wins latch, so at most one pass is in flight and everything
-   *  behind it collapses into one re-fire. Stays 0 with no agent profile
-   *  installed, where nothing is ever posted (see
-   *  {@link FieldHost.setAgentProfile}). */
+   *  behind it collapses into one re-fire.
+   *
+   *  Counts work the pump would actually RUN, not flags the host happens to hold.
+   *  Two states set a flag and owe nothing: no agent profile installed, where
+   *  nothing is ever posted (see {@link FieldHost.setAgentProfile}); and a world
+   *  with no chunks in it, where the pending whole-world pass has nothing to
+   *  analyse until something is dug or loaded. Both read 0. */
   analyzerPending: number;
   /** Whether a void cast (D-F3-15) is posted and unanswered — the X-ray's whole-world
    *  worker job, which is the only edit-loop job long enough for a user to wonder about.
@@ -4405,6 +4409,20 @@ export function createFieldHost(deps?: {
       records,
     }));
 
+  // Would a pass find anything to analyse if one fired RIGHT NOW? The one
+  // answer, read by both the pump (`analyzerFire`, which decides on it) and the
+  // meter (`analyzerPendingCount`, which reports it) — the aimCamera/placeCamera
+  // funnel's reason. Two call sites deriving this separately is exactly how the
+  // chip came to say "1 pass owed" forever on a world the pump had already
+  // decided held nothing (the F4.5 gate's F-3).
+  //
+  // A PREDICATE and not the key list `analyzerFire` goes on to build: the meter
+  // is read from the per-frame stats push, and a helper returning
+  // `[...store.chunks.keys()]` would allocate one array per chunk every frame.
+  // Both branches here are O(1).
+  const analyzerHasWork = (): boolean =>
+    analyzerWholeWorld ? store.chunks.size > 0 : analyzerDirty.size > 0;
+
   // Bring the mirror level with the store. Buffers are COPIES, and NOT because
   // the wire needs them to be: the client structured-clones rather than
   // transferring, so a real Worker would copy the store's own buffers safely.
@@ -4477,17 +4495,23 @@ export function createFieldHost(deps?: {
         .placements(analyzerPlacementGroups())
         .catch(reportAnalyzerFailure);
     }
-    // A whole-world request analyses the STORE, so an empty `dirty` here means
-    // an empty store — nothing any pass could find. It is DEFERRED rather than
-    // consumed: dropping it would be harmless today (every path that later fills
-    // the store re-requests it, and the idle tail would catch the rest), but only
-    // by a coupling a reader has to re-derive, and the flag surviving is free.
-    // The first pass that has something to analyse then honours it, instead of
-    // downgrading to incremental and making the user wait out the idle tail.
+    // Nothing to analyse — which for a whole-world request means an empty STORE,
+    // because that request analyses the store rather than `analyzerDirty`. The
+    // request is DEFERRED rather than consumed: dropping it would be harmless
+    // today (every path that later fills the store re-requests it, and the idle
+    // tail would catch the rest), but only by a coupling a reader has to
+    // re-derive, and the flag surviving is free. The first pass that has
+    // something to analyse then honours it, instead of downgrading to
+    // incremental and making the user wait out the idle tail.
+    //
+    // The deferral is invisible to the user because `analyzerPendingCount` asks
+    // the SAME question below: a request parked over an empty store is not work
+    // owed, and a meter that said otherwise would sit at "1 pass owed" for the
+    // life of a brand-new world.
+    if (!analyzerHasWork()) return undefined;
     const dirty = analyzerWholeWorld
       ? [...store.chunks.keys()]
       : [...analyzerDirty];
-    if (dirty.length === 0) return undefined;
     const wholeWorld = analyzerWholeWorld;
     analyzerWholeWorld = false;
     analyzerDirty.clear();
@@ -4653,14 +4677,23 @@ export function createFieldHost(deps?: {
       });
   };
 
-  // Advisor passes still owed an answer — see FieldStats.analyzerPending. With
-  // no profile the pending flags DO accumulate (they are the catch-up an install
-  // would run), but nothing is posted and nothing will be until one arrives: the
-  // advisor is off, not busy, and a meter stuck at 1 forever would say otherwise.
+  // Advisor passes still owed an answer — see FieldStats.analyzerPending. Two
+  // states where a flag is set and NOTHING is owed, and they are the same
+  // mistake from two directions: a meter stuck at 1 forever describes an advisor
+  // that is permanently working.
+  //
+  // With no profile the pending flags DO accumulate (they are the catch-up an
+  // install would run), but nothing is posted and nothing will be until one
+  // arrives: the advisor is off, not busy.
+  //
+  // With a profile and an EMPTY store, the whole-world request `analyzerFire`
+  // deferred is real and will be honoured — but there is nothing for it to look
+  // at yet, so `analyzerHasWork` is what both this and the pump ask. That shared
+  // answer is the point: the pump had already decided not to fire, and only this
+  // count disagreed (the F4.5 gate's F-3, on a brand-new world).
   const analyzerPendingCount = (): number => {
     if (agentProfile === null) return 0;
-    const queued =
-      analyzerDirty.size > 0 || analyzerWholeWorld || analyzerResync;
+    const queued = analyzerHasWork() || analyzerResync;
     return (analyzerBusy ? 1 : 0) + (queued ? 1 : 0);
   };
 

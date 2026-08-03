@@ -625,7 +625,7 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
-  "a whole-world request outlives an empty store instead of being consumed",
+  "a whole-world request outlives an empty store — and owes nothing while it waits",
   async () => {
     // Nothing to analyse yet, so the whole-world request `init`'s prop rebuild
     // made cannot go out — `dirty` is the STORE when the flag is set, and the
@@ -633,6 +633,14 @@ test.skipIf(!bunWebGpuAvailable())(
     const f = await fixture({ chunks: [] });
     try {
       expect(f.of("analyze")).toEqual([]);
+      f.tick(16);
+      // The METER half, and the F4.5 gate's F-3: this is a brand-new world with
+      // a profile installed, and it read "analyzer catching up — 1 pass owed"
+      // for the rest of the session. A deferred request over a store with
+      // nothing in it is not work owed, and the chip that renders this number
+      // never left. `analyzerFire` and `analyzerPendingCount` now ask ONE
+      // predicate, so the meter cannot disagree with the pump again.
+      expect(f.stats.at(-1)?.analyzerPending).toBe(0);
 
       // The world arrives by the one route that does NOT re-request a
       // whole-world pass: a density write. If the flag had been consumed by the
@@ -640,6 +648,13 @@ test.skipIf(!bunWebGpuAvailable())(
       // wait out the idle tail for no reason.
       f.click(32, 32);
       expect(f.of("analyze").at(-1)?.reachability).toBe(true);
+      // …and NOW one is owed. Without this the meter half above is satisfied by
+      // a count hard-wired to 0, which would take the chip away for good.
+      f.tick(32);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(1);
+      await f.deliver();
+      f.tick(48);
+      expect(f.stats.at(-1)?.analyzerPending).toBe(0);
     } finally {
       f.teardown();
     }
