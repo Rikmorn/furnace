@@ -197,10 +197,16 @@ function analyzerWorker(verifyWith?: AnalyzerEngine) {
   return { worker, sent, deliver, respond, of, flush };
 }
 
-function fixture(
-  profile: AgentProfile | null = AGENT,
-  engine?: AnalyzerEngine,
-) {
+/** What the fixture tells the host about the agent profile before handing it over.
+ *  A profile installs one; `null` ANSWERS the question with "this project has
+ *  none"; `"unanswered"` says nothing at all — the state every host boots in,
+ *  between `createFieldHost` and the `catalog/agent.json` fetch landing, and the
+ *  one the advisor-idle notice has to stay silent through. The two null-ish
+ *  states are NOT the same thing, and conflating them is the whole defect this
+ *  distinction exists to pin. */
+type ProfileState = AgentProfile | null | "unanswered";
+
+function fixture(profile: ProfileState = AGENT, engine?: AnalyzerEngine) {
   const fake = analyzerWorker(engine);
   // Counted, not just returned: the client spawns LAZILY, so a stray post after
   // dispose shows up here as a second spawn — a live worker holding a
@@ -226,7 +232,7 @@ function fixture(
   });
   const pushes: FlagsSummary[] = [];
   host.subscribeFlags((s) => pushes.push(s));
-  if (profile !== null) host.setAgentProfile(profile);
+  if (profile !== "unanswered") host.setAgentProfile(profile);
   return { host, errors, severities, pushes, spawns, ...fake };
 }
 
@@ -272,6 +278,56 @@ const lastSummary = (pushes: readonly FlagsSummary[]): FlagsSummary => {
 const kinds = (summary: FlagsSummary | undefined): string[] =>
   (summary?.visible ?? []).map((r) => r.flag.kind);
 
+test("while the profile question is UNANSWERED the advisor says nothing", () => {
+  // The state a host boots in: `catalog/agent.json` is in flight and no answer
+  // has arrived. `agentProfile` is null here exactly as it is for a project that
+  // has none — and the difference is everything, because the notice below is a
+  // claim about the PROJECT. Posted from this state it would be a claim about
+  // which of two async arrivals won a race, and a project that ships a profile
+  // would read it whenever its fetch lost.
+  const f = fixture("unanswered");
+  f.host.loadWorld({
+    manifest: manifest(),
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: solidChunk() }],
+    oplog: null,
+  });
+  // Nothing posted to the worker either way — the advisor is parameterized on a
+  // profile it does not have. Silence is the only difference, and it is the point.
+  expect(f.sent).toEqual([]);
+  expect(f.errors).toEqual([]);
+
+  // The answer arrives, and it is "this project has none". Still silent AT the
+  // answer: the notice's moment is the first pass that would have analysed, which
+  // is a better one than load (useCatalogs.tsx's loadAgent says the same).
+  f.host.setAgentProfile(null);
+  expect(f.errors).toEqual([]);
+
+  // …and that pass is where it gets said.
+  f.host.loadWorld({ manifest: manifest(), chunks: [], oplog: null });
+  expect(f.errors).toEqual([
+    "walkability advisor idle — this project installs no agent profile",
+  ]);
+  expect(f.severities).toEqual(["warn"]);
+});
+
+test("a profile that arrives LATE means the notice never fires at all", () => {
+  const f = fixture("unanswered");
+  f.host.loadWorld({
+    manifest: manifest(),
+    chunks: [{ key: chunkKey(0, 0, 0), bytes: solidChunk() }],
+    oplog: null,
+  });
+  expect(f.errors).toEqual([]);
+  // The fetch lands second. Because nothing was said while the question was open,
+  // there is nothing to take back — the one-shot never had to be re-armed, and the
+  // user never read a sentence about their project that was not true.
+  f.host.setAgentProfile(AGENT);
+  expect(f.errors).toEqual([]);
+  // And a later pass cannot say it either: the answer is a profile.
+  f.host.loadWorld({ manifest: manifest(), chunks: [], oplog: null });
+  expect(f.errors).toEqual([]);
+});
+
 test("with no agent profile the advisor posts NOTHING and says so exactly once", () => {
   const f = fixture(null);
   f.host.loadWorld({
@@ -295,7 +351,9 @@ test("with no agent profile the advisor posts NOTHING and says so exactly once",
 });
 
 test("a profile installed after the fact catches the world up in full", () => {
-  const f = fixture(null);
+  // From UNANSWERED, which is how a late profile actually arrives: the world
+  // loaded while `catalog/agent.json` was still in flight.
+  const f = fixture("unanswered");
   f.host.loadWorld({
     manifest: manifest([2, 3, 4]),
     chunks: [{ key: chunkKey(0, 0, 0), bytes: solidChunk() }],

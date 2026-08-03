@@ -387,10 +387,11 @@ export type FieldStats = {
    *  behind it collapses into one re-fire.
    *
    *  Counts work the pump would actually RUN, not flags the host happens to hold.
-   *  Two states set a flag and owe nothing: no agent profile installed, where
-   *  nothing is ever posted (see {@link FieldHost.setAgentProfile}); and a world
-   *  with no chunks in it, where the pending whole-world pass has nothing to
-   *  analyse until something is dug or loaded. Both read 0. */
+   *  Two states set a flag and owe nothing: no agent profile in hand — whether
+   *  none was ever installed or the catalog fetch has not landed yet (see
+   *  {@link FieldHost.setAgentProfile}) — where nothing is ever posted; and a
+   *  world with no chunks in it, where the pending whole-world pass has nothing
+   *  to analyse until something is dug or loaded. Both read 0. */
   analyzerPending: number;
   /** Whether a void cast (D-F3-15) is posted and unanswered — the X-ray's whole-world
    *  worker job, which is the only edit-loop job long enough for a user to wonder about.
@@ -1184,8 +1185,22 @@ export type FieldHost = {
    *
    *  Installing catches the world up in full: the mirror re-syncs and the next
    *  pass is whole-world, so the first findings describe the field as it stands
-   *  rather than only what has been edited since. */
-  setAgentProfile(profile: field.AgentProfile): void;
+   *  rather than only what has been edited since.
+   *
+   *  `null` is the OTHER answer, and it carries a fact the host cannot otherwise
+   *  have: *this project has no agent profile*. The profile arrives over HTTP and
+   *  the analyze pump does not wait for it, so "no profile in hand" reads
+   *  identically before any answer and after a negative one — and the idle notice
+   *  is a claim about the PROJECT, which only the second state can support. Until
+   *  this is called with either argument the host stays silent about it. Passing
+   *  `null` catches nothing up (there is nothing to analyse with) and posts
+   *  nothing on its own; it only licenses the next pass to say so.
+   *
+   *  Only a load that KNOWS may answer `null` — a `404` on the catalog. A fetch
+   *  that failed and a catalog that would not parse are not answers: the first
+   *  does not know, the second knows the opposite, and both have already told the
+   *  user what happened in terms more useful than "idle". */
+  setAgentProfile(profile: field.AgentProfile | null): void;
   /** Subscribes to the advisor's findings, pushed after every analyzer response
    *  and after every {@link setFlagFilters}. Immediately pushes the CURRENT
    *  summary on subscribe (the {@link subscribeSelection} remount rationale).
@@ -4357,9 +4372,21 @@ export function createFieldHost(deps?: {
   // analyzer is parameterized on the agent, and a guessed capsule would be the
   // advisor inventing its own premise.
   let agentProfile: field.AgentProfile | null = null;
+  // Whether the profile QUESTION has been answered — by a profile, or by the
+  // catalog 404 that says the project has none. `agentProfile === null` alone
+  // cannot tell those apart from "the fetch is still in flight", and the idle
+  // notice below is a claim about the PROJECT: posted from the in-flight state it
+  // would be reporting which of two async arrivals won a race, on a project that
+  // may well ship a profile. So the notice waits for this, and only this gets to
+  // be a second boolean rather than an `undefined` third state on the profile
+  // itself — every OTHER reader of `agentProfile` (the verify guard, the pending
+  // meter, the pump) asks "is there a usable capsule", where the two null-ish
+  // states are correctly the same answer.
+  let agentProfileAnswered = false;
   // Once-EVER report for the missing profile (the maskDropReported discipline):
   // an edit loop would otherwise repeat it at stroke rate. Never re-armed,
-  // because a profile can only be installed, never removed.
+  // because a profile can only be installed, never removed — and never ARMED
+  // until the answer above lands, so there is never a claim to take back.
   let profileMissingReported = false;
   // Chunks whose density this host has written since the last mirror sync —
   // what it WROTE, never widened. The worker owns the widening (`reanalysisKeys`
@@ -4475,7 +4502,13 @@ export function createFieldHost(deps?: {
     if (disposed) return undefined;
     const profile = agentProfile;
     if (profile === null) {
-      if (!profileMissingReported) {
+      // ANSWERED-and-absent, not merely absent. Unanswered means the catalog
+      // fetch is still in flight, and this sentence is about the PROJECT — said
+      // then it would be a fact about which arrival won a race, and a project
+      // that ships `catalog/agent.json` would read it whenever its fetch lost.
+      // The one-shot makes that permanent, so the gate has to be here rather
+      // than a retraction later.
+      if (agentProfileAnswered && !profileMissingReported) {
         profileMissingReported = true;
         // A WARNING, not a refusal: the advisor is behaving correctly and every
         // verb still works. As an `error` this one sentence was enough to open
@@ -4485,7 +4518,10 @@ export function createFieldHost(deps?: {
           "warn",
         );
       }
-      // Every pending flag stays set, so an install later catches up in full.
+      // Every pending flag stays set, so an install later catches up in full —
+      // and that is what carries the UNANSWERED case: the answer posts nothing
+      // itself, so the next pass is where it gets said (or, if the answer was a
+      // profile, where the advisor simply starts working).
       return undefined;
     }
     postMirrorSync();
@@ -4682,9 +4718,12 @@ export function createFieldHost(deps?: {
   // mistake from two directions: a meter stuck at 1 forever describes an advisor
   // that is permanently working.
   //
-  // With no profile the pending flags DO accumulate (they are the catch-up an
-  // install would run), but nothing is posted and nothing will be until one
-  // arrives: the advisor is off, not busy.
+  // With no profile IN HAND the pending flags DO accumulate (they are the
+  // catch-up an install would run), but nothing is posted and nothing will be
+  // until one arrives: the advisor is off, not busy. Both null-ish states read
+  // the same here on purpose — a host still waiting on `catalog/agent.json` owes
+  // exactly as much analysis as one whose project has no agent at all, namely
+  // none. Only the idle NOTICE has to tell them apart.
   //
   // With a profile and an EMPTY store, the whole-world request `analyzerFire`
   // deferred is real and will be honoured — but there is nothing for it to look
@@ -6595,7 +6634,9 @@ export function createFieldHost(deps?: {
       // DEFENCE IN DEPTH, and its independent effect is deliberately UNCOVERED:
       // every path that can reach the analyzer after a dispose goes through
       // `rebuildProps` (via `init`, `loadWorld` or `newWorld`) or through
-      // `setAgentProfile`, and all of those set this flag themselves — so
+      // `setAgentProfile` WITH a profile (its null answer reaches nothing — it
+      // requests no pass, and no pass can run without a capsule), and all of
+      // those set this flag themselves — so
       // deleting this line fails no test. It is kept because depending on that
       // coincidence is what the line above exists to stop doing, and the cost of
       // being wrong is one-directional: `voxelizePlacements` is purely additive,
@@ -7268,7 +7309,15 @@ export function createFieldHost(deps?: {
       };
     },
     setAgentProfile(profile) {
+      agentProfileAnswered = true;
       agentProfile = profile;
+      // "This project has none" is an answer and nothing more. It catches nothing
+      // up (there is no capsule to analyse with) and requests no pass — the idle
+      // notice's moment is the first pass that would have ANALYSED, which is a
+      // better one than load: at load it is an announcement about a feature the
+      // user has not reached for yet, and it would spend a toast slot on every
+      // boot of every project without an agent.
+      if (profile === null) return;
       // Catch the world up: the mirror may be missing every edit made before the
       // profile arrived, and the first pass should describe the field as it
       // stands rather than only what has changed since.

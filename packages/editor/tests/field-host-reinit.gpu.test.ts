@@ -221,8 +221,9 @@ test.skipIf(!bunWebGpuAvailable())(
       const casts = (): number =>
         f.posted.filter((k) => k === "void-cast").length;
       expect(casts()).toBe(1);
-      // Scoped to the cast's own channel: this fixture installs no agent profile, so the
-      // advisor says it is idle on the same seam, and that notice is expected here.
+      // Scoped to the cast's own channel, so a future advisor message on the same seam
+      // cannot pass or fail this. (Today there is none: the fixture never answers the
+      // agent-profile question either way, and the idle notice waits for that answer.)
       const castErrors = (): string[] =>
         f.errors.filter((m) => m.includes("cast"));
       expect(castErrors()).toEqual([]);

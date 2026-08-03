@@ -1164,13 +1164,30 @@ mind.
   guessing where the agent enters. `FieldStats.analyzerPending` is 0–2 (1 in flight + 1
   queued; the latch admits no more) and counts work the pump would actually RUN, not flags
   the host happens to hold. Two states set a flag and owe nothing, and both read 0: no
-  profile — off, not busy — and a world with no chunks in it, where the whole-world request
-  `analyzerFire` DEFERS rather than consumes has nothing to analyse until something is dug
-  or loaded. `analyzerFire` and `analyzerPendingCount` decide that on ONE predicate
+  profile IN HAND — off, not busy — and a world with no chunks in it, where the whole-world
+  request `analyzerFire` DEFERS rather than consumes has nothing to analyse until something
+  is dug or loaded. `analyzerFire` and `analyzerPendingCount` decide that on ONE predicate
   (`analyzerHasWork`), so the meter cannot claim a pass the pump has already declined — the
   F4.5 gate's F-3, where a brand-new world read "1 pass owed" for the life of the session.
   `StatusBar`'s analyzer chip is absent at 0 and names the count above it, because the count
   is PASSES owed, not chunks.
+- **The idle notice waits for the profile QUESTION to be answered.** `setAgentProfile` takes
+  `AgentProfile | null`, and the `null` is load-bearing: the profile arrives over HTTP
+  (`useCatalogs.tsx` → `/catalog/agent.json`) and the analyze pump does not wait for it, so
+  "no profile in hand" reads identically before any answer and after a negative one. The
+  notice is a claim about the PROJECT and its one-shot makes it permanent, so posting it from
+  the in-flight state would state — for the session — whichever of two async arrivals won the
+  race, on a project that may well ship a profile (proven on `packages/dungeon` by delaying
+  only that one request 3 s). `setAgentProfile(null)` is the negative answer, "asked, and this
+  project has none": it catches nothing up, requests no pass, and posts nothing itself — it
+  only licenses the next pass to say so, which keeps the notice's moment at the first edit
+  that would have analysed rather than at load. **Only the catalog 404 may send it.** A
+  failed fetch does not know (a 500 over a project with a fine `agent.json` is the ordinary
+  case) and a malformed catalog knows the opposite; both already reported what happened with
+  the status or the JSON path in the line, and the idle sentence would be a second, less true
+  account of it. Everything else that reads `agentProfile` — the pump, the `verifyFlag`
+  guard, `analyzerPendingCount` — treats the two null-ish states the same on purpose: neither
+  has a capsule, so neither owes any analysis.
 - **Flag presentation state — `viewport-host/field-flags.ts`**, pure and GPU-free (the
   `field-ghost.ts` / `field-placements.ts` sibling). `createFlagStore()` holds stage-1
   findings by OWNER chunk, pits beside them (a pit region can span chunks, so its anchor's

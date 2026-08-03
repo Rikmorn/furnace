@@ -149,14 +149,30 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
 		// The walkability advisor's premise (D-F4-4). Never throws, like the entity load,
 		// and SILENT on both good outcomes: a parsed profile shows itself in the advisor's
-		// markers, and a 404 is a project that simply has no agent — one the host already
-		// reports as "advisor idle" at the first edit that would have analysed, which is a
-		// better moment than load. Only a MALFORMED catalog has something to say here, and
-		// it must be said: nothing else would tell the user why the advisor never lit up.
+		// markers, and a 404 is a project that simply has no agent — one the host reports
+		// as "advisor idle" at the first edit that would have analysed, which is a better
+		// moment than load. Only a MALFORMED catalog has something to say here, and it
+		// must be said: nothing else would tell the user why the advisor never lit up.
+		//
+		// BOTH answers go to the host, and that is the point rather than a formality. The
+		// host's `agentProfile === null` reads the same while this fetch is in flight as it
+		// does for a project with no agent, and it is what the idle notice is decided on —
+		// so with only the positive answer wired the notice states, permanently and
+		// one-shot, whichever of the two arrivals happened to win. `setAgentProfile(null)`
+		// is the negative one: "asked, and this project has none".
+		//
+		// Only the 404 may send it. A failed fetch does not KNOW (a 500 over a project that
+		// ships a fine agent.json is the ordinary case), and a malformed catalog knows the
+		// opposite — the project installs one, it is just unusable. Both already said what
+		// happened, with the status or the JSON path in the line; "advisor idle — this
+		// project installs no agent profile" would be a second, less true account of it.
 		const loadAgent = async (): Promise<Report | null> => {
 			try {
 				const res = await fetch("/catalog/agent.json");
-				if (res.status === 404) return null;
+				if (res.status === 404) {
+					host.setAgentProfile(null);
+					return null;
+				}
 				if (!res.ok) return bad(`agent fetch failed (${res.status})`);
 				host.setAgentProfile(parseAgentCatalog(await res.text()));
 				return null;

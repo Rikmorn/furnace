@@ -263,7 +263,10 @@ async function fixture(
   // The chrome's brush pick is what does this in the product.
   host.setGesture(null);
   host.setMaterialTable(ROCK_ONLY);
-  if (profile !== null) host.setAgentProfile(profile);
+  // `null` is ANSWERED-and-absent, not "say nothing" — the state a project with no
+  // catalog/agent.json reaches once its 404 lands, which is what the meter case below
+  // is about. The pump reads both null-ish states the same; only the notice does not.
+  host.setAgentProfile(profile);
   host.loadWorld({
     manifest: MANIFEST,
     chunks: opts.chunks ?? [{ key: chunkKey(0, 0, 0), bytes: chamberChunk() }],

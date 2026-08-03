@@ -432,21 +432,50 @@ test("the agent catalog is fetched, parsed and installed on the host", async () 
 	});
 });
 
-test("no agent catalog installs nothing, quietly — the advisor says so itself", async () => {
+test("a 404 ANSWERS the question — the host is told there is none, quietly", async () => {
 	// A project with no agent profile is a legitimate one (the editor is
 	// project-first). The host reports "advisor idle" ONCE at the first edit that
 	// would have analysed, which is a better moment than load; a second message
 	// here would be noise on a line that has already said what happened.
+	//
+	// But it can only say it once it KNOWS, and a 404 is the only outcome that
+	// knows: the host's own `agentProfile === null` reads the same before any
+	// answer as after this one. So the negative travels the same seam the positive
+	// does — `setAgentProfile(null)` — and the host stays silent until it lands.
 	stubCatalogs({ materials: CATALOG_JSON });
 	const stub = makeStubHost();
 	await renderProviders(stub);
+	await waitFor(() =>
+		expect(stub.calls.setAgentProfile.mock.calls).toEqual([[null]]),
+	);
 	await waitFor(() => expect(toastText(/materials: /)).toBeTruthy());
-	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
 	expect(
 		within(screen.getByRole("list", { name: "notifications" })).queryByText(
 			/agent/,
 		),
 	).toBeNull();
+});
+
+test("an agent fetch that FAILED answers nothing — the host is left unanswered", async () => {
+	// The rule, in one line: `setAgentProfile(null)` asserts *this project has no
+	// agent profile*, and only a 404 knows that. A 500 says the daemon could not
+	// answer — the project may well ship a perfectly good one — so passing null
+	// here would put the advisor's "this project installs no agent profile" into
+	// the user's face over a project that does. The failure already said what
+	// happened, with the status in it; the advisor adds a worse account of it.
+	stubFetch((url) =>
+		Promise.resolve(
+			url.includes("agent.json")
+				? new Response("", { status: 500 })
+				: new Response(CATALOG_JSON, { status: 200 }),
+		),
+	);
+	const stub = makeStubHost();
+	await renderProviders(stub);
+	await waitFor(() =>
+		expect(toastText(/agent fetch failed \(500\)/)).toBeTruthy(),
+	);
+	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
 });
 
 test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", async () => {
@@ -460,6 +489,9 @@ test("a MALFORMED agent catalog is setup-loud and costs the other two nothing", 
 	// The JSON path is in the line, so a mistyped catalog is diagnosable from the
 	// panel rather than from a pass that silently never ran.
 	await waitFor(() => expect(toastText(/capsule\.halfHeight/)).toBeTruthy());
+	// Not `[[null]]` — the same rule as the 500 above, from the other side: this
+	// project DOES install an agent profile, it is just unusable. Answering "there
+	// is none" would be the one thing the loader positively knows to be false.
 	expect(stub.calls.setAgentProfile.mock.calls).toEqual([]);
 	// The other two catalogs are unaffected — the agent fetch gates nothing, so
 	// its failure must not cost the table that DOES gate Load.
