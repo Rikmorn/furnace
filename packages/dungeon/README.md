@@ -12,6 +12,29 @@ Browser-first; imports core via the workspace symlink; owns `index.html` + `serv
 - `bun run dungeon:editor` — open the editor on the dungeon (or `bun run edit` inside the package)
 - `bun test packages/dungeon` — package tests (`.gpu.test.ts` files run real WebGPU via bun-webgpu)
 
+## Source layout
+
+`src/` groups by domain: `world/` (spec, build, bake, load, placement, connectors, region
+contract), `field/` (SDF primitives, meshing, voxel proxy), `agent/` (locomotion, controller,
+walkability), `props/` (scatter, motes, torch), plus the existing `substrate/` and `themes/`.
+`main.ts` and `editor-extensions.ts` stay at the top level — both are entry points, and
+`furnace.config.json` names the latter by path.
+
+**Where a new module goes.**
+
+- **A domain group** (`world/`, `field/`, `agent/`, `props/`) — the default. Most things are
+  domain code.
+- **`lib/`** — a logical set of modules abstracting ONE thing, exported from the group, with a
+  subfolder per responsibility (e.g. an external-API client: `client`, `errors`, `wrappers`).
+  *No tenant today* — the package's two cohesive abstraction sets, `substrate/` and `themes/`,
+  already are this and have better names than `lib/`.
+- **`utils/`** — generic shared helpers with NO domain coupling (date/time, logging).
+  *No tenant today.* Note the near-miss: `aabb.ts` looks generic and is not — it imports `Aabb`
+  and `Vec3` from `world/region.ts`, so it lives in `world/`. The test is whether the module
+  imports any dungeon type. If it does, it is not a util.
+
+Create either directory when something actually earns it, not before.
+
 ## Current state (Epic 3 · One Field — F3b SEALED 2026-07-25)
 
 Epics 1–2 CLOSED; 3.3 Worlds SEALED 2026-07-13 (W3 met the phase bar, W4 swept the mesh era out). The 3.4+ **recharter is DONE**: the **One Field phase** (charter 2026-07-14; F0–F6) makes the world ONE sparse chunked voxel field in `@furnace/core/field` with everything else as entities. **F0** (hybrid walkability-analyzer corpus probe — zero misses, but the analyzer cannot self-certify F4; surfaced + led to fixing a shipped mover levitation bug), **F1** ("the medium": dig in the editor's Field panel → bake → the game walks the v2 field world), **F2a** ("the material field": per-cell material classes, dig/fill/paint, the kit skinner + collar on the one field — charter premise P4 proven headless — with the dungeon shipping `catalog/materials.json` and walking material'd worlds with instanced kit), **F2b** ("the palette": chassis/masks/smooth/hollow, selection, hall+maze stamps as the first generator entities, layers/slice) and **F3a** ("smart objects": reconfigure/freeze/bake on committed generators, patch op + compaction, stamp rotation + door offsets — core+editor only, dungeon byte-untouched) are sealed and merged. As-built: `docs/reference/dungeon-architecture.md` §7. **F3b** ("the cave & the entities") is **SEALED 2026-07-25** (user-gated Safari, one gate round + fix round): the dungeon re-entered as an ENTITY consumer with `catalog/entities.json` (rock + stalagmite archetypes, served via the `/catalog/*` route, shared across every field world) and the placement half of `field-world.ts` — see the Placements bullet below and `dungeon-architecture.md` §8. **F4** ("seeing") has LANDED on both tranches and is NOT yet sealed — the user gate has not run; see the Walkability advisor bullet below.
