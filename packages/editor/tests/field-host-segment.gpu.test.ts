@@ -318,6 +318,59 @@ test.skipIf(!bunWebGpuAvailable())(
   },
 );
 
+// --- the once-per-COMMIT mask-drop re-arm ------------------------------------
+//
+// `maskDropReported` latches the "you have a selection mask but no selection"
+// report so one 40 ms-throttled DRAG says it once. A segment's unit is not a drag
+// — it is the two-click pair — so `segmentClick` re-arms the latch itself before
+// committing, and without that every segment after the first would drop the mask
+// SILENTLY.
+//
+// Covered here because it is the segment cluster's ONE write into the tool's
+// state, and since that cluster moved to `field-segment.ts` it is a cross-module
+// contract rather than a line two functions apart: the extracted module gets the
+// re-arm handed to it as `armMaskDropReport`, and nothing but this test would
+// notice a refactor that stopped calling it. Verified by sabotage — stubbing that
+// dep to a no-op fails this case and nothing else in the suite.
+
+/** What `toolMask` reports when a selection-masked tool applies with nothing
+ *  selected. Spelled out rather than matched loosely: the whole point of the
+ *  re-arm is that this exact sentence reaches the user again. */
+const MASK_DROP =
+  "selection mask active but there is no selection — stroke applies unmasked";
+
+test.skipIf(!bunWebGpuAvailable())(
+  "every segment commit re-arms the mask-drop report — the second one speaks too",
+  async () => {
+    const f = await segmentFixture();
+    try {
+      // A selection mask with NO selection: every commit drops the mask, and
+      // every commit owes the user a sentence saying so.
+      f.host.setTool({ ...DIG_TOOL, mask: { kind: "selection" } });
+      f.host.setGesture("segment");
+
+      // First pair. The anchoring click applies nothing, so the report can only
+      // come from the commit.
+      f.click(16, 16);
+      expect(f.errors).toEqual([]);
+      f.click(48, 40);
+      expect(f.ops()).toHaveLength(1);
+      expect(f.errors).toEqual([MASK_DROP]);
+
+      // THE TEETH: a second pair, with no pointer-down in between that could
+      // re-arm the latch on the stroke path (the gesture branch of
+      // `onPointerDown` returns above it). The only thing that can make this
+      // speak again is the segment's own re-arm at commit.
+      f.click(20, 48);
+      f.click(44, 20);
+      expect(f.ops()).toHaveLength(2);
+      expect(f.errors).toEqual([MASK_DROP, MASK_DROP]);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
 // --- the 60 m length clamp (D-F4-16) ----------------------------------------
 //
 // A segment sweeps a capsule between two raw surface hits, and each op's cost is
