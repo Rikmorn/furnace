@@ -41,7 +41,7 @@ foundation pass, whose goal was chrome finish, not new authoring verbs.
   resolve-or-throw validates at load, but the UI should warn before a dangling ref commits.
 
 **Couples to** the Entities-panel IA (the 3.2 gate's top P2 — a filter/search box + a
-scene/room `role="tree"` across 200+ cryptic IDs; `editor-interaction-model-redesign.md`):
+scene/room `role="tree"` across 200+ cryptic IDs):
 add/delete and findability are the same panel and likely one pass.
 
 **Trigger to revisit:** when in-editor scene authoring (not just tuning existing entities) is
@@ -49,7 +49,7 @@ needed — the procedural-authoring editor pass (Slice 3.2.5 / the interaction-m
 
 **Reference:** `packages/editor/src/daemon/handlers.ts` (`scene.addEntity`/`removeEntity`),
 `packages/editor/src/frontend/components/EntitiesPanel.tsx`,
-`docs/reference/editor-architecture.md` §4, sibling `editor-interaction-model-redesign.md`.
+`docs/reference/editor-architecture.md` §4.2, sibling `scene-chrome-returns-as-consumer-surface.md`.
 
 **Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon half is
 intact and still registered: `scene.addEntity` and `scene.removeEntity` are in
@@ -83,9 +83,9 @@ This was an accepted, documented scope boundary of the M1-slices batch (the batc
 - The M5A inspector's resource-edit → command dispatch for the new tables (does editing a checkerboard's `cells` or a bloom's `intensity` round-trip through `scene.setResource`?).
 - Adding/removing a texture/effect resource and the reference integrity it implies (a material referencing a deleted texture; `settings.post` referencing a deleted effect — the loader's resolve-or-throw + the now-recursive `checkResourceRefs` already validate refs at the boundary).
 
-**Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely the editor redesign for procgen authoring — see `editor-interaction-model-redesign.md`), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
+**Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely alongside `scene-chrome-returns-as-consumer-surface.md`), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
 
-**Reference:** `packages/editor/src/daemon/handlers.ts` (`tableEnum`, `scene.setResource`, `scene.removeResource`), `packages/core/src/scene/t.ts` (`TABLE_ORDER`), `docs/reference/editor-architecture.md §12`, sibling entry: the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`.
+**Reference:** `packages/editor/src/daemon/handlers.ts` (`tableEnum`, `scene.setResource`, `scene.removeResource`), `packages/core/src/scene/t.ts` (`TABLE_ORDER`), `docs/reference/editor-architecture.md §10`, sibling entry: the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`.
 
 **Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon-side fact is
 verbatim true and unchanged: `tableEnum` in `daemon/handlers.ts` is still
@@ -278,3 +278,231 @@ button cluster and the `RowVerb` wrapper each verb renders through);
 `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (`useFieldEntitySelection` —
 the state arrow keys would move); ARIA Authoring Practices, the `grid` pattern's
 roving-tabindex section.
+
+---
+
+## Folded in at the F4.5 seal (2026-08-03)
+
+Four standalone entries about what the chrome SHOWS and how it reports, moved here for the
+same reason as the field register's fold: this is where a chrome-surface gap belongs, and one
+file per gap was costing findability rather than buying it. Content unchanged; each keeps its
+own trigger.
+
+## A buffered numeric input commits stale text when a push lands mid-edit
+
+**Context.** `ExactNumberInput` (`packages/editor/src/frontend/inspector/fields/common.tsx`)
+holds the user's TEXT in local state and commits it on blur — the buffered parse D-25 asks
+for, and the reason clearing a bounded field never snaps it to 0. It has no way to learn
+that the value underneath it was replaced while it was being typed into, so a blur commits
+text the form has already superseded.
+
+The sequence, reproduced this session (F4.5b Task 11's review round) while pinning the
+re-seed fix:
+
+1. Focus a bounded field and type an out-of-range value — say `99` on a `maximum: 24` param.
+   `SchemaForm` refuses it: nothing is written, nothing previews, the row prints
+   `must be at most 24`.
+2. An external push arrives — a different entity's reconfigure, a ⚄ reroll, an undo, an SSE
+   change. `SchemaForm` DEFERS the re-seed because an input has focus (the echo guard,
+   `lib/echo-guard.ts`), which is correct: it must not clobber what the user is typing.
+3. The user clicks away. React runs the form's `onBlurCapture` (capture phase, downward)
+   BEFORE the input's own `onBlur` (bubble phase, upward), so:
+   - the form re-seeds the drafts to the incoming values and drops the refusal, then
+   - the input commits its buffered `"99"`, which is refused again.
+
+**Observed end state: the input correctly displays the incoming `12` while the row still
+prints `must be at most 24` — about text that is no longer anywhere on screen — and the
+commit verb stays disabled naming a field that now holds a valid number.** That is the same
+user-visible symptom as the re-seed bug fixed in Task 11, reached by a different mechanism,
+which is why fixing that one did not close this.
+
+**Why it was not fixed inline.** It fails two of the four inline-fix conditions: it needs a
+design decision, and the decision changes a shared primitive's contract. The candidate
+shapes, none obviously right:
+
+(a) **Move the form's deferred re-seed from `onBlurCapture` to the bubble phase**, so the
+input finishes its business first and the re-seed wins. One line, but it reorders the echo
+guard against every field renderer, and a *valid* blur commit would then be immediately
+overwritten by the re-seed it currently precedes — trading this bug for a lost edit.
+(b) **Give `ExactNumberInput` a "my value was superseded" signal.** Honest, but it needs a
+discriminator the component does not have: the incoming `value` changes on every preview the
+component itself fires, so "the prop moved while I was focused" is true during normal typing.
+(c) **Let the refusal channel carry the decision** — a field whose refusal is dropped by a
+re-seed also has its buffer reset. Puts the form in charge of a child's local state.
+
+**Scope note.** Only the DEFERRED path is affected. The common case — no focus in the form
+when the push lands — takes the render-phase re-seed and is fixed and pinned
+(`tests/inspector/schema-form-validation.test.tsx`, "an external RE-SEED clears a standing
+refusal", sabotage-proven red in both re-seed branches). Reaching this one needs a push to
+arrive while the user is mid-edit in a field holding an *invalid* value.
+
+**Trigger to revisit:** the first browser-driven gate that exercises the session card while
+an external change lands (an SSE reload, a second client, an undo bound to a key while a
+field has focus), or any task that touches `ExactNumberInput`'s blur contract or
+`SchemaForm`'s echo guard.
+
+**Reference:** `packages/editor/src/frontend/inspector/fields/common.tsx`
+(`ExactNumberInput`'s `onBlur`), `packages/editor/src/frontend/inspector/SchemaForm.tsx`
+(`reseed`, and the `onBlurCapture` branch that calls it),
+`packages/editor/src/frontend/inspector/lib/echo-guard.ts`,
+`packages/editor/tests/inspector/schema-form-validation.test.tsx` (the note above the
+deferral case records why that test moves focus to a sibling rather than blurring).
+
+---
+
+## `useCatalogs` carries a second, narrower severity vocabulary
+
+`NotifySeverity` (`lib/notify-store.ts:21`) is the editor's severity type:
+`"info" | "success" | "warn" | "error"`, and every toast and log entry is one of those four.
+
+`hooks/useCatalogs.tsx:83` declares a second one:
+
+```ts
+type Report = { severity: "info" | "error"; text: string };
+```
+
+with its own constructors (`info`, `bad`) and its own dispatch (`post`, an
+error-else-info branch onto `notify`). It is a real design choice rather than an accident —
+the three catalog loaders run concurrently and the ORDER their outcomes are said in is the
+caller's decision, so an outcome has to be CARRIED rather than posted, and carrying it needs
+a type. The comment above it says exactly that.
+
+What makes it worth tracking is that it is **a second producer writing the same log through
+a narrower alphabet**, and its `post` is a hand-written two-way branch over a four-member
+union. The day a catalog outcome wants `warn` — a partial catalog, a stale table, an entity
+archetype that resolved but is unusable — the branch silently downgrades it to `info`,
+because that is what `else` means here.
+
+### Context
+
+This is the likely home of the "second caller" that `notify-severity-has-no-warn-member.md`
+anticipated before it was retired. F4.5c Task 1 added `warn` to `NotifySeverity` and rerouted
+the advisor-idle message onto it; that entry was deleted as resolved, and this datum went
+with it. It lives here now so the deletion did not lose it.
+
+The fix when it is needed is small and reductive: carry `NotifySeverity` in `Report` and
+make `post` a lookup rather than a branch (`notify[report.severity](report.text)` — the store
+already exposes one method per member). Not done now because at two members the branch is
+correct, and widening a type nothing widens is speculative surface.
+
+### Trigger to revisit
+
+Any `useCatalogs` report that wants `warn` (or `success`) — at that moment the two
+vocabularies must merge rather than the narrow one grow a third member. A third private
+`severity` union appearing anywhere in `src/frontend` is the same signal.
+
+### Reference
+
+- `packages/editor/src/frontend/hooks/useCatalogs.tsx:81-89` — the `Report` type, its two
+  constructors, and `post`.
+- `packages/editor/src/frontend/lib/notify-store.ts:21` — `NotifySeverity`, and the store's
+  per-severity methods a lookup would use.
+
+---
+
+## The long-job readout has a third job it cannot show, and a stats shape that will need grouping
+
+F4.5c Task 4 gave the status bar a long-job chip (D-19): `longJobs()` in
+`shell/StatusBar.tsx` derives a LIST from the world job (`bake…`, `save…`) and
+`FieldStats.voidCastPending`, so two simultaneous jobs both show. Two things about that are
+unfinished, and they are the same event away from each other.
+
+### `applyReconfigure` is a third long job and cannot render a chip at all
+
+`FieldHost.applyReconfigure` blocks the main thread — its own TSDoc §COST records **~310 ms
+at 2137 ops** (core's P-F3-2 bench, JSC), "a visible freeze on Enter, with no progress
+signal". The stall grows with the LOG, not with the edit: the host passes no snapshot
+records, so core replays every op below the entity's span into a scratch store first. Same
+synchronous shape as the bake, and worse for this chip: nothing paints during it, so a chip
+set before the call would not appear until after the freeze it was meant to explain.
+
+That makes it a different problem from the other two rather than a missing wiring, and the
+TSDoc already names the lever — `captureDueSnapshots` exists in core and is unwired here, so
+shrinking the stall is available before surfacing it is. Filed rather than patched because
+the alternatives (wire records; yield a frame before the work, which changes reconfigure's
+timing contract; or accept the freeze and say so in the copy leading up to it) are a choice,
+not a fix.
+
+Recorded so the seal does not pretend the progress story is general: it covers the two jobs
+that CAN report, and names the one that cannot.
+
+### `FieldStats` at a third boolean wants a `jobs: {}` sub-object
+
+`FieldStats` carries one job flag today (`voidCastPending`) beside eight numbers. It rides
+the stats push deliberately — the seams are single-slot, and this fact has no consumer that
+does not already read stats — and that reasoning holds for a second and third flag too. What
+does NOT hold at three is the flat shape: `voidCastPending`, `<x>Pending`, `<y>Pending` as
+siblings of `chunks` and `undoDepth` reads as a bag.
+
+The change when it comes is `jobs: { voidCast: boolean; … }` — still ONE push, still no new
+seam, and `statsEqual` (`lib/field-host-mirrors.ts:33`) grows one level rather than one
+comparison. **A trigger, not a change**: doing it at one flag would be inventing structure
+for a single member.
+
+### Trigger to revisit
+
+A third boolean arriving on `FieldStats` (do the grouping in that same commit), or a user
+reporting the reconfigure freeze as a hang — whichever is first. The two are likely the same
+commit if the reconfigure answer turns out to be "post progress from somewhere".
+
+### Reference
+
+- `packages/editor/src/frontend/components/shell/StatusBar.tsx:486-501` — `longJobs`, the
+  one derivation feeding both the chips and the `aria-live` announcement.
+- `packages/editor/src/viewport-host/field-host.ts` — `FieldStats` (`:331`) and
+  `applyReconfigure`'s TSDoc §COST (`:870-878`), which carries the measurement and names
+  `captureDueSnapshots` as the lever that exists and is unwired.
+- `packages/editor/src/frontend/lib/field-host-mirrors.ts:33` — `statsEqual`, the
+  never-check that a regrouping has to move with.
+
+---
+
+## The void cast's progress chip is indeterminate, and could be determinate
+
+The long-job chip (D-19, F4.5c Task 4) shows `void cast…` while
+`FieldStats.voidCastPending` is true and says nothing about how far along it is. Determinate
+progress is AVAILABLE — it was costed and declined, not overlooked.
+
+Both halves already exist, and `requestVoidCast`'s own comment says so:
+
+- **The worker can post mid-handler**, and posting does not block — the void-cast handler in
+  `frontend/lib/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
+  per-chunk progress message has an obvious home.
+- **The total is `store.chunks.size`**, which `requestVoidCast` reads two lines below the
+  comment declining the feature.
+
+### Context
+
+Declined on the DURATION: measured at the ceiling (bun/JSC, 512 dug chunks, one cast) the
+job is ~1.3 s of worker time, and `VOID_CAST_CHUNK_BUDGET` caps it there precisely so it
+cannot grow without bound. An indeterminate chip is honest for 1.3 s; a determinate one at
+that length reads as ceremony — the bar finishes before it has said anything the user acted
+on.
+
+The rationale lives in source; what lives ONLY here is the trigger, which is the part a
+source comment cannot carry.
+
+The cost is not the arithmetic. It is a new worker→host progress message on the protocol,
+plus a new single-slot `FieldHost.subscribe*` seam for the host to publish it on — and the
+host's seams are deliberately single-slot and deliberately few. That is real surface for a
+1.3 s job.
+
+### Trigger to revisit
+
+The chunk ceiling rising above 512, or any cast observed exceeding ~3 s at a gate. Either
+makes the chip's silence the user's problem rather than a design choice. If the seam is
+built, check first whether `applyReconfigure` wants the same one
+(`long-job-readout-cannot-see-the-third-job.md`) — one progress seam serving both is a
+different design than two.
+
+### Reference
+
+- `packages/editor/src/frontend/lib/field-protocol.ts` — the void-cast handler's per-chunk
+  loop, where a progress post would go.
+- `packages/editor/src/viewport-host/field-host.ts` — `requestVoidCast` and the comment
+  above it declining this; `VOID_CAST_CHUNK_BUDGET` (`:1364-1374`) and its measurement; and
+  `FieldStats.voidCastPending`'s TSDoc, which explains why the pending FLAG rides the stats
+  push instead of taking a seam of its own.
+- `packages/editor/src/frontend/components/shell/StatusBar.tsx` — `longJobs`, the consumer.
+
+---

@@ -1,0 +1,238 @@
+# Chrome shape — extractions and layering, the follow-on set
+
+Four entries consolidated at the F4.5 seal (2026-08-03). None is a defect: every one is a
+place where the code WORKS and its shape is a bet — a helper not yet extracted, a value
+routed through the wrong channel, a layer importing upward. They are filed together because
+they are decided the same way (is the third occurrence here yet? does the arrow still run one
+way?) and because reading them together is how you notice that two of them want the same
+provider stack.
+
+The house position they all sit against: `.claude/rules/clean-code.md` § Cognitive Load —
+*tolerate duplication until the third occurrence* — and the F4.5 chrome's own pattern, which
+is that a value produced by a hook and read by more than one surface becomes a provider
+rather than a wider context.
+
+Each section keeps its own trigger. Delete a section when it is taken.
+
+## The action GATE could leave `lib/actions.ts`
+
+`frontend/lib/actions.ts` is ~1225 lines and holds two things that only meet at the bottom
+of the file: the **action TABLE** (the ~36 declared actions, their labels, hints, keys and
+`run`s — the part everyone edits) and the **GATE** (the rules deciding whether a matched
+action may proceed at all).
+
+The gate is `ActionGate`, `GateEnv`, `GateVerdict`, `gateAction`, `clickGate`,
+`sessionRefusal`, `controlVerdict` and `matchAction` — roughly 90 lines, pure, and acyclic
+with respect to the table: it takes an `ActionDef` and answers about it, and imports nothing
+the table does not already import. A `lib/action-gate.ts` beside `lib/actions.ts` would take
+it whole.
+
+### Context
+
+The tell that the seam is real is that the TEST suite already splits along it: the gate's
+cases and the table's cases are separate concerns in separate places, and reviewers have
+described the file by these two halves more than once.
+
+Not done when it was noticed because every task that noticed it was carrying a behavioural
+change at the same time, and a whole-file move under a behavioural diff is the shape that
+makes a review round unreadable. It is a pure move — no behaviour, no new API — so it wants
+a commit of its own where the diff being a rename is the entire claim.
+
+### Trigger to revisit
+
+`actions.ts` crossing ~1400 lines, or the first change to the gate's RULES rather than to
+the table — the `session.confirm` ⏎ decision
+(`session-confirm-claims-enter-for-every-plain-button.md`) is exactly that change, and doing
+it inside the current file means editing gate logic in the middle of the action table.
+
+### Reference
+
+- `packages/editor/src/frontend/lib/actions.ts` — the gate lives at `:139-157` (the types)
+  and `:1143-1225` (the functions); everything between is the table.
+- `packages/editor/src/frontend/hooks/useGlobalKeybindings.ts` — the one caller of
+  `matchAction` + `gateAction`, which is what makes the seam observable.
+
+---
+
+## `setBoxAnchor(null); setSegmentAnchor(null);` is five sites and wants a name
+
+The box brush and the segment brush each hold a pending first click — `boxAnchor` and
+`segmentAnchor` — and the two are mutually exclusive by construction: arming one clears the
+other. Every path that drops a half-drawn gesture therefore has to clear BOTH, and five
+places in `viewport-host/field-host.ts` do:
+
+| site | what it is |
+| --- | --- |
+| `:5913` | the Esc ladder's first rung — "a half-drawn gesture" |
+| `:6176` | the world-swap rebuild — an anchor in the OLD field |
+| `:6493` | `setGesture` — a carried-over point would read as a start the user never clicked |
+| `:6682` | `startStamp`, the arm-first branch |
+| `:6706` | `startStamp`, the selection-first branch |
+
+That is past `clean-code.md`'s third-occurrence threshold, and the last two only became
+sites at F4.5c Task 14 — where the second one was MISSING and shipped as a defect: on the
+ordinary path (select a region, arm a gesture, click once, pick a generator) a stale segment
+anchor survived into the stamp session and ate the next Esc. Two of the five were written in
+the round that fixed it.
+
+### Context
+
+The candidate is a private `clearGestureAnchors()` beside the two setters — pure, no new
+public surface, and it makes "both, always" a thing the code says once instead of a rule five
+call sites have to remember. The shape of the failure it prevents is already on record:
+the pattern is exactly `setPendingStamp`'s (`field-host.ts:2860-2865`), where the clear
+lives INSIDE the setter so every path that disarms drops the corner whether or not its
+author thought about anchors — the same argument, applied one level up.
+
+Not done at Task 14 because that round was already carrying a behavioural fix and adding two
+lines was strictly the smaller change under the scope set for it. Surfaced rather than
+silently absorbed.
+
+One nuance a helper has to preserve: two of the five sites carry a per-site COMMENT between
+the two calls (`:6176` explains that the segment anchor points into the old field; `:6682`
+explains that `cursorAffordance` answers `null` for any anchored gesture). Those reasons are
+site-specific and would have to move to the call site of the helper, not into it — a helper
+whose adoption deletes them makes the file worse, not better.
+
+### Trigger to revisit
+
+A SIXTH site, or the next substantial edit to `field-host.ts`'s gesture/session region —
+`clean-code.md`'s "drive-by changes don't trigger restructuring" is why this waits for a
+commit already in that neighbourhood.
+
+### Reference
+
+- `packages/editor/src/viewport-host/field-host.ts` — the five sites above, and
+  `setPendingStamp` at `:2860-2865` for the precedent.
+- `packages/editor/tests/field-host-stamp-entry.gpu.test.ts:357` — the `ARM_EXITS` table,
+  which walks the disarm paths and is where a sixth site would want a row.
+- `.claude/rules/clean-code.md` § Cognitive Load — "tolerate duplication until the third
+  occurrence".
+
+---
+
+## Two layering back-edges: `ui/` reaching app chrome, and `viewport-host/` reaching `frontend/lib/`
+
+Two independent places where a lower layer imports UP into a higher one. Same verdict in
+both — the shared thing belongs in a neutral module, not in the consumer that happens to own
+it today — so they are filed together and would be fixed the same way.
+
+### 1. `components/ui/segmented.tsx` → `components/tips.tsx`
+
+`components/ui/` is the control library: D-24 makes it the one place a raw `<input>` or
+`<select>` may be written, and the rule only means something if the directory is a LEAF.
+Every other file in it imports from `../../lib/` and nothing else. `ui/segmented.tsx`
+imports `../tips.tsx` — app-layer chrome, which itself imports `./ui/tooltip.tsx`.
+
+No cycle today, because `tips.tsx` pulls `ui/tooltip.tsx` rather than `ui/segmented.tsx`.
+What it costs is a footgun the type cannot express: `Segmented`'s `hint` prop is optional,
+and supplying one outside a `TooltipProvider` makes `ActionTip` throw. A control-library
+component that throws depending on where it is mounted is not a leaf.
+
+The fix is to move `ActionTip` (and the rest of the tooltip trio) into `frontend/lib/` or a
+neutral `components/tips/` that `ui/` may depend on — F4.5c Task 8 already moved this trio
+once, out of `components/field/` and into `components/tips.tsx`, so this is finishing that
+move rather than starting a new one.
+
+### 2. `viewport-host/` → `frontend/lib/`
+
+`viewport-host/` is the engine-facing half of the editor and `frontend/` is the React half;
+the import arrow is supposed to run frontend → viewport-host. Four files reverse it, across
+ten import statements reaching eight distinct modules:
+
+| importer | modules it reaches in `frontend/lib/` |
+| --- | --- |
+| `field-host.ts` | `analyzer-client`, `catalog`, `field-brush`, `field-client`, `field-entity`, `field-protocol`, `field-size` |
+| `field-placements.ts` | `catalog` |
+| `field-flags.ts` | `analyzer-protocol` |
+| `field-move.ts` | `field-brush` |
+
+Every one of the eight is neutral — protocol types, a catalog reader, brush geometry, a
+size derivation. None is React. They live under `frontend/lib/` because that is where they
+were first needed, not because they belong to the frontend, and the arrow they create means
+`viewport-host` cannot be read as the lower layer even though it is one.
+
+### Context
+
+Both were noticed during F4.5b/c reviews and both were left because a directory move is a
+diff nobody can review alongside a behavioural change. Neither is urgent: the code is
+correct and the tests pass. What they cost is that "which way do imports run here?" has no
+answer a newcomer can rely on, and each new shared module gets placed by precedent.
+
+### Trigger to revisit
+
+A CYCLE appearing — `ui/` reaching anything that reaches `ui/segmented.tsx`, or a VALUE
+import from `frontend/lib/` into `viewport-host/` (the one edge there today,
+`lib/engine.ts:1`, is type-only and erased, so it closes no loop) — which turns a
+readability problem into a bundler problem; or the next task whose scope is already a move
+(an extraction, a rename pass), which is the only kind of commit these belong in.
+
+### Reference
+
+- `packages/editor/src/frontend/components/ui/segmented.tsx:22` — the one import out of
+  `ui/` that does not go to `lib/`; `components/tips.tsx` is the target.
+- `packages/editor/src/viewport-host/field-host.ts`, `field-placements.ts`,
+  `field-flags.ts`, `field-move.ts` — the four importers in the table above.
+- `packages/editor/scripts/one-control-library.grit` — the D-24 rule whose scope claim
+  (`components/ui/` is where these elements are ALLOWED to be written) assumes the
+  directory is a leaf.
+
+---
+
+## `worldsVersion` rides `EditorContextValue` as a counter the drawer must mirror
+
+`hooks/useDaemonFeed.ts` reduces the daemon's SSE feed to a number: a counter bumped on
+every `worlds-changed` / `generation-baked` event. App puts that number on
+`EditorContextValue.worldsVersion`, and `shell/WorldDrawer.tsx` reads it out of the editor
+context and refetches `world.list` whenever it changes.
+
+That works, and the counter-not-payload choice is right (the events are notification-only
+dirty bits). The awkward part is the **route**: a value produced by a hook and consumed by
+exactly one component travels through the editor context, which is otherwise the
+App-owned-things channel — the host ref, the confirm seam, the persistence store. Two
+costs follow:
+
+1. **The wiring is mirror-pinned.** Nothing about `worldsVersion` is observable from the
+   drawer's own module, so the "counter reaches the context reaches the drawer" chain is
+   held together by a test that asserts the shape of the mirror rather than the behaviour.
+   A refactor that renames or re-routes it passes typecheck and fails the pin for reasons
+   that read as test churn.
+2. **It widens the context for one consumer.** `EditorContextValue` is read by every part
+   of the chrome; a field only the drawer wants is surface everyone carries.
+
+The shape that removes both: make the daemon feed a **provider** (`WorldsFeedProvider` or
+fold it into the existing `WorldProvider`, which already owns everything else about
+worlds), have the drawer read it directly, and **delete `worldsVersion` from
+`EditorContextValue`**. The provider stack the shell already builds is the natural home —
+this is the same move Task 8 made for the world verbs and Task 9 for the view state.
+
+Not done at F4.5a because the counter works and the slice's provider budget went to the
+seams that were actively wrong. Filed rather than fixed so the next context edit does not
+re-derive the argument.
+
+**Adjudicated at the F4.5 seal (2026-08-03) — the entry STANDS, and the trigger is sharpened.**
+The stated conditional resolved NEGATIVE in the way that matters: F4.5b's action registry did
+NOT land on `EditorContextValue`. It got a provider of its own
+(`hooks/useActionContext.tsx`), for a render-cost reason — assembling the action context reads
+values that move on every drag frame, so it has to sit above the components that build palette
+bodies. That is the same argument this entry makes, made independently and acted on, which
+strengthens rather than weakens the case here.
+
+`EditorContextValue` WAS widened this stage, once, by F4.5c Task 10's `ViewportFocus` — and
+that one belongs there on the entry's own test: it is App/CanvasHost-owned, installed and
+cleared by the component that owns the canvas element, and read by four unrelated surfaces.
+`worldsVersion` still fails that test on both counts (produced by a hook, consumed by exactly
+one component).
+
+**Trigger to revisit:** the next edit to `EditorContextValue` for any reason, or the mirror pin
+biting during an unrelated refactor. Cheap to take then — the provider stack already exists and
+`WorldProvider` is the natural home.
+
+**Reference:** `packages/editor/src/frontend/hooks/useDaemonFeed.ts`,
+`packages/editor/src/frontend/components/editor-context.ts` (`worldsVersion`'s docblock, and
+`ViewportFocus` beside it as the contrast case),
+`packages/editor/src/frontend/components/shell/WorldDrawer.tsx`,
+`packages/editor/src/frontend/hooks/useActionContext.tsx` (the provider the registry took);
+`docs/reference/editor-architecture.md` §16.8.
+
+---

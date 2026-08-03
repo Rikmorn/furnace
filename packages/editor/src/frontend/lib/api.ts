@@ -1,7 +1,14 @@
 // packages/editor/src/frontend/lib/api.ts
 
-/** A daemon command failure: the contract `code` plus the human message. */
-export class ApiClientError extends Error {
+/** A daemon command failure: the contract `code` plus the human message.
+ *
+ *  NOT EXPORTED, as of the F4.5 seal, and the fact is worth one line rather than a rediscovery:
+ *  no caller in the chrome branches on it. Every catch site reads `.message` off an
+ *  `instanceof Error` narrowing, because what the surfaces need from a failed command is a
+ *  sentence to show, not a class to switch on. `code` is still carried — it is the daemon's
+ *  contract (`daemon/errors.ts`) and the first thing a caller that DID need to branch would
+ *  reach for. Re-exporting is one keyword; do it when a call site actually needs the name. */
+class ApiClientError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
     super(message);

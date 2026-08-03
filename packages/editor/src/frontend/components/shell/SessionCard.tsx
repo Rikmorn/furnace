@@ -206,7 +206,7 @@ export function SessionCard() {
 	// with it. So the memo is the necessary half that lives in this file, and it is not the
 	// sufficient one: the other half is a value-equality guard on the stamp seam, which is
 	// the provider's call and is filed
-	// (`docs/backlog/editor-and-tooling/stamp-seam-pushes-fresh-identities-per-frame.md`).
+	// (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The stamp seam pushes fresh identities per frame, so no consumer memo can hold*).
 	//
 	// ABOVE the early return, and that is not stylistic: as the first hook BELOW it this
 	// crashed the card outright ("Rendered more hooks than during the previous render") the

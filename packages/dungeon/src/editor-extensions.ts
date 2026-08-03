@@ -1,11 +1,21 @@
 // packages/dungeon/src/editor-extensions.ts
 // The editor's project-first bundle entry for the dungeon (furnace.config.json →
 // editor.extensions). No registry extensions today — the dungeon uses only core
-// built-ins. The re-exports are the Epic 3 world seam: they prove (and keep proving,
-// via the editor-side bundling smoke test) that the dungeon's generator import graph
-// is browser-bundlable from the dungeon root. The generation cockpit's WORLD flow calls
-// runWorld/bakeWorldFiles worker-side and realizeRegion/MaterialCache/worldDir panel-side,
-// off an untyped view of this module. The engine bundle may tree-shake unused exports.
+// built-ins. The re-exports prove (and keep proving, via the editor-side bundling smoke
+// test) that the dungeon's generator import graph is browser-bundlable from the dungeon
+// root. The engine bundle may tree-shake unused exports.
+//
+// WHAT THE EDITOR ACTUALLY CALLS OFF THIS MODULE, as of the F4.5 seal (2026-08-03): exactly
+// ONE member, `analyzerVerify`, from `frontend/analyzer-worker.ts`, through a single
+// structural boundary cast (`AnalyzerEngine`). The Epic 3 world seam this file was written
+// for — runWorld/bakeWorldFiles worker-side, realizeRegion/MaterialCache/worldDir
+// panel-side — HAS NO EDITOR CALLER: the generation cockpit that used it (preview host,
+// World panel, generation worker) was deleted at F4.5a, and the dungeon's worlds are dug in
+// the field editor now rather than assembled from region specs. Those exports stay because
+// the bundling proof is worth keeping and because the world-spec path is still the dungeon's
+// own; they are not a live editor contract, so do not treat a change to their shape as an
+// editor-facing break. `docs/reference/editor-architecture.md` §3a records the same fact
+// from the editor's side.
 import { type BakeFile, bakeWorld } from "./bake.ts";
 import type { RegionData, Vec3 } from "./region.ts";
 import { realizeWorldSpec } from "./world-build.ts";

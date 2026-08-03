@@ -33,7 +33,7 @@ const TEXTUAL_INPUT_TYPES = new Set([
  *   brush-radius `<input type="range">` is the sharp case: it is the control someone
  *   drags *while looking at the field*, so matching it makes `V`/`B`/`F` dead exactly
  *   there — the standing "touch a panel and the keys stop working" defect
- *   (`field-f2b-gate-ux-findings.md` #6) relocated from the canvas to a slider.
+ *   (`docs/reference/editor-architecture.md` §18.9) relocated from the canvas to a slider.
  * - **Too narrow** and a key pressed FOR THE CONTROL runs an editor verb instead. A
  *   native `<select>` is the sharp case that way: Esc is the conventional dismiss for its
  *   popup, and these panels use native selects throughout (`field/form-bits.tsx` says

@@ -11,7 +11,8 @@
 // v0 posture: editor props are PROXIES — the collision primitive drawn as a unit
 // cube / sphere / cylinder, not the archetype's `.fmesh` variants the dungeon
 // loads. Mesh-accurate editor props are backlogged
-// (`docs/backlog/editor-and-tooling/field-editor-prop-meshes.md`).
+// (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as
+// collision PROXIES, not the archetype's actual meshes*).
 import type {
   FieldOp,
   GeneratorEmits,

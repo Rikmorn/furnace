@@ -78,6 +78,5 @@ A handful of approaches were evaluated and rejected:
 - `packages/hello-world/src/overlay/` — live Svelte 5 + `@furnace/core` integration.
 - `docs/learnings/render-to-texture.md` — render-to-texture gotchas from the WGSL primitive proof.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *In-scene UI primitive — for occluded cases only (γ)* — WGSL textured-plane primitive, deferred.
-- `docs/backlog/editor-and-tooling/svelte-editor-inspector-surfaces.md` — Svelte editor/inspector surfaces, deferred until ECS lands.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *SDF font atlas + glyph rendering* — sharp text at varying scales, deferred.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *Emerging-tech watch: WICG HTML-in-Canvas / Vello browser readiness*.

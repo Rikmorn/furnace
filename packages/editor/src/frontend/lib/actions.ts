@@ -22,8 +22,9 @@
 //
 // What the registry adds for those shared keys is REACH and GATES. The canvas listener
 // only fires while the canvas has focus, and clicking any palette control takes focus
-// away — the standing F2b finding (`field-f2b-gate-ux-findings.md` #6) that a viewport
-// binding silently dies the moment the user touches a panel. The window listener has no
+// away — the standing F2b gate finding that a viewport binding silently dies the moment the
+// user touches a panel (`docs/reference/editor-architecture.md` §18.9 carries the datum and
+// the arrows-are-canvas-only-by-design position it settled into). The window listener has no
 // such hole, and it is the only one that consults the gate below.
 //
 // This module is PURE and DOM-free (`KeyboardEvent` appears as a type only, erased at
@@ -279,7 +280,7 @@ const shifted = (e: KeyboardEvent, key: string): boolean =>
  *  AltGr is the one keyboard this cannot reach, and it is a known cost rather than an
  *  oversight: Windows reports AltGr as ctrl+alt, which `mod` and `!altKey` both refuse. The
  *  project is macOS-primary; the residue is filed
- *  (`docs/backlog/editor-and-tooling/shortcut-overlay-key-on-altgr-layouts.md`). */
+ *  (`docs/backlog/editor-and-tooling/chrome-focus-and-dismissal-follow-ons.md` § *`?` cannot reach the shortcut overlay on a layout that needs AltGr for it*). */
 const question = (e: KeyboardEvent): boolean =>
   !mod(e) && !e.altKey && e.key === "?";
 
@@ -466,7 +467,8 @@ const axisView = <A extends Axis, S extends 1 | -1>(
  *  here would be a second copy to keep true. That SC does not apply to a control whose
  *  function is reachable another way on the same page — these rows are that other way, so
  *  the tips are a redundant affordance rather than a violation. Delete this list and the
- *  finding re-opens (`field-f4-gate-ux-findings.md` §3).
+ *  finding re-opens (the F4 gate's target-size item, closed by these rows;
+ *  `docs/reference/editor-architecture.md` §18.5).
  *
  *  BEHIND THE VIEW SUBMENU since the holistic gate's ruling 3, and the paragraph this
  *  replaces argued the opposite ("FLAT rather than behind a submenu … the stand-in route

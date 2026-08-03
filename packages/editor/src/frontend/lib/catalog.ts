@@ -203,7 +203,8 @@ export type EntityCollision =
  *  SCATTER GENERATOR's param spelling (`scaleRange` → `scaleMin`/`scaleMax`), so
  *  the host can spread it straight over the schema defaults. The catalog's mesh
  *  paths are deliberately NOT carried: editor props are proxies (see
- *  `docs/backlog/editor-and-tooling/field-editor-prop-meshes.md`). */
+ *  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as
+ *  collision PROXIES, not the archetype's actual meshes*). */
 export type EntityArchetype = {
   id: string;
   name: string;

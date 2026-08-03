@@ -223,6 +223,13 @@ function SelectionVerb({
 	// failure (a dead button would be worse), and the id pair below is asserted against
 	// the table in the suite.
 	if (action === undefined) return null;
+	// `enabled` ALONE, and this is the one refused control in the chrome that does not read
+	// `controlVerdict` — so it is the site that would diverge first if the two ever disagree.
+	// Correct today by policy rather than by luck: the chip carries Clear and Reselect, whose
+	// only refusal is INERT (nothing selected, nothing parked), and an inert refusal is silent
+	// by design — there is no sentence `controlVerdict` would add. A verb with a GATE clause
+	// (a chord, a `typed` letter, `armsTool`) must not be added here without switching to
+	// `controlVerdict`, or its key and its button would refuse for different reasons.
 	const disabled = !action.enabled(ctx);
 	const hint = action.hint;
 	const control = (

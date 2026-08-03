@@ -341,7 +341,8 @@ test("the enable/disable edges are context-free until they need a context", () =
   // guard stopped a worker job — a spawned bun Worker for the browser's
   // /field-worker.js neither resolves nor rejects in-process, so removing the
   // guard is invisible from here. Proving THAT needs a worker-client injection
-  // seam the host does not have (backlog: field-host-worker-injection-seam).
+  // seam the host does not have (backlog: `editor-test-harness-fragility.md` §
+  // *FieldHost's worker seam exists now*).
   const host = hostWithChunks(2);
   const errors: string[] = [];
   host.subscribeToolError((m) => errors.push(m));

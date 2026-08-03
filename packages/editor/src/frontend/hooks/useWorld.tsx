@@ -411,6 +411,11 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 					setDrawer(null);
 					notify.info("new world — all solid rock");
 				}),
+			// DELIBERATELY NOT `destructive: true`, unlike delete and overwrite-a-tracked-world.
+			// This rewrites one line of worlds/index.json and destroys nothing: every world on
+			// disk is still there afterwards, and the verb's own inverse is running it again on
+			// the previous default. The red button is reserved for the operations that lose
+			// data, so that when it appears it still means something.
 			makeDefault: (target) =>
 				openConfirm({
 					title: `Make "${target}" the game's world?`,

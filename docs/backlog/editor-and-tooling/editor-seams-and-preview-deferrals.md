@@ -97,7 +97,7 @@ thing to pick up.
 **Reference:** `packages/editor/src/frontend/components/Viewport.tsx` (the two-canvas
 visibility swap + the zero-size init comment), `packages/editor/src/frontend/components/App.tsx`
 (dockview panel registration, `previewHostRef`), `packages/editor/src/frontend/lib/panels.ts`
-(`PANELS` registry), sibling `generation-cockpit-ux-gate-findings.md`.
+(`PANELS` registry) — all three deleted at F4.5a with the dock and the preview host.
 
 ## Editor viewport HDR context + post-chain preview
 

@@ -8,9 +8,11 @@ merged so there is **one place to check whenever you touch
 `packages/core/src/field/{ops,kit-render,reconfigure}.ts`**. Nothing here blocks; every
 section keeps its own trigger. Sections keep their original content.
 
-**Not in here:** the gate-UX finding SETS (`field-f2b-gate-ux-findings.md`,
-`field-f3a-gate-ux-findings.md`, `field-f3b-gate-ux-findings.md`) stay as separate files —
-they are the post-feature polish stage's charter inputs.
+**Not in here:** the F2b/F3a/F3b gate-UX finding SETS were separate files until the F4.5
+seal (2026-08-03) consumed them into the charter and deleted them. What survived them lives
+in `box-select-is-two-clicks-not-a-drag.md`, `create-session-ghost-cannot-be-dragged.md` and
+`void-cast-budget-and-inside-view-are-still-unwalked.md`; the rest is as-built in
+`docs/reference/editor-architecture.md` §16–§18.
 
 ## Editor props render as collision PROXIES, not the archetype's actual meshes
 
@@ -358,3 +360,224 @@ described.
 `drift = result.drift.length === 0 ? null : result.drift`);
 `packages/core/src/field/reconfigure.ts` (`deleteGeneratorEntity`'s "No drift report" note
 naming both findings it gives up).
+
+---
+
+## Folded in at the F4.5 seal (2026-08-03)
+
+Five standalone entries about the field host's own behaviour, moved here because this file is
+the register they belong to and they were being read one at a time. Content unchanged; each
+keeps its own trigger.
+
+## The translate gizmo draws on frozen and baked entities
+
+**Context.** `field-host.gizmoVisible()` gates the handles on three things: the
+`pointer` tool armed, an entity selected, and no session the gizmo did not open.
+It does NOT ask whether the selected entity can actually be moved. Selecting a
+FROZEN or BAKED entity therefore draws a full translate gizmo on it; pressing a
+handle calls `beginMoveSession` → `openEntitySession`, which refuses through
+`openBlockedReason` and reports "entity N is frozen — unfreeze it to edit". So it
+is a false affordance, not a corruption: nothing moves and the reason is legible.
+
+The fix is a one-line addition to `gizmoVisible` (the record's
+`openBlockedReason` must be null), but it is deliberately NOT taken in F4.5b Task
+5 because it runs into a question that task does not own: whether a frozen entity
+should be SELECTABLE at all. If selection itself were refused the gizmo question
+disappears; if selection stays, the emphasis box has the same "you can select it
+but not act on it" shape and the two should be answered together.
+
+**Trigger to revisit.** F4.5b Task 8 or 10, whichever settles what a frozen entity
+looks like in the palette row and the session card.
+
+**Reference.** `packages/editor/src/viewport-host/field-host.ts` —
+`gizmoVisible`, `beginMoveSession`;
+`packages/editor/src/frontend/lib/field-entity.ts` — `openBlockedReason`.
+
+---
+
+## Log-signature caches can miss a world swap
+
+**Context.** `FieldHost` memoizes derived state on a *signature* built from the op log's
+own numbers. `currentLogStats` (`packages/editor/src/viewport-host/field-host.ts`, the
+op-cost meter's cache) uses `(ops.length, undoStack.length, redoStack.length)`. A world
+swap goes through `resetWorld`, which empties `log.ops` and both stacks and resets
+`log.nextId` — so two worlds whose logs agree on those numbers produce the SAME signature,
+and the incoming world reads the outgoing world's cached values.
+
+Found 2026-07-31 during F4.5b Task 3 review, on the sibling cache: the entity-footprint
+memo showed world A's boxes after loading world B (reproduced — two 2-op worlds with ids
+1 and 2 sign identically; a click on empty space in world B re-selected world A's entity
+and drew its box where nothing was). **That one is FIXED** — its signature now leads with
+`worldEpoch`, the counter `resetWorld` already bumps for the analyzer, and
+`tests/field-host-pointer.gpu.test.ts` pins it.
+
+`currentLogStats` has the same shape of exposure and was left alone as out of scope. Its
+consequence is milder — a stale op-cost READOUT (totalOps / undo depth / compactable) for
+one frame — because it is recomputed every rAF and the next tick after any log mutation
+corrects it. It is only wrong in the window where the two worlds' three lengths agree AND
+nothing has mutated the new log yet, which for a freshly loaded world is the frame right
+after the load.
+
+**The fix, when it is worth doing:** the same one token — put `worldEpoch` at the front of
+the `currentLogStats` signature. Cheap; not done at the time only because the task's
+boundary was the pick.
+
+**Worth considering instead:** both caches invalidating on an explicit signal rather than
+each inventing a signature. `resetWorld` is the ONE place a world goes away; a
+`cacheEpoch`-style bump read by every memo in the host would make a new cache correct by
+default rather than correct-if-the-author-remembered. Two hand-rolled signatures is the
+point at which that starts paying.
+
+**Trigger to revisit:** a third log-signature cache being added, or the first report of a
+stale meter reading after a world load.
+
+**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`currentLogStats`, and
+`entityFootprints` for the fixed version + its comment);
+`packages/editor/tests/field-host-pointer.gpu.test.ts` (the world-swap case).
+
+---
+
+## A live stamp session survives a ⌘Z / ⇧⌘Z step
+
+**Context.** `field-host.stepHistory` refreshes everything a history step can move
+— the dirtied chunks, the prop layer, the entity list, the entity selection — but
+does not touch the live `stamp` session. A plain reconfigure session (opened by
+the Entities row's Open button, or by `openEntity`) therefore outlives a step
+that rewrote the log underneath it. Two shapes:
+
+- The step UNDOES the commit the session's entity came from. The session now names
+  an entity that is not in the log; Apply fails with core's
+  `reconfigureGenerator: unknown entity N` and the session keeps standing.
+- The step undoes an earlier RECONFIGURE of a surviving entity. Nothing fails —
+  the session simply describes params/region relative to a record the step has
+  already replaced, and Apply quietly re-lands an edit the user just undid.
+
+F4.5b Task 5 fixed the MOVE case only (`if (stamp?.moving === true)
+cancelStampSession()` in `stepHistory`), because a move is cursor-driven and the
+canvas that binds ⌘Z is necessarily focused during one — so it was reachable in a
+single keypress and inside that task's scope. The plain-reconfigure exposure is
+older and wider.
+
+The blanket case is already argued twice in this file: `resetWorld` and
+`setMaterialTable` both cancel outright, on the reasoning that a session whose
+inputs moved must not be left offering an Apply that would build something the
+ghost never showed. A history step is the same class of event.
+
+**Trigger to revisit.** The next task that touches `stepHistory` or the session
+lifecycle — F4.5b Task 8/10 (session card + strip) would surface it, since the
+card is what leaves an enabled Apply on screen.
+
+**Reference.** `packages/editor/src/viewport-host/field-host.ts` — `stepHistory`,
+`resetWorld`, `setMaterialTable`. Tests for the move half:
+`packages/editor/tests/field-host-move.test.ts`.
+
+---
+
+## A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it
+
+**Context.** `dropMove()` (`packages/editor/src/viewport-host/field-host.ts`) ends a live
+move by asking `moveIsIdle(d)` (`viewport-host/field-move.ts`) whether the move handed the
+region anything — and `moveIsIdle` reads the DRAG's accumulated lattice steps
+(`d.applied`), i.e. how far the CURSOR travelled. A grab is not only driven by the cursor:
+the arrow pad (`nudgeStampRegion`) and the stamp inspector's d-pad move the same session's
+region without touching `d.applied`. So the sequence
+
+> select a stamp → `G` → ← ← ← → ⏎
+
+leaves `d.applied === [0,0,0]`, `moveIsIdle` answers true, and `dropMove` calls
+`cancelStampSession()` — the region the user just moved three steps is thrown away with no
+message. The same three steps committed fine before `G` was pressed (a plain reconfigure
+session's ⏎ routes to `commitActiveSession`), which is what makes it surprising rather than
+merely strict.
+
+Reproduced during F4.5b Task 7, not by reading: routing the public `commitSession()`
+through the same path turned `tests/field-host-move.test.ts`'s *"a move commits through the
+reconfigure splice"* red at `Expected: 2, Received: 0` — a `nudgeStamp(4, 0, -2)` on a
+`beginMove` session, discarded on confirm. Task 7 therefore did NOT route the public verb
+through `dropMove`; the canvas ⏎ keeps it, so the defect stays where it already was rather
+than spreading to three entry points.
+
+**The shape of the fix.** The zero-step rule is right — a twitchy click should not spend a
+history entry — but it is asking the wrong question. What it wants to know is whether the
+SESSION's region differs from the entity's RECORDED region, which `dropMove` can answer
+directly (`entityRecord(stamp.entityId)` is one call away, and the comparison is six
+numbers). That also makes it correct for the mixed case (drag two steps, arrow back two),
+which the current test cannot express at all. `moveIsIdle` then either goes away or becomes
+a region comparator rather than a drag one.
+
+**Trigger to revisit.** The next task that touches `dropMove` or the move session's
+terminal verbs — Task 10's session card is the likely one, since its Apply button is a
+third entry point into exactly this decision and would inherit the same discard.
+
+**Reference.** `packages/editor/src/viewport-host/field-move.ts` (`moveIsIdle`),
+`field-host.ts` (`dropMove`, `confirmActiveSession`), `tests/field-host-move.test.ts`.
+
+---
+
+## The stamp seam pushes fresh identities per frame, so no consumer memo can hold
+
+**Context.** `FieldHost.subscribeStamp` publishes `structuredClone(stamp)` on every
+`notifyStamp` — every param edit, every region nudge, every phase transition, at pointer
+rate while a move drag runs. So `session.params` is a NEW object identity on every push even
+when nothing in it changed, and every downstream memo keyed on that identity recomputes.
+
+The concrete cost measured in F4.5b Task 10, through the real Shell + stub host, 20 distinct
+session pushes, counting `SchemaForm` renders:
+
+| | no `formValues` memo | with it |
+|---|---|---|
+| host clones params (production today) | 40 | **40** |
+| params identity held stable (counterfactual) | 40 | **21** |
+
+`SchemaForm` re-seeds its drafts whenever `values` is a new array, and that re-seed is a
+state write during render — hence two renders per push, each rebuilding every field row. The
+card's own `useMemo` is correct and is the half that belongs in the component; it simply
+cannot reach the cause. The same shape will bite every future consumer of this seam.
+
+**What the fix is not.** Not "stop cloning": the clone is what keeps the chrome from holding
+host state, which is a rule worth more than the renders.
+
+**The options**, all of which need a decision rather than an edit:
+(a) a value-equality guard in `useFieldHostState`'s stamp mirror (the `sameEntities`
+precedent — `setStamp(prev => sameSession(prev, s) ? prev : s)`), which needs a definition of
+"same session" that is honest about `run`, `phase` and `region`;
+(b) a narrower guard on `params` alone, since that is the field whose identity drives the
+form — cheaper, and it leaves phase/region churn re-rendering the card as it should;
+(c) push a stable `params` from the host by cloning only when the params actually change.
+
+(b) looks cheapest and most targeted, but the comparison depth is the real question — the
+entity comparator next door compares through `formatParam` because what must not go stale is
+the STRING on screen, and the same argument may or may not apply to a live form.
+
+**STATUS 2026-07-31 (F4.5b Task 11 — trigger fired, still NOT acted on).** Task 11 did land
+in `SessionCard.tsx` and did upgrade the renderers (bounded numbers became a range + a
+scrubby label + an exact input; small enums became segmented controls), so the premise above
+— "which makes each of those 40 renders more expensive" — was due for a measurement. It was
+taken, and it does not support acting:
+
+| card form (4 params) | 20 session pushes | DOM nodes in the card |
+|---|---|---|
+| 4 plain `NumberField`s | 19.0 / 23.0 / 20.1 ms | 47 |
+| slider + stepper + slider + segmented | 18.4 / 23.0 / 21.8 ms | 55 |
+
+Three runs each through the real Shell + stub host, with a warmup mount before both (the
+FIRST measurement pair was confounded: whichever form ran first looked ~30% slower, which
+is module init and JIT, not the form). The two are indistinguishable at ~1 ms per push, and
+the +17% DOM is not where the cost is — the re-seed-during-render is. So the extra renderers
+did NOT raise the stake; the entry stands on its original argument, unchanged.
+
+Two honest limits on that number: it is happy-dom, not a browser (no layout, no paint), and
+it is a FOUR-param form. A scatter's ten params under a pointer-rate move drag is the case
+that would actually hurt, and it is still unmeasured.
+
+**Trigger to revisit:** a MEASURED render cost on a real browser under a pointer-rate drag
+(a move, not a click), or a second consumer of `subscribeStamp`. The "a task upgrades the
+renderers" half of this trigger has now fired once and paid nothing — do not re-fire it.
+
+**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`notifyStamp` /
+`subscribeStamp`), `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (the stamp
+mirror, and `sameEntities` beside it as the precedent), `packages/editor/src/frontend/
+inspector/SchemaForm.tsx` (the `seed.current !== values` re-seed),
+`packages/editor/src/frontend/components/shell/SessionCard.tsx` (`formValues`).
+
+---

@@ -764,7 +764,7 @@ export type FieldHost = {
    *  preview settles). Known limit, filed rather than fixed here: that zero-step
    *  test reads the CURSOR's travel, so a grab moved only by the ARROW keys reads
    *  as idle and is discarded —
-   *  `docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`.
+   *  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*.
    *  Routing both ⏎s through one verb is what keeps that a single defect instead
    *  of a difference between two keys. */
   confirmSession(): void;
@@ -797,8 +797,9 @@ export type FieldHost = {
    *  binding lives on the CANVAS, so it fires only while the canvas has focus,
    *  and clicking any panel control takes focus away and silently stops it
    *  working (the standing F2b gate finding about the nudge buttons —
-   *  `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md` #6). A
-   *  panel affordance is the fix, and it calls this.
+   *  `docs/reference/editor-architecture.md` §18.9, where the arrows-are-canvas-only
+   *  position it settled into is recorded). A panel affordance is the fix, and it
+   *  calls this.
    *
    *  Remeshes what the step dirtied, refreshes the entity highlight (a
    *  reconfigure step moves the region it outlines) and ticks
@@ -859,7 +860,8 @@ export type FieldHost = {
    *  differ from what the apply produces (the apply rewinds the affected chunks
    *  to their pre-span state first). Exactness needs worker-side restore —
    *  backlogged:
-   *  `docs/backlog/editor-and-tooling/field-reconfigure-ghost-exactness.md`.
+   *  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Reconfigure ghost
+   *  previews against CURRENT field state, not the entity's pre-span state*.
    *
    *  Runtime-quiet on everything it can refuse: an unknown id, a FROZEN or
    *  BAKED entity, and an entity whose recorded generator has left the registry
@@ -3752,7 +3754,7 @@ export function createFieldHost(deps?: {
   // box mis-aims a click and self-heals on the next mutation, it corrupts
   // nothing. (`currentLogStats` at the op-cost meter has the world-swap exposure
   // too — filed rather than fixed here: `docs/backlog/editor-and-tooling/
-  // field-log-signature-caches-miss-world-swaps.md`.)
+  // field-tool-follow-ons.md` § *Log-signature caches can miss a world swap*.)
   let footprintCache: Map<number, { min: Vec3T; max: Vec3T }> | null = null;
   let footprintSig = "";
   const entityFootprints = (): Map<number, { min: Vec3T; max: Vec3T }> => {
@@ -4650,6 +4652,14 @@ export function createFieldHost(deps?: {
     // Checked BEFORE the lookup so the message names the ROOT cause: with no
     // profile nothing was ever analysed, so every key is missing, and "that flag
     // was re-analyzed away" would send the user hunting the wrong thing.
+    //
+    // IT IS THE SAME RACE `analyzeChunks`'s idle notice had (the F4.5 gate's F-2) and it is
+    // NOT gated on `agentProfileAnswered` here, deliberately: this sentence is only reachable
+    // through a verify, a verify is only reachable from a flag ROW, and rows exist only once
+    // the analyzer has produced findings — which needs a profile. So the window in which the
+    // answer is still in flight has no route to this call. If a verify ever becomes reachable
+    // from somewhere that does not imply a finding (a palette verb, a command-palette row),
+    // that stops being true and this wants the same latch the notice took.
     if (profile === null) {
       reportToolError(
         "verify needs the project's agent profile — none is installed",
@@ -4730,6 +4740,15 @@ export function createFieldHost(deps?: {
   // at yet, so `analyzerHasWork` is what both this and the pump ask. That shared
   // answer is the point: the pump had already decided not to fire, and only this
   // count disagreed (the F4.5 gate's F-3, on a brand-new world).
+  // COVERAGE NOTE (F4.5 seal): the `|| analyzerResync` term is not pinned by any test —
+  // deleting it leaves the whole suite green. It is kept rather than dropped because the two
+  // flags answer different questions (`analyzerHasWork` asks whether any chunk is dirty;
+  // `analyzerResync` asks whether the NEXT pass must re-read the whole store, which
+  // `setAgentProfile` and the world-load paths set on a store that may have no dirty chunk
+  // at all), and the reason the suite cannot tell them apart is timing: a queued resync
+  // normally survives only the frame in which `analyzerBusy` is already contributing 1. That
+  // is an argument, not a proof. If this ever needs changing, write the case first —
+  // profile installed on a loaded world, before the pump fires — rather than trusting the green.
   const analyzerPendingCount = (): number => {
     if (agentProfile === null) return 0;
     const queued = analyzerHasWork() || analyzerResync;
@@ -5508,7 +5527,7 @@ export function createFieldHost(deps?: {
   // move first. Keeping them apart is also what stops a filed defect from
   // spreading: `moveIsIdle` asks whether the CURSOR moved, so a grab moved only by
   // the ARROW keys reads as idle here and is discarded
-  // (`docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`).
+  // (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*).
   // Both ⏎s share that one defect rather than answering differently.
   const confirmActiveSession = (): void => {
     if (moveDrag !== null) {
@@ -5542,7 +5561,7 @@ export function createFieldHost(deps?: {
     // moved, and the drop then quietly re-applies the placement the user undid.
     // Scoped to moves: whether ANY session should survive a history step is a
     // wider question, filed as
-    // `docs/backlog/editor-and-tooling/field-session-survives-history-step.md`.
+    // `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A live stamp session survives a ⌘Z / ⇧⌘Z step*.
     if (stamp?.moving === true) cancelStampSession();
     revalidateEntitySelection();
     // A step can add or remove placement ops (a scatter commit, a reconfigure

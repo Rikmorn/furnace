@@ -2,7 +2,7 @@
 
 > **As-built reference:** the M3+M4 editor is now documented as the canonical "how it IS today" at **`docs/reference/editor-architecture.md`** (daemon, two-target bundling, command table, SSE events, error contract, chrome, config namespacing). **This file is decision history** — the *why* behind that reality; for *what runs*, read the reference.
 
-> **Epic status:** the editor epic (M1→M5B + M1-slices) is **complete and paused** — its objective (replicate the bowling demo's setup from data) was met, and the project then retargeted to the dungeon-crawler app. **This doc is the decision history**; for what runs, read `docs/reference/editor-architecture.md`; for the future-editor gaps, see `editor-interaction-model-redesign.md`.
+> **Epic status:** the editor epic (M1→M5B + M1-slices) is **complete and paused** — its objective (replicate the bowling demo's setup from data) was met, and the project then retargeted to the dungeon-crawler app. **This doc is the decision history**; for what runs, read `docs/reference/editor-architecture.md`; for the future-editor gaps, see `scene-chrome-returns-as-consumer-surface.md` (the interaction-model-redesign master entry was consumed into the F4.5 charter and deleted at its seal).
 
 The editor surface, once it materialises, doesn't fit any current furnace pillar. Today's model is engine (`@furnace/core`) / harness (`@furnace/tools`) / consumer (`hello-world`). The editor is two things glued together: a thin furnace consumer for its viewport and UI rendering, and a long-running application server backend that orchestrates external authoring tools (Blender headless, Aseprite CLI, ComfyUI, TTS engines, filesystem watching, asset-graph state, job queues, possibly GPU-bound model invocation).
 
@@ -19,7 +19,7 @@ Shape decisions captured here so they don't get relitigated when the work starts
 
 The editor is, definitionally, a scene-state authoring-and-inspection tool — and furnace has **no persistent, serializable scene representation today**. Demos build their world imperatively (~85 of the ~155 lines of a cookbook `entry.ts` is construction) and pass `{ meshes, camera }` to `frame.render`. There is nothing to edit, save, or introspect. So the editor's true prerequisite is a **scene model + core-resident serialization** — not AI, not UI.
 
-This keystone is justified *independently of the editor*: it also unlocks save/load, the inspector (`svelte-editor-inspector-surfaces.md` triggers "when ECS lands"), and the runtime LLM-planner (`llm-as-planner-experiments.md` needs entity/world state). Build it for its own sake; the editor becomes tractable once it exists.
+This keystone is justified *independently of the editor*: it also unlocks save/load, the inspector, and the runtime LLM-planner (`llm-as-planner-experiments.md` needs entity/world state). Build it for its own sake; the editor becomes tractable once it exists.
 
 Dependency order: **scene representation → serialization / loader (the interchange contract) → introspection → MCP-shaped command layer (decision 2 — this is the "AI from day one" mechanism) → frontend + backend.** A *serializable scene tree* (three.js / Godot node-tree style) is enough to start — this does **not** gate on the heavy data-oriented ECS (`ecs-data-oriented-soa-layout.md`).
 
@@ -99,7 +99,7 @@ layer" to **"command layer"** — MCP was descoped (below). What landed:
 
 ## Epic execution order (resolved 2026-06-11; M1 slice-1/M2/M3 sealed by then)
 
-> **SUPERSEDED 2026-06-14 — editor epic closed.** M4, M5 (M5A+M5B), and all M1 slices LANDED & SEALED. **M6 (behaviour runtime + bowling gate) and M7 (porting + docs) are DROPPED** by the roadmap retarget from the bowling demo to the actual app (a first-person dungeon crawler); future editor work is driven by that app's procedural-authoring needs (`editor-interaction-model-redesign.md`). The original ordering below is kept for rationale only.
+> **SUPERSEDED 2026-06-14 — editor epic closed.** M4, M5 (M5A+M5B), and all M1 slices LANDED & SEALED. **M6 (behaviour runtime + bowling gate) and M7 (porting + docs) are DROPPED** by the roadmap retarget from the bowling demo to the actual app (a first-person dungeon crawler); future editor work is driven by that app's procedural-authoring needs — which the One Field phase and the F4.5 stage then did (`docs/reference/editor-architecture.md` §11–§18). The original ordering below is kept for rationale only.
 
 **M4 (MCP commands) → M5 (inspector/hierarchy/gizmos) → all remaining M1 slices as one
 registration batch (lights, textures, physics, full settings, migration, serialize) → M6 (behavior
