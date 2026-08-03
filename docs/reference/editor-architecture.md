@@ -1,19 +1,35 @@
 # Editor Architecture
 
-The as-built `@furnace/editor` package, milestones **M3** (editor shell) + **M4** (command layer) + **M5A** (inspector) + **M5B** (viewport interaction), plus the **M1-slices** registration batch (the full built-in set + physics-from-data in the core loader), plus the **Epic 3 cockpit slices** — **3.0** (editor-openable dungeon, extensions-dir watch) and **3.1** (the generation loop: a preview host, the `generation.bake` command, and an ephemeral generation session; §13), **3.2** (the editor foundation pass — design-system tokens, menu bar + global keybindings, UI persistence, viewport reference layer + dolly navigation, inspector IA + humanized labels; §14), and **3.2.3** (cockpit hardening — generation moved onto a worker, with instant mid-run cancel; §13.6), plus the **One Field phase** — **F1+F2a** (the Field panel + `FieldHost` over `@furnace/core/field`; §15), **F2b** (the palette — brush chassis, selection, stamp generators, layers + slice; §16), **F3a** (smart objects — reconfigure/freeze/bake; §17), **F3b** (scatter authoring, placed props, the void cast, the segment brush; §18), **F4** (the walkability advisor; §19) and **F4.5a** (the overlay shell — full-window canvas, floating palettes, the world drawer, the notify system, studio shading; **§20**). This is the reference — "how the editor IS today." The decision history that produced it lives in `docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the running system.
+The as-built `@furnace/editor` package: **how the editor IS today**, at the F4.5 seal
+(2026-08-03). The editor is a **field authoring tool** — one full-window canvas with an
+overlay cockpit floating over it, a Node-portable daemon behind it, and no engine of its
+own. The decision history that produced it lives in
+`docs/backlog/editor-and-tooling/editor-backend-architecture.md`; this doc describes the
+running system.
 
-> **Epic status (2026-06-14): the editor epic is complete and paused.** M1→M5B + M1-slices landed and sealed. The originally-planned **M6** (behaviour runtime) and **M7** (porting + docs) are **dropped** — the project retargeted from the bowling demo to its actual application (a first-person dungeon crawler), so future editor work is driven by that app's **procedural-authoring** needs rather than the old milestone ladder. The known gaps a future editor pass must address are captured in `docs/backlog/editor-and-tooling/editor-interaction-model-redesign.md`.
->
-> **Update (Epic 3, 2026-07-06):** the cockpit slices reopened editor work along exactly that procedural-authoring axis — the editor now generates, previews, curates, and bakes procedural world content (§13) — while keeping the editor engine-free (the consumer's generator arrives through the engine bundle's `extensions` namespace).
->
-> **⚠ Update (F4.5a, 2026-07-30) — READ §20 FIRST for anything about the chrome.** The
-> overlay-shell slice retired the dock, the field toolbar, the World panel and the whole
-> scene-document chrome. **§20 is the authority on the frontend as it stands**; §7 and
-> §10–§14 are kept as the history that produced it and are stale wherever they describe a
-> panel, a layout, a keybinding or a component. Each carries its own marker below. The
-> daemon sections (§2–§6, §8) are unaffected and still current. A full merge of the
-> superseded sections into §20 is scheduled for the F4.5 seal — this section landed at
-> F4.5a so the doc stops asserting a chrome that no longer exists.
+**Read it in two halves.** §1–§8 are the DAEMON and the serving contract — the parts that
+have been stable since M3/M4 and that no chrome rewrite touches. §9–§18 are the FIELD
+authoring tool: the inspector module, the field host and its workers, and the three F4.5
+slices that made the chrome what it is. §19 lists what is deferred.
+
+**What was cut at this seal, and where it went.** The editor once had a dockview chrome, a
+scene-document surface (entities panel / inspector panel / GPU-id picking / translate gizmo
+over a `ViewportHost`), a preview host, a World panel and a generation worker. F4.5a deleted
+all of it. Sections describing that deleted code are **gone from this doc** rather than kept
+as marked-stale history — the surviving mechanisms were folded into the sections that own
+them now (the inspector module into §9, `generation.bake` into §4.3, the core-side loader
+coverage into §10, the promoted pure-math modules into §14 and §17.3). The daemon still
+implements the whole `scene.*` command family (§4.2) and nothing in the chrome calls it; the
+case for a scene surface returning as a CONSUMER-facing extension is
+`docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`.
+
+**Lineage**, for anyone reading a commit or a seal-log line and looking for its landing
+place here: M3 (shell) + M4 (command layer) + M5A/M5B (the retired scene surface) built
+§1–§8; the M1-slices batch built the core-side loader coverage (§10); Epic 3's 3.0/3.1/3.2
+slices opened the procedural-authoring axis; the **One Field** phase built the field tool —
+F1+F2a (§11), F2b (§12), F3a (§13), F3b (§14), F4 (§15) — and the **F4.5 stage** rebuilt the
+chrome over it in three slices: F4.5a the shell (§16), F4.5b the hands (§17), F4.5c the
+finish (§18).
 
 ## 1. What the editor is
 
@@ -51,17 +67,19 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 
 The daemon builds the consumer's engine code in **two** esbuild bundles, both resolving every import from the project root's `node_modules` so there is exactly **one** core / registry / zod instance (Branch A's instance-identity requirement).
 
-**(a) Browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects), re-exports the two engine hosts, and re-exports the consumer's extension module as a **namespace**:
+**(a) Browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects), re-exports the **one** engine host, and re-exports the consumer's extension module as a **namespace**:
 
 ```
 import "<root>/<extensionsEntry>";                          // registration side-effects, when configured
-export { createViewportHost, createPreviewHost } from "@furnace/editor/viewport-host";
+export { createFieldHost } from "@furnace/editor/viewport-host";
 export * as extensions from "<root>/<extensionsEntry>";     // the consumer's public surface, when configured
 ```
 
 esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, with `resolveDir: root`. The bundler context is **incremental**: each `GET /engine.js` calls `ctx.rebuild()`. Build failure returns `{ ok: false, error }` carrying esbuild's formatted diagnostics.
 
-`createPreviewHost` is the Slice 3.1 cockpit preview surface (§13.1). The `export * as extensions` is the **cockpit generator seam** (§13.2): it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace the World panel and the generation worker call the consumer's generator through (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir` — §13.2). When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createViewportHost, createPreviewHost, extensions }` with `extensions: Record<string, unknown>`.
+`createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and `viewport-host/index.ts`'s own header records that the directory name is what is left of them. The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
+
+**The namespace has exactly ONE consumer today** — the walkability analyzer's stage 2 (§15). `frontend/analyzer-worker.ts` imports the same same-origin `/engine.js` and narrows `mod.extensions` to `AnalyzerEngine` (`{ analyzerVerify }`) at one boundary cast; the type is declared structurally in `lib/analyzer-protocol.ts` and applied once, in the worker entry. Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
 
 **(b) Node-platform registry bundle** — `src/daemon/registry-bundle.ts`. The daemon needs the *same* registry the engine bundle has, but on the Node side for validation. Its virtual entry imports the consumer's extensions then re-exports exactly three names from the consumer's `@furnace/core/scene`:
 
@@ -76,9 +94,9 @@ The registry loader exposes `reload()` (fresh build + import, used by `scene.ope
 
 **Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`); the registry rebuilds per `scene.open` (`reload()`), and on demand (`invalidate()`, below). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 closed that half (§5, "Directory watching"): `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend reloads the page when the session isn't dirty — so `GET /engine.js` picks up the change automatically instead of waiting for a manual refresh. **Slice 3.1 closed the registry half**: the same extensions-dir watch now also calls `registry.invalidate()` (drops the cached module) *before* emitting `bundle-outdated`, so the next `current()` rebuilds. Editing an extension's TypeScript under the watched directory is therefore reflected in `scene.validate` / `scene.introspect` and in a running mutation's validation (`session.apply`) without waiting for an explicit `scene.open`.
 
-## 4. Command registry + document session
+## 4. Commands + the document session
 
-### Command registry
+### 4.1 Command registry
 
 `src/daemon/handlers.ts` builds a `Map<string, Handler>` where each `Handler` is `{ input: ZodType, run(input): Promise<unknown> }`. `dispatch(handlers, command, input)`:
 
@@ -86,7 +104,11 @@ The registry loader exposes `reload()` (fresh build + import, used by `scene.ope
 2. `handler.input.safeParse(input)` fails → `EditorError("invalid-input", …)` naming the first failing path;
 3. otherwise runs the handler with the parsed input.
 
-Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. The command table (verified against `handlers.ts`):
+Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). There are **25 commands in four families**, and the chrome speaks only three of them.
+
+### 4.2 The `scene.*` family + the document session — implemented, and no longer called
+
+The scene family is the M3/M4 document surface: a single open `SceneDocument`, mutated transactionally, undoable, watched on disk. **It is fully implemented and fully tested, and nothing in the chrome calls it** — F4.5a deleted the scene surface (see the header). It is documented here because it is live code on the daemon's public HTTP surface, an FS-capable agent can drive it today, and it is the substrate any returning scene chrome would build on.
 
 | Command | Input schema | Returns |
 | --- | --- | --- |
@@ -104,16 +126,13 @@ Every client — the chrome, a curl, a future AI binding — funnels through `di
 | `scene.setResource` | `{ table: "geometries"\|"shaders"\|"materials", id: string, entry: Record<string,unknown> }` | `{ revision, dirty }` |
 | `scene.removeResource` | `{ table: …, id: string }` | `{ revision, dirty }` |
 | `scene.setSettings` | `{ settings: unknown }` | `{ revision, dirty }` — whole-object settings replace. |
+| `scene.batch` | `{ edits: [{ entity, component, params }]+ }` (at least one) | `{ revision, dirty }` — N component edits, ONE snapshot, ONE undo entry, ONE `document-changed`. Rejected whole if any single edit fails validation. |
 | `scene.undo` | `{}` | `{ revision, dirty }` |
 | `scene.redo` | `{}` | `{ revision, dirty }` |
-| `project.get` | `{}` | `{ root }` — the absolute project root; the chrome scopes its persistence store by it (§14.3). |
-| `generation.bake` | `{ files: WireFile[], cleanDir?: string }` (each file `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained file set and emits `generation-baked`; when `cleanDir` is given, `rm -rf`s that (validated: root-contained, no dotfile segments, every payload file under it) BEFORE writing (§13.3, Slice 3.1/3.2.1). |
 
-`SessionView` = `{ document, path, revision, dirty, conflict, canUndo, canRedo }` (the last two drive the Edit-menu + toolbar undo/redo enabled state; §14.2).
+`SessionView` = `{ document, path, revision, dirty, conflict, canUndo, canRedo }`. `scene.validate` additionally `.refine`s that **exactly one** of `path`/`document` is provided.
 
-All input schemas are `z.strictObject(...)` (extra keys rejected). `scene.validate` additionally `.refine`s that **exactly one** of `path`/`document` is provided.
-
-### Document session
+#### Document session
 
 `src/daemon/session.ts` owns the single mutable open document. The mutation commands never edit the document directly; they go through the transactional core, `session.apply(command, edit)`:
 
@@ -130,13 +149,39 @@ The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setCompo
 
 **Dirty semantics — canonical `savedText`.** Dirtiness is defined as `serialize(document) !== savedText`, where `serialize` is the canonical form (`JSON.stringify(doc, null, 2)` + trailing newline) — *exactly the bytes `scene.save` writes*. `savedText` is reset on open, save, and clean reload. This single canonical-form comparison is what makes save-echo suppression (§5) and dirty detection share one definition; `scene.save` deliberately sets `savedText` **before** the write so a fast watcher echo already matches.
 
+### 4.3 What the chrome actually calls — `project.get`, `field.load`, `generation.bake`, `world.*`
+
+| Command | Input schema | Returns |
+| --- | --- | --- |
+| `project.get` | `{}` | `{ root }` — the absolute project root; the chrome scopes its persistence store by it (§16.2). |
+| `field.load` | `{ name }` (`WORLD_NAME_RE`) | `{ manifest, chunks, materials, oplog }` — one root-contained read of `worlds/<name>/`: the manifest, every chunk and `.mat` sibling as base64, and `oplog.json` (or `null`). |
+| `generation.bake` | `{ files: WireFile[], cleanDir?: string }` (each file `{ path, encoding: "utf8"\|"base64", contents }`) | `{ files: <count written> }` — writes a browser-uploaded, root-contained file set and emits `generation-baked`. |
+| `world.list` | `{}` | Every world under `worlds/`, read-only, with a **`tracked` tri-state** per row (§16.4). |
+| `world.makeDefault` | `{ name }` | `{}` — points `worlds/index.json` at an existing world (manifest-checked); emits `worlds-changed`. |
+| `world.delete` | `{ name }` | `{}` — removes a world directory. **Refused for the current default**, and refused outright when `worlds/index.json` exists but is unparseable, because then it cannot tell whether this IS the default. Emits `worlds-changed`. |
+| `world.rename` | `{ from, to }` | `{}` — case-insensitive-FS aware; emits `worlds-changed`. |
+| `world.duplicate` | `{ from, to }` | `{}` — copies a world under a new name; `already-exists` (409) if the target is taken. Emits `worlds-changed`. |
+
+`field.load` and every `world.*` verb share ONE name schema — `z.string().regex(WORLD_NAME_RE)` — and `worlds.ts`'s top comment tracks the other copies of that regex.
+
+**`field.load` reads siblings through one guard.** `readSiblings` is a single root-contained base64 reader used for BOTH sibling kinds (chunks and `.mat` materials), so the containment check is applied identically; a copy per kind is how one path's guard drifts. A path escaping the root is `outside-root` (404, §6), and a dedicated path-traversal rejection test guards it.
+
+**`generation.bake` — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a different world placement: bun/JSC and node/V8 diverge on the transcendental `Math` used to place pieces (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So "the daemon regenerates from the seed" would bake a world that does not match what the user saw. The browser bakes in its own engine and uploads the produced file set; **the daemon holds zero generator knowledge.** `run`:
+
+1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the same hidden-existence rationale as scene paths, §6);
+2. when `cleanDir` is given, validates it (root-contained, never the root itself, no dotfile segment, and **every** payload file resolves under it) and `rm -rf`s it BEFORE any write — clean-previous-bake, so a smaller re-bake leaves no orphans from a larger earlier one; a mismatched payload throws and leaves the FS untouched;
+3. writes each file — `mkdir -p` the parent, base64-decode when `encoding === "base64"` (binary `.fmesh` sidecars ride as base64 in the JSON POST);
+4. emits `generation-baked` (`{ files: <count> }`) over SSE and returns `{ files: <count> }`.
+
+The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar cannot blow the `String.fromCharCode` argument stack). This is the **first handler that emits an SSE event**, so `HandlerContext` carries an `emit(event: DaemonEvent)` field that `server.ts` fills with `hub.emit` for both the session and the handlers. The command is destination-agnostic (root-contained + `cleanDir`), which is why the world verbs needed tests rather than changes when `worlds/<name>/` became the destination.
+
 ## 5. Change feed + file watching
 
 ### SSE change feed
 
 `src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; consumers refetch `scene.get`, so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
 
-The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { type: "generation-baked"; files: number }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
+The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { type: "generation-baked"; files: number } | { type: "worlds-changed" }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
 
 | Event `type` | Payload fields | Emitted when |
 | --- | --- | --- |
@@ -146,9 +191,10 @@ The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { t
 | `file-conflict` | `path` | a disk change arrived while the session was dirty, or the watched file was deleted/became unreadable. |
 | `file-invalid` | `path`, `message` | a disk change left the file as invalid JSON or failed registry validation. |
 | `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed (§5, "Directory watching") — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
-| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§13.3, Slice 3.1). |
+| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§4.3). |
+| `worlds-changed` | none beyond `type` | the worlds directory or its index changed — `world.delete` / `rename` / `duplicate` / `makeDefault` each raise it AFTER their FS mutation succeeds. Consumers refetch `world.list` (§16.4). |
 
-The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` and `generation-baked` ride it generically, same as every other event. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
+The SSE wire frame is `event: <type>\ndata: <json>\n\n` — the three daemon-level events ride it generically, same as every other event. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
 
 ### File watching
 
@@ -184,30 +230,22 @@ The SSE wire frame is `event: <type>\ndata: <json>\n\n` — `bundle-outdated` an
 | `unsaved-changes` | 409 | `scene.open` would discard unsaved edits without `force`. |
 | `nothing-to-undo` | 409 | undo stack empty. |
 | `nothing-to-redo` | 409 | redo stack empty. |
+| `already-exists` | 409 | the write would clobber something that is already there (`world.duplicate` onto a taken name). |
 | `unreadable` | 500 | scene file exists but could not be read (EISDIR/EACCES/…). |
 | `extension-build-failed` | 500 | the registry bundle failed to build or import. |
 | `internal` | 500 | any other uncaught error at the route boundary. |
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
 
-## 7. Chrome
+## 7. Serving the chrome — the build, and the zero-engine rule
 
-> **Superseded by §20 for the chrome (F4.5a).** The dock, the `ViewportHost` protocol,
-> the portaled panels and `refreshSession` are all gone; what stands is the build/serve
-> path (first paragraph) and the zero-engine-value-imports rule, which §20 restates.
+The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `dist/frontend` by `packages/editor/scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon. The build is production-mode React on purpose, and it takes **two** levers rather than one: `process.env.NODE_ENV = "production"` on the build process picks react-dom's `production` package export (which file is bundled), and `define` inlines the same value for residual runtime `process.env` checks. `Bun.build` sets neither by default, so without both react-dom ships in dev mode.
 
-The browser frontend is **React 19**, Tailwind-styled (the **dockview** docking layout it
-used through F4 is retired — §20). It is **prebuilt** to `dist/frontend` by `packages/editor/scripts/build-frontend.ts` (`bun run --cwd packages/editor build:frontend`) and served same-origin by the daemon's static route (§2). `bun run edit` rebuilds it before starting the daemon.
+**Three entrypoints, because a worker is reached by URL and not by an import graph.** `src/frontend/index.html` is the chrome; `src/frontend/field-worker.ts` (§11) and `src/frontend/analyzer-worker.ts` (§15) each ship as their own module bundle, since the chrome spawns them with `new Worker("/<name>.js", { type: "module" })` and neither can ride the html entry's graph. Both run engine code (`@furnace/core/field`) **directly**, not through `/engine.js` — the analyzer worker additionally loads `/engine.js` at runtime for its stage-2 verify, which drives the project's own mover (§3a).
 
-**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. This is enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`, which scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core` (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and the `ViewportHost` type (imported type-only, §below).
+**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`viewport-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `viewport-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**`ViewportHost` protocol** — `src/viewport-host/index.ts`. The narrow chrome↔engine interface: `{ init(canvas, gpuOptions?), loadScene(doc), render(), introspect(), destroy() }` plus the M5A live-preview seam (`previewEntity`, `previewSettings`, `revertEntity`, `syncCommitted` — §10). The host owns the GPU context and the loaded scene; the chrome drives it through this interface and never enters the render loop. It is **render-on-demand** (no rAF loop): a render is issued on load, on canvas resize, and via `render()` for any other redraw.
-
-- **Host owns resize-rendering.** On `loadScene`, the host calls `camera.bindToCanvas` (aspect tracks canvas size) and subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size. The chrome must **not** drive resize-rendering from its own `ResizeObserver` — that fires before the backing-store resize and blanks the surface. (This was a real bug caught only by the manual visual gate; the protocol TSDoc documents the constraint.)
-
-**Module-level components + context-through-portals** *(historical — the dock is gone; §20)*. dockview read its panel-component factory map only at panel construction, so a fresh map per render would freeze panels on their first render. `App.tsx` therefore kept `COMPONENTS` (`entities` / `viewport` / `inspect`) at **module level** (stable identity), and the panels took no props — they read live state through `EditorContext` (a React Context threaded through dockview's portals). A fresh context value each render is what re-rendered the portaled panels. Today the shell is a plain subtree and the context is read directly.
-
-**Single `refreshSession` path.** `App.tsx` has exactly one document-refresh function: it pulls `scene.get`, reloads the viewport only when `(path, revision)` actually advanced, and dispatches the read model into the reducer. Every SSE event and every locally initiated change funnels through `refreshSession` — one code path for every client. The scene picker's `scene.open` does *not* load the viewport directly; it relies on the `scene-opened` SSE event driving `refreshSession`, so the chrome rides the same change feed as every other client. (`file-invalid` is the one event handled specially — it surfaces the message rather than refetching.)
+**The host owns resize-rendering, and the chrome must not.** The field host subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size; a chrome-side `ResizeObserver` fires before the backing-store resize and blanks the surface. This was a real bug caught only by a manual visual gate, and the constraint is documented at the source.
 
 ## 8. `furnace.config.json` namespacing
 
@@ -218,62 +256,21 @@ used through F4 is retired — §20). It is **prebuilt** to `dist/frontend` by `
 
 If the file is absent, all editor settings fall back to defaults. Malformed JSON throws loud, naming the file.
 
-## 9. Deferred
+## 9. The inspector module — `frontend/inspector/`
 
-- **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM were **descoped from M4** into a dedicated milestone: `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. Rationale: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic substrate; the bindings get designed together when appetite is there (slot after M5). The error contract and the `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam for that work.
-- **Remaining viewport/hierarchy work deferred from M5B** — resource live-preview (`rebuildResource` cascade), editor fly-camera (WASD), and hierarchy tree (requires scene-format parent decision). See `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
+The inspector was built at M5A as an editable, reflection-driven form over `scene.introspect()`. The scene surface it served is deleted; **the module survived it intact** and is now the form the session card renders a generator's `paramSchema` into (§17.5). It has exactly ONE consumer, and the whole point of the boundary is that it could have another.
 
-*(Two gaps this section previously listed as deferred were resolved in Slice 3.1 and are now documented inline as current behaviour: registry staleness on extension edits — §3, Staleness model + §5, Directory watching; and the session concurrent-open await races — §4, Concurrent-open await guards.)*
-
-## 10. M5A — inspector, selection, live preview
-
-> **Superseded by §20 (F4.5a): the scene-document half is deleted code.** No
-> `InspectPanel.tsx`, no `EntitiesPanel.tsx`, no entity selection in the reducer, no
-> live-preview/echo-suppression path — the chrome no longer speaks `scene.*` at all
-> (the daemon still implements the family; nothing calls it). **What survives is
-> `frontend/inspector/`** — `SchemaForm`, the kind→renderer registry, the scrub
-> affordance — reused wholesale by `field/StampInspector.tsx` for stamp and
-> reconfigure params. Read §10.2–§10.5 for the inspector module; treat §10.1, §10.6,
-> §10.7 and §10.8 as history.
-
-
-M5A landed an **editable, reflection-driven inspector** with multi-entity selection and live-preview. This section documents the as-built additions to the M3+M4 substrate.
-
-### 10.1 `scene.batch` command
-
-A single command that atomically applies N component edits (one `SceneDocument` snapshot, one undo entry, one `document-changed` event). Used when the inspector commits a field change across multiple selected entities at once. The whole batch is rejected if any single `setComponent` call fails validation — the session document is untouched (same transactional guarantee as any other `session.apply` call). Input: `{ edits: [{ entity, component, params }]+ }` (at least one edit). Returns `{ revision, dirty }`.
-
-### 10.2 `t.color()` kind
+### 9.1 `t.color()` kind
 
 `packages/core/src/scene/t.ts` exports `color()`: a `z.tuple([number × 4])` with `meta({ furnace: { kind: "color" } })` — same wire shape as `vec4()` but a distinct `furnace.kind` so the editor inspector renders a color picker instead of four raw number inputs. The load boundary treats it exactly as a vec4. Channels are in the engine's working color space (linear RGBA — see `docs/reference/engine-conventions.md §color`). Scene settings `clearColor` uses this kind.
 
-### 10.3 Core live-preview seam — `rebuildEntity` + `setSettings`
-
-`LoadedScene` (returned by `scene.loadScene`) carries two new methods (both verified in `packages/core/src/scene/types.ts` and `loader.ts`):
-
-- **`rebuildEntity(entityId, doc)`** — tears down the named entity's built instances/meshes, then rebuilds it from `doc` using the same internal `buildEntity` path that `loadScene` uses. **Transactional**: the replacement is built *before* the old entity is torn down — if `buildEntity` throws (invalid params, bad resource ref), the existing entity is left intact and the throw propagates to the caller. The resource `lookup` is frozen at `loadScene` time; a `doc` whose `resources` differ from the loaded document is not supported (lookup would throw). In M5A the caller always passes the committed doc with one component's fields overridden, so resources never change.
-- **`setSettings(next)`** — replaces `loaded.settings` in place (no rebuild); the next `frame.render` call picks up the new settings. No-op complexity; purely a field swap.
-
-Both are editor live-preview seams. They are not safe to call after `loaded.destroy()`.
-
-### 10.4 Viewport-host live-preview methods
-
-`src/viewport-host/index.ts` extends `ViewportHost` with four methods that close the loop between the inspector and the engine (verified in source):
-
-| Method | What it does |
-| --- | --- |
-| `previewEntity(entityId, component, params)` | Clones the committed doc, overrides `entity.components[component]`, calls `loaded.rebuildEntity`, re-renders. Invalid params are swallowed (last good render kept) — the daemon commit path reports the real validation error. No-op before init or before a scene is loaded. |
-| `previewSettings(settings)` | Calls `loaded.setSettings(settings)`, re-renders. No daemon op. No-op before init. |
-| `revertEntity(entityId)` | Calls `loaded.rebuildEntity(entityId, committedDoc)`, re-renders — discards the preview and restores from the committed baseline. |
-| `syncCommitted(doc)` | Adopts `doc` as the new committed baseline without any rebuild or render — used when an SSE echo is deduplicated (the viewport already shows the result via the local preview). |
-
-**`committedDoc`** is the `SceneDocument` the viewport last successfully loaded; it is the revert target for `revertEntity`. It is set on every `loadScene` call and updated (without reload) by `syncCommitted`.
-
-### 10.5 Inspector module — `frontend/inspector/`
+### 9.2 The boundary
 
 The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with a root-level `furnace` field-semantics key) plus N target values plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
 
-**JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type. It was structurally equivalent to what `scene.introspect()` returned, cast at the boundary in `InspectPanel.tsx`; both died with the scene surface, and the only cast today is in `SessionCard.tsx`, where a generator's `paramSchema` (typed `Record<string, unknown>` in core, because the chrome cannot value-import it) becomes a `JsonSchemaNode`. The module must not value-import `@furnace/core` — enforced by `packages/editor/tests/frontend-no-engine-leakage.test.ts`.
+**JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type — deliberately NOT core's, because the module must not value-import `@furnace/core` (§7). There is exactly ONE boundary cast, in `SessionCard.tsx`, where a generator's `paramSchema` (typed `Record<string, unknown>` in core for that same reason) becomes a `JsonSchemaNode`. The cast that used to sit beside it, over `scene.introspect()`'s return, died with the scene surface.
+
+### 9.3 Kind resolution and the shape rules
 
 **Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` (by CARDINALITY) → numeric SHAPE → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`. **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.) Every member of `furnace` is optional, `kind` included, so a node can carry only a `unit`.
 
@@ -284,7 +281,9 @@ The inspector is a **self-contained, swappable boundary**: the chrome consumes i
 
 The bounded control's STEP comes from `multipleOf` when the schema declares one, from `type: "integer"`, or otherwise from the span (a 1-2-5 value near span/100). It is never inferred from how the bounds happen to look: `cave.chamberRadius` has integer bounds `[3, 8]` and `numParam` admits 5.5 m. Core's generator schemas carry `multipleOf: 1` on exactly the params `intParam` narrows, and `furnace.unit` on the params whose unit is not already in their name (`"m"` on `cave.chamberRadius` / `scatter.minSpacing`, `"cells"` on the hall's dimensions — a hall of width 8 is 4 m across). Both annotations are declarative: nothing in core reads either, and `packages/core/tests/field-generators.test.ts` asserts the `multipleOf` half BEHAVIOURALLY (a fractional value must be refused iff the schema claims it).
 
-**Kind→renderer registry (`registry.tsx`).** A `Partial<Record<FieldKind, FieldRenderer>>` maps each kind to its React component. Current registry (verified against source):
+### 9.4 The kind→renderer registry
+
+**`registry.tsx`.** A `Partial<Record<FieldKind, FieldRenderer>>` maps each kind to its React component. Current registry (verified against source):
 
 | Kind | Renderer |
 | --- | --- |
@@ -303,163 +302,33 @@ The bounded control's STEP comes from `multipleOf` when the schema declares one,
 
 `fallbackRenderer` is `DefaultField` — displays the value as JSON read-only.
 
-**`<SchemaForm>` (`SchemaForm.tsx`).** Iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. Manages N working drafts (`useState`); re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel, onInvalid? }` — a pure callback contract, no internal fetch or mutation.
+### 9.5 `<SchemaForm>` — drafts, validation, the echo guard
+
+**`SchemaForm.tsx`** iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. It manages N working drafts (`useState`) and re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel, onInvalid? }` — a pure callback contract, no internal fetch and no mutation of its own.
 
 **Field-level validation (D-25).** Before fanning a draft, the form runs `validateNumber(fieldSchema, value)` (`lib/validate.ts`: bounds + `multipleOf`) over all N targets. A refused draft is **not written and not previewed** — the worker never evaluates a ghost the generator would throw on — and the reason renders in that row with `role="alert"`. Refusals are held per-path (an unrelated row's edit must not clear one whose bad text is still on screen), but only the FIRST offending field in schema order leaves the component, through `onInvalid`. One slot, not a bag: a consumer holding a list is one render away from printing a bottom-of-form dump, which is the pattern D-25 exists to retire. `SessionCard` turns that slot into the commit verb's disabled reason (`"Chamber Radius must be at most 8"`) and retracts it on unmount.
 
 **Row wrappers (`fields/common.tsx`).** `FieldRow` wraps its control in a `<label>`; `FieldGroupRow` uses a `<div>` and is what a row with SEVERAL controls (stepper, segmented) uses. A `<label>` labels exactly one control, so wrapping a group makes every member answer to the row caption instead of its own name, and a `<label>` with no `for` activates its first labelable descendant — clicking the "Chambers" caption steps the value down. (A third symptom, one press dispatching two commits, is a happy-dom artifact rather than a browser defect — WHATWG says a label does nothing for events targeted at interactive content descendants — but it is what made the wrapper visible, through a call-count assertion.)
 
-**Euler / quat duplication (`lib/euler.ts`).** The `quatToEulerDeg` / `eulerDegToQuat` math is hand-rolled in the inspector because the frontend cannot value-import `@furnace/core`. The conversion matches `core/transform quat.fromEuler` (intrinsic XYZ) and is pinned to core's convention by a test. It is the only remaining frontend duplication of core logic in this module — the material `"default"`-kind detection that used to sit beside it (`lib/resource-kind.ts`) travelled out with the resource/ref pickers in F4.5b Task 11.
+**The echo guard** (`lib/echo-guard.ts`) is what stops an incoming push clobbering a half-typed number. `shouldReseed(focusWithin)` is a pure predicate; `SchemaForm` tracks whether any input inside it is focused (`onFocusCapture` / `onBlurCapture`) and gates the re-seed on it, so a value arriving while the user is editing waits for the blur. Being a predicate rather than an inline condition is what makes it unit-testable.
 
-**Swap escape hatch.** The `frontend/inspector/` boundary is the swap seam: replacing the rendering library means rewriting only `SchemaForm.tsx` + the field renderers in `fields/`, keeping the module's CONSUMER untouched — `<InspectPanel>` when this was written, `SessionCard.tsx` today, and it is the only one. The `JsonSchemaNode` type and the `onPreview`/`onCommit`/`onCancel`/`onInvalid` callback contract are the stable interface.
+**The drag-scrub** (`lib/scrub.ts`) is `scrubValue(start, dxPixels, sensitivity, fine)`. `NumberField` and `SliderField`'s label capture the pointer, record the start value, call `scrubValue` with the accumulated `dx` on each move and `onCommit` on release. ⇧ during the drag applies `FINE_FACTOR = 0.1`. Pointer Events rather than mouse events and no pointer-lock — Safari-safe by construction, and the capture matters more here than it did in the dock era: this form floats over a canvas that orbits on pointermove, and the two are DOM siblings (§17.5).
 
-### 10.6 Multi-entity selection
+**Three multi-target rules survive from the M5A/M5B inspector**, because a form over N targets is still what the module is written for even though today's one consumer passes N = 1: omitted fields seed from the schema's `default` rather than showing `0`; `lib/vec-fan.ts`'s `fanComponent(targets, index, value, n)` fans ONE component of a vector across all targets and preserves each target's own other components; and `lib/mixed.ts`'s `isMixed` is what a renderer asks before showing a single value for a set that disagrees. `ColorField` commits on the input's native **`change`** event rather than on blur — Safari only blurs `<input type=color>` when focus moves to a focusable element, so a blur commit landed only if the user's next click happened to be one.
 
-`EditorState.selectedEntities` (`src/frontend/lib/state.ts`) is a `string[]` of entity ids. The `select-entity` reducer event supports three modes (verified in `reduce()`):
+### 9.6 Labels, numbers, and the label column
 
-| Mode | Behaviour |
-| --- | --- |
-| `replace` | Replace selection with this entity; set anchor. |
-| `toggle` | Add if not in selection, remove if already present; set anchor. |
-| `range` | Select the document-order range from `selectionAnchor` to this entity (inclusive). Anchor is not updated. |
+Field and section labels are **humanized** (`frontend/lib/humanize.ts` — `castShadow` → "Cast Shadow"), applied in `FieldRow`, the object-group header and every bounded control's own caption. Numeric DISPLAY is rounded on the data surface: `inspector/lib/format.ts`'s `roundForDisplay` strips IEEE-754 noise (`1.2000000000000002` → `1.2`) in `NumberField` and `SliderField` — **full precision stays in the value**, and because the rounded number is ALSO the dirty-check baseline (`lib/commit-guard.ts`'s `commitIfChanged`), a focus-and-blur with no edit never commits a truncation. Vec and quat rows show x/y/z(/w) axis chips; `QuatField` renders Euler XYZ degrees.
 
-`EntitiesPanel` triggers `replace` on a plain click, `toggle` on Cmd/Ctrl-click, `range` on Shift-click (modifier detection in `EntitiesPanel.tsx`). Selection is **not undoable** — it is UI ephemeral state and does not go through `session.apply`.
+Every row's caption sits in ONE app-wide label column — `--spacing-label-col` (5 rem) in `styles.css`, ruled at the F4.5 gate (§18). A per-surface width is how two forms in one cockpit come to disagree about where their values start.
 
-When a `session-updated` event arrives, any selected entity id that no longer exists in the new document is pruned from `selectedEntities` automatically (the reducer filters against `e.doc.entities`).
+**Euler / quat duplication (`lib/euler.ts`).** The `quatToEulerDeg` / `eulerDegToQuat` math is hand-rolled in the inspector because the frontend cannot value-import `@furnace/core` (§7). The conversion matches `core/transform quat.fromEuler` (intrinsic XYZ) and is pinned to core's convention by a test. It is the only remaining frontend duplication of core logic in this module — the material `"default"`-kind detection that used to sit beside it (`lib/resource-kind.ts`) travelled out with the resource/ref pickers in F4.5b Task 11.
 
-### 10.7 Echo suppression — own-commit dedup
+**Swap escape hatch.** The `frontend/inspector/` boundary is the swap seam: replacing the rendering library means rewriting only `SchemaForm.tsx` + the field renderers in `fields/`, keeping the module's CONSUMER untouched. The `JsonSchemaNode` type and the `onPreview` / `onCommit` / `onCancel` / `onInvalid` callback contract are the stable interface.
 
-`App.tsx` keeps `lastLoaded = useRef<{ path?, revision? }>({})`. When a commit action resolves, `suppressEcho(result)` records `{ path, revision }` so the next SSE `document-changed` event's `refreshSession` skips `loadScene` (the dedup check `path === lastLoaded.path && revision === lastLoaded.revision`). On the skip path, `syncCommitted(doc)` is still called to update the host's committed baseline (so `revertEntity` has the fresh doc). This is the as-built mechanism in `App.tsx`.
+## 10. Scene-loader coverage — what the daemon validates against
 
-The guard applies to entity-component commits (`commitComponents`) and settings commits (`commitSettings`). Resource commits (`commitResource`) do **not** suppress the echo — a resource change requires a full scene reload (no resource live-preview in M5A), so the SSE echo driving `loadScene` is the intended mechanism.
-
-The `scene-opened` event clears `lastLoaded` entirely (`lastLoaded.current = {}`) to force a reload even if `(path, revision)` collide with a previous load.
-
-### 10.8 Settings-revert gap (M5A known limitation)
-
-M5A has `revertEntity` (rebuilds from committed doc) but **no `revertSettings`**. When the user previews a settings field (e.g. `clearColor`) and then presses Escape, the `onCancel` path in `InspectPanel.tsx` is a no-op: the preview value stays in the engine until the next SSE `document-changed` event drives a `loadScene` reload. Entity edits revert cleanly; settings edits do not. This gap is noted inline in `InspectPanel.tsx` and tracked in `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
-
-## 11. M5B — viewport interaction (picking, gizmos, orbit camera, drag-scrub)
-
-> **Superseded by §20 (F4.5a): this whole section describes deleted code.** GPU-id
-> picking, the AABB selection highlight, the translate gizmo, `setSelection` /
-> `setCallbacks` / `onTransformCommit` and the scene orbit camera are gone with the
-> scene viewport host.
->
-> Of the two pure-math modules they left behind with no caller (the backlog entry that
-> tracked them retired with F4.5b, which closed the register both ways),
-> **`viewport-host/gizmo.ts` was PROMOTED by F4.5b Task 5** and is live again —
-> the FIELD host's translate gizmo calls `pickAxis`, `closestPointParamOnAxis` and
-> `isViewParallel`. Read its own TSDoc, not §11.4 below, for the current contract:
-> `pickAxis` gained an `innerLen` dead zone at the gizmo origin. **`camera-control.ts`
-> was resolved by F4.5b Task 6**, and the split went the other way from the plan's
-> guess: `dolly` is live (the wheel under the `pointer` tool), `orbit` was SUBSUMED by
-> a new `orbitAbout(s, pivot, dYaw, dPitch)` that holds a pivot fixed on screen, and
-> `orbit`, `zoom`, `pan` and `fromEyeTarget` are DELETED. `frameBox` and `snapToAxis`
-> joined it for `F` and the triad's snap views. Every export in that file now has a
-> caller in `field-host.ts`; §11.2 below describes the module as M5B left it.
-
-
-M5B landed the full manipulation loop: GPU-id picking, AABB selection highlight, translate gizmo, orbit/pan/zoom camera, NumberField drag-scrub, focused-input echo-guard, settings-revert, and three M5A inspector papercuts (⑩⑪⑫). This section documents the as-built additions to the M5A substrate.
-
-### 11.1 Engine additions (`@furnace/core`)
-
-**`camera.screenToRay(cam, ndcX, ndcY) → Ray`** — unprojects a normalized-device-coordinate position (`ndcX`/`ndcY` in `[-1, 1]`, Y-up) to a world-space ray `{ origin: Vec3, dir: Vec3 }`. `origin` is the near-plane point; `dir` is normalized. Returns a degenerate ray (`dir ≈ 0`) when the view-projection is singular. Reuses scratch buffers; allocates one fresh `Ray` per call. Source: `packages/core/src/camera/ray.ts`; exported from `@furnace/core/camera`.
-
-**`LoadedScene.entityBoxCorners(entityId) → Float32Array | null`** — returns the 8 world-space AABB corners of the named entity (24-element `Float32Array`, 3 floats per corner, bit-index layout: bit0=x, bit1=y, bit2=z); null when the entity has no geometry. Computed from geometry local bounds baked at `geometry.create` time, transformed by each mesh's current model matrix. Source: `packages/core/src/scene/loader.ts`.
-
-**`LoadedScene.setEntityTransform(entityId, { position?, rotation?, scale? })`** — direct GPU poke on all meshes owned by the named entity: per-field optional, no rebuild, no clone. The translate-gizmo preview fast path — avoids `rebuildEntity`'s clone+teardown+rebuild for the common "drag a transform" case. Source: `packages/core/src/scene/loader.ts`.
-
-**`LoadedScene.pick(ctx, cam, ndcX, ndcY) → Promise<string | null>`** — GPU id-buffer pick. Renders all pickable meshes into an off-screen `r32uint` id target (1-based per-entity integer colors, no AA, depth write enabled), reads back the single texel under the cursor via `copyTextureToBuffer`, and maps the id back to an entity id string. Returns `null` for a background click. All transient GPU resources (id texture, depth texture, id uniform buffer, readback buffer) are allocated and freed per call; the render pipeline is lazily built and cached per context. Source: `packages/core/src/scene/pick.ts`.
-
-**Geometry local AABB (internal)** — at `geometry.create` time, the engine now computes the AABB from vertex data and stores it on the `GeometrySlot` as `localMin`/`localMax`. Used by `entityBoxCorners` to produce world-space corners without re-scanning vertices at pick time. Internal; not part of the consumer-facing `@furnace/core/geometry` surface.
-
-**`drawLines` `occlude` option** — `frame.drawLines` gained an `occlude?: boolean` option (default `true`). `occlude: true` → `depthCompare: "less-equal"` (depth-tested, occluded behind nearer meshes — AABB highlights, physics debug); `occlude: false` → `depthCompare: "always"` (always-on-top — gizmos). Two pipelines are kept per context (one per depth mode). `DrawLinesOptions` type updated. Source: `packages/core/src/frame/draw-lines.ts`.
-
-### 11.2 Editor orbit camera
-
-`viewport-host/camera-control.ts` implemented a **spherical orbit camera** as the pure-math state type `OrbitState { target, distance, yaw, pitch }` plus five pure functions: `orbit(s, dYaw, dPitch)`, `zoom(s, delta)`, `pan(s, dx, dy, right, up, speed)`, `toEyeTarget(s)`, `fromEyeTarget(eye, target)`. No engine imports; trivially unit-testable. (All but `toEyeTarget` are gone as of F4.5b Task 6 — see the banner above for the module as it stands.)
-
-The host (`viewport-host/index.ts`) maintains a private `editorCam: Camera` and `orbitState: OrbitState`:
-
-- **Initialized on a *new* scene load** with the **eye** at the scene camera entity's position, but the orbit **pivot** set to the scene-content centroid (`sceneContentCentroid()` — the mean of every renderable entity's AABB corners), *not* the scene camera's authored look-target. The camera builtin places that look-target only ~1 unit ahead of the eye, which made the whole scene swing wildly when orbiting; pivoting on the content centroid keeps the scene framed and lets orbit/F rotate around what you're looking at. Falls back to the authored target only for an empty scene. Then bound to the canvas via `camera.bindToCanvas` so the editor camera's aspect auto-tracks canvas size; `camera.bindToCanvas` is unsubscribed and re-subscribed on each `loadScene` call.
-- **Preserved across same-scene reloads** — `loadScene(doc, { resetCamera })` only re-initializes the orbit state when `resetCamera` is true (a scene open/switch, keyed off a path change in `App.tsx`'s `refreshSession`). A same-scene revision bump — a resource/settings commit or external file edit — reloads the document and rebuilds meshes but keeps the existing `orbitState`, so the user's orbit/zoom does not jump. The `editorCam` object is recreated each reload (then rebound); applying the preserved `orbitState` to it reproduces the exact view. Resource commits reload via the SSE echo (they are not echo-suppressed), so without this the camera reset on every material/settings color edit.
-- **Never serialized** — the editor camera is completely independent of the scene camera entity. Editing the scene camera entity in the inspector does not move the editor view; orbiting in the viewport does not touch the scene document.
-- The `loaded.camera` (the scene camera entity) is kept but not used for rendering; `editorCam` is passed to `frame.render` and `frame.drawLines` instead.
-- **Controls** (`classifyDrag`, deleted at F4.5a Task 13 — it had no production caller and disagreed with the field host's actual bindings): left-drag = select (no modifier) or orbit (Alt held), Alt+Shift-drag = pan, middle-drag = orbit, scroll = zoom (exponential, `exp(delta * 0.1)`), F key = frame-selected (sets orbit target to selection centroid). The `keydown` listener lives **on the canvas**, so `onPointerDown` calls `canvasEl.focus({ preventScroll: true })` to give it keyboard focus on every click — Safari does not focus a `tabindex` element on click (and blurs the prior focus), so without this F/Escape would only work until the first viewport click.
-
-### 11.3 AABB selection highlight
-
-`setSelection(ids)` stores the selection array and re-renders. On each `renderLoaded` call, for each selected id the host calls `loaded.entityBoxCorners(id)` and passes the result to `boxEdges(corners, HILITE)` (`viewport-host/box-edges.ts`) to build a `{ vertices, colors }` line-list for the 12 axis-aligned edges, then issues `frame.drawLines(ctx, { ..., occlude: true })` (depth-tested — highlight correctly occludes behind nearer meshes). Highlight color is `[1, 0.6, 0, 1]` (orange, alpha 1). Entities without geometry are silently skipped.
-
-### 11.4 Translate gizmo
-
-The gizmo is implemented across two files:
-
-**`viewport-host/gizmo.ts`** — pure-math, no engine imports: `Ray`, `Axis`, `AXIS_DIR`, `pickAxis(ray, gizmoOrigin, axisLen, tol)`, `closestPointParamOnAxis(origin, axisDir, ray)`. `pickAxis` returns the nearest world axis (or `null`) whose handle segment `[0, axisLen]` the ray passes within `tol` world units of, after culling axes within ~8° of view-parallel (degenerate screen-space projection). `closestPointParamOnAxis` returns the standard closest-point parameter `t` on the axis line (in axis-direction units — world-space offset with unit axis), used for both hit-testing and anchor-relative drag.
-
-**Host-side gizmo loop** (in `viewport-host/index.ts`):
-
-- **Rendering** — `renderGizmo` calls `frame.drawLines` with `occlude: false` (always-on-top) for each of the three handles. Handle length is **screen-constant** (`GIZMO_PX = 90`): world length = `(2 × dist × tan(fovY/2)) / canvasHeight × GIZMO_PX` where `dist` is the eye-to-origin distance. Uses `EDITOR_FOV_Y` for this computation (the same `Math.PI / 3` constant used to create the editor camera, so the math is consistent). Colors: X = `[1, 0.2, 0.2, 1]`, Y = `[0.2, 1, 0.2, 1]`, Z = `[0.3, 0.4, 1, 1]`.
-
-- **Grab (`tryStartGizmoDrag`)** — on left-pointerdown (no Alt), unprojects the cursor via `camera.screenToRay` → `pickAxis`; on a hit, stores `{ axis, startParam, startPos (centroid), lastPos: Map, pointerId }` and captures the pointer. Returns `true` to short-circuit the select/orbit dispatch.
-
-- **Drag (`updateGizmoDrag`)** — on each pointermove while a gizmo drag is active: unprojects the cursor, computes the axis parameter `t`, derives `delta = t − startParam`, and for each selected entity computes `pos = committedPosition + axisDir * delta` (anchor-relative absolute, never integrated per-event — cannot drift). Calls `loaded.setEntityTransform(id, { position: pos })` (fast path, no rebuild) and stores `pos` in `lastPos`. Renders.
-
-- **Commit (`commitGizmoDrag`)** — on pointerup: if `lastPos` is non-empty (at least one pointermove fired), reads `lastPos` to build the commit array (each entity's `currentTransform` = committed rotation/scale + stored `lastPos`), **synchronously folds the committed positions into `committedDoc`** (preventing a second drag from reading stale P0 before the async SSE `syncCommitted` arrives), then calls `callbacks.onTransformCommit(edits)`. If `lastPos` is empty (no-op drag), skips the commit entirely. Releases pointer capture.
-
-- **Cancel (Escape)** — calls `revertEntityToCommitted` for each selected entity (rebuilds from committed doc via `loaded.rebuildEntity`) and releases capture.
-
-- **Multi-select** — all selected entities are dragged simultaneously with the **same world delta** applied to each entity's own committed position, preserving relative offsets between entities. The commit array has one entry per selected entity; one `scene.batch` command is issued via `api.setComponentMany` — one undo entry.
-
-### 11.5 Host↔frontend contract
-
-The `ViewportHost` interface (`viewport-host/index.ts`) exposes two new methods:
-
-| Method | Direction | What it does |
-| --- | --- | --- |
-| `setSelection(ids: string[])` | chrome → host | Push selection; host re-renders with AABB highlights + gizmo for centroid. |
-| `setCallbacks(cb: ViewportCallbacks)` | chrome → host | Register `{ onSelect, onTransformCommit }`. May be called before `init`. |
-
-`ViewportCallbacks`:
-- `onSelect(entityId, mods)` — host emits on pick; chrome dispatches a `select-entity` reducer event. Modifier key flags (`metaKey`, `ctrlKey`, `shiftKey`) are forwarded. Viewport shift-click maps to `replace` mode (range-select is an `EntitiesPanel`-only affordance — no meaningful 3D ordering).
-- `onTransformCommit(edits: { entityId, transform }[])` — host emits on gizmo release; chrome calls `api.setComponent` (single entity) or `api.setComponentMany` (multi) and suppresses the SSE echo via `suppressEcho` — same dedup mechanism as `commitComponents`. One undo entry for the whole gizmo drag.
-
-**Chrome owns all daemon I/O.** The host never calls the daemon; it only emits callbacks. This keeps the engine bundle free of daemon protocol knowledge.
-
-### 11.6 Transform fast-path preview and drag-commit seam
-
-For `previewEntity` with `component === "transform"`, the host takes a fast path: it calls `loaded.setEntityTransform` directly (no clone, no rebuild) rather than the general `rebuildEntity` path. This is the hot path for both the gizmo drag and the inspector's transform field preview — no `structuredClone` overhead per event.
-
-`revertSettings()` is now implemented (M5A gap closed): calls `loaded.setSettings(committedDoc.settings)` and re-renders. Wired to the `InspectPanel.tsx` `onCancel` handler for settings forms. Source: `viewport-host/index.ts`.
-
-### 11.7 Echo-guard (focused-input reseed suppression)
-
-`packages/editor/src/frontend/inspector/lib/echo-guard.ts` exports `shouldReseed(focusWithin: boolean): boolean`. `SchemaForm` tracks whether any input inside it is focused (via `onFocusCapture` / `onBlurCapture`) and gates `setDrafts` on `shouldReseed(focusWithin)`: while the user is editing a field, incoming `session-updated` events do not clobber the in-progress draft. The check is a pure predicate so it is independently unit-testable.
-
-### 11.8 NumberField drag-scrub
-
-`packages/editor/src/frontend/inspector/lib/scrub.ts` exports `scrubValue(start, dxPixels, sensitivity, fine)`. `NumberField` attaches `onPointerDown` / `onPointerMove` / `onPointerUp` handlers: on pointerdown it captures the pointer and records `startValue`; on each pointermove it calls `scrubValue` with accumulated `dx` and dispatches `onPreview`; on pointerup it dispatches `onCommit` with the final value and releases capture. Shift held during drag applies `FINE_FACTOR = 0.1` for sub-unit precision. Safari-safe (uses Pointer Events, not mouse events; avoids pointer-lock for broader browser support).
-
-### 11.9 Inspector papercuts (⑩⑪⑫)
-
-**⑩ Omitted fields seed from schema defaults** — `introspect()` now carries a `default` field for each schema node (from zod `.default()`) and `SchemaForm`'s draft seed falls back to it when the document value is absent. Before M5B, absent optional fields (e.g. `scale` on a `{}` transform) showed as `0` (misleading — `scale=0` would make the cube invisible). Now they show the engine default (`[1,1,1]`). Committing an edited field still sends only that field; other absent fields are not written.
-
-**⑪ Per-component vector multi-edit fan** (`lib/vec-fan.ts`) — `fanComponent(targets, index, value, n)`: for a multi-selection, editing one component of a vector (e.g. `position.y`) now fans only that component to the value across all N targets, preserving each target's own other components. Before M5B, the whole vector from `values[0]` was sent to all targets, clobbering their x/z.
-
-**⑫ ColorField commit trigger — moved from `blur` to the native `change` event.** M5B first shipped a `blur` commit with an `eq(next, rgba)` no-op guard. Two problems, both found in the Safari pass: (1) the guard compared the blur value against `rgba`, which is `SchemaForm`'s working draft already advanced to the pick by `onChange → onPreview`, so it suppressed **every** real commit (colors silently failed to stick); (2) `blur` itself is an unreliable commit trigger for a native color input — Safari only blurs `<input type=color>` when focus moves to a *focusable* element, so the commit only landed if you next clicked the (focusable) canvas, not the inspector panel. `ColorField` now commits on the input's native **`change`** event (fired once when the OS picker is dismissed) via a ref listener — it fires from the pick itself regardless of where focus goes next, and only when the value actually changed, so the no-op-revision concern the guard was chasing is moot. React's `onChange` (the native `input` event, continuous through the drag) still drives the live preview. The general "no-op suppression for *other* fields" question (NumberField etc.) remains a backlog item, but color no longer needs it.
-
-## 12. Scene-loader coverage — full built-in set + physics-from-data
-
-> **Partly superseded (F4.5a).** The CORE-side claims (the loader instantiates the full
-> built-in set from data, physics included but unstepped) are unchanged and still
-> current — that is `@furnace/core/scene`, not the editor. The **editor-side render
-> path** at the end of this section (`renderLoaded` / `applyScene` in
-> `viewport-host/index.ts`) is deleted: that barrel now re-exports `createFieldHost`
-> and nothing else.
-
-
-The editor renders whatever the consumer's `@furnace/core` scene loader produces; it has no engine of its own (§1). The core loader now reproduces the bowling demo's full **setup** from a data document, so the editor viewport can load lit, textured, and physics-bearing scenes — not just the unlit/cube scenes earlier milestones exercised. The built-in registry (`packages/core/src/scene/builtins.ts`, verified in source) covers:
+This section is about `@furnace/core/scene`, not about the editor's own rendering: the chrome draws a FIELD (§11), never a scene document. It matters here because the daemon's registry bundle (§3b) validates `scene.*` mutations against exactly this built-in set, and because it is the contract any returning scene surface would author into. The M1-slices batch brought the core loader up to reproducing a full demo **setup** from a data document. The built-in registry (`packages/core/src/scene/builtins.ts`, verified in source) covers:
 
 - **Geometry kinds** — `cube`, `sphere`, `cylinder`, `plane`.
 - **Shader kinds** — `unlit`, `lit`, `texturedLit`, `textured`, `normalColor`.
@@ -471,172 +340,17 @@ The editor renders whatever the consumer's `@furnace/core` scene loader produces
 
 **Physics-from-data.** A `rigidBody` component instantiates against a lazily-created physics world; when an entity has both `rigidBody` and `meshRenderer`, the `meshRenderer` **defers** (returns no mesh) and the `rigidBody` builds a **rigidMesh composite** that owns the mesh and binds its transform to the body. The world and bodies are fully **instantiated but NOT stepped** — there is no fixed-step loop in the loader. **Driving the simulation is the consumer's game-loop concern** (the loader instantiates the world + bodies; a consumer fixed-step loop would call `world.step`). So a loaded physics scene shows the bodies at their authored rest pose; it does not simulate.
 
-**Viewport-host render path — lights + ambient on, post deferred.** `renderLoaded` (`packages/editor/src/viewport-host/index.ts`) passes the loaded scene's `lights` and `ambient` to `frame.render` — these don't depend on the context's HDR state, so the editor shows the real lit scene (the lit-viewport payoff). It passes **`effects: []`** — the post chain is deferred. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`). The relevant `frame.render` contract (`packages/core/src/frame/render.ts`) throws **only** when `hdr === true` **and** the effect chain is **empty** (an `rgba16float` scene target with no pass to reach the LDR swap chain); a non-HDR context with effects does **not** throw. So the deferral is about **fidelity, not a crash**: a scene's post chain (`bloom → tonemap`) is authored for the consumer's HDR pipeline, where tonemap maps `rgba16float → LDR`; running that HDR-authored chain against the editor's LDR scene target would produce wrong output rather than the real preview. Post-preview lands when the editor viewport gains an HDR context (tracked in `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Editor viewport HDR context + post-chain preview*). Note that authoring textures/effects resources via the editor's `scene.setResource` command is not yet wired — its `tableEnum` still covers only `geometries | shaders | materials` (§4); the new tables are loadable and validatable but not yet command-mutable.
+**Not command-mutable, though loadable.** `scene.setResource`'s `tableEnum` still covers only `geometries | shaders | materials` (§4.2) — the `textures` and `effects` tables load and validate but cannot be authored through a command
+(`docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md`).
 
-## 13. Slice 3.1 — the generation cockpit (Epic 3)
+## 11. One Field F1+F2a — the FieldHost, the tools, and the remesh worker (2026-07-16)
 
-> **Superseded by §20 (F4.5a): everything in §13 EXCEPT §13.3 is deleted code.** The
-> preview host, the World panel, the world draft, the generation worker and its
-> client/protocol were all removed in F4.5a Task 4; the world flow is now `field.load` +
-> the `world.*` daemon family + the world drawer (§20.4). §13.3 (`generation.bake`) is
-> **still live** — it is the bake upload the world verbs drive. Kept as the history that
-> produced the current seam.
-
-Slice 3.1 ("the Loop") made the editor **generate, preview, curate, and bake** procedural world content — while keeping the editor engine-free. The consumer's generator arrives through the engine bundle's `extensions` namespace (§3a) and was driven by a dockview **World panel** (§13.4); the daemon carries **zero** generator knowledge (the bake path uploads a browser-produced file set — the Decision in §13.3). The build is dungeon-first (the generator is `packages/dungeon/src/editor-extensions.ts`), but nothing in the editor knows that — the seam is generic (see `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Generation session as a generic editor facility* for the plan to make the session a per-project editor facility).
-
-### 13.1 Preview host — `src/viewport-host/preview-host.ts` *(DELETED — F4.5a Task 4)*
-
-*The file, the `createPreviewHost` bundle export and the camera-eye headlamp described
-below no longer exist. The one host today is `FieldHost`, lit by the studio key light
-(§20.5).*
-
-A **second** engine-bundle-side host, alongside the viewport host, created via `createPreviewHost()`. It is the generation session's render surface: an HDR preview world the panel realizes consumer `RegionData` into. It is **generic** — it owns no generator knowledge; the panel calls the consumer's realize code (`realizeRegion`, `MaterialCache`) against the host's `ctx()`/`world()` and hands the resulting engine handles to `adopt()`.
-
-`init(canvas, gpuOptions?)` sets up a game-parity mood ("viewing policy, not generator knowledge"):
-- an **HDR + MSAA** context (`{ sampleCount: 4, hdr: true }` by default; overridable — headless tests pass `surfaceFormat: "linear"`),
-- a `bloom → tonemap` post chain (HDR requires a non-empty chain),
-- exponential distance **fog** + low **hemisphere ambient** mirroring the dungeon's `main.ts`,
-- an **orbit camera** reusing the same `viewport-host/camera-control.ts` pure-math state (orbit / pan / zoom + `frame(min, max)` to fit an AABB),
-- an **unstepped** preview physics world (for realize's collider creation — there is no game loop here),
-- a **camera-eye headlamp** (a point light carried at the eye, mirroring the torch) so lit content reads against the dark ambient.
-
-Lifecycle: `ctx()` / `world()` throw before `init`. `adopt(content)` is **leak-safe** — it destroys any prior content first, so the reroll loop can re-adopt without an intervening `clear()`. `clear()` frees adopted content and recreates the physics world (cheaper than tracking every realize-created body). `destroy()` tears down content, physics, both post effects, and disposes the context **last** (a clean shutdown is the leak check). The host is **generation-session-only** — it lives while the panel is active, separate from the normal scene-editing viewport (§11). The panel↔host boundary keeps engine handles **opaque**: `PreviewContent` stores meshes/instanced as `unknown[]`; the host casts to the concrete engine mesh types only at the `frame.render` boundary, sound because the panel realized them against *this* host's `ctx()`.
-
-### 13.2 Engine bundle widening — the `extensions` namespace
-
-The browser engine bundle (§3a) now exports `createViewportHost`, `createPreviewHost` (§13.1), and `export * as extensions from "<root>/<extensionsEntry>"` — the consumer's extension entry re-exported as a **value namespace** (the same module the bare side-effect import already runs, so registration fires once; `{}` when no entry is configured). `loadEngine()`'s `EngineModule` type widened to match.
-
-For the dungeon, that namespace is `packages/dungeon/src/editor-extensions.ts`. The cockpit consumes **five** members off it — a **de-facto protocol**, dungeon-owned for now (see the backlog note above):
-
-| Member | Consumed by | What it does |
-| --- | --- | --- |
-| `runWorld(spec)` | worker (`generation-protocol.ts`) | Realize a world spec → one payload (regions + connectors as placed `{ id, data }`). |
-| `bakeWorldFiles(spec, name)` | worker (`generation-protocol.ts`) | Bake a world spec → the file set the panel uploads. |
-| `realizeRegion(ctx, world, cache, region)` | main thread (`WorldPanel.tsx`) | Realize one placed piece into the preview host's GPU context. |
-| `MaterialCache` | main thread (`WorldPanel.tsx`) | The shared material cache a realize pass runs against. |
-| `worldDir(name)` | main thread (`WorldPanel.tsx`) | The project-relative artifact dir (`worlds/<name>`) — the upload's `cleanDir`. |
-
-The namespace crosses the project-first boundary **untyped** (`Record<string, unknown>`), so each side narrows it at exactly **one** boundary cast — `WorldPanel.tsx`'s `ext` for the main-thread three, the worker's `WorkerEngine` type for its two; the engine owns the real types. The module re-exports more than these five (bake-shape types, the cave theme functions, `DEFAULT_WORLD` / `validateWorldSpec`); the editor reads none of them, and the engine bundle may tree-shake what nothing imports.
-
-### 13.3 `generation.bake` — browser-uploads-payload
-
-**Decision — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a **different world placement**: bun/JSC and node/V8 diverge on the transcendental `Math` (`cos` / `sin` / `atan2`) used to place pieces (root-cause detail in `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So the plan's original "daemon regenerates from the seed" would bake a world that does **not** match what the user previewed. The slice adopted the spec §0.2 fallback: **the browser bakes the world in its own engine** — from the same spec, in the SAME engine that previewed it, reproducing the preview exactly — and **uploads the produced file set**; the daemon validates + writes. There is **no** blocking-bake / daemon-regeneration caveat: the daemon holds zero generator knowledge.
-
-The command (`handlers.ts`): input `{ files: WireFile[], cleanDir?: string }`, `WireFile = { path: string (min 1), encoding: "utf8" | "base64", contents: string }`. The browser uploads the whole consolidated world — ONE merged `world.scene.json` + `manifest.json` + `.fmesh` sidecars, all under `worlds/<name>/` (`bakeWorld`, `packages/dungeon/src/bake.ts`). `run`:
-1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the same posture and hidden-existence rationale as scene paths, §6);
-2. when `cleanDir` is given, validates it (root-contained, never the root itself, no dotfile segment, and **every** payload file resolves under it) and `rm -rf`s it BEFORE any write — clean-previous-bake, so a smaller re-bake leaves no orphans from a larger earlier one; a mismatched payload throws and leaves the FS untouched;
-3. writes each file — `mkdir -p` the parent, base64-decode when `encoding === "base64"` (binary `.fmesh` sidecars ride as base64 in the JSON POST);
-4. emits `generation-baked` (`{ files: <count> }`) over SSE and returns `{ files: <count> }`.
-
-The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar can't blow the `String.fromCharCode` argument stack). This is the **first handler that emits an SSE event**, so `HandlerContext` gained an `emit(event: DaemonEvent)` field and `server.ts` passes `hub.emit` to both the session and the handlers.
-
-### 13.4 The World panel + ephemeral session
-
-The dockview **World panel** (`frontend/components/WorldPanel.tsx` + `world-panel/` sub-components; panel id stays `generation` — it is baked into persisted dockview layouts — title "World") drives the loop; its state is an **ephemeral world session** (`frontend/lib/generation.ts`) held **App-owned** (lifted out of the panel in Slice 3.2 so the session survives the panel closing/reopening; §14.3), **beside** the daemon's document session. The only daemon/FS crossing is freeze (the `generation.bake` upload) — everything else in `generation.ts` / `world-draft.ts` is pure and unit-tested without a DOM.
-
-**W3 — assembly (charter §2.4):** the panel assembles a **`WorldDraft`** (`frontend/lib/world-draft.ts`): attach-on-add — region 0 anchors at the origin and every later region enters WITH the connector tying it to an earlier region, so the world is a TREE by construction and grid regions' doors are ASSEMBLED from attachments (`draftToSpec` — portal indices cannot drift; connector `a` = parent, `b` = the derivable child; `legalKinds` filters the class-pair matrix, and a cave parent cannot take a grid child — the collar must ride the grid-side `a`-end while only `b`-ends derive). Region rows carry per-algorithm knobs, a seed field, per-region **Reroll** (bump that region's seed, re-realize the whole world on the worker — deterministic, instant cancel), and leaf-only **Remove**. `previewing` snapshots the FULL SPEC that produced the on-screen world; **Freeze & bake** bakes exactly that snapshot (`bakeWorld` on the worker → `generation.bake` upload with `cleanDir`), and the **"Make this the game's world"** checkbox (default on) retargets `worlds/index.json` via a second cleanDir-FREE `generation.bake` call (`bakeUploadCalls` — byte-parity with the committed index, so re-defaulting "default" is a no-op diff). The draft starts EMPTY (no spec→draft import until 3.5 needs one). Gate-observed assembly-UX findings were consolidated in a backlog set that F4.5a resolved with the panel; the one finding that outlived it (`realizeWorldSpec`'s unactionable "no portal 0" throw, which is dungeon-side and still live) is `docs/backlog/dungeon/world-spec-no-portal-error-is-unactionable.md`.
-
-- **Generate / Reroll** run the consumer's `runWorld(spec)` on the **generation worker** (§13.6), so realize never blocks the main thread and Cancel kills it INSTANTLY, mid-run. Generation is **deterministic** — one call, one `world-run` payload. On that payload the panel realizes every placed piece (regions + connectors) into the preview host **main-thread** (`ext.realizeRegion` against the host's GPU context, sequentially — the shared `MaterialCache` is not concurrency-safe), frames the camera on the union AABB (`layoutBounds`), and snapshots the spec as a `previewing` status.
-- **Freeze & bake** reads **only** the `previewing` snapshot's spec — never the live draft — re-bakes it on the SAME worker (`client.bakeWorld(spec, name)` → the consumer's `bakeWorldFiles`), and uploads via `api.generationBake` (a main-thread daemon call; the upload's `cleanDir` is `ext.worldDir(name)` = `worlds/<name>`, so the daemon clears the prior bake). That snapshot is what makes "freeze bakes exactly what you previewed" hold even after a draft edit: any draft write drops a `previewing` status back to `idle` (`invalidateWorldPreview`), so Freeze is only ever enabled for the world currently on screen.
-
-Because the session lives in React state and never touches `session.apply`, generation curation is **not undoable** and does not appear in the document session's history — a separate, ephemeral concern that crosses into the document/FS world only at the bake.
-
-### 13.5 Fragment-doc opening in the viewport host
-
-A baked region document is **camera-less** (no entity carries a `camera` component). The viewport host's `applyScene` (`src/viewport-host/index.ts`) now detects this — mirroring the loader's own throw condition exactly (`doc.entities.some(e => "camera" in e.components)`) — and, when no scene camera is present, loads with `scene.loadScene(c, doc, { fragment: true })` (suppressing the loader's no-camera throw) then frames the editor orbit camera on the **content bounds** (centroid + floored content radius, seated back along fixed framing factors) instead of seeding from a scene-camera pose. This fixes the 3.0-gate "no entity carries a camera component" error — opening a baked region fragment is the cockpit's acceptance case one. Camera-carrying docs are **unchanged** (still seed the orbit from the scene camera's eye, pivoting on the content centroid — §11.2).
-
-### 13.6 Generation worker host (Slice 3.2.3)
-
-The generation search moved off the main thread onto a dedicated **module worker**:
-`frontend/generation-worker.ts`, built as its OWN entry (`scripts/build-frontend.ts`
-— a page-loaded worker is reached by URL, not by riding the html entry's import
-graph) to `/generation-worker.js`. It imports the same same-origin `/engine.js` the
-main-thread chrome loads — same browser, same JS engine — so worker-side placement
-is identical to main-thread placement (the cross-engine determinism rule is
-JSC-vs-V8, `docs/learnings/2026-07-06-cross-engine-placement-determinism.md`, not
-thread-vs-thread).
-
-- **Protocol (`frontend/lib/generation-protocol.ts`)**: runId-disciplined typed
-  messages. Requests: `init` / `runWorld` / `bakeWorld`; responses: `ready` /
-  `init-error` / `world-run` / `baked` / `done`. `done` is a **pure failure
-  channel** (`outcome: "error"`) — success rides `world-run` (ONE payload per
-  `runWorld`, carrying the whole realized world) or `baked` (the file set).
-  `createWorkerHandler` is a **pure factory over injected deps** (`loadEngine` +
-  `post`), unit-testable without a real `Worker` (`bun:test` spawns none);
-  `generation-worker.ts` is a thin shell wiring it to the real dynamic `import()` +
-  `self.postMessage`. Every failure path posts a typed message rather than throwing
-  (a worker-side throw surfaces as a generic `ErrorEvent` with no runId). The
-  realized world and the baked files transfer their typed-array buffers
-  (`collectTransferables` dedupes views that alias one buffer — a duplicate
-  transferable is a `DataCloneError`).
-- **`GenerationWorkerClient` (`frontend/lib/generation-client.ts`)**: App-owned (one
-  per App lifetime, alongside the generation session — §14.3), so it survives the
-  World panel unmounting. `runWorld` / `bakeWorld` / `cancel`. **Cancel =
-  `terminate()` + lazy respawn** — instant, mid-run, no cooperation needed from the
-  work in flight. A bumped `runId` PLUS a worker-identity guard (`this.worker !== w`)
-  drop late messages from a dead or superseded worker, including the no-runId
-  `ready` / `init-error` / `onerror` (`terminate()` does not dequeue a worker's
-  already-posted messages). A spawn or init failure is setup-loud through
-  `onError` — no silent fallback path exists.
-- **What stays main-thread**: `previewWorld` (realize into the preview host) needs
-  the host's GPU context, so it runs once on the realized payload, main-thread; the
-  daemon upload (`api.generationBake`) is a main-thread fetch. Everything else —
-  running `runWorld` / `bakeWorldFiles` — moved into the worker.
-- **`bundle-outdated` stance**: the client is App-owned via `useState`'s lazy
-  initializer (one instance for the App's lifetime). A page reload refreshes the
-  worker AND the main thread together — both then run the SAME engine bundle. The
-  worker is **never respawned alone** on a `bundle-outdated` SSE event; doing so
-  would version-split worker-side generation from main-thread realize/bake against
-  two different bundle builds. When the page deliberately stays stale (a dirty
-  document blocks the reload prompt), the worker stays stale WITH it.
-
-### 13.7 World flow — which world the game loads
-
-The panel's shipped path is the world flow end to end: `runWorld` / `bakeWorld` on
-the worker (§13.6) against the consumer's `extensions` seam (§13.2), realize + upload
-on the main thread (§13.4). Generation is **deterministic** — the same spec always
-yields the same world — so there is no search and no retry machinery on either side
-of the worker boundary.
-
-The daemon's `generation.bake` is destination-agnostic (root-contained + `cleanDir`),
-so `worlds/<name>/` destinations needed a test, not a change. Which world the game
-loads is `worlds/index.json`; the panel's "make this the game's world" checkbox
-retargets it at bake time via a second, `cleanDir`-free upload (§13.4).
-
-## 14. Slice 3.2 — editor foundation pass (Epic 3)
-
-> **Superseded by §20 for §14.1's theme mapping, §14.2's menu bar, §14.3's persistence,
-> §14.4's navigation and §14.6's selection colour (F4.5a).** §14.5 (inspector IA,
-> humanized labels, number formatting) still stands — the inspector survives as the
-> stamp/reconfigure param form.
-
-The foundation pass that turned the M3–3.1 prototype into a usable tool, driven by an `/impeccable` critique (20/40 → 31/40; the baseline's 1×P0 + 3×P1 all resolved). **Browser-chrome only — no `@furnace/core` change.** The daemon gained one read command (`project.get`, §4) and two `SessionView` fields (`canUndo`/`canRedo`).
-
-### 14.1 Design system + tokens
-
-`frontend/styles.css` carries a committed OKLCH token set (`@theme inline`; the `.dockview-theme-dark` mapping went with the dock): a single steel-blue `--primary` (`oklch(0.62 0.11 240)`), a hue-250 neutral ramp, a desaturated semantic set, self-hosted **Inter Variable** (UI) + **JetBrains Mono** (data — numbers/IDs/paths), `color-scheme: dark`, one tokenized focus ring, and a `@media (prefers-reduced-motion: reduce)` block. Controls are shadcn/ui (new-york) over Radix; `frontend/lib/cn.ts` is the class-merge (the shadcn CLI's bare alias is relativized on every generated component — a bare alias breaks repo-root typecheck). The committed design intent lives in `packages/editor/DESIGN.md`.
-
-### 14.2 Menu bar + global keybindings + in-chrome confirm
-
-*(Historical — the menu is now the single `shell/BurgerMenu.tsx` dropdown, Edit/World/View/Help, and Undo/Redo drive the field op log rather than a document session; §20.6.)* `frontend/components/MenuBar.tsx` was a Radix Menubar (File/Edit/View/Help) whose items dispatched through the App's document-control handlers; `frontend/lib/keybindings.ts` + `hooks/useGlobalKeybindings.ts` bind ⌘S / ⌘Z / ⇧⌘Z / F / ⌫ with focus-aware guards (bare keys ignored while typing in a field). Save/Undo/Redo call `scene.save`/`scene.undo`/`scene.redo`; their enabled state reads `SessionView.canUndo`/`canRedo`. Destructive actions route through an in-chrome `ConfirmDialog` (Radix), never `window.confirm`. **Radix Presence caveat (found at the 3.2 gate):** menu-family exit animations must NOT use a `forwards`-fill `data-[state=closed]` keyframe — it wedges Radix `Presence` so a menubar/dropdown sibling-switch closes the open menu but never opens the next; the fix keeps only the enter (open-state) animation on `menubar.tsx` + `dropdown-menu.tsx`.
-
-### 14.3 UI persistence + generation-session lift
-
-`frontend/lib/persist.ts` persists per-project UI state, scoped by the project root from `project.get`. *(Historical: it held the dockview layout + view flags + inspector section open-state, and closed panels reopened via **View ▸ Panels** from a `PANELS` registry. `panels.ts` is deleted; the blob is now `workspace` / `view` / `flagFilters` / `lastWorld` at **v2**, and a v1 blob is orphaned rather than migrated — §20.2. F4.5b deleted the write-only `recentWorlds` and made `lastWorld` READ at boot — §21.9.)* The **ephemeral generation session was lifted out of the panel (today `WorldPanel`) into App-owned state** so it survives the panel closing/reopening (correcting §13.4's original panel-local design); the bake destination is the draft's own `name` (§13.4).
-
-### 14.4 Viewport reference layer + navigation
-
-*(Historical — this describes the deleted scene viewport. What survives: `viewport-host/reference-grid.ts` (the field host still draws the depth-tested grid, gated by `layers.grid`) and `AxisTriad.tsx` (now mounted by `shell/AxisTriadMount.tsx` off the host's camera-pose seam). `ViewFlags` is gone — the field's visibility set is `FieldLayers` and the shading modes are `studio`/`normals` (§20.5); there is no `axes`, `headlamp` or `fog` flag. The navigation below is NOT the field host's: it binds right-drag look (or orbit about the selected entity) + WASD/QE fly, left-drag strokes the brush, the wheel trims brush radius (or dollies, under the `pointer` tool), `F` frames the selection and the corner triad's six tips snap the view. `camera-control.ts`'s `orbit`/`zoom`/`pan`/`fromEyeTarget` were deleted at F4.5b Task 6; what is left of that module all has a caller.)* `frontend/viewport-host/reference-grid.ts` adds a depth-tested grid; a corner axis triad (`AxisTriad.tsx`) and a neutral headlamp make an opened scene read as a scene, not a black void. `ViewFlags` (`grid`/`axes`/`headlamp`/`fog`) are a viewport concern (default grid/axes/headlamp **ON**, fog **OFF**), mirrored between a viewport overlay popover and View ▸ View-flags. **Navigation (`viewport-host/camera-control.ts`):** Alt+LMB orbit, **MMB pan**, RMB-hold + WASD/QE fly (wheel trims fly speed), and **scroll = `dolly` forward** — a scale-aware, floored forward `flyMove` that travels through the scene rather than orbit-zooming toward the pivot (distance-scaled orbit zoom asymptotes to a dead stop); `F` frames the selection. The prior `zoomToward` cursor-zoom was deleted.
-
-### 14.5 Inspector IA, humanized labels, number formatting
-
-Component sections are collapsible (`CollapsibleSection`); resources default collapsed and filter to the selection. Field/section labels are humanized (`frontend/lib/humanize.ts` — `castShadow` → "Cast Shadow"), applied in `FieldRow`, component headers, and object-group headers; the World panel matches (Title Case). Numeric display is rounded on the data surface: `inspector/lib/format.ts` `roundForDisplay` strips IEEE-754 noise (`1.2000000000000002` → `1.2`) in `NumberField` + `VecField` (`QuatField` already rounded euler degrees) — **full precision stays in the document**, and because the rounded value is ALSO the blur dirty-check baseline, a focus+blur with no edit never commits a truncation. Vec/Quat show x/y/z(/w) axis chips; numeric labels carry a drag-scrub affordance.
-
-### 14.6 Selection color single-source + test harness
-
-*(Historical — the scene viewport this served is deleted, and `frontend/lib/theme.ts` went with its last consumer at F4.5a Task 13. The field host's selection colour is a host-side constant.)* The viewport selection highlight derived from the `--primary` CSS variable at runtime via `frontend/lib/theme.ts` `resolveCssColor` — a 1×1 canvas-2D `getImageData` resolve, NOT `getComputedStyle().color` (which preserves `oklch()` under CSS Color 4 and returns garbage). A happy-dom + `@testing-library/react` harness (`tests/inspector/`) renders fields/panels and exercises the `onChange → onPreview → onCommit` chain — the field-render coverage the M5B ColorField regression exposed as missing. **DOM tests live in `tests/` SUBDIRS** (never bare `tests/`) so happy-dom's `navigator`/`fetch` mutation can't clobber the GPU + daemon-HTTP suites earlier in bun's single-process file walk (`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly*).
-
-## 15. One Field F1+F2a — the Field panel + FieldHost (2026-07-16)
+**§11–§15 are the FIELD TOOL as built, slice by slice.** Everything here about the host, its
+workers, its catalogs and its ops is current — this is the machinery §16–§18's chrome drives.
+The one thing to read past is the CHROME of the era: `FieldPanel`, its toolbar and its layers
+row were deleted across F4.5a/b (§16.7, §17.9), and each mention below carries its own note
+saying where the organ went. Where a later slice changed a host contract, the change is
+recorded inline at the claim it falsified rather than left for the reader to reconcile.
 
 - **`FieldHost`** (`viewport-host/field-host.ts`) — a PreviewHost-class host (own
   canvas/context/camera/rAF loop) owning the field authoring loop: a
@@ -644,7 +358,7 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
   deltas, ⌘Z/⇧⌘Z), LMB tool strokes, RMB fly-look + WASD/QE (camera-control reuse), a
   **flat-shaded** (`shader.normalColor`, unlit normal-distinct — material classes
   deliberately indistinct here) vs LIT (per-class colors visible) toggle — F4.5a renamed
-  the pair `normals`/`studio` and made `studio` the default (§20.5), ground grid + origin marker (blank-canvas bootstrap).
+  the pair `normals`/`studio` and made `studio` the default (§16.5), ground grid + origin marker (blank-canvas bootstrap).
   Threaded to the chrome through the `/engine.js` runtime channel (the same channel the
   now-deleted PreviewHost used) — the chrome never value-imports engine code;
   `tests/frontend-no-engine-leakage.test.ts` machine-enforces the ban against
@@ -660,8 +374,9 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
   per chunk (white litInstanced material; piece color × variant jitter rides the
   per-instance tint). F1's dig-feel backlog entry resolved here; the F2b feel register
   (`fill-tool-solid-volume-surprise.md`) was resolved in F2b — stamps + hollow fill +
-  the filled kit ghost (§16); the deferred remainder is
-  `docs/backlog/editor-and-tooling/field-f2b-gate-ux-findings.md`.
+  the filled kit ghost (§12). The F2b gate's deferred remainder was consumed into the F4.5
+  stage and is discharged except for one item, now its own entry:
+  `docs/backlog/editor-and-tooling/box-select-is-two-clicks-not-a-drag.md`.
 - **Remesh worker** (`frontend/field-worker.ts` + `lib/field-protocol.ts` /
   `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
@@ -676,7 +391,7 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
   guard clean), and applies it via `setMaterialTable`. Absent file → builtin rock-only
   + status note. Catalog-wins semantics vs the artifact's embedded table (the
   embedded table is the GAME's snapshot); Load-until-catalog-settles hardening is an
-  F2b carry-over (resolved in F2b — see §16's module extractions).
+  F2b carry-over (resolved in F2b — see §12's module extractions).
 - **FieldPanel** (panel id `field`) — thin chrome: world name **empty by default**
   (explicit name required — the W3/W4 gate-clobber fix), tool radios (Dig/Fill/Paint)
   + material dropdown (all classes for Fill, organic-only for Paint, hidden for Dig —
@@ -691,10 +406,10 @@ Component sections are collapsible (`CollapsibleSection`); resources default col
   one-shot ResizeObserver, because dockview panels mounting hidden (e.g. behind the Field
   tab) latched core's "width and height must be positive" throw until a manual tab-close +
   refresh. With one full-window canvas sized by the layout contract there is nothing to
-  wait for: init is EAGER and a zero measure THROWS (§20.1). Distinct from
+  wait for: init is EAGER and a zero measure THROWS (§16.1). Distinct from
   resize-RENDERING, which the host still owns via `gpu.onResize`.
 
-## 16. One Field F2b — the palette (2026-07-21)
+## 12. One Field F2b — the palette (2026-07-21)
 
 The tool system over F2a's material field. Three Safari gate rounds (the third
 accepted); two rounds were consumed by ONE pre-existing core bug — `frame.drawLines`
@@ -707,12 +422,17 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   current `SelectionSpec`; no selection → mask dropped + reported). Shortcuts: `[`/`]`
   + wheel = radius, **Alt-click eyedropper** (samples the aimed cell's class),
   **Shift-held = momentary Smooth**, **Ctrl-held = momentary Dig**; `subscribeTool`
-  mirrors host-initiated changes into the panel. The kit-fill ghost renders as a
+  mirrors the effective tool back to the chrome. It began as a HOST-initiated-only seam
+  (eyedropper, momentary enter/leave) and is no longer only that: a chrome `setTool` landing
+  under a held modifier re-derives the effective tool and fires carrying the DERIVED value —
+  which is why the chrome's mirror value-compares before re-pushing — and since the F4.5
+  gate's W-2 the seam also carries the brush RADIUS, which the chrome's own writes move
+  (§18). The kit-fill ghost renders as a
   translucent solid cube (rebuilt per snapped-size change) plus edges; the brush ghost
   persists off-canvas so panel-slider size drags preview live.
 - **Selection (a tool class, not an op)** — `setGesture("box"|"material"|"void")`
   arms LMB gestures (applyTool bypassed; F3b widened the setter to one armed-gesture
-  slot that also holds the `segment` brush — §18; F4.5b added `pointer` to the same
+  slot that also holds the `segment` brush — §14; F4.5b added `pointer` to the same
   slot and made it the DEFAULT a host opens armed with, so the first click on a world
   selects rather than digs): box = two clicks with an anchor cross + a
   LIVE snapped-region preview following the cursor (fix round 1); material/void =
@@ -720,13 +440,13 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   `SELECTION_UI_BUDGET = 200_000` under core's ceiling, truncation surfaced in the
   panel. Amber AABB overlay (occlude:false), `reselect()` one-slot restore,
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
-  display is deferred to F4 (`field-f2b-gate-ux-findings.md`).
+  display was deferred to F4 and LANDED at F4.5b (§17.7).
 - **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid,
   flags, voidCast }`; the first SEVEN gate the render lists per frame (display-only; a
   hidden selection keeps masking ops), and two of them arrived later: `props` with F3b's
-  placed-prop layer (§18) and `flags` with F4's advisor markers (§19). The eighth,
+  placed-prop layer (§14) and `flags` with F4's advisor markers (§15). The eighth,
   `voidCast`, is NOT a plain gate — it is F3b's X-ray view mode, default off, built by its
-  own enabling edge and dropped by the next edit (§18); `LayersRow` renders it under a
+  own enabling edge and dropped by the next edit (§14); `LayersRow` renders it under a
   separate "view" group and machine-checks the split with
   `type VisibilityLayer = Exclude<keyof FieldLayers, "voidCast">`. F4 Task 11 additionally
   reshaped the rendered set from an ARRAY into `LAYER_TITLES: Record<VisibilityLayer,
@@ -762,10 +482,10 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   plain controls, NOT SchemaForm), StampInspector (SchemaForm over the generator's
   paramSchema + visible hand-editable seed + ⚄ re-roll + merge policy +
   Commit/Cancel), EntitiesList (▦ rows → footprint highlight; F3a made rows the
-  smart-object surface — Open/Freeze/Bake, §17), LayersRow + slice slider,
+  smart-object surface — Open/Freeze/Bake, §13), LayersRow + slice slider,
   FieldToolbar. *(F4.5a: `LayersRow` and `FieldToolbar` are deleted — the layer gates and
   the slice slider moved to the top bar's View popover, the world verbs to the shell, and
-  the catalog fetch to `hooks/useCatalogs.tsx`; §20.)* The controls stack is bounded
+  the catalog fetch to `hooks/useCatalogs.tsx`; §16.)* The controls stack is bounded
   (scrollable) and the canvas cell floors at `min-h-24` — it can never reach zero
   (measured fix; the unclamped-resize core hop is
   `docs/backlog/engine-architecture/resize-unclamped-zero-size-canvas.md`).
@@ -773,7 +493,7 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   (World + scene Viewport + Entities leave the DEFAULT only; `PANELS` still owns
   View▸Panels re-add). Persisted layouts unaffected; View▸Reset lands on the new
   default. *(F4.5a: deleted with the dock. The layout is now the fixed Shell contract
-  plus a floating palette arrangement — §20.1–§20.2.)*
+  plus a floating palette arrangement — §16.1–§16.2.)*
 - **Load gating (F2a carry-over closed)** — Load stays disabled until the catalog
   settles (success or 404-fallback); catalog-wins semantics stand.
 - **Host extractions (F2a carry-over closed)** — pure modules with tests:
@@ -783,11 +503,11 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   the GPU calls.
 - **Core underneath (see `core-modules.md`)** — the FieldOp union + op-list undo,
   masks, smooth, hollow fill, selection, the generator registry (hall + maze; cave + scatter
-  joined at F3b — §18) + `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
+  joined at F3b — §14) + `commitGenerator`, raycast `maxY`; and the two F2b frame fixes: drawLines
   MSAA-awareness and blend-partitioned draw order (translucent ghosts now draw over
   instanced kit).
 
-## 17. One Field F3a — smart objects (2026-07-23)
+## 13. One Field F3a — smart objects (2026-07-23)
 
 Committed generators became reconfigurable smart objects; the editor half rides the
 F2b stamp-session machinery end to end.
@@ -850,11 +570,12 @@ F2b stamp-session machinery end to end.
   SEPARATE history from the scene document's); the canvas ⌘Z handler now
   `stopPropagation()` (it was ALSO stepping the scene undo — pre-existing, fixed;
   F/Delete still leak by design pending a semantics decision, noted at the fix site).
-- **Deferred UX set** → `docs/backlog/editor-and-tooling/field-f3a-gate-ux-findings.md`
-  (mouse-driven region move, in-viewport pointer/select tool, box/wand selection feel
-  — slotted to the F4 recharter with the F2b set).
+- **Deferred UX set** — mouse-driven region move, an in-viewport pointer/select tool, and
+  box/wand selection feel. All three were taken by the F4.5 stage: the pointer tool and the
+  committed-entity move shipped (§17.1, §17.3), and what is still owed is two entries —
+  `create-session-ghost-cannot-be-dragged.md` and `box-select-is-two-clicks-not-a-drag.md`.
 
-## 18. One Field F3b — scatter authoring, placed props, and two tools of its own (sealed 2026-07-25)
+## 14. One Field F3b — scatter authoring, placed props, and two tools of its own (sealed 2026-07-25)
 
 The editor became the third consumer of core's F3b placement work (after the generator
 itself and the dungeon's field-world loader): it authors scatter stamps and renders the
@@ -868,7 +589,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   installs it via `FieldHost.setEntityCatalog`. Both fetches live in ONE effect so they
   cannot race onto the status line; only MATERIALS gates Load (props render from the op
   log whether or not the entity catalog resolves). *(F4.5a: the status line is gone —
-  a catalog error is a toast plus a durable log entry, §20.3.)* The parser normalises the catalog's
+  a catalog error is a toast plus a durable log entry, §16.3.)* The parser normalises the catalog's
   authoring vocabulary into the scatter generator's param spelling (`scaleRange` →
   `scaleMin`/`scaleMax`) and deliberately drops the `meshes` paths — editor props are
   proxies (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes*). **The catalog SEEDS, it never gates:** absent
@@ -951,7 +672,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   GPU-test-held, the render is not pixel-checked — the `2026-07-21-invisible-line-overlays`
   caution applies until someone sees it). F4's marker layer took the OTHER route and is
   pixel-CONFIRMED at its gate, by a committed re-runnable recipe
-  (`packages/editor/scripts/analyzer-pixel-check.md`, §19) — which leaves the void cast the
+  (`packages/editor/scripts/analyzer-pixel-check.md`, §15) — which leaves the void cast the
   one field overlay whose render nothing has ever checked, and gives whoever checks it a
   template. `FieldLayers.voidCast` is the one flag
   with an EDGE effect. false→true copies every allocated chunk's density into ONE worker
@@ -1019,7 +740,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   kit fill by the snapped box, a flood by `SELECTION_UI_BUDGET`), but the fly camera stays
   live between the two clicks, so the sweep length is whatever the user walks and the op cost
   is linear in it. F3b shipped it uncapped and recorded the asymmetry with the void cast's
-  same-phase budget; **F4 closed it** — `MAX_SEGMENT_M` (§19).
+  same-phase budget; **F4 closed it** — `MAX_SEGMENT_M` (§15).
 - **Segment preview + failure path** — the preview is the WHOLE preview: a hologram-blue anchor
   cross plus the wireframe capsule the second click would commit (`segmentGhostSegments` in
   `field-ghost.ts` — a 16-segment ring at each endpoint plus 4 rails, degenerating to the sphere
@@ -1028,7 +749,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   cheap and reversible, and the generator preview protocol exists for recipes whose output cannot
   be guessed from their inputs — a swept capsule can. It is rebuilt on pointer MOVE, so a radius
   change with a still cursor does not re-fatten the pending capsule until the next move (accepted,
-  filed as item 9 of `field-f2b-gate-ux-findings.md`). Esc drops a pending anchor, but only when no
+  and RESOLVED at F4.5b Task 9). Esc drops a pending anchor, but only when no
   stamp session owns the key — the box anchor's identical Esc is a separate UX change, filed rather
   than folded in. `commitToolOp(shape)` is the shared build→apply→report path the stroke and the
   segment both take, so both carry ONE failure contract: every setup-loud throw the apply raises —
@@ -1049,7 +770,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   under `bun test`, where a job posted to a Worker spawned from that browser URL never settles
   in-process. Backlog status: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *FieldHost's worker seam exists now*.
 
-## 19. One Field F4 — the walkability advisor in the editor (tranche B, 2026-07-26)
+## 15. One Field F4 — the walkability advisor in the editor (tranche B, 2026-07-26)
 
 > **SEALED 2026-07-27 (user Safari gate, no fix round).** The flag-and-fix loop, the
 > flags-layer pixel toggle, prop anchoring/blocking (with a bake-and-walk inside it)
@@ -1062,9 +783,10 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
 > the verify badge (Task 13: 8 browser verifies, outcomes 2 trapped / 1 clear /
 > 5 inconclusive), and the segment clamp (pinned by tests; the arming flow is the
 > known discoverability gap). Gate finding — selected-flag identification (the frame
-> box is chunk-sized; direct-click-to-select is the wanted direction) — deferred to
-> `docs/backlog/editor-and-tooling/field-f4-gate-ux-findings.md` with the sibling
-> sets, per the standing features-now/polish-later sequencing decision.
+> box is chunk-sized; direct-click-to-select is the wanted direction) — deferred with the
+> sibling sets to the F4.5 UX stage, per the standing features-now/polish-later sequencing
+> decision, and LANDED there (§17.7: the pick volume is the anchor CELL, and clicking a
+> marker selects it).
 
 The editor gained its THIRD worker: an advisor that runs core's stage-1 walkability passes
 over a mirror of the field as the user digs, draws what it finds as severity-coloured
@@ -1283,7 +1005,7 @@ mind.
   the Task 13 gate: verdicts landed as chips with a SPREAD of outcomes and no error
   raised beside them. That is the pixel-check recipe's own claim 4 — "a verify that raises
   an error instead of a chip is a P-F4-2 NO-GO" (it read "status-line error" when the panel
-  still had a status line; F4.5a routes it to a toast + the log, §20.3). All-`inconclusive` would not have been a failure
+  still had a status line; F4.5a routes it to a toast + the log, §16.3). All-`inconclusive` would not have been a failure
   on its own (it is a real outcome); a `clear` and a `trapped` in the set are what prove the
   mover actually walked lanes.
 - **The Flags panel section** (`components/field/FlagsSection.tsx`) — presentational, like
@@ -1323,7 +1045,7 @@ mind.
   re-opened. That remount used to RESET them, because the host keeps the last set across world
   loads and a re-mounted section reading "candidates only" beside markers still drawing the
   info band would be a straight lie. Remembering them across SESSIONS is D-3's, still open.
-- **The `flags` layer** is the SEVENTH display gate (§16). Hiding it does NOT stop the
+- **The `flags` layer** is the SEVENTH display gate (§12). Hiding it does NOT stop the
   analyzer — findings keep arriving and `subscribeFlags` keeps firing, exactly as a hidden
   `selection` layer keeps masking ops.
 - **The analyzer worker's realm holds TWO core instances, and the two workers are exempt from
@@ -1377,7 +1099,7 @@ mind.
   rationale and its synthetic-`"both"` unit test live at the source) supersedes
   `placesArchetypes`, which inferred "does this place props?" from an `archetypeId` param and
   would have mis-read any placer naming its archetype another way. It is read at exactly two
-  sites: the editor-side empty-result refusal (§18) and `FieldGeneratorInfo.placesProps`, which
+  sites: the editor-side empty-result refusal (§14) and `FieldGeneratorInfo.placesProps`, which
   the StampInspector's props count reads. **The other two prop-generator branches still sniff
   the schema key** — `withArchetypeOptions` (the `archetypeId` picker) and `seedArchetypeParams`
   both gate on `ARCHETYPE_PARAM in …` and never consulted the predicate, before or after. The
@@ -1386,7 +1108,7 @@ mind.
   `emits: "placements"` (or `"both"`) but names its archetype param something else gets the
   refusal and the count, and silently gets NO picker and no seeding — the exact divergence class
   `placesProps`' own TSDoc warns about, one level up. Unifying the remaining two is unbuilt.
-- **The segment brush gained its cap (D-F4-16), closing the asymmetry §18 recorded.**
+- **The segment brush gained its cap (D-F4-16), closing the asymmetry §14 recorded.**
   `MAX_SEGMENT_M = 2 · DIG_RANGE_M` = 60 m, checked in `segmentClick` before the anchor is
   cleared, so a refusal leaves the pending start armed and the fix is one nearer click; its
   TSDoc owns why twice the dig range is the geometry and not a round number. F3b shipped this
@@ -1397,7 +1119,7 @@ mind.
   cannot value-import anything under `viewport-host/`, the same rule that keeps `flagKey`
   private and puts `rowByKey` in the store.
 - **Deliberately untouched: the void cast's worker scheduling.** F3b's X-ray still monopolises
-  the one FIELD worker with no cancel and refuses where coalescing belongs (§18); F4 gave the
+  the one FIELD worker with no cancel and refuses where coalescing belongs (§14); F4 gave the
   advisor a worker of its OWN rather than touching that, so its passes never queue behind a
   cast and the cast's scheduling is exactly as F3b left it.
   The gap stands as filed —
@@ -1405,31 +1127,31 @@ mind.
 - **Panel-orchestrator slope.** *(F4.5a reversed it: 817 → 463 lines and 8 → 4
   subscriptions, by moving the stats/tool-error/entity/drift seams to a shell provider and
   the world, view and catalog concerns out entirely; F4.5b Task 2 finished it at 261 lines
-  and 0 subscriptions — §20.7.)* Tranche B took
+  and 0 subscriptions — §16.7.)* Tranche B took
   `FieldPanel.tsx` from 15 `useState` slots and 7 subscriptions to 18 and 8 (711 → 817 lines): three new slots — the flags summary, the filter
   set, the in-flight verify key — plus `analyzerPending` on the existing stats mirror and its
   footer segment. The file was the dig loop's single orchestrator, and the backlog entry
   tracking that slope retired with it: F4.5a moved the entity list out, F4.5b took every
-  remaining organ (§21), and Task 14 deleted the component and the `controls` palette id
+  remaining organ (§17), and Task 14 deleted the component and the `controls` palette id
   together. What the orchestration became is `hooks/useFieldHostState.tsx` plus the pure
-  `lib/field-host-mirrors.ts` it was split against — see §21.
+  `lib/field-host-mirrors.ts` it was split against — see §17.
 
-## 20. F4.5a — the overlay shell (2026-07-30)
+## 16. F4.5a — the overlay shell (2026-07-30)
 
-**Read §21 beside this one:** F4.5b moved several figures here — the `controls` palette id retired with `FieldPanel`, three palettes joined the union, the seam and context counts went up, and the Esc ladder gained a rung — and §21 is the as-built for all of it.
+**This section is the authority on the editor's SURFACES**, §17 on its VERBS, §18 on the
+vocabulary both are spoken in. Read the three in order — each supersedes a figure or two in
+the one before it, and says so at the point where it does.
 
-**This section is the authority on the editor's chrome.** F4.5a rebuilt it as an *overlay
-cockpit*: one full-window canvas with everything else floating over it. The dock, the
-field toolbar, the World panel and the entire scene-document surface were deleted
-(§7/§10–§14 are the history that produced this). The editor is now **field-only** — the
-daemon still implements the `scene.*` family, but nothing in the chrome speaks it.
+F4.5a rebuilt the chrome as an *overlay cockpit*: one full-window canvas with everything
+else floating over it. The dock, the field toolbar, the World panel and the entire
+scene-document surface were deleted. The editor became **field-only** — the daemon still
+implements the `scene.*` family (§4.2), and nothing in the chrome speaks it.
 
-Scope note: this is the **as-built at the end of F4.5a**, not the end of F4.5. The
-`MIGRATION (until F4.5b)` markers in `packages/editor/src` name the places that
-know they are provisional — six left, the entities palette's row-delete marker having been
-resolved by F4.5b Task 4; `grep -rn "MIGRATION (until" packages/editor/src` is the list.
+`grep -rn "MIGRATION (until" packages/editor/src` is the live list of anything still marked
+provisional. **At the F4.5 seal it is empty**: F4.5b worked the `MIGRATION (until F4.5b)`
+markers this slice left, each at the task that made its provisional shape unnecessary.
 
-### 20.1 The layout contract (D-1) and the canvas layer
+### 16.1 The layout contract (D-1) and the canvas layer
 
 `components/shell/Shell.tsx` states the one rule the cockpit rests on: **the canvas
 cell's insets are decided by the two fixed-height bars (`TopBar`, `StatusBar`) and
@@ -1472,7 +1194,7 @@ listener has to sit *below* the provider it reads.
   fly, `[`/`]` radius and arrow-nudge keydowns to the CANVAS, so the ring is the only
   signal those keys will land anywhere.
 
-### 20.2 The palette layer, the workspace store, and persistence v2
+### 16.2 The palette layer, the workspace store, and persistence v2
 
 **`lib/palette-store.ts` is pure data** — no DOM, no persistence, no React. The cell's
 size is the one fact it cannot know, so it arrives as an argument (`OriginBounds`); the
@@ -1543,7 +1265,7 @@ and `lastWorld`, each with exactly one writer, and `set` rebuilds the blob from 
 so the keys stay independent. A corrupt blob reads as empty; a quota failure is
 swallowed. Persistence is best-effort and must never break the editor.
 
-### 20.3 What the editor SAYS — the notify store
+### 16.3 What the editor SAYS — the notify store
 
 `lib/notify-store.ts` (D-19) is a **capped toast stack over a durable message log**,
 framework-free: `subscribe`/`getSnapshot` and nothing more, so every rule lives in one
@@ -1574,18 +1296,13 @@ anything to announce, because a region that appears with its text is a region sc
 readers may not announce. This replaced the field panel's status line entirely: **the
 panel has no status line, and nothing else does either.**
 
-### 20.4 The world — `world.*`, `useWorld`, and the drawer
+### 16.4 The world — `world.*`, `useWorld`, and the drawer
 
-The daemon gained a **`world.*` namespace** (`daemon/handlers.ts`) beside the existing
-`field.load` and `generation.bake`:
-
-| Verb | What it does |
-| --- | --- |
-| `world.list` | Enumerate `worlds/` read-only, with a **`tracked` tri-state** per row — `true`/`false` from `git check-ignore`, `null` when git cannot tell (no repo, or an ambiguous answer). |
-| `world.makeDefault` | Point `worlds/index.json` at an existing world. Manifest-checked. |
-| `world.delete` | Remove a world directory. **Refused for the current default.** |
-| `world.rename` | Rename a world directory (case-insensitive-FS aware). |
-| `world.duplicate` | Copy a world under a new name. |
+F4.5a gave the daemon its **`world.*` namespace** beside the existing `field.load` and
+`generation.bake` — the five verbs and their refusals are tabled once, at §4.3. `world.list`'s
+`tracked` tri-state is the one worth restating here because the chrome renders it: `true` /
+`false` come from `git check-ignore`, and **`null` means git could not tell** (no repo, or an
+ambiguous answer). A `null` earns no badge rather than a wrong one.
 
 **`hooks/useWorld.tsx` holds the world state, and it is SHELL state, not panel state** —
 the world chip reads it, ⌘S drives it, the drawer lists against it. That placement is the
@@ -1642,7 +1359,7 @@ confirms are the App-owned prompt, and rows come from `world.list` **refetched o
 behind the editor's back (a git checkout, another editor) shows up the same way the
 editor's own do. A `null` `tracked` earns no badge rather than a wrong one.
 
-### 20.5 Seeing — studio shading, the View popover, the pose seam
+### 16.5 Seeing — studio shading, the View popover, the pose seam
 
 **`FieldHostShading = "studio" | "normals"`**, and **`studio` is the default** (D-F4.5-17,
 "the state of seeing"): per-class lit materials under a **camera-following key light plus
@@ -1682,12 +1399,12 @@ emitted in fixed axis order (that is the tab order) and resolve overlap with `zI
 the SVG behind them paints far-to-near. The triad mounts **above the palette layer in DOM order** — F4.5a's default
 arrangement docked `controls` to the right edge at top 0, covering exactly the corner the
 triad sits in, so mounted before the layer it shipped invisible out of the box. That dock
-retired with `FieldPanel` (§21) and no default claims the right edge now, but the DOM order
+retired with `FieldPanel` (§17) and no default claims the right edge now, but the DOM order
 stays: the corner is unclaimed by DEFAULT, not unclaimable, and a user may drag any palette
 onto it. `Toasts` sits there for the same reason with a softer case. Both are their own absolute
 box inside the SAME cell: they take nothing from the canvas (D-1).
 
-### 20.6 The menu, the shortcut overlay, and the ONE history
+### 16.6 The menu, the shortcut overlay, and the ONE history
 
 The menu is a **single burger dropdown** (`shell/BurgerMenu.tsx`) whose groups render in
 the order **World / Edit / View / Help** — not a menubar.
@@ -1729,7 +1446,7 @@ flag beside the ⌘K palette's, which is what makes the key possible at all (it 
 `BurgerMenu`'s own state, unreachable from a window listener). Its matcher is the one in the
 table that states a CHARACTER rather than a modifier + key — `?` is ⇧/ on a US layout and ⇧ß on
 a German one — with AltGr layouts the known residue, filed under
-`docs/backlog/editor-and-tooling/` as `shortcut-overlay-key-on-altgr-layouts.md`.
+`docs/backlog/editor-and-tooling/` as `chrome-focus-and-dismissal-follow-ons.md` § *`?` cannot reach the shortcut overlay on a layout that needs AltGr for it*`.
 
 **The gate** has two classes plus two per-action flags. `chord` (⌘-chords) is live even
 inside a text input, because the browser default it replaces is worse; `typed` (every bare
@@ -1767,10 +1484,10 @@ narrower "end by mode" a panel button means.
 is what buys the bare-letter budget the registry spends: `S` is fly-backward *and* the
 stamp family, and the button is what decides which.
 
-### 20.7 What moved out of FieldPanel — and what remains
+### 16.7 What moved out of FieldPanel — and what remains
 
-**Read this as the F4.5a snapshot it is — §21 is the current state.** At F4.5a
-`FieldPanel.tsx` was down to **261 lines** and rode in the `controls` palette (§19's
+**Read this as the F4.5a snapshot it is — §17 is the current state.** At F4.5a
+`FieldPanel.tsx` was down to **261 lines** and rode in the `controls` palette (§15's
 orchestrator-slope entry tracked it at 817); F4.5b finished the job, deleting the file and
 retiring the palette id with it. The table below is still the accurate account of where
 each organ WENT, which is why it stays. What left, and where it went:
@@ -1805,7 +1522,7 @@ stats push is guarded by a value-equality comparator with a
 `FieldStats` field fails the never-check and forces the comparator to learn it, because a
 missed field would silently *weaken* the guard.
 
-### 20.8 The daemon feed
+### 16.8 The daemon feed
 
 `hooks/useDaemonFeed.ts` reduces the SSE feed to the two things the chrome does with it:
 
@@ -1822,24 +1539,19 @@ feed no test can drive, because App owns the WebGPU probe and the `/engine.js` i
 There is **nothing to catch up on** at `onOpen` — the editor mirrors no daemon-owned
 document; the field world lives in the host until the user saves it.
 
-## 21. F4.5b — the hands (2026-08-01)
+## 17. F4.5b — the hands (2026-08-01)
 
-**This section is the authority on the editor's VERBS**, as §20 is on its surfaces. F4.5a
+**This section is the authority on the editor's VERBS**, as §16 is on its surfaces. F4.5a
 gave the cockpit a canvas with things floating over it; F4.5b gave the user hands to work
 in it — a pointer that picks *in the viewport*, a move / delete / duplicate vocabulary for
 committed stamps, one action registry behind every key and every menu item, and the
 dissolution of the last control stack into palettes and bars of its own. **`FieldPanel.tsx`
-no longer exists** (§21.9). The editor is still field-only; §20's opening stands.
+no longer exists** (§17.9). The editor is still field-only; §16's opening stands.
 
 One BEHAVIOUR CHANGE runs under all of it and is the bargain the rest is bought with:
-**WASD/QE no longer fly unless the right button is held** (§21.4).
+**WASD/QE no longer fly unless the right button is held** (§17.4).
 
-Scope note: this is the as-built at the end of F4.5b. The slice worked the
-`MIGRATION (until F4.5b)` markers §20 counted down as it went, each one at the task that
-made its provisional shape unnecessary; `grep -rn "MIGRATION (until" packages/editor/src`
-remains the live list of anything still marked provisional.
-
-### 21.1 The pointer, and the CPU ray pick
+### 17.1 The pointer, and the CPU ray pick
 
 `ViewportGesture` gained a `"pointer"` member and **it is what a fresh host is armed with**
 (D-F4.5-7; the chrome's mirror opens on the same value, `DEFAULT_GESTURE`, so the two
@@ -1900,7 +1612,7 @@ anything else is the plain pick. That middle rung is what makes a first click on
 safe — an unselected entity is selected and nothing is armed, so the first click can never
 shove it. `DRAG_THRESHOLD_PX = 4`, measured from the press rather than accumulated.
 
-### 21.2 One selection, two surfaces — the `subscribeEntitySelection` seam
+### 17.2 One selection, two surfaces — the `subscribeEntitySelection` seam
 
 `FieldHost.selectEntity(entityId | null)` and `subscribeEntitySelection` replace the
 `highlightEntity` display verb, which was **deleted rather than deprecated**. There is one
@@ -1952,7 +1664,7 @@ Esc's third rung clears the entity selection, and `F` (`view.frame` →
 AABB, else reports "nothing selected to frame" — a FIXED priority rather than a recency
 rule, because an object selection names one thing and a cell selection names a volume.
 
-### 21.3 Move, delete, duplicate — and a move IS a reconfigure session
+### 17.3 Move, delete, duplicate — and a move IS a reconfigure session
 
 **`FieldHost.beginMove(entityId)` opens exactly the session `openEntity` opens** — the same
 refusals (unknown id, frozen, baked, retired generator, all runtime-quiet through
@@ -1984,7 +1696,7 @@ reconfigure splice.
 - `moveIsIdle` is the zero-step rule: a grab dropped where it started ends the session rather
   than spending a history entry. Known limit, filed rather than papered over — it reads the
   CURSOR's accumulated steps, so a grab moved only by the arrow keys reads as idle and is
-  discarded (`docs/backlog/editor-and-tooling/grab-nudged-by-arrows-reads-as-idle.md`).
+  discarded (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*`).
   Routing both ⏎s through one verb is what keeps that a single defect rather than a
   difference between two keys.
 
@@ -2024,7 +1736,7 @@ reads "1 ops" for a scatter that takes every prop it placed with it; the row's d
 item raise the same App-owned prompt, though the sentence is spelled in both
 `shell/EntitiesPalette.tsx` and `lib/actions.ts`.
 
-### 21.4 The action registry, the window dispatcher, and the RMB-gated fly
+### 17.4 The action registry, the window dispatcher, and the RMB-gated fly
 
 **`frontend/lib/actions.ts` is the editor's one action registry** (D-10/D-11/D-12): per action
 an id, a group, a contextual `label`, an `enabled` predicate, the display chord, a one-sentence
@@ -2035,7 +1747,7 @@ as a type only), and it type-imports the host like every other chrome module.
 Six surfaces render from it, which is what stops a binding from being live and undocumented or
 documented and dead: the window key dispatcher (`hooks/useGlobalKeybindings.ts`), the burger's
 World/Edit/View groups (`shell/BurgerMenu.tsx`), the shortcuts overlay
-(`shell/ShortcutsDialog.tsx`), the tool rail through `TOOL_FAMILIES` (§21.8), the top bar's
+(`shell/ShortcutsDialog.tsx`), the tool rail through `TOOL_FAMILIES` (§17.8), the top bar's
 Bake button, and the status bar's selection-chip popover. The `tool` and `session` groups are
 deliberately absent from the menu — arming a brush and ending a session are the rail's and the
 viewport's, and the overlay is where they are discovered.
@@ -2089,17 +1801,17 @@ that has already gone.
 
 **Esc is a five-rung LADDER**, one shared `escapeLadder()` behind both entry points so they
 cannot disagree about the order: a half-drawn box/segment anchor, then the pending stamp arm
-(§21.8), then the live session (a move included), then the selected entity, then the cell
+(§17.8), then the live session (a move included), then the selected entity, then the cell
 selection — which is PARKED in the Reselect slot, so an Esc that went one rung too far has the
 same way back a Clear does. It returns whether it acted, which is how the canvas branch knows
 whether it has claimed the event.
 
-**Undo/redo go straight to the host: the field's op log IS the editor's history** (§21.6). ⏎ is
+**Undo/redo go straight to the host: the field's op log IS the editor's history** (§17.6). ⏎ is
 `FieldHost.confirmSession()`, public precisely because `beginMove` does not focus the canvas — a
 grab started from the Edit menu, or by `G` with a palette control focused, has no canvas
 listener to answer the "⏎ drop" the status bar advertises.
 
-### 21.5 The session card — three states over one control set
+### 17.5 The session card — three states over one control set
 
 **`shell/SessionCard.tsx` (D-13) is the editor's properties surface**, and the successor to both
 the F2b stamp inspector and the whole dock-era Inspector concept. Its state is decided by two
@@ -2174,7 +1886,7 @@ The same commit pruned the inspector's orphans of the deleted scene surface —
 `EntityRefField`, `ResourceRefField`, `options.ts` and the `ref-options` / `resource-kind` /
 `resource-refs` / `common-components` lib modules all deleted.
 
-### 21.6 ONE named history — the seam and the palette
+### 17.6 ONE named history — the seam and the palette
 
 **`viewport-host/field-history.ts` derives what each undo/redo step DID, in words**
 (D-F4.5-11). Core's `LogEntry` carries no label field and deliberately so — a label is a
@@ -2200,7 +1912,7 @@ derivation lives, so the burger's "Undo dig" and the palette's rows cannot disag
   consumer can say how much it is not showing, and both arrays are **newest-last** — `undo.at(-1)`
   is exactly what ⌘Z would step.
 
-**`subscribeHistory` is the twelfth host seam and `useFieldHistory` the ninth context** — §20.7's
+**`subscribeHistory` is the twelfth host seam and `useFieldHistory` the ninth context** — §16.7's
 figures of eleven and eight both moved here. The host publishes only when the log's two entry
 stacks really moved (several paths tick the entity list without touching them), which is why the
 provider's mirror needs no comparator, and the context DEFAULTS rather than throws because an
@@ -2228,9 +1940,9 @@ the surface a first-time user should be able to find), the Edit menu's `History�
 burger's palette checkbox. `edit.history` deliberately has NO chord: ⌘Y is redo on Windows and
 would teach the wrong thing, and every bare letter in the editor is a tool family.
 
-### 21.7 The Flags palette, viewport flag selection, and cell-level selection display
+### 17.7 The Flags palette, viewport flag selection, and cell-level selection display
 
-**`shell/FlagsPalette.tsx`** is §19's `FlagsSection` promoted out of the dissolving control stack
+**`shell/FlagsPalette.tsx`** is §15's `FlagsSection` promoted out of the dissolving control stack
 — same clustering, same verify column, same filters-gate-both rule — with three things a section
 could not have (D-F4.5-15):
 
@@ -2291,7 +2003,7 @@ honest AABB box**: a region IS its box. When the cap bites, `SelectionInfo.displ
 rather than the display silently under-reporting, and the status bar's selection chip carries the
 sentence along with Clear / Reselect.
 
-### 21.8 The tool rail, the top strip, the session strip
+### 17.8 The tool rail, the top strip, the session strip
 
 **`shell/ToolRail.tsx` (D-8) is a fixed 44 px column** down the left of the canvas cell. It is a
 COLUMN, not a palette: it cannot be closed, moved, collapsed or resized, so it is part of the
@@ -2379,13 +2091,13 @@ table does not carry at all. Its modifier clause is derived (`modifierParts`) ra
 because `deriveMomentary` swaps dig↔fill symmetrically and passes ⌃ through under paint and smooth
 — a static clause named three keys the host does not bind.
 
-### 21.9 What is left of FieldPanel — nothing
+### 17.9 What is left of FieldPanel — nothing
 
 `FieldPanel.tsx` is **deleted**, and the `controls` palette id retired with it. The panel's organs
 went to five places over the slice: the tool palette and brush inspector to the rail and the top
-strip (§21.8), the stamp inspector to the session card (§21.5), the flags section to its own
-palette (§21.7), the selection count and its verbs to the status bar's chip, and the entity list to
-the entities palette back in F4.5a (§20.7).
+strip (§17.8), the stamp inspector to the session card (§17.5), the flags section to its own
+palette (§17.7), the selection count and its verbs to the status bar's chip, and the entity list to
+the entities palette back in F4.5a (§16.7).
 
 `PALETTE_IDS` is now `entities`, `session`, `flags`, `history`, `log` — and `controls` is the first
 id to actually exercise the closed union: a blob written by any earlier build still carries a
@@ -2452,9 +2164,331 @@ a `fixed inset-0` shell that nothing scrolls. `edgeAt` carries the matching guar
 gesture could have expressed. Without it a too-narrow cell inverted the tie-break and silently,
 permanently docked a free palette RIGHT on its next drag.
 
-`hooks/useFieldHostState.tsx` now carries **all twelve seams through nine contexts** and remains
-the ONE subscription point: every `FieldHost.subscribe*` seam is a single slot, so a second
-subscriber silently steals the first's, and no surface below the provider may re-subscribe to
-anything it owns. That rule is a claim about the SET rather than about any one surface, which
-is why its test outlived the panel it used to live in
+`hooks/useFieldHostState.tsx` remains the ONE subscription point — **thirteen seams through
+ten contexts** at the seal (§18.6 adds the thirteenth): every `FieldHost.subscribe*` seam is a
+single slot, so a second subscriber silently steals the first's, and no surface below the
+provider may re-subscribe to anything it owns. That rule is a claim about the SET rather than
+about any one surface, which is why its test outlived the panel it used to live in
 (`tests/chrome/host-seams-and-catalogs.test.tsx`).
+
+## 18. F4.5c — the finish (2026-08-03)
+
+**This section is the authority on the editor's VOCABULARY** — the rules every surface in
+§16 and §17 is spoken in, the two surfaces the stage added last, and the six rulings the
+holistic gate handed down. F4.5a built the surfaces, F4.5b the verbs; F4.5c made them agree
+with each other and then put the whole stage in front of a user.
+
+**The gate is the seal bar, and it PASSED** (user, Safari, 2026-08-02): a new world sculpted,
+stamped, propped, flagged, saved-as, made default, baked, and then **walked in the game**.
+A fresh `/impeccable` re-critique of `src-frontend` scored **29/40 against a 20/40 baseline**
+(the surface's trend is 20 → 31 → 20 → 29) with **0×P0** and nine P1s — four fixed inside that
+task, five surfaced for a ruling. Part of the +9 is real and part is scorer variance between
+agent runs; both halves are recorded rather than one of them claimed. The user then ruled
+**six P1-class decisions** at the gate, which one fix round implemented; they are rulings 2,
+3, 4, 5 and 6 below plus the resizable palette (§18.8). What the gate did NOT find is
+recorded too — the studio lighting probe (P5) passed, so the cavity/AO/matcap fallback was
+never filed and its trigger still stands.
+
+### 18.1 The design-system rules (D-23)
+
+The tokens are `frontend/styles.css`'s `@theme` block and every one of them is argued at
+its own declaration; `tests/design-tokens.test.ts` is the ledger that pins the pairs. The
+rules the chrome is written in:
+
+- **Disabled DROPS HUE and keeps the shape.** A refused control dims rather than recolouring,
+  so "cannot run now" never competes with the destructive lane for the same glance.
+- **Hover LIGHTENS.** `--primary-hover` is `--primary` +0.05 L, `--destructive-hover` is
+  +0.03 — a smaller step, because the destructive fill sits in a four-walled box: its
+  near-white foreground loses contrast as the fill lightens while `border-destructive` is
+  held to 3:1 against `--popover` from below. Both walls are asserted.
+- **Destructive is a FILL colour and never a text colour.** `--destructive` at 0.53 L reads
+  3.26:1 as text on `--card`, under the 4.5:1 floor, which is what `--destructive-text`
+  exists for; it is pinned on `--accent` (the hover surface) at 4.86:1, the tightest of its
+  three ledger pairs.
+- **ONE neutral focus ring, and focus ≠ selection BY RULE** (gate ruling 6). `--ring` was
+  `var(--primary)` until this gate, which meant a `bg-primary` control's focus ring painted
+  the colour the control already is — four controls had that defect at once, and the tool
+  rail had been patched around it with a `ring-offset` the ruling then rejected as
+  compensation for the alias. `--ring` is now its own literal at **0.96 L**: the ledger has
+  to measure the focus colour directly, and the arithmetic — not taste — picked the value.
+  Against `--primary` at 0.62 L the 3:1 non-text floor is crossed at L 0.93904, so the
+  ring needs ≥ 0.9391; 0.96 clears it at 3.19:1. **One pair is arithmetically impossible and
+  is recorded rather than fixed**: a ring on `--primary-hover` would need luminance 1.019
+  and pure white is 1.0, and the dark direction closes first (a ring dark enough to contrast
+  with `--card` would need negative luminance). The impossibility itself is asserted.
+- **Label casing documents the as-built**: lowercase for chrome (headings, group labels,
+  param captions), Sentence case for anything naming a THING (menu items, options, action
+  labels). `humanizeLabel` is untouched — reversing it would be a change across every
+  inspector field with a committed rationale behind it.
+- **The type scale gained a micro tier**, `--text-2xs` (0.625 rem), replacing 23 arbitrary
+  `text-[10px]` / `text-[11px]` / `text-[13px]` sites that were a de-facto tier already. It
+  deliberately declares **no paired line-height**: `text-[10px]` never set leading, so
+  pairing one would change the HEIGHT of every migrated row, and nothing in this chrome may
+  move the viewport. Leading stays each caller's own.
+- **One label column**, `--spacing-label-col` (5 rem), gate ruling 2. Before it, a caption
+  put its value column wherever its own text ended — `Width` started its slider 33 px in and
+  `Door South Offset` 103 px in, in one form, on adjacent rows. `--spacing-*` rather than
+  `--width-*` because it yields `basis-` / `min-w-` / `pl-` as well as the `w-label-col` the
+  captions use, so an adopting surface needing a grid track does not add a second
+  declaration.
+- **The motion budget is state feedback only** — 150–250 ms, ease-out, no choreography,
+  every duration zeroed by the `prefers-reduced-motion` block (which wins with
+  `!important`). The one deliberate exception is the 180 ms promotion pop on the session
+  card, which exists because a REST card silently becoming a RECONFIGURE session is a state
+  change with no other signal.
+
+### 18.2 One control library, enforced at authoring time (D-24)
+
+The chrome has ONE control library and it lives in `src/frontend/components/ui/`. A raw
+`<input type="checkbox">`, a raw `<input type="radio">` and a raw `<select>` are **errors**
+everywhere else under `src/frontend/` — a Biome GritQL plugin,
+`packages/editor/scripts/one-control-library.grit`, registered from the repo's single
+`biome.json`. Three things about it are load-bearing and were measured rather than assumed:
+
+- the `plugins` config value must be the **plain string** form. The v2.5 object form is not
+  a config error at Biome 2.4.15 — it is silently IGNORED, the plugin never loads, and the
+  resulting zero diagnostics read exactly like successful scoping.
+- **scoping is the plugin's own job**, via `$filename` (the ABSOLUTE path; Grit regexes are
+  anchored full-match, hence the leading `.*`). `overrides[].plugins` is additive and cannot
+  switch a plugin off.
+- what it **cannot see** is stated at the source: the type has to be an authored string
+  literal, so `<input type={"checkbox"} />` does not match. Verified against a fixture, so
+  the residue is known rather than assumed — and no source-text scan is blind to less.
+
+**Four native `<select>`s survive, allowlisted by file AND accessible name**, and the
+exemption is EVIDENCE rather than a deferral: Radix's `DismissableLayer` claims Escape on a
+capture-phase document listener and `preventDefault()`s without `stopPropagation()`, while
+`useGlobalKeybindings` never consults `defaultPrevented`. What holds the line for a native
+control is `isTextInputTarget` recognising an `HTMLSelectElement`, which it cannot do for the
+`<button>` a Radix trigger is — so migrating one would let the Esc that dismisses its popup
+run the cancel ladder and discard a live session. Measured at the Task 12 review by
+Radix-ifying `smooth mode`: `escape` called once, against zero for the native control.
+`tests/chrome/native-select-key-gate.test.tsx` walks all four sites and asserts it per site,
+so migrating any one of them reddens the suite as well as tripping the rule. A second hazard
+found in the same read is recorded at `field/form-bits.tsx` for whoever tries again:
+`SelectTrigger`'s `onKeyDown` runs typeahead on ANY single-character keydown without stopping
+propagation, so on the always-on tool strip every bare tool key would BOTH run its verb and
+change the mask. `range` and `color` are deliberately absent from the ban — a slider is
+D-25's territory and neither has a house primitive to migrate to.
+
+### 18.3 The keyboard-reachable grid (D-26)
+
+`hooks/useRovingList.tsx` owns ONE tab stop for a set of controls, walked with the arrows
+(the APG roving tabindex). It was extracted from the tool rail's working version and now has
+**four** consumers — the rail plus the entities / flags / history row grids — and it also
+owns the MARKUP those grids produce (`Grid` / `GridRow` / `GridCell`). It owns **no keys**:
+every consumer claims a different set, and a hook that guessed would swallow one its caller
+needed. Five details are load-bearing, and the extraction found two of them as holes:
+
+1. **the stop is written in a layout effect**, never passed as a `tabIndex` prop — a prop
+   changes on every focus move and defeats the memo on whatever renders the row. The effect
+   carries NO dependency array, because the control list's LENGTH is data.
+2. **clamped on shrink** — ⌘Z undoes a commit, a delete removes a row. Without the clamp the
+   stop stays past the end, no control carries `tabindex="0"`, and the whole list falls out
+   of the tab order with nothing thrown.
+3. **the caller prevents default only for keys it claimed** — the arrows are also the
+   stamp-region nudge and Esc is the app's one cancel ladder.
+4. the ref is a **callback**, because the container can be mounted by an ancestor (a
+   `CollapsibleSection` opening) without the hook's component re-rendering.
+5. a traversal RAISES A FLAG that the tooltip vocabulary reads (§18.4).
+
+Two lists are deliberately NOT consumers, and both are rulings: `LogPalette` has no controls
+on its rows at all, so roving would turn a list a screen reader reads straight through into a
+widget the user must arrow through; `WorldDrawer` is the OTHER APG model
+(`aria-activedescendant`, DOM focus never leaving the filter field). The two are not
+interchangeable and must not be mixed on one surface.
+
+### 18.4 Tooltips, keycaps, and the refusal rule
+
+**`components/tips.tsx` is the chrome's tooltip vocabulary**, and it moved out of
+`components/field/` at this stage because `field/` is the address of a panel that no longer
+exists — it is now the chrome's most widely imported UI primitive (the rail, both bars, four
+palettes, the session card's two sections and both list rows). The wrappers are a PAIR and
+which one a control gets is decided by ONE fact — can the user reach it?
+
+- an AVAILABLE control gets **`ActionTip`**: a real Radix tooltip that opens on focus as well
+  as hover and carries the registry's own keycap, so the cap on a tip and the key that runs
+  the verb are the same string.
+- a REFUSED one gets **`ReasonTip`**, because a `disabled` button takes neither pointer
+  events nor focus and no tooltip has a channel to it. Its reason rides a wrapper span for
+  the mouse and the accessible NAME for everyone else.
+
+Nothing carries both, and nothing that carries either may also carry a `title` —
+`tests/frontend-no-doc-titles.test.ts` enforces it with a named allowlist.
+
+**A refused control STATES ITS REASON when pressed** (gate finding W-1) — one mechanism,
+`notify.sayRefusal`, with three call sites (the `ReasonTip` span, the roving rail button, the
+key dispatcher). Before it, pressing disabled Bake did nothing whatsoever, which is the
+"every refusal visible + explained" bar failing on the one gesture that matters: a hover
+tooltip is opt-in, and it costs both a wait and knowing there is something to wait for. The
+rules live in the store rather than at the sites, because three copies is how they come to
+disagree about a sentence `controlVerdict` went to the trouble of making one:
+
+- **`reason: null` / `undefined` / `""` posts NOTHING.** The enabled case is silent
+  STRUCTURALLY rather than by luck — an available control passes no reason, its click
+  bubbles through the span, and `sayRefusal(undefined)` is a no-op. The invariant every
+  caller honours is that a reason is present only while the wrapped control is refused.
+- **the same sentence does not stack while it is still on screen.** Keyed on what is
+  VISIBLE, not on what has ever been said: once the toast has gone, asking again says it
+  again, because a user who comes back and presses the same button must not get silence.
+
+**A tooltip is kept shut while a roving traversal moves focus past its trigger**, per axis:
+travelling the ROWS of a list is navigation (every row's tip says the same sentence, so the
+box is noise) while stepping the VERBS of one row is inspection (each sentence is the answer
+being looked for). The mechanism is Radix's own veto — `composeEventHandlers` skips Radix's
+handler when the consumer's came back `defaultPrevented`, so one `onFocus` on the trigger is
+the whole fix, with no controlled `open`. Sabotaging that fix found the second reason it has
+to exist: an open tooltip mounts a `DismissableLayer` whose capture-phase document listener
+`preventDefault()`s Escape, so a tip left open by arrow travel makes the next Esc dismiss the
+tip AND run `session.escape` — exactly what the cancel ladder's one-thing-at-a-time contract
+exists to prevent. That class is closed on the row axis only; on the cell axis, where tips
+deliberately open, it is **accepted, not absent**, and reads as nesting.
+
+### 18.5 The command palette, the submenus, and `?`
+
+**`shell/CommandPalette.tsx` (⌘K) is the registry's seventh reader and the only one that
+renders the WHOLE table at once.** It is a VIEW, not a surface with verbs of its own: every
+label is `def.label(ctx)`, every keycap is `def.keys`, every refusal is `controlVerdict`, so
+a row cannot say something the burger, the rail or the keyboard would not. Its own chord is
+read off the table it renders through `byId`, which THROWS at module init — a renamed action
+must fail the import rather than render an empty `<kbd>` nobody notices. It is a **dialog**,
+not a floating palette: no `PaletteId`, nothing persists it, `⌘\` does not hide it, and it is
+gone the moment it has done its one job. It is never refused, because the one state in which
+it would be useless is one where nothing at all can run — and in that state a palette showing
+every verb greyed with its reason is the most useful screen in the editor. What the mock has
+and this does not (a per-row glyph, a per-row group tag, world/entity rows) is listed with
+reasons at the source.
+
+The palette is also what makes **menu depth affordable**, which is the gate's ruling 3: the
+burger's three registry groups became SUBMENUS over a top level of ten rows, where it had
+been one flat run of 33 items with the fold ten rows down. What stays at top level is what
+the menu is SHOWING STATE for (the palette ticks — the tick is the information) plus the two
+doors; what moved behind a chevron is the registry's own verbs, whose other route is ⌘K by
+name. **`?` opens the shortcut overlay** through the same `typed` gate as every other bare
+key; its matcher is the one in the table that states a CHARACTER rather than a modifier +
+key, with AltGr layouts the known residue.
+
+**`view.frameWorld` is the eighth camera verb and has NO keycap, deliberately** (ruling 5).
+`F` is the selection frame and ⇧F would collide with the tool rail's own modifier. It fits
+the camera to the allocated chunks' AABB with its top lowered to `occupiedTopY` whenever that
+answers — a chunk is 16 samples tall, so a world whose only rock sits at the bottom of a
+column still allocates the whole column, and framing the chunk box would fit the camera to
+padding. **The chrome's Open runs it automatically** unless `host.cameraAimedByHand()`, which
+is a LATCH rather than a pose comparison: the ruling says "when the camera pose is the boot
+default", and comparing floats against the boot literal would answer "yes" for a user who
+orbited and happened to land back on it. Seven interactive or aim-at-something paths set the
+latch; `frameWorld` deliberately does not, or one Open would suppress the next one's frame.
+`host.loadWorld` frames nothing at all — it is a data primitive and every headless suite's
+fixture loader, and a camera that re-aimed itself on load moved what nine suites' rays hit.
+
+### 18.6 What the bars say — chip popovers and the segment HUD
+
+**Three status-bar chips open a detail layer** (`ChipPopover`) where two run a verb
+(`ChipButton`); one is inert text. The split is on BEHAVIOUR, not looks, and
+`INTERACTIVE_CHIP_CLASS` is the one place that decides what a chip looks like — a shared
+component would have had to answer "these are all chips" and "one of these does nothing" at
+once. A popover mounts its content only while open, so a closed chip costs nothing.
+
+- the **selection** chip carries what is limiting the selection plus Clear / Reselect,
+  straight off the registry by id (the Edit menu renders the same two).
+- the **ops** chip is the op-cost meter — the readout that answers "why has this world got
+  slow".
+- the **analyzer** chip is ABSENT while the advisor is idle, because a chip that is always
+  there for a state with nothing to say is one people stop seeing. It can reach 0 WHILE the
+  user is reading the popover it opened, so it outlives its own reason to exist for exactly
+  as long as that popover is open.
+
+**The segment HUD** is the thirteenth host seam, `subscribeSegmentHud`, publishing
+`{ lenM, capM }` — how long the pending capsule is against `MAX_SEGMENT_M`. It rides the
+status bar's keymap line, which is its own component precisely so only IT re-renders: the HUD
+and the session context are the two pointer-rate contexts in that bar, and the chips beside
+them have nothing to do with either. The line grows and shrinks with the number and **cannot
+move the canvas for a structural reason** rather than a character budget — the canvas cell is
+a sibling of this footer inside a `fixed inset-0 flex flex-col` root, `h-7` fixes the line's
+height, and `whitespace-nowrap` refuses the wrap that is the only way text could ask for a
+second row.
+
+**Radius is a two-way MIRROR since the gate** (finding W-2). The wheel and `[` / `]` reach
+the real radius without going through the chrome, so the strip readout kept the last number
+the chrome itself had set and drifted from the brush the viewport was drawing. It is pushed
+from `applyRadius` — the ONE funnel all three call sites already land in — rather than from
+the sites, on the same argument the clamp there already makes. It rides `subscribeTool`
+alongside the tool rather than taking a fourteenth single-slot seam, and rather than riding
+the frame-paced stats push, because a radius is USER-paced. It is two fields rather than a
+member of `FieldTool` for a precise reason: `deriveMomentary` spreads the saved tool on
+press but assigns it WHOLESALE on release, so a radius inside `FieldTool` would be silently
+reverted when the user let go of ⇧.
+
+### 18.7 Two advisor defects the gate found, and one it refuted
+
+- **F-3 — the analyzer stuck at "1 pass owed" on a fresh world.** `analyzerPendingCount`
+  now returns 0 with no profile in hand, and otherwise asks `analyzerHasWork()` — the same
+  question the pump asks. The pump had already decided not to fire; only the count disagreed,
+  which is a meter reading "permanently working" over an advisor that is doing nothing.
+- **F-2/F-1 — the advisor-idle notice was a race, not a fact.** The "this project installs
+  no agent profile" sentence is gated on **answered-and-absent** rather than merely absent:
+  unanswered means the catalog fetch is still in flight, and said then it would be a fact
+  about which arrival won a race — a project that DOES ship `catalog/agent.json` would read
+  it whenever its fetch lost. It is a `warn` rather than an `error`, because as an error one
+  sentence opened the editor with a red unread badge over a world where nothing was wrong;
+  fixing the false fourth boot message also dissolved F-1 (four messages, three toast slots),
+  so `TOAST_CAP = 3` stands.
+- **F-4 — the steel-blue stamp wash was REFUTED**, and the refutation is a lesson worth more
+  than the fix would have been: the measurement behind it was a whole-region mean over a
+  region the new geometry had just entered, and **no statistic over such a region can
+  separate "it got tinted" from "something arrived"**. The right question — do the pixels the
+  new geometry does NOT cover move? — dissolved it in minutes. No defect, no fix, no entry.
+
+### 18.8 Palettes the user can size
+
+The resize mechanism, the keyboard move, and the "an extent is a default, not a ceiling"
+rule all landed here and are documented where the geometry they belong to lives — §17.9.
+Two consequences are worth naming from this side:
+
+- **the extent has ONE home**, `PALETTES[id].maxHeight`. A palette body that capped its own
+  list with an inner `max-h-*` would be a second ceiling `paletteBox` cannot see and a resize
+  cannot drop, which is what made dragging `log`, `history` or `flags` taller add empty space
+  under a ten-row list. `tests/palette-store.test.ts` scans the palette-body directories for
+  one.
+- **user size is unset-until-set.** `width`/`height` are optional on `PaletteState`, absent
+  until the user drags, so "has this been sized?" needs no flag, an old blob migrates by
+  having no field, and a later change to a declared default still reaches everyone who never
+  dragged.
+
+### 18.9 What the gate accepted, and what it left standing
+
+Recorded because a seal that only lists fixes reads as though nothing was judged and
+allowed to stand:
+
+- **ACCEPTED as-is at the gate**: the diagonal fly's 1.41× speed, the axis-triad tip size,
+  and a set of eyeball minors the user called "fairly minor, revisit if they bother me" (pick
+  feel, flag emphasis, delete-copy read, Esc-in-anger, the extent-cap reading). No entries
+  filed for any of them.
+- **P5 (studio lighting on dig-heavy terrain) PASSED.** Its stop condition did not fire, so
+  the cavity/AO/matcap backlog entry the charter reserved was NOT filed and its trigger
+  stands. One tuning note went to the backlog instead: near-camera geometry blows out a
+  little, exactly as the old headlamp did — the rig is byte-identical.
+- **The arrow keys are canvas-only BY DESIGN.** The ownership rule at the top of `actions.ts`
+  keeps viewport-steering keys on the canvas; `arrowNudgeSteps` is read only from the canvas
+  keydown, and no registry action claims an arrow. The F2b-era "nudge focus trap" finding
+  reproduces verbatim from the session card's d-pad for that reason — its ⌘Z half was closed
+  by the window dispatcher, and the arrow half is a design position rather than an
+  outstanding defect. What changed around it is that arrows are no longer the primary way to
+  move a region: the drag and the `G` grab are (§17.3).
+
+## 19. Deferred
+
+- **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM
+  were descoped from M4 into a dedicated milestone,
+  `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. The rationale still
+  holds: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk
+  edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the
+  transport-agnostic substrate. The error contract's closed code union (§6) and the
+  `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam.
+- **A scene-authoring surface, as a CONSUMER extension** —
+  `docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`. The daemon
+  half exists and is tested (§4.2); what was deleted is the chrome half, and the case for
+  its return is that a consumer's game view is not the field editor's business.
+- **Everything else** lives in `docs/backlog/editor-and-tooling/`, one file per entry, each
+  with the trigger that would make it actionable. The F4.5 seal filed the charter's whole
+  capability-sweep backlog column there.

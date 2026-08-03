@@ -6,14 +6,13 @@ product
 
 ## Users
 
-Roberto — solo developer, dogfooding. Uses the editor daily while building the furnace engine and the dungeon-crawler demo, in long desktop sessions (Safari primary, Chrome to verify; possibly bundled in a native wrapper later). Two jobs, both first-class at equal weight:
+Roberto — solo developer, dogfooding. Uses the editor daily while building the furnace engine and the dungeon-crawler demo, in long desktop sessions (Safari primary, Chrome to verify; possibly bundled in a native wrapper later). **One job, and it is the whole product:**
 
-1. **Cockpit curation** — generate → reroll → see → curate → freeze & bake procedural content.
-2. **Scene editing** — pick entities, inspect and tweak properties, drive gizmos, save documents.
+**Authoring a FIELD** — sculpt and paint a voxel world, stamp and reconfigure smart objects, scatter props, read the walkability advisor, then save, bake, and walk the result in the game.
 
 ## Product Purpose
 
-The furnace editor is the engine's tooling face: a Node-portable daemon serving a React chrome that opens any furnace consumer project (`bun run edit`), edits scene documents transactionally, and hosts the generation cockpit for procedural content. Success is measured in capability — the editor materially accelerates building the dungeon crawler. It must feel like a desktop application, ready to sit inside a native wrapper without looking out of place — never like a web dashboard.
+The furnace editor is the engine's tooling face: a Node-portable daemon serving a React chrome that opens a furnace consumer project (`bun run edit`) as one full-window field viewport with a cockpit floating over it. Success is measured in capability — the editor materially accelerates building the dungeon crawler. It must feel like a desktop application, ready to sit inside a native wrapper without looking out of place — never like a web dashboard.
 
 ## Brand Personality
 
@@ -29,10 +28,10 @@ Precision instrument. Quiet, engineered, capable. Identity is carried by typogra
 ## Design Principles
 
 1. **Capability per pixel** — density is a feature; every control earns its space, and chrome recedes so content (viewport, inspector data, generation results) leads.
-2. **Earned familiarity** — follow the pro-editor category's proven affordances (docked panels, tree + inspector, gizmo viewport); innovate in workflow, not in widget vocabulary.
+2. **Earned familiarity** — follow the pro-editor category's proven affordances (tool rail, floating palettes, inspector rows, gizmo viewport); innovate in workflow, not in widget vocabulary.
 3. **Desktop-app posture** — reads native inside a wrapper: compact fixed rem type scale, real keyboard affordances, no web-dashboard tells.
-4. **Color = attention** — near-monochrome base; hue appears only when it means something (selection, primary action, generation status, destructive).
-5. **Two first-class workflows** — cockpit curation and scene inspection get equal design weight; neither is a sidebar to the other.
+4. **Color = attention** — near-monochrome base; hue appears only when it means something (selection, primary action, job status, destructive).
+5. **ONE workflow, and the viewport is it.** The editor is a FIELD tool: the canvas fills the window and everything else floats over it, so the only surface with a permanent claim on space is the world being built. The dungeon is the sole consumer, and the field is the whole of what the editor edits — there is no second first-class workflow competing for design weight, and adding one would cost exactly the density this file's first principle is about. A scene-document surface may well return, but as a **consumer-facing extension** rather than as a peer of the field: the case, the shape, and the trigger are `docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`. (The daemon still implements the whole `scene.*` command family and nothing in the chrome calls it — `docs/reference/editor-architecture.md` §4.2.)
 
 ## Accessibility & Inclusion
 
