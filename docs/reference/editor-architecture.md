@@ -2180,14 +2180,12 @@ with each other and then put the whole stage in front of a user.
 
 **The gate is the seal bar, and it PASSED** (user, Safari, 2026-08-02): a new world sculpted,
 stamped, propped, flagged, saved-as, made default, baked, and then **walked in the game**.
-A fresh `/impeccable` re-critique of `src-frontend` scored **29/40 against a 20/40 baseline**
-(the surface's trend is 20 → 31 → 20 → 29) with **0×P0** and nine P1s — four fixed inside that
-task, five surfaced for a ruling. Part of the +9 is real and part is scorer variance between
-agent runs; both halves are recorded rather than one of them claimed. The user then ruled
-**six P1-class decisions** at the gate, which one fix round implemented; they are rulings 2,
-3, 4, 5 and 6 below plus the resizable palette (§18.8). What the gate did NOT find is
-recorded too — the studio lighting probe (P5) passed, so the cavity/AO/matcap fallback was
-never filed and its trigger still stands.
+A fresh `/impeccable` re-critique of `src-frontend` found **0×P0** and nine P1s — four fixed
+inside that task, five surfaced for a ruling. The user then ruled **six P1-class decisions**
+at the gate, which one fix round implemented; they are rulings 2, 3, 4, 5 and 6 below plus the
+resizable palette (§18.8). What the gate did NOT find is recorded too — the studio lighting
+probe (P5) passed, so the cavity/AO/matcap fallback was never filed and its trigger still
+stands.
 
 ### 18.1 The design-system rules (D-23)
 
