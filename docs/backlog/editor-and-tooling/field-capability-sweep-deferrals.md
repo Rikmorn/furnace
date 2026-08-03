@@ -170,4 +170,5 @@ second, tiny scatter answers it, which is the in-model solution.
 
 **Reference:** the F4.5 charter's §7 capability sweep (the adjudication this file is the
 backlog column of), `docs/reference/editor-architecture.md` §16–§18 for everything in the
-adopt column, and `docs/learnings/seal-log.md`'s F4.5 entry for the stage that produced both.
+adopt column, and `docs/learnings/seals/2026-08-03-epic3-f4.5-overlay-cockpit.md` for the
+stage that produced both.

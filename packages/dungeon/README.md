@@ -4,7 +4,7 @@ The first-person dungeon-crawler demo — the engine's go-forward consumer app. 
 
 Browser-first; imports core via the workspace symlink; owns `index.html` + `serve.ts`.
 
-**Canonical as-built architecture: `docs/reference/dungeon-architecture.md`** — game loop, traversal/collision, the generator library, the world/bake/load pipeline, invariants, testing posture. Chronological slice seals: `docs/learnings/seal-log.md`. This README carries the package's current-state summary; when a slice seals, update HERE (and the reference docs) — never AGENTS.md.
+**Canonical as-built architecture: `docs/reference/dungeon-architecture.md`** — game loop, traversal/collision, the generator library, the world/bake/load pipeline, invariants, testing posture. Chronological slice seals: `docs/learnings/seals/`. This README carries the package's current-state summary; when a slice seals, update HERE (and the reference docs) — never AGENTS.md.
 
 ## Commands (from the repo root)
 
@@ -39,7 +39,7 @@ Editor-time generation may use search-class algorithms — a human with reroll, 
 3.0–3.2.3 ✅ → **3.3 Worlds** — worlds = graphs of REGIONS (per-class native interior algorithms: grid-built on the validated two-resolution voxel substrate, field-organic) + CONNECTORS ("open a passage", implemented per class-pair; substrate evidence: `docs/research/2026-07-11-voxel-substrate-spike-findings.md`):
 
 - **W1 world model ✅** (field-only, user-gated 2026-07-11)
-- **W2 substrate + grid-built halls ✅** (user-gated 2026-07-12, two gate rounds — see seal-log)
+- **W2 substrate + grid-built halls ✅** (user-gated 2026-07-12, two gate rounds — see `docs/learnings/seals/2026-07-11-epic3-recharter-w1-world-model.md`)
 - **W3** maze + World-panel assembly ✅ (the phase gate — met 2026-07-13)
 - **W4** clean-cut sweep ✅ (2026-07-13 — mesh generators + free-space placer + mesh connector kit deleted)
 

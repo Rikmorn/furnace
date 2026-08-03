@@ -1,0 +1,98 @@
+# Seals — the chronological slice/epic seal record
+
+This directory holds the repo's chronological slice/epic seal record: one file per seal,
+plus this index. It replaces `docs/learnings/seal-log.md`, a single append-only file that
+was originally extracted VERBATIM from `AGENTS.md`'s per-package bullets on 2026-07-06
+(post-Slice-3.1 hygiene) — those bullets had grown to ~50 KB of history loaded into every
+agent session, so `AGENTS.md` kept only CURRENT-STATE summaries + pointers and the full
+record moved to `seal-log.md`. By 2026-08-03 that single file had itself grown to 115 KB,
+the same failure mode one level up: a single doc that is a constant write target bloats no
+matter where it lives. It was split into the 26 per-seal files below, and `seal-log.md`
+was deleted. As-built architecture is distilled separately in `docs/reference/`
+(`dungeon-architecture.md`, `editor-architecture.md`, `core-modules.md`) — this directory
+is history, not current state.
+
+## Index
+
+26 seals, ordered by **true slice sequence, oldest first** — the order the original
+append-only log accumulated them in.
+
+**Filename order is NOT slice order.** Three files carry the 2026-07-06 extraction date
+rather than their real seal date, because their source prose stated no date of its own:
+`2026-07-06-epic2-2.0-player-physics.md`, `2026-07-06-epic2-2.1-field-baked-region.md`, and
+`2026-07-06-epic2-2.2.3b-colliding-fixtures-and-props.md`. Slices 2.0 and 2.1 actually
+landed before 2.1.1 (2026-06-18) — sorting by filename would place them roughly three
+weeks too late, after slices that shipped after them. 2.2.3b carries no date evidence
+either; it is placed here between 2.2.3a and 2.2.4 by slice-number adjacency (2.2.3a →
+2.2.3b → 2.2.4), not by a date in its prose — this is an inference, not a measurement.
+Dates marked `*` below are extraction-filed, not real seal dates.
+
+| Sealed | Seal | Package(s) |
+|---|---|---|
+| 2026-07-06 * | [Pre-3.2 package record — the AGENTS.md-era bullets, frozen at extraction](2026-07-06-pre-3.2-package-record.md) — *not a slice seal, see note below* | core, dungeon, editor |
+| 2026-07-06 * | [Epic 2 · Slice 2.0 — "Player Physics"](2026-07-06-epic2-2.0-player-physics.md) | core, dungeon |
+| 2026-07-06 * | [Epic 2 · Slice 2.1 — "Field→Baked Region"](2026-07-06-epic2-2.1-field-baked-region.md) | core, dungeon |
+| 2026-06-18 | [Epic 2 · Slice 2.1.1 — "Traversal Foundation"](2026-06-18-epic2-2.1.1-traversal-foundation.md) | core, dungeon |
+| 2026-06-22 | [Epic 2 · Slice 2.2.1 — "World collision via field-derived voxels"](2026-06-22-epic2-2.2.1-world-collision-voxels.md) | core, dungeon |
+| 2026-06-24 | [Epic 2 · Slice 2.2.2 — "Theme-Generator Architecture"](2026-06-24-epic2-2.2.2-theme-generator-architecture.md) | dungeon |
+| 2026-06-26 | [Epic 2 · Slice 2.2.3a — "Decorative scatter"](2026-06-26-epic2-2.2.3a-decorative-scatter.md) | dungeon |
+| 2026-07-06 * | [Epic 2 · Slice 2.2.3b — "Colliding fixtures + interactive props"](2026-07-06-epic2-2.2.3b-colliding-fixtures-and-props.md) | dungeon |
+| 2026-06-29 | [Epic 2 · Slice 2.2.4 — "Seams — the connection primitive"](2026-06-29-epic2-2.2.4-seams-connection-primitive.md) | dungeon |
+| 2026-07-02 | [Epic 2 · Slice 2.2.5a — "World Graph & Collision-Aware Placement"](2026-07-02-epic2-2.2.5a-world-graph-and-placement.md) | dungeon |
+| 2026-07-03 | [Epic 2 · Slice 2.2.5b Phase A — "Connector enclosure"](2026-07-03-epic2-2.2.5b-phase-a-connector-enclosure.md) | dungeon |
+| 2026-07-04 | [Epic 2 · Slice 2.2.5b Phase B1 — "Built interfaces"](2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md) — also carries the Epic 2 closure + the Epic 3 charter | dungeon |
+| 2026-07-06 | [Epic 3 · Slice 3.0 — "Foundations"](2026-07-06-epic3-3.0-foundations.md) | dungeon |
+| 2026-07-06 | [Epic 3 · Slice 3.1 — "The Loop"](2026-07-06-epic3-3.1-the-loop.md) | dungeon, editor |
+| 2026-07-08 | [Epic 3 · Slice 3.2.1 — Consolidated bake artifact](2026-07-08-epic3-3.2.1-consolidated-bake-artifact.md) | dungeon, editor |
+| 2026-07-09 | [Epic 3 · Slice 3.2 — Editor foundation pass](2026-07-09-epic3-3.2-editor-foundation.md) | editor |
+| 2026-07-10 | [Epic 3 · Slice 3.2.3 — Cockpit hardening](2026-07-10-epic3-3.2.3-cockpit-hardening.md) | dungeon, editor |
+| 2026-07-11 → 2026-07-13 | [Epic 3 · recharter + Slice 3.3 W1 — World model, field-only](2026-07-11-epic3-recharter-w1-world-model.md) — also carries W2 (substrate + grid-built halls) and W3 (maze + World-panel assembly, the phase gate) | dungeon, editor |
+| 2026-07-13 | [Epic 3 · Slice 3.3 W4 — clean-cut sweep + PHASE SEAL](2026-07-13-epic3-3.3-w4-clean-cut-sweep.md) | dungeon, editor |
+| 2026-07-15 | [Epic 3 · One Field (the 3.4+ recharter) — charter + F0 + F1 "the medium"](2026-07-15-epic3-f0-f1-the-medium.md) | core, dungeon, editor |
+| 2026-07-16 | [Epic 3 · One Field F2a — "the material field"](2026-07-16-epic3-f2a-material-field.md) | dungeon (others not recorded) |
+| 2026-07-21 | [Epic 3 · One Field F2b — "the palette"](2026-07-21-epic3-f2b-the-palette.md) | cookbook, core, editor (dungeon stated byte-untouched) |
+| 2026-07-23 | [Epic 3 · One Field F3a — smart objects](2026-07-23-epic3-f3a-smart-objects.md) | core, editor |
+| 2026-07-25 | [Epic 3 · One Field F3b — the cave & the entities](2026-07-25-epic3-f3b-cave-and-entities.md) | core, dungeon, editor |
+| 2026-07-27 | [Epic 3 · One Field F4 — seeing](2026-07-27-epic3-f4-seeing.md) | core, dungeon, editor |
+| 2026-08-03 | [Epic 3 · F4.5 — the overlay cockpit](2026-08-03-epic3-f4.5-overlay-cockpit.md) | editor (core, dungeon stated byte-untouched except two comment-only changes) |
+
+**On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
+frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
+extraction. It is where the **Epic 1 ("Presence & Mood") record** lives — Epic 1 was
+written inline with no clean `then landed` cut point, so it never got a file of its own.
+It is placed first because its content (Epic 1, plus the pre-extraction package bullets)
+predates every dated slice in this table; its own "Sealed" field is the extraction date,
+not a real seal date.
+
+## Head conventions
+
+Each seal file opens with a title, then four metadata fields in this order:
+
+- **Sealed** — the date the slice/epic actually sealed (or a range, for multi-part entries).
+- **Package(s)** — every package the slice touched, **listed alphabetically**.
+- **Gate** — how the slice was gated (visual/live, headless, user-gated browser, etc).
+- **Suite** — the test-suite count at seal time, if the entry's prose states one.
+
+Two idioms show up in these fields and mean different things — do not merge them:
+
+- **`not recorded`** — the entry's own prose says nothing on that point. We don't know.
+- **`stated byte-untouched`** — the entry's own prose explicitly states zero change to that
+  package. We know it's zero.
+
+**Metadata comes only from that entry's own prose.** Never infer a field's value from a
+neighbouring entry, even when two seals clearly belong to the same arc — this defect
+occurred once during the split and was caught in review.
+
+**Prose is verbatim and is never edited** — not for typos, not for staleness, not to fix a
+broken cross-reference. If a seal's prose points at something that no longer exists, that
+is a historical fact about what was true when it sealed, not a bug to fix here.
+
+## Adding a seal
+
+1. Create `docs/learnings/seals/<YYYY-MM-DD>-<epic>-<slice>-<slug>.md` with the four head
+   fields above, then the seal prose.
+2. Add **one row** to the table in this README.
+
+Never append prose to this README — it stays one line per seal, plus the conventions and
+procedure above. If it starts accumulating history, it is repeating `seal-log.md`'s mistake
+one level up.

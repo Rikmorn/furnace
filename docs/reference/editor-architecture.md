@@ -23,7 +23,7 @@ implements the whole `scene.*` command family (§4.2) and nothing in the chrome 
 case for a scene surface returning as a CONSUMER-facing extension is
 `docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`.
 
-**Lineage**, for anyone reading a commit or a seal-log line and looking for its landing
+**Lineage**, for anyone reading a commit or a seal entry and looking for its landing
 place here: M3 (shell) + M4 (command layer) + M5A/M5B (the retired scene surface) built
 §1–§8; the M1-slices batch built the core-side loader coverage (§10); Epic 3's 3.0/3.1/3.2
 slices opened the procedural-authoring axis; the **One Field** phase built the field tool —

@@ -18,5 +18,5 @@ A one-line message fix, worth doing whenever someone is next in `world-build.ts`
 work that reopens `world-build.ts`'s error surface.
 
 **Reference:** `packages/dungeon/src/world-build.ts` (the throw); W3 seal in
-`docs/learnings/seal-log.md`. The five sibling findings it was filed with were all about
+`docs/learnings/seals/2026-07-11-epic3-recharter-w1-world-model.md`. The five sibling findings it was filed with were all about
 `packages/editor/src/frontend/components/world-panel/`, deleted at F4.5a Task 4.

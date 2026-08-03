@@ -2,7 +2,7 @@
 
 The furnace editor: a Node-portable daemon serving a React 19 **overlay-cockpit** chrome, project-first — **the editor contains no engine**; it bundles the consumer's `@furnace/core` + extensions. **Field-only since F4.5a**: one full-window canvas with floating palettes over it, and the dungeon is its sole consumer.
 
-**Canonical as-built architecture: `docs/reference/editor-architecture.md`.** Chronological slice seals: `docs/learnings/seal-log.md`. This README carries the package's current-state summary; when a slice seals, update HERE (and the reference docs) — never AGENTS.md.
+**Canonical as-built architecture: `docs/reference/editor-architecture.md`.** Chronological slice seals: `docs/learnings/seals/`. This README carries the package's current-state summary; when a slice seals, update HERE (and the reference docs) — never AGENTS.md.
 
 ## Dogfood
 

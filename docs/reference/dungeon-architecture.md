@@ -1,7 +1,7 @@
 # Dungeon architecture — as built
 
 The `packages/dungeon` demo as it IS (post Epic 2 closure + Epic 3 through 3.3 and
-One Field F0+F1, 2026-07-15). Chronological seal history: `docs/learnings/seal-log.md`. Deferred work:
+One Field F0+F1, 2026-07-15). Chronological seal history: `docs/learnings/seals/`. Deferred work:
 `docs/backlog/dungeon/`. This doc is current-state; when it disagrees with source, the
 source wins — update this doc in the same change.
 

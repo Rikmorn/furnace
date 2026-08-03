@@ -38,6 +38,7 @@ TRANSCRIBED from comments living one grep away.
    repeated (one fabricated figure was self-disclosed and re-measured in F3b; F4's
    audit of 12 other numeric claims found them real).
 
-Context: the F4 seal entry in `seal-log.md` is the tracked summary. The per-instance
+Context: the F4 seal entry in `docs/learnings/seals/2026-07-27-epic3-f4-seeing.md` is the
+tracked summary. The per-instance
 detail lived in that arc's local (gitignored) session reports and is not citable — which
 is the point of the rule: a tracked doc may only cite tracked facts.
