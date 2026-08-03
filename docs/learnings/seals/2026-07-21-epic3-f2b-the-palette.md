@@ -1,7 +1,7 @@
 # Epic 3 · One Field F2b — "the palette"
 
 - **Sealed:** 2026-07-21
-- **Package(s):** core, editor, cookbook (dungeon stated byte-untouched this slice)
+- **Package(s):** cookbook, core, editor (dungeon stated byte-untouched this slice)
 - **Gate:** user-gated Safari, three rounds, third accepted
 - **Suite:** 1693 pass / 1 skip / 0 fail
 

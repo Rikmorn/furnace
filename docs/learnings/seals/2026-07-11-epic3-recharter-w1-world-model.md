@@ -1,6 +1,6 @@
 # Epic 3 · recharter + Slice 3.3 W1 — World model, field-only
 
-- **Sealed:** 2026-07-11
+- **Sealed:** 2026-07-11 → 2026-07-13
 - **Package(s):** dungeon, editor
 - **Gate:** recharter (2026-07-11) — not a gate event, charter only; W1 (2026-07-11) — user-gated Safari + editor loop; W2 (2026-07-12) — user-gated Safari, two gate rounds; W3 (2026-07-13) — gate passed live in Safari
 - **Suite:** W1 — 1489 pass / 1 skip / 0 fail; W2 — 1553 pass / 1 skip / 0 fail; W3 — 1597 pass / 1 skip / 0 fail
