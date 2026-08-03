@@ -68,7 +68,22 @@ const row = (over: Partial<WorldRow> = {}): WorldRow => ({
  *  case gets the editor to sit in its `busy` state for as long as it needs to. */
 function stubDaemon(
 	worlds: WorldRow[],
-	opts: { bakeFiles?: number; hangBakeAfter?: number } = {},
+	opts: {
+		bakeFiles?: number;
+		hangBakeAfter?: number;
+		/** Answer `field.load` with a payload that actually DECODES.
+		 *
+		 *  Off by default, and the default is why this option exists rather than being
+		 *  the only behaviour: `field.load` has always answered `{}` here, so
+		 *  `loadWorldInto` throws on `res.chunks.map` and returns `failed`. Every Open
+		 *  case in this file asserts `inputFor("field.load")` — the REQUEST — which is
+		 *  recorded before the throw, so they all pass over a load that never landed.
+		 *  That is fine for what they test (the gate, the filter, the confirm) and it is
+		 *  not fine for anything AFTER the load, which is what ruling 5's frame is.
+		 *  Opt-in rather than flipped, because flipping it would change what a dozen
+		 *  cases exercise in the same commit that adds one. */
+		loadable?: boolean;
+	} = {},
 ) {
 	const posted: Posted[] = [];
 	const held: ((r: Response) => void)[] = [];
@@ -97,7 +112,27 @@ function stubDaemon(
 					}
 				: command === "generation.bake"
 					? { files: opts.bakeFiles ?? 3 }
-					: {};
+					: command === "field.load" && opts.loadable === true
+						? {
+								// The smallest v2 world that decodes: no chunks, no materials, no
+								// oplog. `loadWorldInto` only maps the two arrays and forwards the
+								// rest, and the stub host's `loadWorld` accepts what it is handed —
+								// so an EMPTY world is enough to make the outcome `loaded`, which
+								// is the only thing a post-load assertion needs.
+								manifest: {
+									version: 2,
+									kind: "field",
+									cellSize: 0.25,
+									playerStart: [0, 0, 0],
+									playerYaw: 0,
+									chunks: [],
+									meshes: [],
+								},
+								chunks: [],
+								materials: [],
+								oplog: null,
+							}
+						: {};
 		return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 	}) as unknown as typeof fetch;
 	return {
@@ -1396,4 +1431,52 @@ test("the filter ignores case on BOTH sides", async () => {
 	});
 	expect(within(drawer).getAllByRole("option").length).toBe(1);
 	expect(rowFor(drawer, "Cavern")).toBeTruthy();
+});
+
+// --- Open frames the world it opened (F4.5 gate, ruling 5) --------------------
+
+test("Open FRAMES the world it just opened", async () => {
+	const daemon = stubDaemon([row({ name: "cavern" })], { loadable: true });
+	const stub = makeStubHost();
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+
+	await act(async () => {
+		fireEvent.click(
+			within(rowFor(drawer, "cavern")).getByRole("button", {
+				name: /^open cavern/,
+			}),
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	// The load really happened, so the frame below is not passing because nothing ran.
+	expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" });
+	expect(stub.calls.frameWorld).toHaveBeenCalledTimes(1);
+});
+
+test("Open LEAVES a camera the user has aimed — and says nothing about it", async () => {
+	const daemon = stubDaemon([row({ name: "cavern" })], { loadable: true });
+	const stub = makeStubHost();
+	// The user orbited before opening. The host's own latch is what the chrome reads,
+	// so this is the whole of the condition.
+	stub.setCameraAimed(true);
+	await renderTopBar(stub);
+	const drawer = await openDrawer();
+	await waitFor(() => rowFor(drawer, "cavern"));
+
+	await act(async () => {
+		fireEvent.click(
+			within(rowFor(drawer, "cavern")).getByRole("button", {
+				name: /^open cavern/,
+			}),
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+
+	expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" });
+	expect(stub.calls.frameWorld).not.toHaveBeenCalled();
 });

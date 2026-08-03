@@ -425,3 +425,77 @@ test("init honours an explicit sampleCount (the AA switch's whole mechanism)", a
   );
   expect(stub.seen).toEqual([{ sampleCount: 1 }]);
 });
+
+// --- W-2: the host ANNOUNCES a radius change ---------------------------------
+
+test("setDigRadius publishes the new radius on the tool seam", () => {
+  // The HOST half of the F4.5 gate's W-2, and the half a chrome-side test cannot
+  // reach: the strip's mirror was written first and its case fires the seam by
+  // hand, so it proves the chrome ADOPTS a push and says nothing about whether
+  // one is ever made. Deleting `notifyTool()` from `applyRadius` left that case
+  // green — which is how this test came to exist.
+  const host = createFieldHost();
+  const pushes: { tool: unknown; radius: number }[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+
+  host.setDigRadius(3.5);
+
+  expect(pushes.map((p) => p.radius)).toEqual([3.5]);
+});
+
+test("a radius that does not CHANGE publishes nothing — the echo guard", () => {
+  // The same early return is what stops a chrome-originated set round-tripping
+  // back and fighting a slider drag. Pinned here because it is load-bearing for
+  // the mirror, not merely an optimisation.
+  const host = createFieldHost();
+  host.setDigRadius(3.5);
+  const pushes: { radius: number }[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+
+  host.setDigRadius(3.5);
+
+  expect(pushes).toEqual([]);
+});
+
+test("the radius rides ALONGSIDE the tool rather than inside it", () => {
+  // Why radius is not a field of `FieldTool`, pinned structurally: the momentary ⇧/⌃
+  // overrides swap that value WHOLESALE (`deriveMomentary` builds a different tool and
+  // `notifyTool` pushes it), so a radius living inside it would be replaced by the
+  // override's and restored on release — the brush resizing itself because the user
+  // held a modifier.
+  //
+  // Asserted on the pushed SHAPE because that is where the guarantee lives. The
+  // momentary path itself needs key events over a live canvas and belongs to the GPU
+  // suite; what is checkable here is that the two are separate fields, which is the
+  // property the momentary swap cannot reach through.
+  //
+  // `setTool` is deliberately absent from this case: it is a chrome→host verb and the
+  // host does NOT echo it back on the seam (that would re-derive → re-fire → loop), so
+  // there is no push to inspect. Found by writing the obvious version of this test and
+  // watching `pushes.at(-1)` come back undefined.
+  const host = createFieldHost();
+  const pushes: { tool: Record<string, unknown>; radius: number }[] = [];
+  host.subscribeTool((p) =>
+    pushes.push({
+      tool: p.tool as unknown as Record<string, unknown>,
+      radius: p.radius,
+    }),
+  );
+
+  host.setDigRadius(3.5);
+
+  const push = pushes.at(-1);
+  if (push === undefined) throw new Error("test: the tool seam pushed nothing");
+  expect(push.radius).toBe(3.5);
+  // The tool is a WHOLE tool, so the push is not a partial…
+  expect(Object.keys(push.tool).sort()).toEqual([
+    "effect",
+    "hollow",
+    "mask",
+    "materialId",
+    "smooth",
+  ]);
+  // …and `radius` is not one of its keys, which is the separation the momentary swap
+  // cannot reach through.
+  expect(Object.keys(push.tool)).not.toContain("radius");
+});

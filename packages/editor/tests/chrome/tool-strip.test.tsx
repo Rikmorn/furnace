@@ -742,3 +742,66 @@ test("a live session swaps the tool strip for the session strip and takes Bake o
 	expect(strip()).toBeTruthy();
 	expect(screen.getByRole("button", { name: "Bake" })).toBeTruthy();
 });
+
+// --- W-2: the radius readout tracks the HOST, not just the chrome ------------
+
+test("a host-side radius change reaches the strip readout (F4.5 gate, W-2)", async () => {
+	// The gate finding this closes: the wheel and `[` / `]` step the host's radius
+	// without passing through the chrome, so the readout used to keep whatever number
+	// the chrome itself last set and drift from the brush the viewport was drawing.
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	// The radius control only renders with a brush effect armed — with `pointer` armed
+	// the strip carries no brush params at all.
+	armEffect("dig");
+	const readout = () =>
+		(within(strip()).getByLabelText("brush radius") as HTMLInputElement).value;
+	const before = readout();
+
+	// The host pushes the tool AND the radius on one seam — a wheel notch looks like
+	// this from the chrome's side.
+	await act(async () => {
+		stub.fire.tool(
+			{
+				effect: "dig",
+				materialId: 0,
+				mask: { kind: "none" },
+				smooth: { strength: 16, iterations: 1, mode: "both" },
+				hollow: null,
+			},
+			3.5,
+		);
+		await Promise.resolve();
+	});
+
+	expect(readout()).toBe("3.5");
+	// …and the starting value was not it, so the assertion above is not vacuous.
+	expect(before).not.toBe("3.5");
+});
+
+test("the mirror does NOT push the radius back at the host — no round trip", async () => {
+	// The other half: a mirror that answered a host push with a `setDigRadius` would
+	// fight a wheel gesture at wheel rate. The chrome ADOPTS only.
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("dig");
+	stub.calls.setDigRadius.mockClear();
+
+	await act(async () => {
+		stub.fire.tool(
+			{
+				effect: "dig",
+				materialId: 0,
+				mask: { kind: "none" },
+				smooth: { strength: 16, iterations: 1, mode: "both" },
+				hollow: null,
+			},
+			3.5,
+		);
+		await Promise.resolve();
+	});
+
+	expect(stub.calls.setDigRadius).not.toHaveBeenCalled();
+});

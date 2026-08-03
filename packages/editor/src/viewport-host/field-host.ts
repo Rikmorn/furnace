@@ -195,6 +195,29 @@ export type FieldTool = {
  *  `box` = two clicks spanning a lattice-snapped region; `material` = flood
  *  the same-class solid from the hit voxel; `void` = flood the air pocket the
  *  cursor ray crosses just before its hit. */
+/** What {@link FieldHost.subscribeTool} pushes: the effective tool AND the brush
+ *  radius.
+ *
+ *  TWO FIELDS RATHER THAN A RADIUS INSIDE {@link FieldTool}, and the reason is the
+ *  momentary overrides. `tool` is swapped WHOLESALE while ⇧ or ⌃ is held
+ *  (`deriveMomentary` builds a different tool and `notifyTool` pushes it), so a
+ *  radius living in that value would be replaced by the override's — holding ⇧ to
+ *  smooth would silently resize the brush, and releasing it would resize it back.
+ *  The radius is not part of what a modifier changes, so it rides ALONGSIDE.
+ *
+ *  It rides this seam rather than {@link FieldStats} or a seam of its own for the
+ *  reason `FieldStats.voidCastPending` gives from the other side: the seams are
+ *  single-slot, so a new one is a new thing to claim exactly once — and unlike that
+ *  flag, radius is USER-paced (a slider drag, a wheel notch, `[` / `]`), which is
+ *  this seam's cadence and emphatically not the frame-paced stats push. Folding a
+ *  user-paced value into the frame-paced one is the thing `useFieldHostState`'s
+ *  header is built to avoid. */
+export type FieldToolPush = {
+  tool: FieldTool;
+  /** The brush/capsule radius in metres, clamped (`clampRadius`). */
+  radius: number;
+};
+
 export type SelectionMode = "box" | "material" | "void";
 
 /** What an LMB click DOES in the viewport — ONE slot, so arming any of these
@@ -478,7 +501,7 @@ export type FieldHost = {
    *  Single subscriber (the shell's host-state provider, which publishes the
    *  mirror and the `setTool` funnel together at `useFieldTool` — they are one
    *  concern precisely because of that guard); returns an unsubscribe. */
-  subscribeTool(cb: (tool: FieldTool) => void): () => void;
+  subscribeTool(cb: (push: FieldToolPush) => void): () => void;
   /** Subscribes to the host's user-facing messages: swallowed stroke failures (kit
    *  fill off the lattice, unknown material class — F2a buried these in
    *  console.warn; the console trail stays) and the selection-mask-without-a-
@@ -1008,6 +1031,58 @@ export type FieldHost = {
    *  that stance with every other camera path (see the class comment on the
    *  camera verbs in the implementation). */
   frameSelection(): void;
+  /** Frames the WHOLE WORLD — the verb {@link frameSelection}'s docblock says
+   *  "framing everything would be a different verb". This is that verb, added at
+   *  the F4.5 holistic gate because `Open` left the camera wherever it already
+   *  was, which on a fresh session is a 6 m orbit about the origin — outside
+   *  anything the loaded world contains.
+   *
+   *  A FIT, like {@link frameSelection} and unlike {@link frameChunks}: pivot to
+   *  the centre and pull the distance in to the box's longest edge, keeping the
+   *  angle the user is looking from.
+   *
+   *  WHAT IT FRAMES is the allocated chunks' world-space AABB with its TOP
+   *  lowered to {@link occupiedTopY} whenever that answers. The two disagree
+   *  more than they look: a chunk is 16 samples tall, so a world whose only rock
+   *  sits at the bottom of a chunk column still allocates the whole column, and
+   *  framing the chunk box would fit the camera to padding. `occupiedTopY` is the
+   *  top of what somebody BUILT, so it is the top a reader means. It is left
+   *  alone when it answers `null` — an all-air store has nothing to lower to.
+   *
+   *  With NO allocated chunks it moves no camera and pushes no
+   *  {@link subscribeCameraPose}, reporting through {@link subscribeToolError}
+   *  instead — the same stance {@link frameSelection} takes with nothing
+   *  selected, and for the same reason: a camera verb that silently did nothing
+   *  is indistinguishable from a broken one.
+   *
+   *  Cost is `occupiedTopY`'s (a descending scan with an early exit — click-time,
+   *  and see the measurements on its implementation) plus one pass over the chunk
+   *  keys. A CUT, not a tween.
+   *
+   *  DELIBERATELY NOT counted as the user aiming the camera — see
+   *  {@link cameraAimedByHand}. */
+  frameWorld(): void;
+  /** Has the user aimed this camera themselves since the host was created?
+   *
+   *  `false` until an interactive camera gesture (look drag, fly, dolly) or a
+   *  deliberate aim-at-something verb ({@link frameSelection}, {@link snapView},
+   *  the flag report's click-to-frame) has run. {@link frameWorld} is excluded on
+   *  purpose: framing the whole world is exactly the state the automatic frame
+   *  produces, so counting it would make one `Open` suppress the next one's frame
+   *  and re-open the defect this pair was added to close.
+   *
+   *  A LATCH RATHER THAN A POSE COMPARISON, and the difference is the point. The
+   *  gate's ruling says "when the camera pose is the boot default", which is what
+   *  this approximates; comparing floats against the boot literal would answer
+   *  "yes" for a user who orbited and happened to land back on it, and would need
+   *  an epsilon nobody can pick honestly. What the condition is FOR is not
+   *  yanking a camera somebody arranged, and "did they arrange it" is the
+   *  question a latch answers exactly.
+   *
+   *  Read by {@link loadWorld}'s automatic frame. Exposed because the chrome's
+   *  own surfaces may want the same question later; nothing pushes it, because
+   *  nothing needs to re-render when it changes. */
+  cameraAimedByHand(): boolean;
   /** Snaps to an axis-aligned view: `sign: 1` puts the EYE on the POSITIVE side
    *  of `axis` looking back at the pivot, `-1` on the negative side. The corner
    *  triad's six tips are this verb, and they are labelled with the same
@@ -1609,7 +1684,7 @@ export function createFieldHost(deps?: {
   let momentaryShift = false;
   let momentaryCtrl = false;
   // Panel mirror for host-initiated tool changes (eyedropper, momentary).
-  let toolCb: ((t: FieldTool) => void) | null = null;
+  let toolCb: ((p: FieldToolPush) => void) | null = null;
   // The user-facing message channel (the chrome's toast stack + message log).
   let toolErrorCb: ((msg: string, severity: ToolErrorSeverity) => void) | null =
     null;
@@ -1914,6 +1989,29 @@ export function createFieldHost(deps?: {
     distance: 6,
     yaw: 0.6,
     pitch: 0.5,
+  };
+  /** Backing store for {@link FieldHost.cameraAimedByHand}. Written ONLY through
+   *  {@link aimCamera} / {@link placeCamera} below, never here. */
+  let cameraAimed = false;
+  /** The user aimed the camera: every interactive gesture and every aim-at-a-thing
+   *  verb goes through this rather than assigning `orbitState` directly.
+   *
+   *  A FUNNEL rather than a flag set at each of the seven call sites, and the
+   *  reason is that the eighth is the one that would forget. `loadWorld`'s
+   *  automatic frame reads the latch to decide whether the user has arranged this
+   *  camera, so a new camera verb that assigned `orbitState` on its own would
+   *  silently make Open start yanking an arranged view. Now it cannot: assigning
+   *  `orbitState` outside these two helpers is the only way to get it wrong, and
+   *  `tests/field-host-camera.test.ts` pins that every verb sets the latch. */
+  const aimCamera = (next: OrbitState): void => {
+    orbitState = next;
+    cameraAimed = true;
+  };
+  /** Move the camera WITHOUT claiming the user aimed it — {@link FieldHost.frameWorld}
+   *  and the automatic frame behind `loadWorld`. See
+   *  {@link FieldHost.cameraAimedByHand} for why framing the world is not aiming. */
+  const placeCamera = (next: OrbitState): void => {
+    orbitState = next;
   };
   const keys = new Set<string>();
   // RMB-drag camera state (null when the button is up). `pivot` LATCHES which of
@@ -3146,6 +3244,20 @@ export function createFieldHost(deps?: {
     if (clamped === digRadius) return;
     digRadius = clamped;
     rebuildSegmentPreview();
+    // MIRROR IT (F4.5 holistic gate, W-2). The wheel and `[` / `]` reach the radius
+    // without going through the chrome, so before this the strip readout kept the
+    // last number the chrome itself had set and drifted from the brush the viewport
+    // was drawing. Pushing HERE rather than at the three call sites is the same
+    // argument the clamp above already makes: this is the one funnel, so a fourth
+    // way to change the radius cannot forget to announce it.
+    //
+    // The early return above is also the echo guard, and it is why this needs no
+    // other one: the chrome's own `setRadius` lands here, finds `clamped ===
+    // digRadius` on the way back, and returns before pushing. A slider drag
+    // therefore produces no push at all, so there is no round trip to fight the
+    // gesture — only a wheel notch or a keypress the chrome did not originate
+    // reaches the line below.
+    notifyTool();
   };
 
   // One LMB click while the segment brush is armed. First click anchors; the
@@ -3749,12 +3861,141 @@ export function createFieldHost(deps?: {
       reportToolError("nothing selected to frame");
       return;
     }
-    orbitState = frameBox(orbitState, box);
+    aimCamera(frameBox(orbitState, box));
+    applyOrbit();
+  };
+
+  /** The world-space AABB of a set of chunk keys. Shared by {@link frameChunks}
+   *  (which takes its centre) and {@link frameWorld} (which fits to the whole
+   *  box), because two copies of this arithmetic is how a re-centre and a fit come
+   *  to disagree about where a world is. `null` for an empty set — a box with no
+   *  chunks in it has no centre and no edges, and both callers need to say so
+   *  rather than fit to infinities. */
+  const chunkSetBox = (
+    chunks: Iterable<field.ChunkKey>,
+  ): { min: Vec3T; max: Vec3T } | null => {
+    const dim = field.CHUNK_DIM * store.cellSize;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    let any = false;
+    for (const key of chunks) {
+      any = true;
+      const [cx, cy, cz] = field.parseChunkKey(key);
+      minX = Math.min(minX, cx * dim);
+      maxX = Math.max(maxX, (cx + 1) * dim);
+      minY = Math.min(minY, cy * dim);
+      maxY = Math.max(maxY, (cy + 1) * dim);
+      minZ = Math.min(minZ, cz * dim);
+      maxZ = Math.max(maxZ, (cz + 1) * dim);
+    }
+    return any ? { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] } : null;
+  };
+
+  /** {@link FieldHost.occupiedTopY}'s body, hoisted out of the returned object so
+   *  {@link frameWorld} can call it directly. It was inline until the F4.5 gate added
+   *  a second caller; a `host.occupiedTopY()` self-call from inside the same literal
+   *  would have worked and would also have been the one place a reader cannot see that
+   *  the two verbs share a scan. */
+  const occupiedTopYOf = (): number | null => {
+    // Walk SAMPLE layers from the top down, and stop at the first solid one.
+    // Sample-layer order rather than chunk order is what makes the answer
+    // exact: two chunks in the same cy layer can have their topmost rock 15
+    // samples apart, and taking the first chunk that has any rock in it would
+    // answer with the wrong one whenever the map iterates them in that order.
+    //
+    // Density is int8 with the isosurface at 0 (`SOLID` = -127, `AIR` = 127),
+    // so "solid" is `< 0` — the same test the mesher's sign change uses. Not
+    // `=== SOLID`: a smoothed or partially-dug ceiling is solid rock the user
+    // can see and stand under, and it is never exactly -127.
+    //
+    // COST, measured on Bun/JSC over synthetic stores, 5 runs each. Per
+    // sample layer this reads at most 256 int8s per chunk in that layer and
+    // returns on the first hit, so the early exit is what the numbers are
+    // about:
+    //
+    //   192 chunks, rock in every chunk (a floor)    0.29 - 1.26 ms
+    //   5 000 chunks, same shape                     1.27 - 1.40 ms
+    //   192 chunks, ALL AIR (worst case)             0.61 - 2.30 ms
+    //   5 000 chunks, ALL AIR                       16.1 - 17.9 ms
+    //
+    // The pair that matters is rows 2 and 4: at the SAME 5 000 chunks the
+    // answerable world costs 1.3 ms and the unanswerable one 16 ms, because
+    // the first returns out of the top layer and the second reads every
+    // allocated sample (4096 int8s per chunk, ~20 M). So the cost tracks the
+    // top layer, not the world — and the worst case is a store dug out and
+    // then filled back to nothing, which is both rare and still inside the
+    // editor's 100 ms interaction ceiling. Once per slice-enable, never per
+    // frame and never per slider drag (the chrome seeds once, then owns the
+    // value — see `useView.tsx`).
+    if (store.chunks.size === 0) return null;
+    // Bucket by chunk-Y once so each sample layer looks at only the chunks
+    // that can contain it, rather than re-filtering the whole map per layer.
+    const byLayer = new Map<number, Int8Array[]>();
+    let maxCy = Number.NEGATIVE_INFINITY;
+    let minCy = Number.POSITIVE_INFINITY;
+    for (const [key, density] of store.chunks) {
+      const cy = field.parseChunkKey(key)[1];
+      if (cy > maxCy) maxCy = cy;
+      if (cy < minCy) minCy = cy;
+      const bucket = byLayer.get(cy);
+      if (bucket) bucket.push(density);
+      else byLayer.set(cy, [density]);
+    }
+    const D = field.CHUNK_DIM;
+    for (let cy = maxCy; cy >= minCy; cy--) {
+      const chunks = byLayer.get(cy);
+      if (!chunks) continue;
+      for (let ly = D - 1; ly >= 0; ly--) {
+        for (const density of chunks) {
+          // The layer's samples are `lx + D*(ly + D*lz)`, so one ly spans D
+          // runs of D contiguous entries — walked as runs rather than with a
+          // multiply per sample.
+          for (let lz = 0; lz < D; lz++) {
+            const base = D * (ly + D * lz);
+            for (let lx = 0; lx < D; lx++)
+              if ((density[base + lx] ?? 0) < 0)
+                return (cy * D + ly) * store.cellSize;
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const frameWorld = (): void => {
+    const box = chunkSetBox(store.chunks.keys());
+    if (box === null) {
+      // Same stance as frameSelection's: an empty world is a refusal with a
+      // sentence, not a camera verb that quietly does nothing.
+      reportToolError(
+        "nothing in this world to frame yet — dig something first",
+      );
+      return;
+    }
+    // Lower the ceiling to what was BUILT rather than to the chunk column that
+    // holds it. A chunk is CHUNK_DIM samples tall, so a floor-only world fits the
+    // camera to ~16 cells of empty headroom without this.
+    const top = occupiedTopYOf();
+    const fitted =
+      top === null
+        ? box
+        : {
+            min: box.min,
+            max: [box.max[0], Math.max(top, box.min[1]), box.max[2]] as Vec3T,
+          };
+    // `placeCamera`, NOT `aimCamera`: framing the world is the state the automatic
+    // frame produces, so counting it as the user aiming would make one Open
+    // suppress the next one's frame.
+    placeCamera(frameBox(orbitState, fitted));
     applyOrbit();
   };
 
   const snapView = (axis: Axis, sign: 1 | -1): void => {
-    orbitState = snapToAxis(orbitState, axis, sign);
+    aimCamera(snapToAxis(orbitState, axis, sign));
     applyOrbit();
   };
 
@@ -4271,9 +4512,8 @@ export function createFieldHost(deps?: {
     // pick clicks and the outline draws, so the camera lands on exactly what the
     // user selected. (The chunk-sized frame this replaces is the F4 gate's first
     // finding — 4 m of world round a 0.18 m pin.)
-    orbitState = frameBox(
-      orbitState,
-      flagCellBox(row.flag.world, store.cellSize),
+    aimCamera(
+      frameBox(orbitState, flagCellBox(row.flag.world, store.cellSize)),
     );
     applyOrbit();
   };
@@ -5232,7 +5472,7 @@ export function createFieldHost(deps?: {
   // Mirror a host-initiated tool change to the chrome (cloned — the chrome must
   // never hold a reference into host state).
   const notifyTool = (): void => {
-    toolCb?.(cloneTool(tool));
+    toolCb?.({ tool: cloneTool(tool), radius: digRadius });
   };
 
   // Recompute the effective tool from (saved base, held modifiers). DERIVED,
@@ -5278,7 +5518,7 @@ export function createFieldHost(deps?: {
     if (look === null) return;
     const move = readFlyMove(keys);
     if (move.f === 0 && move.r === 0 && move.u === 0) return;
-    orbitState = flyMove(orbitState, move, flySpeed(keys, dt));
+    aimCamera(flyMove(orbitState, move, flySpeed(keys, dt)));
     applyOrbit();
   };
 
@@ -5771,10 +6011,11 @@ export function createFieldHost(deps?: {
       look.lastY = e.clientY;
       // The SAME angles either way, so the view turns the direction the hand
       // moved in both drags; the pivot decides what stays still while it does.
-      orbitState =
+      aimCamera(
         look.pivot === null
           ? flyLook(orbitState, dYaw, dPitch)
-          : orbitAbout(orbitState, look.pivot, dYaw, dPitch);
+          : orbitAbout(orbitState, look.pivot, dYaw, dPitch),
+      );
       applyOrbit();
       return;
     }
@@ -5883,7 +6124,7 @@ export function createFieldHost(deps?: {
       // optimisation: falling through would publish a pose for a camera that did
       // not move, and retire a live move's anchor on the strength of it.
       if (banked.steps === 0) return;
-      orbitState = dolly(orbitState, -banked.steps); // negative deltaY = forward
+      aimCamera(dolly(orbitState, -banked.steps)); // negative deltaY = forward
       applyOrbit();
       return;
     }
@@ -6405,9 +6646,10 @@ export function createFieldHost(deps?: {
       const ops = data.oplog === null ? [] : field.parseOps(data.oplog);
       for (const op of ops) log.ops.push(op);
       log.nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
-      // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn — the
-      // editor keeps its current fly pose on load (not applied to the camera
-      // here). `playerStart` IS read, as the walkability advisor's seed: it is
+      // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn, and the
+      // editor still never adopts them as its own camera — the automatic frame at
+      // the end of this method aims at the world's BOX, not at where a player
+      // would stand. `playerStart` IS read, as the walkability advisor's seed: it is
       // where the agent starts, which is exactly what "can it get there" and
       // "can it get back" are asked from. Copied, not aliased — the manifest is
       // the caller's. A world with no manifest (newWorld) leaves the seeds empty
@@ -6434,6 +6676,19 @@ export function createFieldHost(deps?: {
       // depend on the prop layer happening to rebuild on the same path.
       analyzePump.request();
       notifyEntities();
+      // NO AUTOMATIC FRAME HERE, and the first attempt at ruling 5 put one in —
+      // which is worth recording, because it looked like the obvious home. This
+      // method holds both the freshly-decoded store and the camera, so framing
+      // from here needed no seam and no ordering.
+      //
+      // It is still wrong: `loadWorld` is a DATA primitive, and the editor is not
+      // its only caller. It is also the only headless route to a committed entity,
+      // so nine GPU and analyzer suites use it to install a fixture and then pick
+      // with a ray — and a camera that re-aims itself on load moves what those rays
+      // hit. All nine went red, which is the honest version of "this changes what
+      // every loader is pointing at". The UX belongs to the verb the RULING names,
+      // `Open`, which is the chrome's (`hooks/useWorld.tsx`), and the chrome already
+      // holds the host so it needs no seam either.
     },
     setDigRadius(r) {
       applyRadius(r);
@@ -6535,69 +6790,7 @@ export function createFieldHost(deps?: {
       for (const key of store.chunks.keys()) dirty.add(key);
     },
     occupiedTopY() {
-      // Walk SAMPLE layers from the top down, and stop at the first solid one.
-      // Sample-layer order rather than chunk order is what makes the answer
-      // exact: two chunks in the same cy layer can have their topmost rock 15
-      // samples apart, and taking the first chunk that has any rock in it would
-      // answer with the wrong one whenever the map iterates them in that order.
-      //
-      // Density is int8 with the isosurface at 0 (`SOLID` = -127, `AIR` = 127),
-      // so "solid" is `< 0` — the same test the mesher's sign change uses. Not
-      // `=== SOLID`: a smoothed or partially-dug ceiling is solid rock the user
-      // can see and stand under, and it is never exactly -127.
-      //
-      // COST, measured on Bun/JSC over synthetic stores, 5 runs each. Per
-      // sample layer this reads at most 256 int8s per chunk in that layer and
-      // returns on the first hit, so the early exit is what the numbers are
-      // about:
-      //
-      //   192 chunks, rock in every chunk (a floor)    0.29 - 1.26 ms
-      //   5 000 chunks, same shape                     1.27 - 1.40 ms
-      //   192 chunks, ALL AIR (worst case)             0.61 - 2.30 ms
-      //   5 000 chunks, ALL AIR                       16.1 - 17.9 ms
-      //
-      // The pair that matters is rows 2 and 4: at the SAME 5 000 chunks the
-      // answerable world costs 1.3 ms and the unanswerable one 16 ms, because
-      // the first returns out of the top layer and the second reads every
-      // allocated sample (4096 int8s per chunk, ~20 M). So the cost tracks the
-      // top layer, not the world — and the worst case is a store dug out and
-      // then filled back to nothing, which is both rare and still inside the
-      // editor's 100 ms interaction ceiling. Once per slice-enable, never per
-      // frame and never per slider drag (the chrome seeds once, then owns the
-      // value — see `useView.tsx`).
-      if (store.chunks.size === 0) return null;
-      // Bucket by chunk-Y once so each sample layer looks at only the chunks
-      // that can contain it, rather than re-filtering the whole map per layer.
-      const byLayer = new Map<number, Int8Array[]>();
-      let maxCy = Number.NEGATIVE_INFINITY;
-      let minCy = Number.POSITIVE_INFINITY;
-      for (const [key, density] of store.chunks) {
-        const cy = field.parseChunkKey(key)[1];
-        if (cy > maxCy) maxCy = cy;
-        if (cy < minCy) minCy = cy;
-        const bucket = byLayer.get(cy);
-        if (bucket) bucket.push(density);
-        else byLayer.set(cy, [density]);
-      }
-      const D = field.CHUNK_DIM;
-      for (let cy = maxCy; cy >= minCy; cy--) {
-        const chunks = byLayer.get(cy);
-        if (!chunks) continue;
-        for (let ly = D - 1; ly >= 0; ly--) {
-          for (const density of chunks) {
-            // The layer's samples are `lx + D*(ly + D*lz)`, so one ly spans D
-            // runs of D contiguous entries — walked as runs rather than with a
-            // multiply per sample.
-            for (let lz = 0; lz < D; lz++) {
-              const base = D * (ly + D * lz);
-              for (let lx = 0; lx < D; lx++)
-                if ((density[base + lx] ?? 0) < 0)
-                  return (cy * D + ly) * store.cellSize;
-            }
-          }
-        }
-      }
-      return null;
+      return occupiedTopYOf();
     },
     getSmoothLimits() {
       return {
@@ -6969,15 +7162,17 @@ export function createFieldHost(deps?: {
         minZ = Math.min(minZ, cz * dim);
         maxZ = Math.max(maxZ, (cz + 1) * dim);
       }
-      orbitState = {
+      aimCamera({
         ...orbitState,
         target: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
-      };
+      });
       // Before init this moves the target and publishes the pose, and writes no
       // camera — applyOrbit guards on `cam`, and there is none yet.
       applyOrbit();
     },
     frameSelection,
+    frameWorld,
+    cameraAimedByHand: () => cameraAimed,
     snapView,
     subscribeEntities(cb) {
       entitiesCb = cb;

@@ -141,10 +141,19 @@ export type FieldToolState = {
 	 *  hollow floor) as a backstop; the controls stay inside the same ranges so chrome
 	 *  and host agree. */
 	setTool: (next: FieldTool) => void;
-	/** Adopt + push, DELIBERATELY one-way: the host's wheel and `[` / `]` also step its
-	 *  radius and there is no host→chrome radius seam, so the readout can still lag the
-	 *  host after wheel/key sizing. Pre-existing asymmetry, kept — the ghost ring in the
-	 *  viewport is the live radius display. */
+	/** Adopt + push, and TWO-WAY since the F4.5 holistic gate.
+	 *
+	 *  It used to be one-way on purpose, and this docblock used to say so: the host's
+	 *  wheel and `[` / `]` step the radius without passing through here, and the argument
+	 *  was that the ghost ring in the viewport is the live display, so a lagging readout
+	 *  cost nothing. **The gate falsified that** — the user sized the brush with the wheel
+	 *  and read a stale number off the strip, which is a readout stating something untrue
+	 *  about the tool in hand.
+	 *
+	 *  The mirror rides `subscribeTool` (see `FieldToolPush`), so it added no seam. The
+	 *  echo guard is the host's own `applyRadius` early-return: a chrome-originated set
+	 *  arrives back at a radius that already equals the clamped value and returns before
+	 *  pushing, so a slider drag produces no round trip to fight. */
 	setRadius: (r: number) => void;
 };
 
@@ -568,11 +577,17 @@ export function FieldHostStateProvider({
 	// DERIVED tool — so the mirror ADOPTS only (a state write, never a `host.setTool`
 	// re-push: pushing the derived tool back would re-derive → re-fire → loop), and
 	// value-compares first so an echo of our own state returns the same reference.
+	// The RADIUS half arrived with the F4.5 gate's W-2: the host's wheel and `[` / `]`
+	// reach the radius without passing through the chrome, so the readout used to keep
+	// whatever number the chrome last set. Both halves land in one push and are adopted
+	// independently — the tool through its value comparison, the radius through the
+	// setter's own identity check on a number, which is free.
 	useEffect(() => {
 		if (!engineReady || !host) return;
-		return host.subscribeTool((t) =>
-			setToolState((prev) => (toolsEqual(prev, t) ? prev : t)),
-		);
+		return host.subscribeTool(({ tool: t, radius: r }) => {
+			setToolState((prev) => (toolsEqual(prev, t) ? prev : t));
+			setRadiusState(r);
+		});
 	}, [engineReady, host]);
 
 	// The selection mirror (the count, the truncation warning, Clear / Reselect).

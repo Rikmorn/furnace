@@ -2153,11 +2153,15 @@ test("the burger's View submenu carries the triad's six axis views, in the triad
 	// not every open level's.
 	const labels = levelItems(menuContaining("Frame selection"));
 	expect(labels).toEqual([
-		// FIRST, deliberately: this submenu is the longest of the three at twelve rows, and
-		// the command palette is the answer to depth (D-12) — so a user who opens it meets
-		// the way out of the menu entirely before the twelve.
+		// FIRST, deliberately: this submenu is the longest of the three at thirteen rows,
+		// and the command palette is the answer to depth (D-12) — so a user who opens it
+		// meets the way out of the menu entirely before the thirteen.
 		"Find a command…",
 		"Frame selection",
+		// The world frame sits with the OTHER framing verb rather than with the axis
+		// tips: `F` frames what you picked, this frames everything, and a reader
+		// comparing the two wants them adjacent (F4.5 gate, ruling 5).
+		"Frame world",
 		...tipNames,
 		"Normals shading",
 		"Grid",
@@ -2318,13 +2322,13 @@ test("the overlay renders the REGISTRY — every keyed action has a row, with it
 // Every row is `py-1.5 text-sm` — 6 + 20 + 6 = 32 px (spacing unit 4 px) — a separator is
 // 9 px, and the content's padding and border add 10. So the top level was 37 rows + 3
 // separators = 1221 px and is now 11 rows + 2 separators = 380 px, while the DEEPEST level
-// (View, twelve rows) is 394 px.
+// (View, thirteen rows) is 426 px — ruling 5's `Frame world` made it one taller.
 //
 // THE AVAILABLE HEIGHT IS ~906 px, NOT 950. The gate was walked in a ~950 px window, but the
 // menu opens BELOW a 40 px top bar (`TopBar.tsx`'s `h-10`) with `sideOffset = 4`. So the flat
 // run overflowed by ~315 px — about TEN rows, not the seven or eight the gate counted by eye
 // and not the ~270 px an earlier draft of this comment wrote. Both levels fit now with room:
-// 380 and 394 against ~906. Erring in the safe direction, and the conclusion is unchanged.
+// 380 and 426 against ~906. Erring in the safe direction, and the conclusion is unchanged.
 
 test("the burger's top level is the three group submenus, the two doors and the palette ticks", async () => {
 	fetch404();
@@ -2358,7 +2362,7 @@ test("a submenu's rows belong to the SUBMENU — opening one does not lengthen t
 	// was open. Sabotaging `levelItems`' filter reddens exactly this case.
 	expect(levelItems(burgerRoot())).toEqual(shut);
 
-	// …and the twelve rows are in the submenu the trigger names, LABELLED BY IT: Radix wires
+	// …and the thirteen rows are in the submenu the trigger names, LABELLED BY IT: Radix wires
 	// `aria-labelledby` from the SubTrigger's own id, which is what retired the hand-rolled
 	// `DropdownMenuGroup` + `DropdownMenuLabel` pair the flat groups carried. A submenu with
 	// no accessible name is a menu a screen-reader user meets unattributed.

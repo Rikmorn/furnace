@@ -34,6 +34,7 @@ export {
   type FieldMaskChoice,
   type FieldStats,
   type FieldTool,
+  type FieldToolPush,
   type PendingStamp,
   type SegmentHud,
   type SelectionInfo,

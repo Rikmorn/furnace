@@ -572,7 +572,12 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 					<AnalyzerChip pending={stats.analyzerPending} />
 					{/* The op count is the HANDLE on the op-cost meter (D-19): the number on
               the bar is the one everybody reads, and the five fields that explain it
-              have had no home since F4.5a deleted the panel footer they lived in. */}
+              have had no home since F4.5a deleted the panel footer they lived in.
+              The popover therefore shows SIX rows, not five — it repeats the handle
+              as its first row (`ops in the log`) so the number the user clicked is
+              named beside the ones that account for it, rather than being a heading
+              they have to remember. The gate counted six and the pack's §7.3 flagged
+              the arithmetic; five is the count of EXPLAINERS and always was. */}
 					<ChipPopover
 						label={`${stats.totalOps} ops — the op-cost meter`}
 						body={<OpsDetail stats={stats} />}

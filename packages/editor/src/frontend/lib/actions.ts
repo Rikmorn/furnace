@@ -933,6 +933,22 @@ export const ACTIONS: readonly ActionDef[] = [
     gate: "typed",
     run: (ctx) => ctx.host?.frameSelection(),
   },
+  {
+    id: "view.frameWorld",
+    group: "view",
+    label: () => "Frame world",
+    // Same stance as `view.frame` beside it: the host says "nothing to frame yet"
+    // itself, so this stays live on an empty world rather than going quiet.
+    enabled: () => true,
+    // NO KEYCAP, deliberately. `F` is taken by the selection frame and the two verbs
+    // are one letter apart in meaning, so ⇧F would be the obvious cap — and ⇧ is the
+    // tool rail's own modifier (⇧ + a letter arms a brush family), which is a
+    // collision the gate has already paid for once. This verb is reached by name
+    // (⌘K) or from the View submenu; it is the verb you want when you have just
+    // opened a world, and `loadWorld` already runs it for you then.
+    hint: "Fit the camera to the whole world — runs itself after Open unless you have aimed the camera",
+    run: (ctx) => ctx.host?.frameWorld(),
+  },
   // HERE, between the other camera verb and the display toggles, because the burger renders
   // a group in table order: seven camera rows then read as one run, where appending them
   // would file six of them behind two workspace verbs. Their placement BEHIND the View

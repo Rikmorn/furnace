@@ -353,6 +353,22 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			try {
 				const outcome = await loadWorldInto({ api, host }, { name: target });
 				if (outcome.status !== "loaded") return;
+				// FRAME WHAT WAS JUST OPENED (F4.5 holistic gate, ruling 5). Open used to
+				// leave the camera exactly where it already was, which on a fresh session is
+				// a 6 m orbit about the origin — outside anything a saved world contains, so
+				// the first thing a user saw after opening was nothing at all.
+				//
+				// GUARDED, because a user who has arranged this camera must not have it taken
+				// off them. The guard is a latch on the host ("has any aim verb run") rather
+				// than a comparison against the boot pose — see `cameraAimedByHand`, and note
+				// `frameWorld` deliberately does not set it, so opening A and then B frames
+				// both while one orbit in between stops both.
+				//
+				// HERE and not inside `host.loadWorld`, which was the first attempt: that
+				// method is a data primitive and is also every headless suite's fixture
+				// loader, so framing from there re-aimed nine GPU and analyzer tests' rays.
+				// `Open` is the verb the ruling names, and this is where `Open` lives.
+				if (!host.cameraAimedByHand()) host.frameWorld();
 				setName(target);
 				rebaseline();
 				rememberWorld(store, target);
