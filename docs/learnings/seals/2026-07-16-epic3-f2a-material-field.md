@@ -1,7 +1,7 @@
 # Epic 3 · One Field F2a — "the material field"
 
 - **Sealed:** 2026-07-16
-- **Package(s):** core, dungeon, editor
+- **Package(s):** dungeon (others not recorded)
 - **Gate:** user-gated, Safari
 - **Suite:** 1523 pass / 1 skip / 0 fail
 
