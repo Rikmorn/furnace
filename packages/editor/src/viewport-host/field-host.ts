@@ -74,7 +74,6 @@ import {
   crossSegments,
   GHOST_COLOR,
   generatorFootprint,
-  segmentGhostSegments,
   sphereGhostSegments,
 } from "./field-ghost.ts";
 import { type FieldHistory, fieldHistory } from "./field-history.ts";
@@ -106,6 +105,7 @@ import {
   touchedParamKeys,
   withArchetypeOptions,
 } from "./field-placements.ts";
+import { createSegmentBrush } from "./field-segment.ts";
 import {
   SELECTION_DISPLAY_CAP,
   selectionDisplayCells,
@@ -1389,15 +1389,6 @@ const DIG_RANGE_M = 30;
  *  FlagsSection tint-palette precedent). It lived on `ToolPalette`'s Segment
  *  tooltip until F4.5b Task 8 deleted that file. */
 const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
-/** How long a segment between these two world points is (m).
- *
- *  ONE function for the two readers rather than two spellings of Pythagoras, and the
- *  reason is that they must agree exactly: `segmentClick` measures the pair to decide
- *  whether to REFUSE it, and the HUD measures the pending pair to say whether it is
- *  about to be refused. A readout that computed the length even slightly differently
- *  would show a number inside the cap for a click the very next line rejects. */
-const segmentLength = (a: Vec3T, b: Vec3T): number =>
-  Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 /** How far a `pointer` pick reaches — the DIG reach, deliberately the same
  *  number rather than an independent one: "you can select what you could dig" is
  *  one rule to hold in the head, and the same range bounds the pick's occlusion
@@ -1740,11 +1731,6 @@ export function createFieldHost(deps?: {
   let gesture: ViewportGesture | null = "pointer";
   // Pending box-select anchor: the first click's world point (null = none).
   let boxAnchor: Vec3T | null = null;
-  // Pending SEGMENT anchor: the first click's world point (null = none). Its
-  // own slot rather than a shared one — the two gestures are mutually
-  // exclusive through `gesture`, but a shared anchor would silently survive a
-  // box→segment switch as a segment start the user never clicked.
-  let segmentAnchor: Vec3T | null = null;
   let selection: SelectionState | null = null;
   // The Reselect slot: the one previous selection (clear/replace park it here).
   let lastSelection: SelectionState | null = null;
@@ -1759,18 +1745,6 @@ export function createFieldHost(deps?: {
   // pointer MOVE (never per frame). Null unless a box anchor is pending; cleared
   // with the anchor (setBoxAnchor(null)).
   let boxPreviewBatch: LineBatch | null = null;
-  // The segment brush's two overlays, both hologram-blue and both under the
-  // GHOST layer (a pending capsule is a preview of a brush op, not a selection):
-  // the anchor cross, and the capsule wireframe the second click would commit —
-  // rebuilt on pointer MOVE, never per frame, like boxPreviewBatch.
-  let segmentAnchorBatch: LineBatch | null = null;
-  let segmentPreviewBatch: LineBatch | null = null;
-  // The segment preview's far endpoint — the last cursor point that resolved to
-  // a surface while an anchor was pending. Kept beside the batch so a RADIUS
-  // change can re-fatten the capsule without a fresh raycast (the raycast is
-  // what makes updateSegmentPreview a pointer-MOVE job; the batch itself is
-  // cheap). Cleared with the anchor.
-  let segmentPreviewEnd: Vec3T | null = null;
 
   // --- the pending stamp arm (region-draw entry, D-F4.5-7) ------------------
   // The generator picked with nothing selected: LMB spans a region for it, and
@@ -1972,22 +1946,6 @@ export function createFieldHost(deps?: {
   let remeshVersion = 0;
   let statsCb: ((s: FieldStats) => void) | null = null;
   let cameraPoseCb: ((pose: CameraPose) => void) | null = null;
-  let segmentHudCb: ((hud: SegmentHud | null) => void) | null = null;
-  // The segment HUD's own throttle clock, NOT `lastStroke`'s (D-25). Both admit one
-  // event per STROKE_MIN_MS and that CONSTANT is shared deliberately — a readout that
-  // refreshed on a different cadence from the brush it describes would be a second
-  // number to reason about.
-  //
-  // The VARIABLE is separate because the two paths are: the segment branch in
-  // `onPointerMove` returns above the stroke throttle and so never touches `lastStroke`.
-  // Keeping them apart is HYGIENE rather than a fix for a live bug, and the honest size
-  // of it is small — a stroke and a segment cannot be live at once (`onPointerDown`
-  // routes `gesture !== null` to the gesture branch and never sets `digging`), so
-  // sharing the slot would cost at most one dropped brush application, and only if the
-  // user disarmed the gesture, pressed LMB and moved within one 40 ms window of the last
-  // HUD push — a couple of frames, with the lost application a few px from the
-  // pointerdown one that already landed. Cheap to prevent, so prevented.
-  let lastSegmentHud = 0;
   // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
   let lastReconfigureMs = 0;
   // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
@@ -3169,105 +3127,28 @@ export function createFieldHost(deps?: {
 
   // --- segment brush (two-click swept capsule, D-F3-14) -------------------
 
-  // The chrome's mirror of the pending segment (D-25). Measured between the SAME two
-  // endpoints the preview capsule is swept between, so the number on the status bar and
-  // the wireframe in the viewport can never describe different segments.
-  //
-  // With no far end resolved the only point the host has is the anchor, so the honest
-  // length is 0 rather than nothing — which is what makes the anchoring click's own push
-  // meaningful. Two ways to be in that state, and 0 is right for both: the cursor has
-  // not moved since the click, or it has moved and resolved no surface (`if (!p) return`
-  // in `updateSegmentPreview`, which deliberately leaves the last preview standing).
-  const publishSegmentHud = (): void => {
-    if (segmentAnchor === null) {
-      segmentHudCb?.(null);
-      return;
-    }
-    const lenM =
-      segmentPreviewEnd === null
-        ? 0
-        : segmentLength(segmentAnchor, segmentPreviewEnd);
-    segmentHudCb?.({ lenM, capM: MAX_SEGMENT_M });
-  };
-
-  // The HUD's pointer-rate half, on the stroke cadence. Throttled because it crosses
-  // into React: an unthrottled push re-renders the status bar once per pointermove,
-  // which is the cost the whole cadence split in `useFieldHostState` exists to avoid.
-  //
-  // Called only from the RESOLVED-point path in `updateSegmentPreview`, deliberately:
-  // a cursor that hits nothing leaves the preview capsule standing, so publishing
-  // there would spend the window's one push on a length that did not change and stale
-  // the next real move by up to STROKE_MIN_MS. The edge pushes in `setSegmentAnchor`
-  // are what guarantee the readout is never left WRONG — this only decides how often
-  // a live one refreshes.
-  const publishSegmentHudThrottled = (): void => {
-    const now = performance.now();
-    if (now - lastSegmentHud < STROKE_MIN_MS) return;
-    lastSegmentHud = now;
-    publishSegmentHud();
-  };
-
-  // The pending segment start (null = none), plus its hologram-blue cross. The
-  // preview capsule dies with the anchor: without a start point there is no
-  // second endpoint to sweep to.
-  //
-  // THE edge for the HUD, and the reason the push lives here rather than at the call
-  // sites: every path that arms or drops an anchor goes through this one function (six
-  // today — the anchoring click, the committing one, the Esc ladder, `resetWorld`,
-  // `setGesture` and a stamp arm), so a chrome readout left standing over a segment
-  // that no longer exists is not reachable rather than merely unobserved.
-  const setSegmentAnchor = (p: Vec3T | null): void => {
-    segmentAnchor = p;
-    if (p === null) {
-      segmentAnchorBatch = null;
-      segmentPreviewBatch = null;
-      segmentPreviewEnd = null;
-      publishSegmentHud();
-      return;
-    }
-    segmentAnchorBatch = segmentsToBatch(
-      crossSegments(p, ANCHOR_CROSS_HALF_M),
-      GHOST_COLOR,
-    );
-    publishSegmentHud();
-  };
-
-  // The capsule the second click would build: same endpoints, same radius as
-  // the op. Rebuilt on pointer MOVE while an anchor is pending. A cursor that
-  // resolves to no surface point leaves the last preview standing — a
-  // transient miss must not flicker the capsule off (updateBoxPreview's rule).
-  //
-  // This is the WHOLE preview: no worker ghost, no scratch mesh. A brush op is
-  // cheap and reversible, and the generator preview protocol exists for
-  // recipes whose output cannot be guessed from their inputs — a swept capsule
-  // can.
-  //
-  // The RAYCAST is what makes this a pointer-MOVE job; the batch is cheap. So
-  // the resolved endpoint is stored and the batch built from it in
-  // `rebuildSegmentPreview` below, which the radius paths call too — a wheel
-  // notch or `[` / `]` with a still cursor now re-fattens the pending capsule
-  // instead of leaving it at the old radius until the pointer twitches (f2b
-  // item 9; the plain sphere ghost, rebuilt per frame, never had that gap).
-  //
-  // The capsule batch itself comes from the anchor, the last resolved endpoint
-  // and the LIVE radius. No raycast, so it is affordable from any path that
-  // changes the radius; a no-op until the cursor has resolved a far end once.
-  const rebuildSegmentPreview = (): void => {
-    if (segmentAnchor === null || segmentPreviewEnd === null) return;
-    segmentPreviewBatch = segmentsToBatch(
-      segmentGhostSegments(segmentAnchor, segmentPreviewEnd, digRadius),
-      GHOST_COLOR,
-    );
-  };
-
-  const updateSegmentPreview = (clientX: number, clientY: number): void => {
-    if (segmentAnchor === null) return;
-    const p = selectionPoint(clientX, clientY);
-    if (!p) return;
-    segmentPreviewEnd = p;
-    rebuildSegmentPreview();
-    publishSegmentHudThrottled();
-  };
+  // The gesture's whole state and logic live in `field-segment.ts` — the first
+  // cluster to leave this closure intact (`docs/reference/field-host-clusters.md`
+  // measured it at eight external edges and ONE boundary mutation). What stays
+  // here is the wiring, and its shape is the point: the two bindings the host
+  // REASSIGNS travel as calls, not values. `digRadius` is moved by `applyRadius`
+  // below, and `maskDropReported` is re-armed by `onPointerDown` as well as by the
+  // segment's own commit — either one handed over as a number or a boolean would
+  // give the module a private copy that diverges silently the first time the host
+  // wrote to its own. The three constants are `const` here and travel as values
+  // for the same reason read backwards.
+  const segment = createSegmentBrush({
+    strokeMinMs: STROKE_MIN_MS,
+    anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
+    maxSegmentM: MAX_SEGMENT_M,
+    digRadius: () => digRadius,
+    selectionPoint,
+    reportToolError,
+    commitToolOp,
+    armMaskDropReport: () => {
+      maskDropReported = false;
+    },
+  });
 
   // The ONE funnel for a radius change — the panel's slider, the wheel and
   // `[` / `]` all land here. Clamped once, and the pending capsule re-fattens
@@ -3277,7 +3158,7 @@ export function createFieldHost(deps?: {
     const clamped = clampRadius(next);
     if (clamped === digRadius) return;
     digRadius = clamped;
-    rebuildSegmentPreview();
+    segment.rebuildPreview();
     // MIRROR IT (F4.5 holistic gate, W-2). The wheel and `[` / `]` reach the radius
     // without going through the chrome, so before this the strip readout kept the
     // last number the chrome itself had set and drifted from the brush the viewport
@@ -3296,43 +3177,6 @@ export function createFieldHost(deps?: {
     // the boundary, and the next out-of-range set finds the boundary already current and
     // returns (measured: [4, 0.25], then silence).
     notifyTool();
-  };
-
-  // One LMB click while the segment brush is armed. First click anchors; the
-  // second builds ONE capsule op with the ACTIVE tool's effect/material and
-  // commits it through the ordinary log path — so it is one ⌘Z, exactly like a
-  // stroke, and needs no undo machinery of its own.
-  //
-  // The endpoints are selectionPoint's RAW surface hits, not computeTarget's
-  // bitten-past centres: a tunnel must start and end where the user clicked
-  // (the box-select corner rule, and the same reason).
-  const segmentClick = (clientX: number, clientY: number): void => {
-    const p = selectionPoint(clientX, clientY);
-    if (!p) return;
-    if (segmentAnchor === null) {
-      setSegmentAnchor(p);
-      return;
-    }
-    // Copy the anchor BEFORE clearing it — setSegmentAnchor nulls the field,
-    // and the op is built after.
-    const a: Vec3T = [...segmentAnchor];
-    // The length cap (MAX_SEGMENT_M), decided BEFORE the anchor is cleared so a
-    // refusal leaves the gesture exactly as it was: the pending start stands and
-    // the user re-clicks nearer, rather than losing a point they meant to keep.
-    const len = segmentLength(a, p);
-    if (len > MAX_SEGMENT_M) {
-      reportToolError(
-        `segment is ${len.toFixed(1)} m — the cap is ${MAX_SEGMENT_M} m; click nearer`,
-      );
-      return;
-    }
-    setSegmentAnchor(null);
-    // Re-arm the once-per-stroke mask-drop report. A stroke re-arms it at
-    // pointer-down (a drag is one stroke, many ops); a segment's unit is ONE
-    // commit, so without this every segment after the first would drop a
-    // selection mask SILENTLY.
-    maskDropReported = false;
-    commitToolOp({ kind: "capsule", a, b: p, radius: digRadius });
   };
 
   // One LMB click while a selection mode is armed (applyTool is bypassed). The
@@ -5709,7 +5553,7 @@ export function createFieldHost(deps?: {
     const shape = cursorAffordance({
       gesture,
       pendingStamp: pendingStamp !== null,
-      anchored: boxAnchor !== null || segmentAnchor !== null,
+      anchored: boxAnchor !== null || segment.anchor() !== null,
     });
     if (shape === null || !lastPointer) return;
     const p = selectionPoint(lastPointer.x, lastPointer.y);
@@ -5919,17 +5763,19 @@ export function createFieldHost(deps?: {
     // The segment brush's pending anchor + capsule preview. Under the GHOST
     // layer, not `selection`: they preview a brush op the next click commits.
     if (layers.ghost) {
-      if (segmentAnchorBatch)
+      const anchorLines = segment.anchorBatch();
+      if (anchorLines)
         frame.drawLines(c, {
-          vertices: segmentAnchorBatch.vertices,
-          colors: segmentAnchorBatch.colors,
+          vertices: anchorLines.vertices,
+          colors: anchorLines.colors,
           camera: view,
           occlude: false,
         });
-      if (segmentPreviewBatch)
+      const previewLines = segment.previewBatch();
+      if (previewLines)
         frame.drawLines(c, {
-          vertices: segmentPreviewBatch.vertices,
-          colors: segmentPreviewBatch.colors,
+          vertices: previewLines.vertices,
+          colors: previewLines.colors,
           camera: view,
           occlude: false,
         });
@@ -6097,7 +5943,7 @@ export function createFieldHost(deps?: {
         // verbatim (F3b gate item 2). It needs its own guard because it reaches
         // the store through THIS branch, above the stroke's.
         if (suspendedByStamp()) return;
-        segmentClick(e.clientX, e.clientY);
+        segment.click(e.clientX, e.clientY);
       } else selectionClick(gesture, e.clientX, e.clientY);
       return;
     }
@@ -6162,8 +6008,8 @@ export function createFieldHost(deps?: {
       return;
     }
     // Segment brush: same shape, with the capsule the second click would sweep.
-    if (gesture === "segment" && segmentAnchor !== null) {
-      updateSegmentPreview(e.clientX, e.clientY);
+    if (gesture === "segment" && segment.anchor() !== null) {
+      segment.updatePreview(e.clientX, e.clientY);
       return;
     }
     if (!digging) return;
@@ -6263,9 +6109,9 @@ export function createFieldHost(deps?: {
     //    anchors are cleared rather than only the armed gesture's: arming a
     //    gesture already drops both, so "whichever is pending" is this same set,
     //    and asking which one is live would be a second spelling of that rule.
-    if (boxAnchor !== null || segmentAnchor !== null) {
+    if (boxAnchor !== null || segment.anchor() !== null) {
       setBoxAnchor(null);
-      setSegmentAnchor(null);
+      segment.setAnchor(null);
       return true;
     }
     // 1b. The pending stamp ARM — after its own corner, because the two are one
@@ -6530,7 +6376,7 @@ export function createFieldHost(deps?: {
     setBoxAnchor(null);
     // The segment anchor is a point in the OLD field — a capsule swept from it
     // into the new one would start somewhere the user never clicked.
-    setSegmentAnchor(null);
+    segment.setAnchor(null);
     // …and so is the pending stamp arm: the region it is asking for would be
     // drawn in the new world for a question the old one posed, and every surface
     // reading the seam would go on saying "drag a region" across a world swap.
@@ -6860,7 +6706,7 @@ export function createFieldHost(deps?: {
       // box→segment, where a carried-over point would read as a segment start
       // the user never clicked.
       setBoxAnchor(null);
-      setSegmentAnchor(null);
+      segment.setAnchor(null);
     },
     clearSelection() {
       setBoxAnchor(null);
@@ -6993,7 +6839,7 @@ export function createFieldHost(deps?: {
         // hologram went on tracking the pointer for a sweep that can no longer
         // happen, and Esc spent its first press on a point the user thought was
         // long gone.
-        setSegmentAnchor(null);
+        segment.setAnchor(null);
         setPendingStamp({ id: generator, name: def.name });
         return;
       }
@@ -7011,7 +6857,7 @@ export function createFieldHost(deps?: {
       // ordinary way here: select a region, arm a gesture, click once, pick a
       // generator) the call does nothing at all.
       setBoxAnchor(null);
-      setSegmentAnchor(null);
+      segment.setAnchor(null);
       openStampSession(
         generator,
         def,
@@ -7396,15 +7242,7 @@ export function createFieldHost(deps?: {
       };
     },
     subscribeSegmentHud(cb) {
-      segmentHudCb = cb;
-      // Initial push (the subscribeSelection remount rationale), and here it is the
-      // SAME argument as subscribeCameraPose's: nothing moves this value on its own, so
-      // a subscriber that waited for the next pointermove would read blank for as long
-      // as the user held still over a segment they had already started.
-      publishSegmentHud();
-      return () => {
-        if (segmentHudCb === cb) segmentHudCb = null;
-      };
+      return segment.subscribeHud(cb);
     },
   };
 }

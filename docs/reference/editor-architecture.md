@@ -363,6 +363,10 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   now-deleted PreviewHost used) — the chrome never value-imports engine code;
   `tests/frontend-no-engine-leakage.test.ts` machine-enforces the ban against
   `@furnace/core`, `field-protocol`, AND `viewport-host` value-imports.
+  What is actually IN that closure — all 293 bindings assigned to 23 clusters, with every
+  cross-cluster read and mutation listed — is mapped in
+  `docs/reference/field-host-clusters.md`, which is what any further extraction out of it
+  should be planned against.
 - **Tools (F2a)** — `setTool({effect, materialId})` over dig/fill/paint;
   `setMaterialTable` (re-marks all chunks dirty — a table swap re-buckets the world).
   Targeting is the pure `lib/field-brush.ts`: surface hits bite 0.7·radius INTO rock,

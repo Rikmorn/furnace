@@ -8,6 +8,13 @@ cluster line is listed.
 This is a **description, not a proposal**. §6 is the one forward-looking section and is
 marked as such.
 
+**One cluster has since left.** `segment` was extracted to
+`packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
+its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
+the closure, and the file is 7,248 lines rather than 7,410. Every count below still includes
+it. They are left as measured because they are what the remaining 22 clusters were sized
+against; subtract `segment`'s row from §4 when reading them as current.
+
 ## 1. The shape of the file
 
 | Fact | Value |
