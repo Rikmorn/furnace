@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { CharacterMover } from "../src/char-move.ts";
+import { CharacterMover } from "../src/agent/char-move.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

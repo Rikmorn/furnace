@@ -5,7 +5,7 @@
 // OUTER shell plane with EXACT cardinal facings (integer/lattice math only).
 // Shared door/anchor machinery lives in grid-stamp.ts (W3 Task 1) — hall and
 // maze consume ONE implementation.
-import type { Connection } from "../region.ts";
+
 import {
   AIR,
   CELL,
@@ -15,6 +15,7 @@ import {
   MASONRY,
 } from "../substrate/grid.ts";
 import type { DoorSpec } from "../substrate/skin.ts";
+import type { Connection } from "../world/region.ts";
 import {
   DOOR_H_CELLS,
   doorAt,

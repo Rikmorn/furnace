@@ -14,7 +14,7 @@
  *  "The walkability analyzer" is `analyzeChunk` in `@furnace/core/field`, which reads this
  *  same profile via {@link AGENT}. */
 import type { AgentProfile } from "@furnace/core/field";
-import agent from "../catalog/agent.json";
+import agent from "../../catalog/agent.json";
 
 /** The parsed `catalog/agent.json` profile — the argument core's `analyzeChunk` /
  *  `analyzeWorld` are parameterized on, and the raw capsule facts (step-up sweep, climb

@@ -21,10 +21,10 @@ import type { Material } from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as physics from "@furnace/core/physics";
 import { decodeMeshBlob } from "@furnace/core/scene";
-import { placementCollider } from "./placement-collider.ts";
-import type { MaterialCache } from "./realize.ts";
-import type { MaterialDescriptor } from "./region.ts";
-import type { LoadedWorld } from "./world-loader.ts";
+import { placementCollider } from "../world/placement-collider.ts";
+import type { MaterialCache } from "../world/realize.ts";
+import type { MaterialDescriptor } from "../world/region.ts";
+import type { LoadedWorld } from "../world/world-loader.ts";
 
 /** Narrow gate: is this parsed JSON a v2 field manifest? Discriminates a field world from a v1
  *  region world at the `world-loader` fetch boundary (both are `manifest.json`). The `version: 2`

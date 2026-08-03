@@ -5,13 +5,13 @@ import * as input from "@furnace/core/input";
 import * as physics from "@furnace/core/physics";
 import * as post from "@furnace/core/post";
 import { vec3, vec4 } from "@furnace/core/transform";
-import { CharacterMover, shoveDynamicBodies } from "./char-move.ts";
-import { FpController } from "./fp-controller.ts";
-import { buildMotes } from "./motes.ts";
-import { MaterialCache } from "./realize.ts";
-import { Torch } from "./torch.ts";
-import { AGENT } from "./walkability.ts";
-import { type LoadedWorld, loadWorld } from "./world-loader.ts";
+import { CharacterMover, shoveDynamicBodies } from "./agent/char-move.ts";
+import { FpController } from "./agent/fp-controller.ts";
+import { AGENT } from "./agent/walkability.ts";
+import { buildMotes } from "./props/motes.ts";
+import { Torch } from "./props/torch.ts";
+import { MaterialCache } from "./world/realize.ts";
+import { type LoadedWorld, loadWorld } from "./world/world-loader.ts";
 
 const NOCLIP_FLY_SPEED = 6; // m/s vertical fly rate in noclip (dev tool)
 const SHOVE_SPEED = 3; // m/s push imparted to dynamic props

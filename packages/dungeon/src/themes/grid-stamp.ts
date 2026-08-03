@@ -3,15 +3,16 @@
 // door construction / door-approach validation / floor-anchor scanning. Extracted
 // VERBATIM from hall.ts so hall AND maze consume one implementation. Integer/lattice
 // math only — no trig, no dust, no RNG (stampers own their randomness).
+
+import type { FloorRect } from "../props/scatter.ts";
+import { AIR, CELL, type CoarseGrid, coarseGet } from "../substrate/grid.ts";
+import type { DoorSpec } from "../substrate/skin.ts";
 import type {
   Connection,
   RegionKind,
   ScatterLayerSpec,
   Vec3,
-} from "../region.ts";
-import type { FloorRect } from "../scatter.ts";
-import { AIR, CELL, type CoarseGrid, coarseGet } from "../substrate/grid.ts";
-import type { DoorSpec } from "../substrate/skin.ts";
+} from "../world/region.ts";
 
 /** Which wall of a grid stamp's rectangular shell a door sits on. SHARED by every grid
  *  vocabulary (hall, maze, …) — not a hall concept. */

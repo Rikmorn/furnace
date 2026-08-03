@@ -4,16 +4,16 @@ import * as physics from "@furnace/core/physics";
 import { create as makeRng } from "@furnace/core/rng";
 import * as stats from "@furnace/core/stats";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
-import { aabbOfBoxes } from "../src/aabb.ts";
-import { MaterialCache, realizeRegion } from "../src/realize.ts";
+import { instanceGroupsFromLayers, meshSurface } from "../src/props/scatter.ts";
+import { cave } from "../src/themes/cave.ts";
+import { aabbOfBoxes } from "../src/world/aabb.ts";
+import { MaterialCache, realizeRegion } from "../src/world/realize.ts";
 import type {
   InstanceGroup,
   MaterialDescriptor,
   RegionData,
   ScatterLayerSpec,
-} from "../src/region.ts";
-import { instanceGroupsFromLayers, meshSurface } from "../src/scatter.ts";
-import { cave } from "../src/themes/cave.ts";
+} from "../src/world/region.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

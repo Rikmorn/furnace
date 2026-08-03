@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
-import { aabbOfBoxes } from "../src/aabb.ts";
-import type { Aabb, RegionData, RegionMesh, Vec3 } from "../src/region.ts";
 import { cave } from "../src/themes/cave.ts";
+import { aabbOfBoxes } from "../src/world/aabb.ts";
+import type {
+  Aabb,
+  RegionData,
+  RegionMesh,
+  Vec3,
+} from "../src/world/region.ts";
 import { at, expectDefined } from "./_helpers/expect.ts";
 
 const params = {

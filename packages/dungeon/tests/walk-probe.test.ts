@@ -10,8 +10,8 @@
 import { describe, expect, test } from "bun:test";
 import * as field from "@furnace/core/field";
 import * as physics from "@furnace/core/physics";
-import { analyzerVerify } from "../src/walk-probe.ts";
-import { AGENT } from "../src/walkability.ts";
+import { analyzerVerify } from "../src/agent/walk-probe.ts";
+import { AGENT } from "../src/agent/walkability.ts";
 import { expectDefined } from "./_helpers/expect.ts";
 
 const CELL = field.DEFAULT_CELL_SIZE; // 0.25 m

@@ -20,8 +20,8 @@
 // floors at y=0. Spawn = [3,1.1,2] (2 m inward of the south door, along=-2). Walking hall → cave
 // first crosses the CARVED south-wall opening (along≈0), then the bore, then the cave mouth.
 import { expect, test } from "bun:test";
-import type { WorldManifest } from "../src/bake.ts";
-import type { Connection, Vec3 } from "../src/region.ts";
+import type { WorldManifest } from "../src/world/bake.ts";
+import type { Connection, Vec3 } from "../src/world/region.ts";
 import { bunWebGpuAvailable, ensureBunWebGpu } from "./_helpers/gpu-fixture.ts";
 import {
   along,

@@ -47,10 +47,10 @@ import {
 } from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { placementCollider } from "../src/placement-collider.ts";
-import { MaterialCache } from "../src/realize.ts";
-import type { Vec3 } from "../src/region.ts";
-import { loadWorld } from "../src/world-loader.ts";
+import { placementCollider } from "../src/world/placement-collider.ts";
+import { MaterialCache } from "../src/world/realize.ts";
+import type { Vec3 } from "../src/world/region.ts";
+import { loadWorld } from "../src/world/world-loader.ts";
 import { at, expectDefined } from "./_helpers/expect.ts";
 import {
   bunWebGpuAvailable,

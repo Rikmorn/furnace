@@ -1,8 +1,8 @@
 // The built-interface kit: a masonry collar at an organic mouth presents a
 // standardized door-class portal (built-interface doctrine). Pure geometry.
 import { expect, test } from "bun:test";
-import { mouthCap, mouthCollar } from "../src/built.ts";
-import type { Connection, Vec3 } from "../src/region.ts";
+import { mouthCap, mouthCollar } from "../src/world/built.ts";
+import type { Connection, Vec3 } from "../src/world/region.ts";
 import { at } from "./_helpers/expect.ts";
 
 const OPTS = {

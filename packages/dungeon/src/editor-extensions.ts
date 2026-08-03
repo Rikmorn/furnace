@@ -16,22 +16,11 @@
 // own; they are not a live editor contract, so do not treat a change to their shape as an
 // editor-facing break. `docs/reference/editor-architecture.md` §3a records the same fact
 // from the editor's side.
-import { type BakeFile, bakeWorld } from "./bake.ts";
-import type { RegionData, Vec3 } from "./region.ts";
-import { realizeWorldSpec } from "./world-build.ts";
-import type { WorldSpec } from "./world-spec.ts";
+import { type BakeFile, bakeWorld } from "./world/bake.ts";
+import type { RegionData, Vec3 } from "./world/region.ts";
+import { realizeWorldSpec } from "./world/world-build.ts";
+import type { WorldSpec } from "./world/world-spec.ts";
 
-export {
-  type BakeFile,
-  // World-bake shapes. The bundle crosses the boundary untyped, so the editor mirrors
-  // these structurally rather than importing them — they are what the mirrors track.
-  type WorldConnectorEntry,
-  type WorldManifest,
-  type WorldRegionEntry,
-  worldDir,
-} from "./bake.ts";
-export { MaterialCache, realizeRegion } from "./realize.ts";
-export { caveDressing, caveProxy } from "./themes/cave.ts";
 // Stage 2 of the walkability advisor. The analyzer worker calls `analyzerVerify` off this same
 // untyped view of the module; it needs no GPU context (Task 4's headless physics context) and
 // mutates nothing.
@@ -43,17 +32,28 @@ export {
   type VerifyOutcome,
   type VerifyReason,
   type VerifyVerdict,
-} from "./walk-probe.ts";
+} from "./agent/walk-probe.ts";
 /** The dungeon's agent profile (`catalog/agent.json`) — the argument core's `analyzeChunk` /
  *  `analyzeWorld` / `markUnreachable` are parameterized on, and the one `analyzerVerify` accepts. */
-export { AGENT } from "./walkability.ts";
+export { AGENT } from "./agent/walkability.ts";
+export { caveDressing, caveProxy } from "./themes/cave.ts";
+export {
+  type BakeFile,
+  // World-bake shapes. The bundle crosses the boundary untyped, so the editor mirrors
+  // these structurally rather than importing them — they are what the mirrors track.
+  type WorldConnectorEntry,
+  type WorldManifest,
+  type WorldRegionEntry,
+  worldDir,
+} from "./world/bake.ts";
+export { MaterialCache, realizeRegion } from "./world/realize.ts";
 // World-spec surface: the dungeon's default world spec, and the validator that
 // `realizeWorldSpec` itself runs over a spec before realizing it.
 export {
   DEFAULT_WORLD,
   validateWorldSpec,
   type WorldSpec,
-} from "./world-spec.ts";
+} from "./world/world-spec.ts";
 
 /** The postMessage-friendly realized world the cockpit previews: the resolved spec plus
  *  every placed region + connector as `{ id, data }` arrays (the worker serializes the

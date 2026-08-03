@@ -7,12 +7,10 @@
 //                 (D-W2-4: one authoritative grid on the built side)
 // Corridors are always axis-aligned between anti-parallel cardinal door
 // portals (grid placements are quarter-turn-exact, D-W2-10).
-import { organicTunnel, TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "./connector.ts";
-import { voxelProxyPosition } from "./proxy.ts";
-import type { Connection, RegionData, Vec3 } from "./region.ts";
-import { GENERATOR_VERSION } from "./region.ts";
-import type { CarveVolume } from "./substrate/carve.ts";
-import { fineProxy } from "./substrate/collider.ts";
+
+import { voxelProxyPosition } from "../field/proxy.ts";
+import type { CarveVolume } from "../substrate/carve.ts";
+import { fineProxy } from "../substrate/collider.ts";
 import {
   AIR,
   CELL,
@@ -24,9 +22,12 @@ import {
   MASONRY,
   rasterize,
   SUB,
-} from "./substrate/grid.ts";
-import { KIT_MATERIALS, PIECE_BOX } from "./substrate/pieces.ts";
-import { bucket, skinGrid } from "./substrate/skin.ts";
+} from "../substrate/grid.ts";
+import { KIT_MATERIALS, PIECE_BOX } from "../substrate/pieces.ts";
+import { bucket, skinGrid } from "../substrate/skin.ts";
+import { organicTunnel, TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "./connector.ts";
+import type { Connection, RegionData, Vec3 } from "./region.ts";
+import { GENERATOR_VERSION } from "./region.ts";
 import type { WorldPlacement } from "./world-spec.ts";
 
 /** Default corridor length (m) when a derived placement needs one. */

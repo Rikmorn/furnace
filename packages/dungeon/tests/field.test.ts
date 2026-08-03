@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as rng from "@furnace/core/rng";
-import * as field from "../src/field.ts";
+import * as field from "../src/field/field.ts";
 
 test("sphereCavern: air at the center, rock far outside", () => {
   const f = field.sphereCavern(0, 0, 0, 4);

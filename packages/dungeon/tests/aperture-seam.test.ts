@@ -6,9 +6,9 @@
 // the gate-world walk's job (Probe 1 aperture lanes) — the voxel proxy is opaque here
 // (plan refinement 4). Instance AABBs are exact for our quarter-turn TRS mats.
 import { expect, test } from "bun:test";
-import type { RegionData, Vec3 } from "../src/region.ts";
 import { CELL } from "../src/substrate/grid.ts";
-import { realizeWorldSpec } from "../src/world-build.ts";
+import type { RegionData, Vec3 } from "../src/world/region.ts";
+import { realizeWorldSpec } from "../src/world/world-build.ts";
 import { MAZE_APERTURE } from "./_helpers/world-fixtures.ts";
 
 type Box = { min: Vec3; max: Vec3 };

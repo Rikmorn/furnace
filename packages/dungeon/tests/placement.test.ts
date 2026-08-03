@@ -1,8 +1,8 @@
 // packages/dungeon/tests/placement.test.ts
 import { expect, test } from "bun:test";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
-import { aabbOfBoxes } from "../src/aabb.ts";
-import { join, placePiece } from "../src/placement.ts";
+import { aabbOfBoxes } from "../src/world/aabb.ts";
+import { join, placePiece } from "../src/world/placement.ts";
 import type {
   Connection,
   InstanceData,
@@ -10,7 +10,7 @@ import type {
   RegionData,
   RegionMesh,
   Vec3,
-} from "../src/region.ts";
+} from "../src/world/region.ts";
 
 /** A quaternion (x,y,z,w) for a rotation `theta` about an arbitrary (auto-normalized)
  *  axis. Surface-aligned scatter genuinely tilts off +Y, and — critically — a TILTED

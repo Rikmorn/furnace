@@ -1,5 +1,5 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
-import type { MeshData } from "./surface-nets.ts";
+import type { MeshData } from "../field/surface-nets.ts";
 
 /** World-space 3-component vector as a tuple. */
 export type Vec3 = [number, number, number];

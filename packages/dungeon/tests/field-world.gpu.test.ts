@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import * as field from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { MaterialCache } from "../src/realize.ts";
-import { loadWorld } from "../src/world-loader.ts";
+import { MaterialCache } from "../src/world/realize.ts";
+import { loadWorld } from "../src/world/world-loader.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

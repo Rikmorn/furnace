@@ -2,19 +2,23 @@ import { expect, spyOn, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { decodeMeshBlob } from "@furnace/core/scene";
-import { type BakeFile, bakeWorld, type WorldManifest } from "../src/bake.ts";
-import { placePiece } from "../src/placement.ts";
-import { MaterialCache } from "../src/realize.ts";
+import { type CaveParams, caveDressing } from "../src/themes/cave.ts";
+import {
+  type BakeFile,
+  bakeWorld,
+  type WorldManifest,
+} from "../src/world/bake.ts";
+import { placePiece } from "../src/world/placement.ts";
+import { MaterialCache } from "../src/world/realize.ts";
 import {
   GENERATOR_VERSION,
   type InstanceGroup,
   type MaterialDescriptor,
   type RegionData,
-} from "../src/region.ts";
-import { type CaveParams, caveDressing } from "../src/themes/cave.ts";
-import { realizeWorldSpec } from "../src/world-build.ts";
-import { loadWorld } from "../src/world-loader.ts";
-import { DEFAULT_WORLD } from "../src/world-spec.ts";
+} from "../src/world/region.ts";
+import { realizeWorldSpec } from "../src/world/world-build.ts";
+import { loadWorld } from "../src/world/world-loader.ts";
+import { DEFAULT_WORLD } from "../src/world/world-spec.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

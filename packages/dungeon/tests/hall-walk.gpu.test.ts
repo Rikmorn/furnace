@@ -14,9 +14,9 @@
 // 6.25/7.75). Central aisle (cells 5,6,7) is clear at x≈3.0. South door offset 3 → cells i∈[4,7],
 // centre x=3.0 on the z=0 outer plane. Spawn (portal 0) ≈ [3.0, 1.1, 2.0].
 import { expect, test } from "bun:test";
-import type { Vec3 } from "../src/region.ts";
 import { HALL_PRESETS } from "../src/themes/hall.ts";
-import type { WorldSpec } from "../src/world-spec.ts";
+import type { Vec3 } from "../src/world/region.ts";
+import type { WorldSpec } from "../src/world/world-spec.ts";
 import { bunWebGpuAvailable, ensureBunWebGpu } from "./_helpers/gpu-fixture.ts";
 import {
   along,

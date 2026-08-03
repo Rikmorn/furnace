@@ -5,7 +5,7 @@
 // probabilistic braid (dead ends opened into loops). INTEGER-ONLY randomness (FNV-1a
 // seed hash → Math.imul mixer): the grid class stays structurally Pr-2-safe — no
 // transcendentals anywhere in this module.
-import type { Connection, ScatterLayerSpec } from "../region.ts";
+
 import {
   AIR,
   CELL,
@@ -15,6 +15,7 @@ import {
   MASONRY,
 } from "../substrate/grid.ts";
 import type { DoorSpec } from "../substrate/skin.ts";
+import type { Connection, ScatterLayerSpec } from "../world/region.ts";
 import {
   DOOR_H_CELLS,
   doorAt,

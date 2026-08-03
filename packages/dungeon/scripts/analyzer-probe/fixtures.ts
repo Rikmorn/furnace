@@ -38,13 +38,18 @@
 // levitates the capsule. The hazards below all stop the capsule SHORT of any low
 // ceiling (the mover's SKIN keeps it 0.08 m clear of the blocking face), so none of
 // them trips it — but a new fixture that lets the capsule rest under a lintel will.
-import { boxCavern, type Field, intersect, union } from "../../src/field.ts";
+import {
+  boxCavern,
+  type Field,
+  intersect,
+  union,
+} from "../../src/field/field.ts";
 import {
   type VoxelsProxy,
   voxelProxyPosition,
   voxelsFromField,
-} from "../../src/proxy.ts";
-import type { GridConfig } from "../../src/surface-nets.ts";
+} from "../../src/field/proxy.ts";
+import type { GridConfig } from "../../src/field/surface-nets.ts";
 
 /** The production cave voxel size (`themes/cave.ts`). The analyzer reads this grid and
  *  the capsule touches it, so the corpus must be authored at the same resolution. */

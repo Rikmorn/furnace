@@ -3,7 +3,7 @@
 // voxelsFromField's shellOnly rule EXACTLY, including off-grid-as-solid: a
 // boundary solid cell is kept only if it borders in-grid air, so the proxy
 // follows the visible surface, never the grid box (no invisible walls).
-import type { VoxelsProxy } from "../proxy.ts";
+import type { VoxelsProxy } from "../field/proxy.ts";
 import { FINE, type FineGrid, fineGet } from "./grid.ts";
 
 export function fineProxy(f: FineGrid): VoxelsProxy {

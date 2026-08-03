@@ -1,6 +1,6 @@
 // tests/connector-built.test.ts
 import { expect, test } from "bun:test";
-import { organicTunnel } from "../src/connector.ts";
+import { organicTunnel } from "../src/world/connector.ts";
 import {
   BORE_SHELL_EXTENSION,
   buildCorridor,
@@ -10,8 +10,8 @@ import {
   collarBore,
   collarBoreCarve,
   worldToLocal,
-} from "../src/connector-built.ts";
-import type { Connection } from "../src/region.ts";
+} from "../src/world/connector-built.ts";
+import type { Connection } from "../src/world/region.ts";
 
 const door = (
   pos: [number, number, number],

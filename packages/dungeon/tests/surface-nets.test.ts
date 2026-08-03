@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import * as field from "../src/field.ts";
-import { surfaceNets } from "../src/surface-nets.ts";
+import * as field from "../src/field/field.ts";
+import { surfaceNets } from "../src/field/surface-nets.ts";
 
 const grid = {
   min: [-6, -6, -6] as [number, number, number],

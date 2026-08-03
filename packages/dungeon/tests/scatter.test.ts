@@ -1,13 +1,7 @@
 import { expect, test } from "bun:test";
 import { create as makeRng } from "@furnace/core/rng";
 import { quat, vec3 } from "@furnace/core/transform";
-import type {
-  InstanceData,
-  InstanceGroup,
-  MaterialDescriptor,
-  ScatterLayerSpec,
-  Vec3,
-} from "../src/region.ts";
+import type { MeshData } from "../src/field/surface-nets.ts";
 import {
   _orient,
   _sampleSurface,
@@ -15,9 +9,15 @@ import {
   meshSurface,
   rectsSurface,
   scatter,
-} from "../src/scatter.ts";
-import type { MeshData } from "../src/surface-nets.ts";
+} from "../src/props/scatter.ts";
 import { cave } from "../src/themes/cave.ts";
+import type {
+  InstanceData,
+  InstanceGroup,
+  MaterialDescriptor,
+  ScatterLayerSpec,
+  Vec3,
+} from "../src/world/region.ts";
 
 test("composed regions carry an instances array (empty until themes populate)", () => {
   // Any theme output qualifies — this only asserts the RegionData contract's

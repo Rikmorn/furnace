@@ -15,7 +15,7 @@
 // checked against a stated expectation, because a control that can only fire one way proves half
 // of what it claims — and the expectation is a SIZE, not merely "some region appeared".
 import * as field from "@furnace/core/field";
-import { AGENT } from "../../src/walkability.ts";
+import { AGENT } from "../../src/agent/walkability.ts";
 import { isFloorAnchor } from "./solidity.ts";
 import type { Subject } from "./subjects.ts";
 import {

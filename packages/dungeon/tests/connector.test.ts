@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
+import type { MeshData } from "../src/field/surface-nets.ts";
 import {
   organicTunnel,
   TUNNEL_RADIUS,
   tunnelGeometry,
-} from "../src/connector.ts";
-import type { Connection, RegionData } from "../src/region.ts";
-import type { MeshData } from "../src/surface-nets.ts";
+} from "../src/world/connector.ts";
+import type { Connection, RegionData } from "../src/world/region.ts";
 
 // Two facing door portals 8 m apart on a common floor (world y = -2), each presenting the
 // door-standard opening a cave collar emits.

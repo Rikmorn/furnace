@@ -1,13 +1,13 @@
 import type { Rng } from "@furnace/core/rng";
 import { mat4, quat, vec3 } from "@furnace/core/transform";
+import type { MeshData } from "../field/surface-nets.ts";
 import type {
   InstanceData,
   InstanceGroup,
   MaterialDescriptor,
   ScatterLayerSpec,
   Vec3,
-} from "./region.ts";
-import type { MeshData } from "./surface-nets.ts";
+} from "../world/region.ts";
 
 /** One scatter placement: a point on the surface plus that point's face normal. */
 export type Sample = { position: Vec3; normal: Vec3 };

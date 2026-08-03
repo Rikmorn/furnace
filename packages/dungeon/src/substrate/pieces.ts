@@ -1,7 +1,7 @@
 // src/substrate/pieces.ts — the procedural kit catalog (spike's ~7 pieces as
 // BOX dims) + the seeded variant hash (replaces the spike's %5 — D-W2-1).
 // Flat per-piece materials (charter minimum; atlas → backlog).
-import type { MaterialDescriptor } from "../region.ts";
+import type { MaterialDescriptor } from "../world/region.ts";
 import { CELL } from "./grid.ts";
 
 export const PANEL_PROUD = 0.06; // proud of the collision plane (spike, gated)

@@ -5,7 +5,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import * as field from "@furnace/core/field";
-import { AGENT } from "../../src/walkability.ts";
+import { AGENT } from "../../src/agent/walkability.ts";
 import { CAVE_REGION, caveConfigs } from "../../tests/_helpers/cave-matrix.ts";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..", "..");

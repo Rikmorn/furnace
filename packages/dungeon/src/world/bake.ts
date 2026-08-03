@@ -19,6 +19,8 @@ import {
   encodeMeshBlob,
   type SceneDocument,
 } from "@furnace/core/scene";
+import type { HallParams } from "../themes/hall.ts";
+import type { MazeParams } from "../themes/maze.ts";
 import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "./connector.ts";
 import { BORE_SHELL_EXTENSION } from "./connector-built.ts";
 import {
@@ -28,8 +30,6 @@ import {
   type RegionData,
   type Vec3,
 } from "./region.ts";
-import type { HallParams } from "./themes/hall.ts";
-import type { MazeParams } from "./themes/maze.ts";
 import { type RealizedWorld, realizeWorldSpec } from "./world-build.ts";
 import type {
   CaveRegionSpec,

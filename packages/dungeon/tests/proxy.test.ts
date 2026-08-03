@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { Field } from "../src/field.ts";
-import { voxelProxyPosition, voxelsFromField } from "../src/proxy.ts";
-import type { GridConfig } from "../src/surface-nets.ts";
+import type { Field } from "../src/field/field.ts";
+import { voxelProxyPosition, voxelsFromField } from "../src/field/proxy.ts";
+import type { GridConfig } from "../src/field/surface-nets.ts";
 
 const GRID: GridConfig = { min: [-1, -1, -1], cellSize: 1, dims: [3, 3, 3] };
 

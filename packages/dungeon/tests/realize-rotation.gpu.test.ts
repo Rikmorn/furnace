@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { vec3 } from "@furnace/core/transform";
-import { aabbOfBoxes } from "../src/aabb.ts";
-import { MaterialCache, realizeRegion } from "../src/realize.ts";
-import type { RegionData } from "../src/region.ts";
+import { aabbOfBoxes } from "../src/world/aabb.ts";
+import { MaterialCache, realizeRegion } from "../src/world/realize.ts";
+import type { RegionData } from "../src/world/region.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

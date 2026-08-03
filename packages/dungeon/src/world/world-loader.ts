@@ -18,6 +18,8 @@ import {
   loadScene,
   type SceneDocument,
 } from "@furnace/core/scene";
+import { isFieldManifest, loadFieldWorld } from "../field/field-world.ts";
+import { type CaveParams, caveDressing, caveProxy } from "../themes/cave.ts";
 import {
   type WorldBoreConnectorEntry,
   type WorldCaveRegionEntry,
@@ -26,7 +28,6 @@ import {
 } from "./bake.ts";
 import { organicTunnel } from "./connector.ts";
 import { buildCorridor } from "./connector-built.ts";
-import { isFieldManifest, loadFieldWorld } from "./field-world.ts";
 import { placePiece } from "./placement.ts";
 import {
   type DynamicProp,
@@ -39,7 +40,6 @@ import {
   type RegionData,
   type Vec3,
 } from "./region.ts";
-import { type CaveParams, caveDressing, caveProxy } from "./themes/cave.ts";
 import { expandGridRegionFromEntry } from "./world-build.ts";
 
 /** The runtime handles of a loaded world: its draws (region + dressing meshes, dynamic props)

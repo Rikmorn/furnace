@@ -1,16 +1,16 @@
 // tests/hall-stamp.test.ts
 import { expect, test } from "bun:test";
-import { TUNNEL_RADIUS } from "../src/connector.ts";
-import { CARVE_DEPTH } from "../src/connector-built.ts";
-import type { FloorRect } from "../src/scatter.ts";
+import type { FloorRect } from "../src/props/scatter.ts";
 import { AIR, CELL, coarseGet, MASONRY } from "../src/substrate/grid.ts";
 import { DOOR_LANE_DEPTH } from "../src/themes/grid-stamp.ts";
 import { HALL_PRESETS, type HallParams, hall } from "../src/themes/hall.ts";
+import { TUNNEL_RADIUS } from "../src/world/connector.ts";
+import { CARVE_DEPTH } from "../src/world/connector-built.ts";
 import {
   expandGridRegion,
   MAT_DRESSING_CRATE,
   MAT_DRESSING_RUBBLE,
-} from "../src/world-build.ts";
+} from "../src/world/world-build.ts";
 
 const P: HallParams = {
   size: [8, 8, 12], // interior cells w(x) x h(y) x d(z) = 4m x 4m x 6m

@@ -6,7 +6,7 @@
 // (non-uniform scale in the matrix; decorative posture — collision is the fine
 // grid's job). Pure in (grid, doors, seed, suppressed).
 import { mat4 } from "@furnace/core/transform";
-import type { InstanceGroup, Vec3 } from "../region.ts";
+import type { InstanceGroup, Vec3 } from "../world/region.ts";
 import { AIR, CELL, type CoarseGrid, coarseGet, MASONRY } from "./grid.ts";
 import {
   KIT_MATERIALS,

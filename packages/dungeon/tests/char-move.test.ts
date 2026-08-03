@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { clipVelocity, isWalkable } from "../src/char-move.ts";
+import { clipVelocity, isWalkable } from "../src/agent/char-move.ts";
 
 test("clipVelocity removes the component into a wall, keeps the tangent", () => {
   // moving +x into a wall whose normal is -x → x cancelled, z preserved

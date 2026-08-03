@@ -13,7 +13,7 @@
 // × 3 carve skins. For a given (verticality, seed) the walk lanes are identical across themes;
 // only the carved collider surface differs.
 import { generatorById } from "@furnace/core/field";
-import type { Vec3 } from "../../src/region.ts";
+import type { Vec3 } from "../../src/world/region.ts";
 
 /** The extent (m) every config is carved into. */
 export const CAVE_EXTENT: Vec3 = [20, 10, 20];

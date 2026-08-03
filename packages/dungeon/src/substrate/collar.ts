@@ -6,7 +6,7 @@
 // edge framing the damage. The floor-rim path (+Y/−Y suppressed faces) falls out
 // of the same junction rule. Pure in (grid, suppressed, seed); no trig, no rng.
 import { mat4 } from "@furnace/core/transform";
-import type { InstanceGroup, Vec3 } from "../region.ts";
+import type { InstanceGroup, Vec3 } from "../world/region.ts";
 import { AIR, CELL, type CoarseGrid, coarseGet, MASONRY } from "./grid.ts";
 import {
   COLLAR_SECTION,

@@ -8,7 +8,7 @@
 // research's "cells << capsule radius" condition applies to analysing SMOOTH
 // SOURCE geometry (where a coarse grid aliases the true surface) — which we
 // deliberately do not do here.
-import { STEP_HEIGHT } from "../../src/walkability.ts";
+import { STEP_HEIGHT } from "../../src/agent/walkability.ts";
 import { cellFloorWorld, type Occupancy } from "./occupancy.ts";
 
 export type FlagKind = "lip-near-wall" | "ledge" | "low-clearance" | "narrow";

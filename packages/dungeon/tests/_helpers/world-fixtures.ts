@@ -1,6 +1,6 @@
 // tests/_helpers/world-fixtures.ts
 import { HALL_PRESETS } from "../../src/themes/hall.ts";
-import type { WorldSpec } from "../../src/world-spec.ts";
+import type { WorldSpec } from "../../src/world/world-spec.ts";
 
 /** Two caves facing each other through one ORGANIC TUNNEL — the world that WAS `DEFAULT_WORLD`
  *  until W2 Task 14 promoted the gate world (halls + stair corridor + collar-bore cave) into that

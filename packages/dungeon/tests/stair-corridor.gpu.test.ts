@@ -25,9 +25,9 @@
 // guard. Breaking inside the hall keeps that guard ARMED across the whole climb — it is this
 // probe's primary wedge detector. Each lane runs in its OWN freshly-loaded world.
 import { expect, test } from "bun:test";
-import type { WorldManifest } from "../src/bake.ts";
-import type { Connection, Vec3 } from "../src/region.ts";
-import type { WorldSpec } from "../src/world-spec.ts";
+import type { WorldManifest } from "../src/world/bake.ts";
+import type { Connection, Vec3 } from "../src/world/region.ts";
+import type { WorldSpec } from "../src/world/world-spec.ts";
 import { bunWebGpuAvailable, ensureBunWebGpu } from "./_helpers/gpu-fixture.ts";
 import {
   along,

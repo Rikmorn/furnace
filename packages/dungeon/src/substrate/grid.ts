@@ -5,8 +5,8 @@
 // region IS the chunk (palette/RLE deferred behind these accessors; see backlog).
 // Pure integer ops throughout: no rng, no transcendentals (Pr-2 class absent).
 
-import type { Vec3 } from "../region.ts";
-import type { GridConfig } from "../surface-nets.ts";
+import type { GridConfig } from "../field/surface-nets.ts";
+import type { Vec3 } from "../world/region.ts";
 
 export const CELL = 0.5;
 export const FINE = 0.25;

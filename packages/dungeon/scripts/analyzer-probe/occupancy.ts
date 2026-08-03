@@ -3,8 +3,9 @@
 // runtime ground truth, so collider-resolution analysis is exact w.r.t.
 // what the capsule touches (the research "cells << radius" condition
 // applies to smooth-source analysis, which this deliberately is not).
-import type { Placement } from "../../src/placement.ts";
-import type { VoxelsProxy } from "../../src/proxy.ts";
+
+import type { VoxelsProxy } from "../../src/field/proxy.ts";
+import type { Placement } from "../../src/world/placement.ts";
 
 /** Dense boolean grid over a voxel proxy's bounding box. */
 export type Occupancy = {

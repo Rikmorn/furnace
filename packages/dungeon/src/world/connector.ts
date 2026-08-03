@@ -1,8 +1,9 @@
 // src/connector.ts — organic↔organic tunnel: its own field volume between two
 // placed portals. Regions stay pure (params, seed) re-expansions; this unit is
 // re-expanded at load from the same inputs (deterministic, local ops + rng only).
-import { capsuleCavern, type Field } from "./field.ts";
-import { voxelProxyPosition, voxelsFromField } from "./proxy.ts";
+import { capsuleCavern, type Field } from "../field/field.ts";
+import { voxelProxyPosition, voxelsFromField } from "../field/proxy.ts";
+import { type GridConfig, surfaceNets } from "../field/surface-nets.ts";
 import {
   type Aabb,
   type Connection,
@@ -11,7 +12,6 @@ import {
   type RegionData,
   type Vec3,
 } from "./region.ts";
-import { type GridConfig, surfaceNets } from "./surface-nets.ts";
 
 const CELL = 0.5; // grid cell size (m) — mirrors themes/cave.ts
 const PROXY_VOXEL_Y = 0.25; // anisotropic-Y voxel height (< STEP_HEIGHT 0.4) — mirrors themes/cave.ts

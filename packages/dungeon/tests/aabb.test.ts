@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { aabbOfBoxes, aabbUnion, transformAabb } from "../src/aabb.ts";
+import { aabbOfBoxes, aabbUnion, transformAabb } from "../src/world/aabb.ts";
 
 test("aabbOfBoxes envelopes unrotated boxes", () => {
   const b = aabbOfBoxes([

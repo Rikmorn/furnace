@@ -10,7 +10,7 @@ import {
   SKIN,
   SLOPE_LIMIT_COS,
   STEP_HEIGHT,
-} from "../src/walkability.ts";
+} from "../src/agent/walkability.ts";
 
 test("clearance is derived (2*(halfHeight+radius)), not an independent number", () => {
   // Tolerance, not `toBe`: 2*(0.6+0.3) computes to 1.7999999999999998 in IEEE 754 double

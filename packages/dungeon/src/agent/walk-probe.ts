@@ -20,8 +20,8 @@
 // bake. `inconclusive` means the flag KEEPS its stage-1 status.
 import * as field from "@furnace/core/field";
 import * as physics from "@furnace/core/physics";
+import { placementCollider } from "../world/placement-collider.ts";
 import { type Capsule, CharacterMover, GROUND_SNAP } from "./char-move.ts";
-import { placementCollider } from "./placement-collider.ts";
 import { AGENT } from "./walkability.ts";
 
 // The drive loop is `tests/_helpers/walk-fixture.ts` runWalk's, constant for constant: the probe

@@ -4,7 +4,7 @@ import {
   snapGridPlacement,
   validateWorldSpec,
   type WorldSpec,
-} from "../src/world-spec.ts";
+} from "../src/world/world-spec.ts";
 
 test("validateWorldSpec: DEFAULT_WORLD does not throw", () => {
   expect(() => validateWorldSpec(DEFAULT_WORLD)).not.toThrow();

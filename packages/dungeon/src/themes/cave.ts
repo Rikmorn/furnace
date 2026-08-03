@@ -1,7 +1,5 @@
 import type { ShapeDescriptor } from "@furnace/core/physics";
 import { create as makeRng, type Rng } from "@furnace/core/rng";
-import { aabbUnion } from "../aabb.ts";
-import { mouthCap, mouthCollar } from "../built.ts";
 import {
   boxCavern,
   capsuleCavern,
@@ -9,8 +7,20 @@ import {
   noiseDisplace,
   smoothUnion,
   yTaperedNoiseDisplace,
-} from "../field.ts";
-import { voxelProxyPosition, voxelsFromField } from "../proxy.ts";
+} from "../field/field.ts";
+import { voxelProxyPosition, voxelsFromField } from "../field/proxy.ts";
+import {
+  type GridConfig,
+  type MeshData,
+  surfaceNets,
+} from "../field/surface-nets.ts";
+import {
+  instanceGroupsFromLayers,
+  type KeepOut,
+  meshSurface,
+} from "../props/scatter.ts";
+import { aabbUnion } from "../world/aabb.ts";
+import { mouthCap, mouthCollar } from "../world/built.ts";
 import type {
   Aabb,
   Connection,
@@ -22,17 +32,7 @@ import type {
   RegionParams,
   ScatterLayerSpec,
   Vec3,
-} from "../region.ts";
-import {
-  instanceGroupsFromLayers,
-  type KeepOut,
-  meshSurface,
-} from "../scatter.ts";
-import {
-  type GridConfig,
-  type MeshData,
-  surfaceNets,
-} from "../surface-nets.ts";
+} from "../world/region.ts";
 
 const CELL = 0.5; // grid cell size (m)
 const PROXY_VOXEL_Y = 0.25; // anisotropic-Y voxel height (< STEP_HEIGHT 0.4) — GATE-TUNE

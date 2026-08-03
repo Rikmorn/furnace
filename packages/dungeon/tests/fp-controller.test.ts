@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { forwardVector, moveDelta } from "../src/fp-controller.ts";
+import { forwardVector, moveDelta } from "../src/agent/fp-controller.ts";
 
 test("forwardVector: yaw=0 pitch=0 looks down -Z", () => {
   const f = forwardVector(0, 0);

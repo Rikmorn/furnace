@@ -6,8 +6,8 @@
 // byte-identical files — a `git status` diff after a re-bake is a determinism bug.
 // Run (from packages/dungeon): bun scripts/bake-default-world.ts
 import { join } from "node:path";
-import { bakeWorld } from "../src/bake.ts";
-import { DEFAULT_WORLD } from "../src/world-spec.ts";
+import { bakeWorld } from "../src/world/bake.ts";
+import { DEFAULT_WORLD } from "../src/world/world-spec.ts";
 
 // BakeFile.path is package-root-relative (e.g. "worlds/default/world.scene.json").
 // Resolve against the package root derived from this file's location so the script

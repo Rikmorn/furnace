@@ -9,10 +9,10 @@
 import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { CharacterMover } from "../src/char-move.ts";
-import { MaterialCache, realizeRegion } from "../src/realize.ts";
-import type { Connection } from "../src/region.ts";
+import { CharacterMover } from "../src/agent/char-move.ts";
 import { cave } from "../src/themes/cave.ts";
+import { MaterialCache, realizeRegion } from "../src/world/realize.ts";
+import type { Connection } from "../src/world/region.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

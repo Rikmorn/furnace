@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bakeWorld, type WorldManifest } from "../src/bake.ts";
+import { bakeWorld, type WorldManifest } from "../src/world/bake.ts";
 import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 
 describe("bakeWorld (grid class)", () => {

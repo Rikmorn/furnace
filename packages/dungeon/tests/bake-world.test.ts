@@ -7,15 +7,15 @@ import {
   type WorldConnectorEntry,
   type WorldManifest,
   worldDir,
-} from "../src/bake.ts";
-import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "../src/connector.ts";
-import { placePiece } from "../src/placement.ts";
-import type { Aabb, Connection, Vec3 } from "../src/region.ts";
+} from "../src/world/bake.ts";
+import { TUNNEL_OVERSHOOT, TUNNEL_RADIUS } from "../src/world/connector.ts";
+import { placePiece } from "../src/world/placement.ts";
+import type { Aabb, Connection, Vec3 } from "../src/world/region.ts";
 import {
   expandGridRegionFromEntry,
   realizeWorldSpec,
-} from "../src/world-build.ts";
-import { DEFAULT_WORLD } from "../src/world-spec.ts";
+} from "../src/world/world-build.ts";
+import { DEFAULT_WORLD } from "../src/world/world-spec.ts";
 import { MAZE_APERTURE, TWO_CAVES } from "./_helpers/world-fixtures.ts";
 
 // The REAL manifest type, not a hand-rolled local mirror: the gate world's manifest is a

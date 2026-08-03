@@ -1,14 +1,14 @@
 // packages/dungeon/tests/world-build.test.ts
 import { expect, test } from "bun:test";
-import { forwardVector } from "../src/fp-controller.ts";
-import type { Aabb, RegionData, Vec3 } from "../src/region.ts";
+import { forwardVector } from "../src/agent/fp-controller.ts";
 import { HALL_PRESETS } from "../src/themes/hall.ts";
-import { realizeWorldSpec } from "../src/world-build.ts";
+import type { Aabb, RegionData, Vec3 } from "../src/world/region.ts";
+import { realizeWorldSpec } from "../src/world/world-build.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   DEFAULT_WORLD,
   type WorldSpec,
-} from "../src/world-spec.ts";
+} from "../src/world/world-spec.ts";
 import {
   HALL_CAVE,
   MAZE_APERTURE,

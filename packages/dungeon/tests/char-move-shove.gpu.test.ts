@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { vec3 } from "@furnace/core/transform";
-import { shoveDynamicBodies } from "../src/char-move.ts";
+import { shoveDynamicBodies } from "../src/agent/char-move.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

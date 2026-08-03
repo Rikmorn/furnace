@@ -3,8 +3,9 @@
 // Surface-Nets patch AND the box it meshed; render suppression and collider
 // build consume this same object, so they cannot diverge. The returned box is
 // what the E2 property test asserts against (shared source of truth).
-import type { Aabb, Vec3 } from "../region.ts";
-import { type MeshData, surfaceNets } from "../surface-nets.ts";
+
+import { type MeshData, surfaceNets } from "../field/surface-nets.ts";
+import type { Aabb, Vec3 } from "../world/region.ts";
 import {
   FINE,
   type FineGrid,

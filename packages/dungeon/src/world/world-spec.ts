@@ -2,9 +2,10 @@
 // regions with explicit placements, connectors joining named portals, and a
 // player-start hint. Charter contract v2: two region classes (field-organic caves;
 // grid-built halls AND mazes) and four connector kinds.
+
+import { HALL_PRESETS, type HallParams } from "../themes/hall.ts";
+import type { MazeParams } from "../themes/maze.ts";
 import type { Vec3 } from "./region.ts";
-import { HALL_PRESETS, type HallParams } from "./themes/hall.ts";
-import type { MazeParams } from "./themes/maze.ts";
 
 /** Placement of a region in the world: translation + yaw (radians about +Y). */
 export type WorldPlacement = { translation: Vec3; yaw: number };

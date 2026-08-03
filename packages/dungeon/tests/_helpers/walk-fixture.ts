@@ -10,16 +10,16 @@ import { expect } from "bun:test";
 import type { Context } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
+import { CharacterMover } from "../../src/agent/char-move.ts";
 import {
   type BakeFile,
   bakeWorld,
   type WorldManifest,
-} from "../../src/bake.ts";
-import { CharacterMover } from "../../src/char-move.ts";
-import { MaterialCache } from "../../src/realize.ts";
-import type { Vec3 } from "../../src/region.ts";
-import { loadWorld } from "../../src/world-loader.ts";
-import type { WorldSpec } from "../../src/world-spec.ts";
+} from "../../src/world/bake.ts";
+import { MaterialCache } from "../../src/world/realize.ts";
+import type { Vec3 } from "../../src/world/region.ts";
+import { loadWorld } from "../../src/world/world-loader.ts";
+import type { WorldSpec } from "../../src/world/world-spec.ts";
 import { makeOffscreenCanvas } from "./gpu-fixture.ts";
 
 export const CAPSULE = { halfHeight: 0.6, radius: 0.3 };

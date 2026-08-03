@@ -34,9 +34,9 @@
 //      lift-free. No clear is ever issued from a compromised pose.
 import type { Context } from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { type Capsule, CharacterMover } from "../../src/char-move.ts";
-import type { Vec3 } from "../../src/region.ts";
-import { STEP_HEIGHT } from "../../src/walkability.ts";
+import { type Capsule, CharacterMover } from "../../src/agent/char-move.ts";
+import { STEP_HEIGHT } from "../../src/agent/walkability.ts";
+import type { Vec3 } from "../../src/world/region.ts";
 import type { Flag } from "./column-pass.ts";
 import {
   cellFloorWorld,

@@ -37,11 +37,11 @@
 // runs in its OWN freshly-loaded world: the hall + cave dressing is shovable, so a shared world
 // would let one lane displace obstacles for the next and mask that lane's real path.
 import { expect, test } from "bun:test";
-import type { WorldManifest } from "../src/bake.ts";
-import type { Connection, Vec3 } from "../src/region.ts";
 import { AIR, coarseGet } from "../src/substrate/grid.ts";
 import { type MazeParams, maze } from "../src/themes/maze.ts";
-import { DEFAULT_WORLD } from "../src/world-spec.ts";
+import type { WorldManifest } from "../src/world/bake.ts";
+import type { Connection, Vec3 } from "../src/world/region.ts";
+import { DEFAULT_WORLD } from "../src/world/world-spec.ts";
 import { bunWebGpuAvailable, ensureBunWebGpu } from "./_helpers/gpu-fixture.ts";
 import {
   along,

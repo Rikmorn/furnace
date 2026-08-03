@@ -52,15 +52,15 @@ import {
   type SweepVerdict,
   sweepFlags,
 } from "../scripts/analyzer-probe/sweep.ts";
-import type { WorldManifest } from "../src/bake.ts";
-import type { Field } from "../src/field.ts";
+import type { Field } from "../src/field/field.ts";
 import {
   type VoxelsProxy,
   voxelProxyPosition,
   voxelsFromField,
-} from "../src/proxy.ts";
-import type { GridConfig } from "../src/surface-nets.ts";
-import { DEFAULT_WORLD } from "../src/world-spec.ts";
+} from "../src/field/proxy.ts";
+import type { GridConfig } from "../src/field/surface-nets.ts";
+import type { WorldManifest } from "../src/world/bake.ts";
+import { DEFAULT_WORLD } from "../src/world/world-spec.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

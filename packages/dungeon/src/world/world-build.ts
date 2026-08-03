@@ -9,6 +9,27 @@
 // then rasterizes → carves → skins → collars → patches → collides into its final
 // RegionData and is placed. Cave regions keep the W1 single-step path (place at generate).
 import { create as makeRng } from "@furnace/core/rng";
+import { voxelProxyPosition } from "../field/proxy.ts";
+import { instanceGroupsFromLayers, rectsSurface } from "../props/scatter.ts";
+import type { CarveVolume } from "../substrate/carve.ts";
+import { prepareCarve } from "../substrate/carve.ts";
+import { collarInstances } from "../substrate/collar.ts";
+import { fineProxy } from "../substrate/collider.ts";
+import {
+  AIR,
+  CELL,
+  type CoarseGrid,
+  coarseSet,
+  fineGridConfig,
+  rasterize,
+} from "../substrate/grid.ts";
+import { KIT_MATERIALS } from "../substrate/pieces.ts";
+import { type DoorSpec, faceKey, skinGrid } from "../substrate/skin.ts";
+import { carvedCells, suppressedFaces } from "../substrate/suppress.ts";
+import { cave } from "../themes/cave.ts";
+import type { GridStamp } from "../themes/grid-stamp.ts";
+import { type HallParams, hall } from "../themes/hall.ts";
+import { type MazeParams, maze } from "../themes/maze.ts";
 import { organicTunnel } from "./connector.ts";
 import {
   buildCorridor,
@@ -18,7 +39,6 @@ import {
   collarBoreCarve,
 } from "./connector-built.ts";
 import { join, placeConnection, placePiece } from "./placement.ts";
-import { voxelProxyPosition } from "./proxy.ts";
 import type {
   Aabb,
   Connection,
@@ -29,26 +49,6 @@ import type {
   Vec3,
 } from "./region.ts";
 import { GENERATOR_VERSION } from "./region.ts";
-import { instanceGroupsFromLayers, rectsSurface } from "./scatter.ts";
-import type { CarveVolume } from "./substrate/carve.ts";
-import { prepareCarve } from "./substrate/carve.ts";
-import { collarInstances } from "./substrate/collar.ts";
-import { fineProxy } from "./substrate/collider.ts";
-import {
-  AIR,
-  CELL,
-  type CoarseGrid,
-  coarseSet,
-  fineGridConfig,
-  rasterize,
-} from "./substrate/grid.ts";
-import { KIT_MATERIALS } from "./substrate/pieces.ts";
-import { type DoorSpec, faceKey, skinGrid } from "./substrate/skin.ts";
-import { carvedCells, suppressedFaces } from "./substrate/suppress.ts";
-import { cave } from "./themes/cave.ts";
-import type { GridStamp } from "./themes/grid-stamp.ts";
-import { type HallParams, hall } from "./themes/hall.ts";
-import { type MazeParams, maze } from "./themes/maze.ts";
 import {
   DEFAULT_TUNNEL_LENGTH,
   snapGridPlacement,

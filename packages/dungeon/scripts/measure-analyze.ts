@@ -34,7 +34,7 @@
 // 9 pits, 6 of them standable). Both columns are printed so the difference is visible rather
 // than asserted.
 import * as field from "@furnace/core/field";
-import { AGENT } from "../src/walkability.ts";
+import { AGENT } from "../src/agent/walkability.ts";
 import { type Coverage, measureCoverage } from "./measure/coverage.ts";
 import { explain, fmt } from "./measure/explain.ts";
 import { CONTROL_EXPECTATION, runPitControl } from "./measure/pit-control.ts";

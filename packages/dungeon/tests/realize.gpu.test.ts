@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
-import { MaterialCache, realizeRegion } from "../src/realize.ts";
-import { GENERATOR_VERSION, type RegionData } from "../src/region.ts";
+import { MaterialCache, realizeRegion } from "../src/world/realize.ts";
+import { GENERATOR_VERSION, type RegionData } from "../src/world/region.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
