@@ -80,13 +80,22 @@ type Drag = {
 /** The same, for the resize handle: the size the palette was when the gesture opened, and
  *  the box it may grow into. Both taken ONCE, for the move drag's reason — and the START
  *  SIZE especially, because the palette really is changing size under the pointer, so
- *  reading it per event would compound its own rounding into a drift. */
+ *  reading it per event would compound its own rounding into a drift.
+ *
+ *  `movedX`/`movedY` are what makes this a per-axis gesture: an axis the pointer has not
+ *  actually travelled on is not written at all, so a purely horizontal drag leaves a
+ *  content-sized palette content-sized (see `resizePalette`). LATCHES rather than a
+ *  per-event test, because a drag that goes down and comes back to its start row has moved
+ *  vertically and must write that row — without the latch the last event would leave the
+ *  palette at whatever the second-to-last one stored. */
 type Resize = {
 	pointerId: number;
 	fromX: number;
 	fromY: number;
 	width: number;
 	height: number;
+	movedX: boolean;
+	movedY: boolean;
 	bounds: SizeBounds;
 };
 
@@ -161,7 +170,9 @@ export function Palette({
 	/** How big THIS palette may grow, from the layer that owns the measurement. Null when
 	 *  the layer is not mounted, which refuses the gesture rather than guessing. */
 	measureSizeBounds: () => SizeBounds | null;
-	onResize: (size: PaletteSize, bounds: SizeBounds) => void;
+	/** The size the gesture reached, per axis — an axis it has not moved is ABSENT, so a
+	 *  width-only gesture cannot pin a height (see `resizePalette`). */
+	onResize: (size: Partial<PaletteSize>, bounds: SizeBounds) => void;
 	/** Step the palette's size by a keyboard delta, against the same bounds a drag uses.
 	 *  `measured.height` is what the palette currently MEASURES, which the store needs only
 	 *  while the user has never set a height of their own. */
@@ -310,6 +321,8 @@ export function Palette({
 			fromY: e.clientY,
 			width: box.width,
 			height: box.height ?? content,
+			movedX: false,
+			movedY: false,
 			bounds,
 		};
 		e.currentTarget.setPointerCapture(e.pointerId);
@@ -334,13 +347,17 @@ export function Palette({
 			endResize(e);
 			return;
 		}
-		onResize(
-			{
-				width: r.width + (e.clientX - r.fromX) * growX,
-				height: r.height + (e.clientY - r.fromY),
-			},
-			r.bounds,
-		);
+		// ONE AXIS PER AXIS MOVED. A drag that has only ever travelled horizontally writes
+		// only a width, so a content-sized palette stays content-sized — the session card
+		// widened by a corner handle still grows when its Advanced section expands.
+		const dx = e.clientX - r.fromX;
+		const dy = e.clientY - r.fromY;
+		if (dx !== 0) r.movedX = true;
+		if (dy !== 0) r.movedY = true;
+		const size: Partial<PaletteSize> = {};
+		if (r.movedX) size.width = r.width + dx * growX;
+		if (r.movedY) size.height = r.height + dy;
+		onResize(size, r.bounds);
 	};
 
 	/** The keyboard half of the resize — the grip's `onGripKeyDown`, on the other verb, and
@@ -459,7 +476,15 @@ export function Palette({
 					<X />
 				</Button>
 			</header>
-			<div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+			{/* `pb-5` is a GUTTER FOR THE HANDLE, not spacing. The handle below is `absolute`
+			    over this box and painted after it, so without the reserve it is a 16 px dead
+			    zone on the body's bottom-right corner — which on the Flags palette is exactly
+			    where a list scrolled to its end puts the last row's `verify` button, and on
+			    any scrolling list is where the last row's verbs are. 20 px is the handle's 16
+			    plus its 1 px inset, on the chrome's own 4 px step. It costs a content-sized
+			    palette 20 px of height and a capped one half a row; the handle covering a
+			    button costs the button. */}
+			<div className="min-h-0 flex-1 overflow-y-auto pb-5">{children}</div>
 			{/* THE RESIZE HANDLE (the F4.5 gate ruling). ONE corner handle rather than an edge
 			    per axis: it is the width handle and the height handle at once, which is the
 			    least chrome — and the least tab stop — that satisfies "width + height handles",
@@ -491,10 +516,17 @@ export function Palette({
 					// a preference: an alpha on a `-foreground` token makes the measured contrast
 					// pair describe a colour that is not on screen (`design-tokens.test.ts`). The
 					// glyph is subordinate by size and by corner already.
-					"absolute bottom-0 grid h-4 w-4 touch-none place-items-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+					// INSET BY A PIXEL on both axes, which is the focus ring's own width. The
+					// section is `overflow-hidden` (a canvas-size barrier that must not be
+					// weakened) and `ring-1` draws OUTWARD from the border box, so a handle
+					// flush with the corner has two sides of its focus indicator clipped away.
+					// Geometry rather than `ring-inset`, because the ring vocabulary is a
+					// deliberately closed whitelist (`frontend-focus-vocabulary.test.ts`) and a
+					// pixel of inset costs nothing to widen it for.
+					"absolute bottom-px grid h-4 w-4 touch-none place-items-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 					growX === -1
-						? "left-0 cursor-nesw-resize"
-						: "right-0 cursor-nwse-resize",
+						? "left-px cursor-nesw-resize"
+						: "right-px cursor-nwse-resize",
 				)}
 			>
 				<HandleGlyph className="h-3 w-3" />

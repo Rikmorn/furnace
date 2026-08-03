@@ -202,7 +202,7 @@ export function HistoryPalette() {
 					grid={rows}
 					label="history"
 					columns={COLUMNS}
-					className="max-h-64 overflow-y-auto"
+					className="overflow-y-auto"
 				>
 					{/* The two "not listed" lines and the divider are rows of the grid that
 					    carry no control. They are rows rather than loose text because a

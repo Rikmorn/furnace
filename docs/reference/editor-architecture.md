@@ -2414,13 +2414,21 @@ Workspace. It is stored as an OPTIONAL `width`/`height` on `PaletteState`, absen
 so "has this been sized?" needs no flag, an old blob migrates by having no field, and a later change
 to a declared default still reaches everyone who never dragged. `paletteBox(id, geom)` reconciles the
 declared default with the user's size and is read by both the inline style and `cellBounds`, so the
-rendered width IS the width the projection subtracts. The clamps are the scope guard's and no more:
-a floor that keeps the header (and therefore the move grip) reachable, and a ceiling at the cell so
-the handle itself cannot leave it. A user-set height REPLACES the declared extent — that is the
-ruling, "the extent is the default size, not a ceiling" — while the cell's `calc(100% - y)` cap
-survives it, because that cap is what stops a projected palette teleporting after a window shrink.
-The pairwise proof above still reads the DECLARED figures only: a user's own arrangement is theirs to
-overlap.
+rendered width IS the width the projection subtracts. A gesture writes only the axes it actually
+moved — `RESIZE_KEYS` gives every arrow a zero on one axis, and `Palette`'s drag latches a
+`movedX`/`movedY` per gesture — so a width-only press cannot pin a height and stop a content-sized
+palette (the session card, whose body is a form with an expanding section) from growing. The clamps
+are the scope guard's and no more: a floor that keeps the header (and therefore the move grip)
+reachable, and a ceiling at the cell so the handle itself cannot leave it. A user-set height REPLACES
+the declared extent — that is the ruling, "the extent is the default size, not a ceiling" — while the
+cell's `calc(100% - y)` cap survives it, because that cap is what stops a projected palette
+teleporting after a window shrink. That cap is also why the size projection below is width-only: on
+y there is already something holding the box inside the cell, and on x there deliberately is not.
+**The extent has ONE home**, `PALETTES[id].maxHeight`: a palette body that capped its own list with a
+`max-h-*` would be a second ceiling `paletteBox` cannot see and a resize cannot drop, which is what
+made dragging `log`, `history` or `flags` taller add empty space under a ten-row list.
+`tests/palette-store.test.ts` scans the palette-body directories for one. The pairwise proof above
+still reads the DECLARED figures only: a user's own arrangement is theirs to overlap.
 
 Two other F4.5c Task 11 facts about the same geometry. **A palette moves by keyboard** (D-26): its
 title is the grip — a real `button` INSIDE its `h2`, because a `role="button"` header would make the
@@ -2430,13 +2438,19 @@ origin resolved first, so the keyboard inherits the drag's clamp and edge snap r
 them. The ONE deliberate divergence is leaving a dock: a step smaller than `SNAP_PX` would re-snap
 forever, so a departure is enlarged to `SNAP_PX + 1` (arrival is unchanged). Modified arrows are
 neither acted on nor prevented; ⇧ is the exception because it is the long step. Esc is deliberately NOT claimed: the move is modeless, so there
-is nothing to leave, and Esc stays `session.escape`'s. **A resize projects, it does not move**
-(`clampToCell`): the layer measures the cell and clamps stored geometry AT RENDER, leaving the record
-alone — and `useCellSize` takes the ⌘\ latch as a dependency, because a `display:none` layer measures
-zero and no resize event fires when the latch lifts — so a window that shrinks brings a stranded palette back into reach and one that grows again
+is nothing to leave, and Esc stays `session.escape`'s. **A WINDOW resize projects, it does not move**
+(`clampToCell` for the origin, `clampBoxToCell` for the size): the layer measures the cell and clamps
+stored geometry AT RENDER, leaving the record alone — and `useCellSize` takes the ⌘\ latch as a
+dependency, because a `display:none` layer measures zero and no resize event fires when the latch
+lifts — so a window that shrinks brings a stranded palette back into reach and one that grows again
 returns it to where the user put it. Clamping the state would instead have lost the position
 permanently, marked the arrangement `touched`, persisted it, and vetoed a restore that had not yet
-arrived.
+arrived. The SIZE needs the same projection for a reason the origin does not have: the resize handle
+rides the box's far corner, so a palette sized in a wider window puts its only shrink control outside
+a `fixed inset-0` shell that nothing scrolls. `edgeAt` carries the matching guard — a cell with
+`maxX <= 0` has no edge to dock to, because every x resolves to 0 and there is no direction the
+gesture could have expressed. Without it a too-narrow cell inverted the tie-break and silently,
+permanently docked a free palette RIGHT on its next drag.
 
 `hooks/useFieldHostState.tsx` now carries **all twelve seams through nine contexts** and remains
 the ONE subscription point: every `FieldHost.subscribe*` seam is a single slot, so a second

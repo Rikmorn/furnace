@@ -22,6 +22,7 @@ import {
 import {
 	type CellSize,
 	cellBounds,
+	clampBoxToCell,
 	clampToCell,
 	type OriginBounds,
 	PALETTE_IDS,
@@ -192,6 +193,22 @@ export function PaletteLayer({
 			? palettes[id]
 			: clampToCell(palettes[id], cellBounds(cell, id, palettes[id]));
 
+	/** How big a palette is SHOWN, which is its stored box projected into the cell as it is
+	 *  right now — `shownGeom`'s twin for the size, and the same record-left-alone rule.
+	 *
+	 *  It is what keeps the resize handle reachable after a window shrink: the handle rides
+	 *  the box's far corner, and a stored width wider than the cell puts that corner outside
+	 *  a `fixed inset-0` shell nothing scrolls. `clampBoxToCell` states which axis and why.
+	 *
+	 *  The bounds are taken off the SHOWN geometry, because how much room a palette has is a
+	 *  question about where it actually is — the same fact `measureSizeBounds` turns on. */
+	const shownBox = (id: PaletteId) => {
+		const box = paletteBox(id, palettes[id]);
+		return cell === null
+			? box
+			: clampBoxToCell(box, sizeBounds(cell, shownGeom(id)));
+	};
+
 	/** How big THIS palette may be dragged, from the cell as it is right now —
 	 *  `measureBounds`' twin for the resize handle, and measured off the same rect for the
 	 *  same reason (the `cell` state settles a render later than a gesture can start).
@@ -244,9 +261,9 @@ export function PaletteLayer({
 						title={PALETTES[id].title}
 						geom={shownGeom(id)}
 						// The store reconciles the declared default with the user's own size —
-						// ONE function, so the width rendered here is exactly the width
-						// `cellBounds` subtracted for the projection a few lines up.
-						box={paletteBox(id, palettes[id])}
+						// ONE function — and then projects the result into the cell, so a
+						// palette sized in a bigger window still has its handle in reach here.
+						box={shownBox(id)}
 						zIndex={order.indexOf(id) + 1}
 						measureBounds={measureBounds}
 						onMove={(pos, bounds) => actions.move(id, pos, bounds)}

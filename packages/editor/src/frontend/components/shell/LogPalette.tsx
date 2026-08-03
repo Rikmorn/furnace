@@ -194,8 +194,12 @@ export function LogPalette() {
 				</p>
 			) : (
 				// Newest first, as the store keeps it: the last thing that happened is the
-				// thing being looked for. Capped height so a 200-entry log scrolls inside
-				// the palette rather than growing it to the full height of the cell.
+				// thing being looked for. It carries NO height cap of its own: the palette
+				// body above it is already `min-h-0 flex-1 overflow-y-auto`, so a 200-entry
+				// log scrolls inside the box either way — and the one ceiling there is
+				// (`PALETTES.log.maxHeight`) is the one a user's own height replaces. A
+				// second cap here was invisible to that, so dragging the palette taller used
+				// to add empty space under a list still stopped at ten rows.
 				//
 				// NO ROVING HERE, and that is a ruling rather than an omission (F4.5c Task 9,
 				// D-26). Roving tabindex exists to collapse many CONTROLS into one tab stop;
@@ -214,7 +218,7 @@ export function LogPalette() {
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: a tab stop on a non-interactive element is the POINT here — it is the only keyboard route to a scroll box that holds no focusable content. The list keeps its list semantics; nothing claims to be a widget.
 					tabIndex={0}
 					aria-label="message log"
-					className="max-h-64 overflow-y-auto focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+					className="overflow-y-auto focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 				>
 					{log.map((message) => (
 						<Row key={message.id} message={message} now={now} />

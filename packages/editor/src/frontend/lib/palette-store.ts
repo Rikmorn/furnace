@@ -94,7 +94,13 @@ export const PALETTES: Record<
      *  own arrangement is theirs to overlap (D-3).
      *
      *  Every figure is set by the WIDEST row that palette must render without truncating;
-     *  each one carries its own argument below. */
+     *  each one carries its own argument below. ONE of them knowingly misses that bar and
+     *  says so on its own line: the F4.5c holistic gate found `flags` truncating its locator
+     *  on 22 of 25 rows at the 320 it still declares. The ruling was that the RESIZE is the
+     *  answer rather than a bigger default — a width chosen for the worst locator is spent on
+     *  every world that has none — so the rule above is the aspiration and that palette is
+     *  the standing exception to it. Recorded here because a rule stated without its known
+     *  counter-example reads as a proof. */
     width: number;
     /** How far down this palette may grow before the user sizes it, in px — `undefined` for
      *  one that may run to the bottom of the cell.
@@ -187,7 +193,25 @@ export const PALETTES: Record<
     // (`narrow ×3 @ (2.5, 0.0, -8.0)`) plus a verdict chip plus a verb, and at 240 px the
     // locator truncated before its Z coordinate — which is the coordinate that tells two
     // findings in the same corridor apart.
+    //
+    // KNOWN INSUFFICIENT at the design floor, and the record of that belongs here rather
+    // than only in a commit message: the F4.5c holistic gate found this palette truncating
+    // its locator on 22 of 25 rows AT this 320. The answer the gate ruled for is the
+    // resize handle, not a bigger default — a default wide enough for the worst locator
+    // would spend that width on every world that has none — so the figure stands and the
+    // rule above it ("the widest row that must render without truncating") is the
+    // aspiration this one palette knowingly misses.
     width: 320,
+    // Ten locator rows, the same claim `entities` and `log` make — but 30 px more palette
+    // to hold them, because this body puts TWO rows above its list (the candidate count,
+    // then the filter-band chips) where theirs put one. Nothing sits below this palette,
+    // so no pairwise proof rests on the number; what it buys is that the arrangement does
+    // not silently grow to the bottom of a taller cell.
+    //
+    // It was a `max-h-64` on the list itself until the F4.5c fix round, which put the
+    // ceiling somewhere the resize could not drop it — so dragging this palette taller
+    // added empty space under a list still capped at ten rows.
+    maxHeight: 350,
   },
   history: {
     title: "History",
@@ -212,6 +236,12 @@ export const PALETTES: Record<
     // The narrowest of the five, and it can be: a row is a mono index and a two-word
     // phrase ("segment fill", "reconfigure Hall"), with nothing to the right of it.
     width: 240,
+    // Ten rows, `entities`' figure exactly: this body's one chrome row (the step summary)
+    // is the section header that figure already counts. Alone in its column, so no
+    // pairwise proof rests on it — it is here because an extent is the DEFAULT SIZE, and
+    // a summoned list that opened at the full height of the cell would be a different
+    // arrangement from the one that shipped. See `flags` for the rest of the argument.
+    maxHeight: 320,
   },
   log: {
     title: "Messages",
@@ -266,10 +296,12 @@ export const GRIP_REACH_PX = 20 + 6 + 6 + 1;
 /** The smallest a user may drag a palette on each axis, in px — the resize's whole
  *  "keep the grip reachable" and, per the ruling's scope guard, its only floor.
  *
- *  HEIGHT is the header itself (`GRIP_REACH_PX`). The box is `overflow-hidden`, so a
- *  palette dragged shorter than its own header does not merely look wrong — it clips away
- *  the one control that could drag it back, and the rail chip is only reachable through a
- *  collapse button that went with it.
+ *  HEIGHT is the header (`GRIP_REACH_PX`) plus the section's own 1 px border top and
+ *  bottom. The box is `overflow-hidden` and `box-sizing: border-box`, so a palette dragged
+ *  to a bare 33 has a 31 px content box and clips 2 px off the one control that could drag
+ *  it back — the rail chip being reachable only through a collapse button that went with it.
+ *  Those two pixels are the same pair the width has always counted, and they were the one
+ *  term missing from this axis.
  *
  *  WIDTH is that same header's furniture, added up rather than picked: the section's 1 px
  *  border either side, `px-2` either side, the collapse and close buttons at `w-5` apiece,
@@ -277,10 +309,11 @@ export const GRIP_REACH_PX = 20 + 6 + 6 + 1;
  *  title button, which is the same "one grip's worth" figure the Y axis uses, applied to
  *  the axis the grip is long on. Anything narrower is a header with no draggable title in
  *  it. Kept as the arithmetic so a header that grows a fourth control reddens the sum
- *  rather than silently outgrowing a round number. */
+ *  rather than silently outgrowing a round number — and the border pair is written the same
+ *  way on both axes so the next such term cannot land on only one of them. */
 export const MIN_PALETTE_SIZE = {
   width: 1 * 2 + 8 * 2 + 20 * 2 + 4 * 2 + GRIP_REACH_PX,
-  height: GRIP_REACH_PX,
+  height: 1 * 2 + GRIP_REACH_PX,
 } as const;
 
 /** The cell as the layer measured it. */
@@ -381,8 +414,19 @@ const clamp = (v: number, max: number): number => Math.max(0, Math.min(v, max));
 
 /** Which edge a clamped origin has landed against, `null` if it is in open water. The
  *  NEARER edge wins when both gutters overlap (a palette nearly as wide as the cell),
- *  ties to the left — decided, rather than whichever comparison happens to run first. */
+ *  ties to the left — decided, rather than whichever comparison happens to run first.
+ *
+ *  A cell with NO room to place the palette (`maxX <= 0`) has no edge at all, and that
+ *  guard is a fix rather than a formality. Without it the arithmetic goes through and lies:
+ *  the gutter test fails on a negative `maxX` (`0 > SNAP_PX` is false) and the tie-break
+ *  then inverts (`0 <= -300` is false), so the answer is "right" — a free palette silently
+ *  and permanently docking, losing its border and its rounded corner, rendering from
+ *  `right: 0`, and re-docking on every further drag until the window grew back past its
+ *  width. `clampBoxToCell` keeps `maxX` out of that range on the normal path; this keeps
+ *  any OTHER path from writing a bogus dock. When every x resolves to 0 there is no
+ *  direction the gesture could have expressed, so recording one invents a fact. */
 function edgeAt(x: number, maxX: number): PaletteState["edge"] {
+  if (maxX <= 0) return null;
   const toLeft = x;
   const toRight = maxX - x;
   if (toLeft > SNAP_PX && toRight > SNAP_PX) return null;
@@ -456,17 +500,23 @@ export function nudgePalette(
  *  the position and Reset Workspace clears it the same way — by handing back a record that
  *  simply has no size on it.
  *
- *  BOTH AXES EVERY CALL, even from a handle the user dragged on one of them: the caller
- *  reads the current box (`paletteBox`) and passes what it wants, which keeps this function
- *  from having to know that an absent height means "content-sized" — and means the first
- *  drag on either axis pins both, which is what a user who grabs a corner expects.
+ *  PER AXIS, and an absent axis is "leave it" rather than "clamp it" or "clear it". This
+ *  used to take both numbers every call, so the first gesture on EITHER axis pinned both —
+ *  defensible for a corner drag, and wrong for a keyboard press that moved one axis by
+ *  construction (`RESIZE_KEYS` hands `ArrowRight` a `dh` of 0). The cost was permanent: a
+ *  written height makes `paletteBox` hand back `extent: null` plus a fixed number, so the
+ *  palette stops being content-sized, and the session card — a form with an expanding
+ *  Advanced section — starts scrolling that section inside a box frozen at its collapsed
+ *  height. A corner drag still pins both, because a corner drag really does move both; the
+ *  difference is that the GESTURE says which axes it moved instead of this function
+ *  assuming.
  *
  *  Returns the SAME state when nothing about the size changed. A drag against a clamped
  *  edge produces one of these per pointer event; `movePalette`'s reason, verbatim. */
 export function resizePalette(
   state: WorkspaceState,
   id: PaletteId,
-  size: PaletteSize,
+  size: Partial<PaletteSize>,
   bounds: SizeBounds,
 ): WorkspaceState {
   // The floor wins over the ceiling when a cell is smaller than a usable palette, exactly
@@ -474,11 +524,14 @@ export function resizePalette(
   // beats gone.
   const fit = (v: number, min: number, max: number): number =>
     Math.max(min, Math.min(v, max));
-  const width = fit(size.width, MIN_PALETTE_SIZE.width, bounds.maxWidth);
-  const height = fit(size.height, MIN_PALETTE_SIZE.height, bounds.maxHeight);
   const geom = state.palettes[id];
-  if (geom.width === width && geom.height === height) return state;
-  return withPalette(state, id, { ...geom, width, height });
+  const next: PaletteState = { ...geom };
+  if (size.width !== undefined)
+    next.width = fit(size.width, MIN_PALETTE_SIZE.width, bounds.maxWidth);
+  if (size.height !== undefined)
+    next.height = fit(size.height, MIN_PALETTE_SIZE.height, bounds.maxHeight);
+  if (geom.width === next.width && geom.height === next.height) return state;
+  return withPalette(state, id, next);
 }
 
 /** Step a palette's size by a keyboard delta — the resize's half of D-26, and `growPalette`
@@ -490,8 +543,13 @@ export function resizePalette(
  *  The size has to be RESOLVED rather than read, for the reason the origin does one function
  *  up — and on one axis only. `paletteBox` states the width outright, but a height the user
  *  has never set is CONTENT, and the DOM is the only thing that knows a content height. So
- *  the caller measures it and this decides whether it was needed: once a height is stored,
- *  `measured` is ignored entirely.
+ *  the caller measures it and this decides whether it was needed: `measured.height` is the
+ *  fallback for a palette that has no stored height, and is ignored once there is one.
+ *  `measured.bounds` is used on EVERY call — it is the cell, not a fallback.
+ *
+ *  A ZERO delta writes nothing on that axis, which is what keeps `ArrowRight` from pinning
+ *  a height (`RESIZE_KEYS` gives every key a zero on one axis by construction). See
+ *  `resizePalette` for what a pinned height costs.
  *
  *  Resolving HERE rather than at the call site is what makes a burst of presses compound.
  *  React batches updates inside one task, so a component that worked the target out from its
@@ -504,15 +562,11 @@ export function growPalette(
   measured: { height: number; bounds: SizeBounds },
 ): WorkspaceState {
   const box = paletteBox(id, state.palettes[id]);
-  return resizePalette(
-    state,
-    id,
-    {
-      width: box.width + delta.dw,
-      height: (box.height ?? measured.height) + delta.dh,
-    },
-    measured.bounds,
-  );
+  const target: Partial<PaletteSize> = {};
+  if (delta.dw !== 0) target.width = box.width + delta.dw;
+  if (delta.dh !== 0)
+    target.height = (box.height ?? measured.height) + delta.dh;
+  return resizePalette(state, id, target, measured.bounds);
 }
 
 /** A step that LEAVES a dock, enlarged to clear the snap gutter.
@@ -591,6 +645,47 @@ export function sizeBounds(cell: CellSize, geom: PaletteState): SizeBounds {
     maxWidth: geom.edge === null ? cell.width - geom.x : cell.width,
     maxHeight: cell.height - geom.y,
   };
+}
+
+/** How big a stored box is actually SHOWN in a cell this size — {@link clampToCell}'s twin
+ *  for the SIZE, applied at render, leaving the record alone.
+ *
+ *  `resizePalette` clamps what a gesture stores, and until this existed that was the only
+ *  clamp: a window that shrank afterwards left the palette at its stored width with its
+ *  resize handle — welded to the box's far corner — outside the cell. `Shell` is
+ *  `fixed inset-0`, so nothing scrolls to reach it, and the one control that could shrink
+ *  the palette back is gone until the window grows. That is the exact guarantee
+ *  `sizeBounds` claims and could not keep alone.
+ *
+ *  PROJECT rather than mutate, for `clampToCell`'s reasons verbatim: the record is the
+ *  user's intent, a shrink they undo a second later must not rewrite it, and every write to
+ *  this store also marks the arrangement "touched" — which persists it and vetoes a restore
+ *  that may not have arrived.
+ *
+ *  WIDTH ONLY, and the asymmetry is the honest one rather than an omission. The height is
+ *  already held inside the cell by `Palette.placement`'s `calc(100% - y)` cap: `max-height`
+ *  beats `height` in CSS, so a box's bottom edge cannot pass the cell's, and the handle is
+ *  `absolute bottom-0` on that box. `cellBounds`' docblock already rests on that same cap.
+ *  There is deliberately NO such cap on x — a CSS width cap would make the rendered width
+ *  differ from the width the projection subtracts — so x is the axis with nothing else
+ *  holding it, and this is what holds it.
+ *
+ *  The x-axis invariant survives it. `cellBounds` still subtracts the STORED width, so its
+ *  `maxX` can be negative where the shown width is clamped; but a clamp only happens when
+ *  `maxX < 0`, and there both the projection and the drag's measured bounds resolve every x
+ *  to 0. Where `maxX >= 0` the origin projection has already put the whole box inside, so
+ *  this function is an identity.
+ *
+ *  Returns the SAME box when nothing is clamped: the layer projects per render. */
+export function clampBoxToCell(
+  box: PaletteBox,
+  bounds: SizeBounds,
+): PaletteBox {
+  const width = Math.max(
+    MIN_PALETTE_SIZE.width,
+    Math.min(box.width, bounds.maxWidth),
+  );
+  return width === box.width ? box : { ...box, width };
 }
 
 /** Where a stored geometry is actually SHOWN in a cell this size — a projection, applied

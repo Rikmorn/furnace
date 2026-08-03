@@ -71,7 +71,11 @@ export type WorkspaceActions = {
 	/** Set a palette's own size, clamped against bounds the CALLER measured — `move`'s
 	 *  twin, and the same division of labour: this module owns no DOM, so how big the cell
 	 *  is arrives as an argument. */
-	resize: (id: PaletteId, size: PaletteSize, bounds: SizeBounds) => void;
+	resize: (
+		id: PaletteId,
+		size: Partial<PaletteSize>,
+		bounds: SizeBounds,
+	) => void;
 	/** Step a palette's size by a keyboard delta (D-26). A SEPARATE verb for `nudge`'s
 	 *  reason, sharpened: the size a step starts from is not on the record at all when the
 	 *  user has never set a height, and a caller that worked the target out from its own

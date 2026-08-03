@@ -507,7 +507,7 @@ export function FlagsPalette() {
 					grid={rows}
 					label="flag findings"
 					columns={COLUMNS}
-					className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+					className="flex flex-col gap-0.5 overflow-y-auto"
 				>
 					{clusters.map((c) => {
 						const { flag } = c.anchor;

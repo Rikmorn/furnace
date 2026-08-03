@@ -14,8 +14,12 @@ cited for it because it is deleted, per the house rule for retiring an entry —
 it that is still true is restated here. That mechanism discharged the part that was about
 being **stuck**:
 
-- The 320 px extent is no longer a ceiling. A user-set height replaces it outright
-  (`paletteBox`), so nobody is capped at ten rows against their will.
+- The declared extent is no longer a ceiling. A user-set height replaces it outright
+  (`paletteBox`), so a palette capped at ten rows can be dragged past it. That claim was
+  false for three of the four list palettes as first shipped — `log`, `history` and `flags`
+  each capped their own list *inside* the palette with a `max-h-64`, which `paletteBox`
+  cannot see and a resize therefore cannot drop — and the fix round moved all three
+  ceilings into `PALETTES[id].maxHeight`, which is the only home an extent has.
 - Size is now unplaced-until-placed — `PaletteState.width/height` absent means "never
   resized". The old entry's shape (B) is therefore **already built, for size**, and its
   claim that doing resize without it would build the model twice is discharged.
