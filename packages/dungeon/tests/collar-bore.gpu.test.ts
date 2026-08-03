@@ -20,10 +20,9 @@
 // floors at y=0. Spawn = [3,1.1,2] (2 m inward of the south door, along=-2). Walking hall → cave
 // first crosses the CARVED south-wall opening (along≈0), then the bore, then the cave mouth.
 import { expect, test } from "bun:test";
-import {
-  bunWebGpuAvailable,
-  ensureBunWebGpu,
-} from "../../tests/_helpers/gpu-fixture.ts";
+import type { WorldManifest } from "../src/world/bake.ts";
+import type { Connection, Vec3 } from "../src/world/region.ts";
+import { bunWebGpuAvailable, ensureBunWebGpu } from "./_helpers/gpu-fixture.ts";
 import {
   along,
   REST_OFFSET,
@@ -31,10 +30,8 @@ import {
   SPAWN_RISE,
   WALL_HUG_ITERS,
   withLoadedWorld,
-} from "../../tests/_helpers/walk-fixture.ts";
-import { HALL_CAVE } from "../../tests/_helpers/world-fixtures.ts";
-import type { WorldManifest } from "../world/bake.ts";
-import type { Connection, Vec3 } from "../world/region.ts";
+} from "./_helpers/walk-fixture.ts";
+import { HALL_CAVE } from "./_helpers/world-fixtures.ts";
 
 await ensureBunWebGpu();
 
