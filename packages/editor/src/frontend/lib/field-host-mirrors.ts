@@ -207,8 +207,10 @@ export const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 /** The brush the chrome opens on — a mirror of the host's own `defaultTool()` (dig into
  *  rock, unmasked, core SMOOTH_DEFAULTS-equivalent smooth, solid fill). A local literal
  *  because the chrome cannot value-import core or the host
- *  (frontend-no-engine-leakage), and `subscribeTool` fires only on HOST-initiated
- *  changes — there is nothing to seed from at mount. */
+ *  (frontend-no-engine-leakage), and `subscribeTool` pushes only when the tool or the
+ *  radius CHANGES — including for the chrome's own writes, since the F4.5 gate's W-2 made
+ *  the radius two-way — never as a catch-up at subscribe time. So there is still nothing
+ *  to seed from at mount, which is what this literal is for. */
 export const DEFAULT_TOOL: FieldTool = {
   effect: "dig",
   materialId: 0,

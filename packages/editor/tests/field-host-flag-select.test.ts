@@ -226,9 +226,15 @@ test("selecting a flag frames its CELL, not its chunk", async () => {
   const row = lastSummary(f.pushes).visible[0];
   if (row === undefined) throw new Error("test: no visible row");
   const eyeBefore = readCameraEye(f.host);
+  // The click-to-frame goes through `aimCamera`, so it LATCHES: the chrome's Open
+  // reads `cameraAimedByHand` to decide whether to frame the world it just opened,
+  // and a camera the user pointed at a finding is a camera they arranged. The
+  // `false` half is what makes it non-vacuous — loading the world did not latch.
+  expect(f.host.cameraAimedByHand()).toBe(false);
 
   f.host.selectFlag(row.key);
 
+  expect(f.host.cameraAimedByHand()).toBe(true);
   const eye = readCameraEye(f.host);
   expect(eye).not.toEqual(eyeBefore);
   // The camera ends up close enough to see a 0.25 m cell. The F4 gate's finding

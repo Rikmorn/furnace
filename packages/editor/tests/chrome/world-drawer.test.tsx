@@ -85,7 +85,8 @@ function stubDaemon(
 		 *  The end state is `loadable: true` by default with an explicit `loadable: false`
 		 *  on the cases that genuinely want the failure — otherwise the next person to add
 		 *  an assertion AFTER the load gets a pass or a fail for the wrong reason and will
-		 *  not have read this docblock first. */
+		 *  not have read this docblock first. FILED, with the per-site checks the flip
+		 *  needs: `docs/backlog/editor-and-tooling/world-drawer-stub-loadable-should-be-the-default.md`. */
 		loadable?: boolean;
 	} = {},
 ) {

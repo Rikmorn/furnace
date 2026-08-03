@@ -1069,7 +1069,10 @@ export type FieldHost = {
    *
    *  `false` until an interactive camera gesture (look drag, fly, dolly) or a
    *  deliberate aim-at-something verb ({@link frameSelection}, {@link snapView},
-   *  the flag report's click-to-frame) has run. {@link frameWorld} is excluded on
+   *  {@link frameChunks} — the entities palette's per-row frame and the drift
+   *  report's — or the flag report's click-to-frame) has run. Seven sites in all;
+   *  `aimCamera`'s own comment lists where each one is pinned. {@link frameWorld}
+   *  is excluded on
    *  purpose: framing the whole world is exactly the state the automatic frame
    *  produces, so counting it would make one `Open` suppress the next one's frame
    *  and re-open the defect this pair was added to close.
@@ -2006,8 +2009,13 @@ export function createFieldHost(deps?: {
    *  the latch to decide whether the user has arranged this camera, so a new camera
    *  verb that assigned `orbitState` on its own would
    *  silently make Open start yanking an arranged view. Now it cannot: assigning
-   *  `orbitState` outside these two helpers is the only way to get it wrong, and
-   *  `tests/field-host-camera.test.ts` pins that every verb sets the latch. */
+   *  `orbitState` outside these two helpers is the only way to get it wrong, and all
+   *  SEVEN sites are pinned — `tests/field-host-camera.test.ts` takes the three that
+   *  need no GPU ({@link FieldHost.frameSelection}, {@link FieldHost.snapView},
+   *  {@link FieldHost.frameChunks}), `tests/field-host-flag-select.test.ts` takes the
+   *  flag report's click-to-frame, and `tests/field-host-camera.gpu.test.ts` takes the
+   *  three gestures that need a live camera (the fly step, the look/orbit drag, the
+   *  wheel dolly). Converting any one of them to `placeCamera` reddens exactly one. */
   const aimCamera = (next: OrbitState): void => {
     orbitState = next;
     cameraAimed = true;
@@ -3989,14 +3997,18 @@ export function createFieldHost(deps?: {
     // Lower the ceiling to what was BUILT rather than to the chunk column that
     // holds it. A chunk is CHUNK_DIM samples tall, so a floor-only world fits the
     // camera to ~16 cells of empty headroom without this.
+    //
+    // NO CLAMP AGAINST `box.min[1]`, and there is nothing to restore here: both
+    // numbers come off the SAME `store.chunks` in the same synchronous call, with
+    // the same `store.cellSize`. `box.min[1]` is `minCy · CHUNK_DIM · cellSize`;
+    // `top` is `(cy · CHUNK_DIM + ly) · cellSize` for some `cy ≥ minCy` and
+    // `ly ≥ 0`. So `top ≥ box.min[1]` always, and a lowered ceiling can never sink
+    // below the box floor.
     const top = occupiedTopYOf();
     const fitted =
       top === null
         ? box
-        : {
-            min: box.min,
-            max: [box.max[0], Math.max(top, box.min[1]), box.max[2]] as Vec3T,
-          };
+        : { min: box.min, max: [box.max[0], top, box.max[2]] as Vec3T };
     // `placeCamera`, NOT `aimCamera`: framing the world is the state the automatic
     // frame produces, so counting it as the user aiming would make one Open
     // suppress the next one's frame.

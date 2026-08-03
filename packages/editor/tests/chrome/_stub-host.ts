@@ -490,8 +490,9 @@ export function makeStubHost(
      *  holding a single-slot seam. */
     fire: {
       /** The tool seam carries the RADIUS too (F4.5 gate, W-2). Radius defaults to the
-       *  host's own initial 1.25 so the ~40 existing callers that only care about the
-       *  tool keep working unchanged and do not assert a radius they never chose. */
+       *  host's own initial 1.25 so the three existing callers that only care about the
+       *  tool (`shell.test.tsx`, `tool-strip.test.tsx`, `host-seams-and-catalogs.test.tsx`)
+       *  keep working unchanged and do not assert a radius they never chose. */
       tool: (t: FieldTool, radius = 1.25): boolean => {
         if (cbs.tool === null) return false;
         cbs.tool({ tool: t, radius });

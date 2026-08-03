@@ -945,7 +945,10 @@ export const ACTIONS: readonly ActionDef[] = [
     // tool rail's own modifier (⇧ + a letter arms a brush family), which is a
     // collision the gate has already paid for once. This verb is reached by name
     // (⌘K) or from the View submenu; it is the verb you want when you have just
-    // opened a world, and `loadWorld` already runs it for you then.
+    // opened a world, and the chrome's Open (`hooks/useWorld.tsx`) already runs it
+    // for you then — unless you have aimed the camera yourself, which is the one
+    // case that leaves reaching for it by hand. `host.loadWorld` frames NOTHING; it
+    // is a data primitive and every headless suite's fixture loader.
     hint: "Fit the camera to the whole world — runs itself after Open unless you have aimed the camera",
     run: (ctx) => ctx.host?.frameWorld(),
   },

@@ -329,9 +329,14 @@ test.skipIf(!bunWebGpuAvailable())(
       const radiusBefore = f.probeRadius();
       f.host.setGesture("pointer");
       const eyeBefore = f.eye();
+      // The dolly LATCHES the camera as hand-aimed (`aimCamera`, not `placeCamera`),
+      // which is what stops the chrome's Open from re-framing over it. The dig stroke
+      // `probeRadius` just ran did NOT latch, which is what makes this half real.
+      expect(f.host.cameraAimedByHand()).toBe(false);
 
       f.wheel(-100); // away from the user = forward
 
+      expect(f.host.cameraAimedByHand()).toBe(true);
       const eyeAfter = f.eye();
       expect(dist(eyeBefore, eyeAfter)).toBeGreaterThan(0.1);
       // A dolly, not a zoom: the rig travelled, so the radius the brush would
@@ -460,7 +465,12 @@ test.skipIf(!bunWebGpuAvailable())(
       f.host.setGesture("pointer");
       const eyeBefore = f.eye();
       const yawBefore = f.pose().yaw;
+      // A look drag LATCHES the camera as hand-aimed, so the chrome's Open leaves
+      // it alone afterwards — the same claim the dolly and the fly step carry, on
+      // the gesture that turns the view without moving the eye.
+      expect(f.host.cameraAimedByHand()).toBe(false);
       rightDrag(f, 20);
+      expect(f.host.cameraAimedByHand()).toBe(true);
       expect(f.eye()).toEqual(eyeBefore);
       // 20 px at LOOK_SPEED is 0.1 rad; a hundredth of that would be a
       // rounding artefact rather than a look.
@@ -649,7 +659,12 @@ test.skipIf(!bunWebGpuAvailable())(
       // gate polls `isLooking()` per keypress rather than mirroring it.
       f.down(CENTRE, CENTRE, 2);
       expect(f.host.isLooking()).toBe(true);
+      // HOLDING the button is not aiming — the press only latches `look`, and the
+      // idle frames above travelled nowhere. Only the fly STEP inside the frame goes
+      // through `aimCamera`, so this is the exact boundary the next assertion crosses.
+      expect(f.host.cameraAimedByHand()).toBe(false);
       flyFrames(f);
+      expect(f.host.cameraAimedByHand()).toBe(true);
       const eyeFlown = f.eye();
       // 16 ms at FLY_SPEED is a small but unmistakable step; a tenth of a
       // millimetre would be a rounding artefact rather than a fly.

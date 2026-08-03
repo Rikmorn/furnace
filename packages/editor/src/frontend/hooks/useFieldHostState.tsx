@@ -20,11 +20,14 @@
 // Task 12) names what each undo/redo step DID, in words, and `subscribeSegmentHud`
 // (F4.5c Task 14) is the newest: how long the pending segment is against its cap.
 //
-// Two values here have NO seam behind them and never will: the brush `radius` and the
-// armed `gesture`. Both are chrome state pushed one way into the host, and both sit here
-// rather than in `useView` because they belong to the DIG LOOP (useView's line), and
-// because every surface that shows one also shows `tool` — the top strip, the status
-// bar's keymap line, and the action registry's family keys, which arm the same slot.
+// Two values here are NOT their own seam: the armed `gesture` and the brush `radius`.
+// `gesture` is chrome state pushed one way into the host — `setGesture` has nothing
+// behind it, and never will. `radius` was the same until the F4.5 gate's W-2 made it a
+// two-way MIRROR: it still has no seam OF ITS OWN, but it rides `subscribeTool`
+// alongside the tool (see `FieldToolPush`), so the host's wheel and `[` / `]` reach it.
+// Both sit here rather than in `useView` because they belong to the DIG LOOP (useView's
+// line), and because every surface that shows one also shows `tool` — the top strip, the
+// status bar's keymap line, and the action registry's family keys, which arm the same slot.
 //
 // They publish through TEN contexts, split by CADENCE rather than by owner: a seam that
 // pushes at frame rate must not re-render a surface that only cares about something
@@ -116,8 +119,9 @@ export type FieldEntitiesState = {
 export type FieldToolState = {
 	tool: FieldTool;
 	/** What LMB is armed to do — `null` = the brush strokes. CHROME state pushed one way
-	 *  into the host, like `radius`: `setGesture` has no subscription behind it, so this
-	 *  is a MIRROR by construction rather than by echo, and it opens at `"pointer"`
+	 *  into the host — and the only one left: `setGesture` has no subscription behind it
+	 *  (nor anything riding another seam, which is where `radius` went at the F4.5 gate),
+	 *  so this is a MIRROR by construction rather than by echo, and it opens at `"pointer"`
 	 *  because that is what a fresh host is already armed with (D-F4.5-7).
 	 *
 	 *  It lives up here rather than in the panel that used to hold it because several
@@ -152,10 +156,14 @@ export type FieldToolState = {
 	 *  and read a stale number off the strip, which is a readout stating something untrue
 	 *  about the tool in hand.
 	 *
-	 *  The mirror rides `subscribeTool` (see `FieldToolPush`), so it added no seam. The
-	 *  echo guard is the host's own `applyRadius` early-return: a chrome-originated set
-	 *  arrives back at a radius that already equals the clamped value and returns before
-	 *  pushing, so a slider drag produces no round trip to fight. */
+	 *  The mirror rides `subscribeTool` (see `FieldToolPush`), so it added no seam. A
+	 *  slider drag DOES round-trip — `applyRadius`'s early return suppresses a NO-OP set
+	 *  only, and every drag step is a real change, so each one comes straight back (its
+	 *  own comment carries the measurement). What makes that harmless is the adopt below
+	 *  it: the echo lands in a plain `setRadiusState` with the number the chrome already
+	 *  holds, and React bails out on an identical value, so the round trip costs no
+	 *  render. The out-of-range case is where the early return earns its keep — a set past
+	 *  the clamp pushes once at the boundary and the next one finds it already current. */
 	setRadius: (r: number) => void;
 };
 

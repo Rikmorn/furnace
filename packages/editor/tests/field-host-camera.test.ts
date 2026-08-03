@@ -447,9 +447,12 @@ test("frameWorld does not claim the camera, so a SECOND Open still frames", () =
 });
 
 test("EVERY aim-at-a-thing verb claims the camera, and frameWorld is the only one that does not", () => {
-  // The latch is what `loadWorld` reads, so a camera verb that forgot to set it
-  // would make Open start yanking an arranged view. Enumerated rather than
-  // trusted: this is the assertion that made `aimCamera` a funnel.
+  // The latch is what the chrome's Open reads (`hooks/useWorld.tsx` — `loadWorld`
+  // itself never touches it), so a camera verb that forgot to set it would make Open
+  // start yanking an arranged view. Enumerated rather than trusted: this is the
+  // assertion that made `aimCamera` a funnel. The three verbs below are the ones
+  // reachable headless; the other four are pinned in `field-host-camera.gpu.test.ts`
+  // (fly, look drag, wheel dolly) and `field-host-flag-select.test.ts`.
   const snap = poseProbe().host;
   snap.snapView("x", 1);
   expect(snap.cameraAimedByHand()).toBe(true);
