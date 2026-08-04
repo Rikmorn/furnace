@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { _bufferOf } from "../../src/binding/binding.ts";
 import * as binding from "../../src/binding/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
@@ -65,7 +66,7 @@ test.skipIf(!bunWebGpuAvailable())(
     );
     // The material owns no buffers — the Binding owns the colour buffer.
     expect(_resolveMaterial(ctx, mat).ownedBuffers.length).toBe(0);
-    const buffer = binding._bufferOf(ctx, colorBinding);
+    const buffer = _bufferOf(ctx, colorBinding);
     expect(buffer).not.toBe(null);
 
     // material.destroy must NOT free the binding's buffer — writing still

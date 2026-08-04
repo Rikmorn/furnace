@@ -7,6 +7,7 @@ import {
   makeOffscreenCanvas,
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
+import { _layoutOf } from "./shader.ts";
 
 await ensureBunWebGpu();
 
@@ -104,12 +105,12 @@ test.skipIf(!bunWebGpuAvailable())(
       "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4(0.0); }",
       { layout: { stripes: "f32", hue: "f32", softness: "f32" } },
     );
-    expect(shader._layoutOf(ctx, s)?.fields["softness"]).toEqual({
+    expect(_layoutOf(ctx, s)?.fields["softness"]).toEqual({
       offset: 8,
       size: 4,
       token: "f32",
     });
-    expect(shader._layoutOf(ctx, s)?.byteSize).toBe(16);
+    expect(_layoutOf(ctx, s)?.byteSize).toBe(16);
     gpu.dispose(ctx);
   },
 );

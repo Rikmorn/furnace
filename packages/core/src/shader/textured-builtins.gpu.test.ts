@@ -6,6 +6,7 @@ import {
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
 import * as shader from "./index.ts";
+import { _textureBindingOf } from "./shader.ts";
 
 await ensureBunWebGpu();
 
@@ -18,8 +19,8 @@ test.skipIf(!bunWebGpuAvailable())(
     const tl = await shader.texturedLit(ctx);
     expect(t).toBeGreaterThan(0);
     expect(tl).toBeGreaterThan(0);
-    expect(shader._textureBindingOf(ctx, t)).toBe(true);
-    expect(shader._textureBindingOf(ctx, tl)).toBe(true);
+    expect(_textureBindingOf(ctx, t)).toBe(true);
+    expect(_textureBindingOf(ctx, tl)).toBe(true);
     // Engine-owned: shared per ctx (same handle on re-request), destroy is a no-op.
     expect(await shader.textured(ctx)).toBe(t);
     shader.destroy(ctx, t);

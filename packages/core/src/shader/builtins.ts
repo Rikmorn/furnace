@@ -290,7 +290,8 @@ function builtinShader(ctx: Context, kind: BuiltinKind): Promise<Shader> {
  * cascade. Pass to `material.create`.
  *
  * Carries a by-construction `@group(1)` layout: `{ color: "vec4f" }` (16 bytes,
- * uniform). Readable via `shader._layoutOf(ctx, s)`.
+ * uniform). Readable via the internal `_layoutOf(ctx, s)` accessor
+ * (`shader/shader.ts`).
  */
 export function unlit(ctx: Context): Promise<Shader<{ color: "vec4f" }>> {
   return builtinShader(ctx, "unlit") as Promise<Shader<{ color: "vec4f" }>>;
@@ -378,7 +379,8 @@ export function litInstanced(
  * context (compiled once); {@link destroy} is a no-op on it. Pass to
  * `material.create`.
  *
- * Has no `@group(1)` layout (`shader._layoutOf` returns `null`).
+ * Has no `@group(1)` layout (the internal `_layoutOf` accessor returns
+ * `null`).
  */
 export function normalColor(
   ctx: Context,

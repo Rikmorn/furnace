@@ -6,6 +6,7 @@ import {
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
 import * as shader from "./index.ts";
+import { _textureBindingOf } from "./shader.ts";
 
 await ensureBunWebGpu();
 
@@ -35,10 +36,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const withTex = await shader.create(ctx, TEXTURED_WGSL, {
       textureBinding: true,
     });
-    expect(shader._textureBindingOf(ctx, withTex)).toBe(true);
+    expect(_textureBindingOf(ctx, withTex)).toBe(true);
     // A shader created without the flag defaults to false.
     const plain = await shader.normalColor(ctx);
-    expect(shader._textureBindingOf(ctx, plain)).toBe(false);
+    expect(_textureBindingOf(ctx, plain)).toBe(false);
     shader.destroy(ctx, withTex);
     gpu.dispose(ctx);
   },

@@ -17,19 +17,7 @@ export {
 } from "./builtins.ts";
 export { lightingHelpers, sceneBinding } from "./lighting.ts";
 export type { ShaderCreateOpts } from "./shader.ts";
-// Internal — re-exported so the binding subsystem (Task 3+) can import
-// `import * as shader from "@furnace/core/shader"` and call the accessor.
-// Not part of the consumer-facing API.
-export {
-  _instancedOf,
-  _layoutOf,
-  _textureBindingOf,
-  _usesSceneOf,
-  _usesShadowsOf,
-  create,
-  destroy,
-  load,
-} from "./shader.ts";
+export { create, destroy, load } from "./shader.ts";
 export { shadowHelpers } from "./shadows.ts";
 export type { ShaderSource } from "./source.ts";
 export { source, toWgsl } from "./source.ts";

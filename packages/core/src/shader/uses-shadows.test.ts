@@ -6,6 +6,7 @@ import {
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
 import * as shader from "./index.ts";
+import { _usesShadowsOf } from "./shader.ts";
 
 await ensureBunWebGpu();
 
@@ -18,8 +19,8 @@ test.skipIf(!bunWebGpuAvailable())("usesShadows flag round-trips", async () => {
   const canvas = await makeOffscreenCanvas();
   const ctx = await gpu.requestContext(canvas, { surfaceFormat: "linear" });
   const s = await shader.create(ctx, SRC, { usesShadows: true });
-  expect(shader._usesShadowsOf(ctx, s)).toBe(true);
+  expect(_usesShadowsOf(ctx, s)).toBe(true);
   const s2 = await shader.create(ctx, SRC);
-  expect(shader._usesShadowsOf(ctx, s2)).toBe(false);
+  expect(_usesShadowsOf(ctx, s2)).toBe(false);
   gpu.dispose(ctx);
 });

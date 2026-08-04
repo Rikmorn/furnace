@@ -1,4 +1,9 @@
 import { expect, test } from "bun:test";
+import {
+  _flushDirtyBindings,
+  _isDirty,
+  _scratchOf,
+} from "../../src/binding/binding.ts";
 import * as binding from "../../src/binding/index.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as shader from "../../src/shader/index.ts";
@@ -68,7 +73,7 @@ test.skipIf(!bunWebGpuAvailable())(
     const b = binding.create(ctx, s);
     binding.set(ctx, b, { stripes: 4, hue: 0.5 });
     binding.setUniform(ctx, b, "softness", 0.1);
-    const scratch = binding._scratchOf(ctx, b);
+    const scratch = _scratchOf(ctx, b);
     expect(scratch).not.toBeNull();
     const view = new Float32Array(scratch as ArrayBuffer);
     // stripes @ offset 0 → element index 0
@@ -78,11 +83,11 @@ test.skipIf(!bunWebGpuAvailable())(
     // softness @ offset 8 → element index 2
     expect(view[2]).toBeCloseTo(0.1);
     // dirty flag set before flush
-    expect(binding._isDirty(ctx, b)).toBe(true);
+    expect(_isDirty(ctx, b)).toBe(true);
     // flush simulates what frame.render does
-    binding._flushDirtyBindings(ctx);
+    _flushDirtyBindings(ctx);
     // dirty flag cleared after flush
-    expect(binding._isDirty(ctx, b)).toBe(false);
+    expect(_isDirty(ctx, b)).toBe(false);
     binding.destroy(ctx, b);
     gpu.dispose(ctx);
   },

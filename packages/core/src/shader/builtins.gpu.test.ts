@@ -7,6 +7,7 @@ import {
   makeOffscreenCanvas,
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
+import { _layoutOf } from "./shader.ts";
 
 await ensureBunWebGpu();
 
@@ -57,12 +58,12 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const ctx = await createTestContext();
     const s = await shader.unlit(ctx);
-    expect(shader._layoutOf(ctx, s)?.fields["color"]).toEqual({
+    expect(_layoutOf(ctx, s)?.fields["color"]).toEqual({
       offset: 0,
       size: 16,
       token: "vec4f",
     });
-    expect(shader._layoutOf(ctx, s)?.byteSize).toBe(16);
+    expect(_layoutOf(ctx, s)?.byteSize).toBe(16);
     gpu.dispose(ctx);
   },
 );
@@ -71,7 +72,7 @@ test.skipIf(!bunWebGpuAvailable())(
   "shader.normalColor has no layout (no @group(1))",
   async () => {
     const ctx = await createTestContext();
-    expect(shader._layoutOf(ctx, await shader.normalColor(ctx))).toBe(null);
+    expect(_layoutOf(ctx, await shader.normalColor(ctx))).toBe(null);
     gpu.dispose(ctx);
   },
 );
@@ -81,7 +82,7 @@ test.skipIf(!bunWebGpuAvailable())(
   async () => {
     const ctx = await createTestContext();
     expect(await shader.lit(ctx)).toBe(await shader.lit(ctx)); // compiled once
-    const layout = shader._layoutOf(ctx, await shader.lit(ctx));
+    const layout = _layoutOf(ctx, await shader.lit(ctx));
     expect(layout?.fields["color"]).toEqual({
       offset: 0,
       size: 16,
@@ -100,8 +101,8 @@ test.skipIf(!bunWebGpuAvailable())(
   "lit grows its own layout (no longer shares unlit's — specular added)",
   async () => {
     const ctx = await createTestContext();
-    const litLayout = shader._layoutOf(ctx, await shader.lit(ctx));
-    const unlitLayout = shader._layoutOf(ctx, await shader.unlit(ctx));
+    const litLayout = _layoutOf(ctx, await shader.lit(ctx));
+    const unlitLayout = _layoutOf(ctx, await shader.unlit(ctx));
     expect(litLayout?.byteSize).toBe(32);
     expect(unlitLayout?.byteSize).toBe(16);
     expect(litLayout?.byteSize).not.toBe(unlitLayout?.byteSize);

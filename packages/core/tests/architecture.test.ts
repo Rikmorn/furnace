@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { test } from "bun:test";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
 
@@ -74,6 +74,25 @@ test("engine-tier modules never import world-tier modules", async () => {
   if (offenders.length > 0) {
     throw new Error(
       `engine tier must not depend on the world tier:\n${report(offenders)}`,
+    );
+  }
+});
+
+test("underscore-prefixed exports stay out of public module indexes", async () => {
+  const offenders: string[] = [];
+  const glob = new Glob("*/index.ts");
+  for await (const f of glob.scan({ cwd: SRC })) {
+    const text = await Bun.file(join(SRC, f)).text();
+    text.split("\n").forEach((lineText, i) => {
+      // Catches `_name,` inside export blocks and `export const _name`.
+      if (/^\s*_[A-Za-z]|export\s+(const|function|type)\s+_/.test(lineText)) {
+        offenders.push(`  ${f}:${i + 1} → ${lineText.trim()}`);
+      }
+    });
+  }
+  if (offenders.length > 0) {
+    throw new Error(
+      `_-prefixed names are internal plumbing, not public surface:\n${offenders.join("\n")}`,
     );
   }
 });

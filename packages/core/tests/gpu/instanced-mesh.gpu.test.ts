@@ -8,6 +8,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as shader from "../../src/shader/index.ts";
+import { _instancedOf } from "../../src/shader/shader.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,
@@ -26,10 +27,10 @@ test.skipIf(!bunWebGpuAvailable())(
     const ui = await shader.unlitInstanced(ctx);
     expect(li).toBeDefined();
     expect(ui).toBeDefined();
-    expect(shader._instancedOf(ctx, li)).toBe(true);
-    expect(shader._instancedOf(ctx, ui)).toBe(true);
+    expect(_instancedOf(ctx, li)).toBe(true);
+    expect(_instancedOf(ctx, ui)).toBe(true);
     const plain = await shader.lit(ctx);
-    expect(shader._instancedOf(ctx, plain)).toBe(false);
+    expect(_instancedOf(ctx, plain)).toBe(false);
     gpu.dispose(ctx);
   },
 );
