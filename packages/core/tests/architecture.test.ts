@@ -1,0 +1,91 @@
+import { expect, test } from "bun:test";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { Glob } from "bun";
+
+// The two tiers of @furnace/core (spec: foundations program §2 D2, §4 T1a).
+// World-tier modules may import engine-tier modules; NEVER the reverse.
+// `registry` joins WORLD_TIER when T1b lands.
+const WORLD_TIER = new Set(["field", "scene"]);
+
+const SRC = resolve(import.meta.dir, "../src");
+
+type ImportEdge = {
+  file: string; // src-relative path of the importing file
+  line: number;
+  specifier: string;
+  fromModule: string; // "(root)" for files directly under src/
+  toModule: string | null; // null for non-relative specifiers
+  toFile: string | null; // src-relative resolved target for relative imports
+};
+
+const moduleOf = (srcRel: string): string =>
+  srcRel.includes(sep) ? (srcRel.split(sep)[0] as string) : "(root)";
+
+export async function scanImportEdges(): Promise<ImportEdge[]> {
+  const edges: ImportEdge[] = [];
+  // Matches `from "..."` and bare `import "..."`; type-only imports count too —
+  // architecture coupling is coupling even when erased at compile time.
+  const importRe = /(?:from|import)\s+["']([^"']+)["']/;
+  const glob = new Glob("**/*.ts");
+  for await (const f of glob.scan({ cwd: SRC })) {
+    if (f.endsWith(".test.ts")) continue; // tests may deep-import freely
+    const text = await Bun.file(join(SRC, f)).text();
+    text.split("\n").forEach((lineText, i) => {
+      // Comment lines can legitimately DISCUSS import specifiers
+      // (shader/index.ts documents one in prose) — skip them.
+      const trimmed = lineText.trimStart();
+      if (trimmed.startsWith("//") || trimmed.startsWith("*")) return;
+      const m = importRe.exec(lineText);
+      if (!m) return;
+      const specifier = m[1] as string;
+      let toModule: string | null = null;
+      let toFile: string | null = null;
+      if (specifier.startsWith(".")) {
+        const abs = resolve(SRC, dirname(f), specifier);
+        toFile = relative(SRC, abs);
+        toModule = toFile.startsWith("..") ? null : moduleOf(toFile);
+      }
+      edges.push({
+        file: f,
+        line: i + 1,
+        specifier,
+        fromModule: moduleOf(f),
+        toModule,
+        toFile,
+      });
+    });
+  }
+  return edges;
+}
+
+const report = (edges: ImportEdge[]): string =>
+  edges.map((e) => `  ${e.file}:${e.line} → ${e.specifier}`).join("\n");
+
+test("engine-tier modules never import world-tier modules", async () => {
+  // "(root)" files (errors.ts) count as engine tier: shared leaves that must
+  // never reach upward either.
+  const offenders = (await scanImportEdges()).filter(
+    (e) =>
+      e.toModule !== null &&
+      WORLD_TIER.has(e.toModule) &&
+      !WORLD_TIER.has(e.fromModule) &&
+      e.fromModule !== e.toModule,
+  );
+  if (offenders.length > 0) {
+    throw new Error(
+      `engine tier must not depend on the world tier:\n${report(offenders)}`,
+    );
+  }
+});
+
+test("core never imports itself by package specifier", async () => {
+  // A package-specifier self-import resolves through node_modules and is
+  // invisible to relative-path reasoning — the field/artifact.ts→scene edge
+  // hid exactly this way until 2026-08-04.
+  const offenders = (await scanImportEdges()).filter((e) =>
+    e.specifier.startsWith("@furnace/core"),
+  );
+  if (offenders.length > 0) {
+    throw new Error(`use relative imports inside core:\n${report(offenders)}`);
+  }
+});
