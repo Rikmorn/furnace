@@ -9,27 +9,92 @@ content.
 
 ## bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly
 
-**Context.** `bun test` runs all editor test files in ONE shared process and walks
-top-level `tests/*.ts` files before `tests/<subdir>/*`. The happy-dom harness
-(`tests/inspector/_register.ts` → `GlobalRegistrator.register()`) mutates
-process-global state, which collides with two other test families:
+**Context.** `bun test` runs every file the invocation covers in ONE shared process.
+**Ordering is not alphabetical — an earlier revision of this entry said it was, and that was
+wrong.** What is measured: a directory runs its own files before it recurses into
+subdirectories (3-file probe: `mfile` → `zsub/inner` → `asub/inner`), and order *within* a
+directory is deterministic but is **readdir order**, unrelated to file name (4-file probe
+ran `p1, p3, p2, p4`, identical across two runs; a sibling probe had `zsub/` run before
+`asub/`). **Passing files to `bun test` in a chosen order does not control this either** —
+`bun test bfile cfile afile` ran `afile, cfile, bfile` on this machine, identically across
+two runs (probed 2026-08-04, Task E1); two probes during this same task were initially
+misread because of exactly this assumption, which is worth naming so the next person does
+not repeat it. The happy-dom harness (`tests/inspector/_register.ts` →
+`GlobalRegistrator.register()`) mutates process-global state, and there is **no per-file
+isolation** — a marker set in one test file has been observed visible in a later one. That
+absence of isolation is the actual mechanism behind everything below; the directory-walk
+order only determines *which* files see the pollution.
 
-1. **Global `fetch` pollution.** A happy-dom-registering test (or a full `<App/>`
-   render / `mock.module` of the frontend `api.ts`) placed in BARE `tests/`
-   breaks the daemon HTTP suites (`server.test.ts`, `project-assets.test.ts`)
-   that run later in the same process. (Surfaced in Slice 3.2.2 Task 5.)
-2. **`navigator.gpu` clobber.** happy-dom installs a `navigator` with no `.gpu`.
-   If a happy-dom test runs BEFORE a `*.gpu.test.ts` (which top-level files do,
-   by file-walk order), every later GPU test throws "WebGPU unavailable".
-   (Surfaced in Slice 3.2.2 Task 7 — 13 GPU failures until the DOM test was
-   moved from `tests/theme.test.ts` into `tests/inspector/`.)
+1. **Global `fetch` pollution — RE-CONFIRMED 2026-08-04 (Task E1), after an intermediate
+   revision of this entry wrongly claimed it "no longer reproduces."**
+   `GlobalRegistrator.register()` copies every one of happy-dom's `window` properties onto
+   `globalThis` whose value differs from what's already there — `fetch` included, so it does
+   **not** stay native across registration; it is replaced by happy-dom's `fetch`, which
+   enforces the Same-Origin Policy. A happy-dom-registering test placed in bare `tests/`
+   still breaks the daemon HTTP suites that run after it in the same process: adding one such
+   file to bare `tests/` this session produced 12 `server.test.ts` failures
+   (`NetworkError: Cross-Origin Request Blocked`) and 1 `bundle-watch.test.ts` failure. This
+   matches, almost to the count, what `tests/chrome/keybindings-dom.test.ts`'s own header
+   already recorded independently ("29 of them fail, measured this session") — that comment
+   was right the whole time. The "no longer reproduces" language an earlier revision of this
+   entry added was not backed by a probe that made an actual cross-origin call; `typeof
+   fetch === "function"` stays true of happy-dom's replacement too, which is consistent with
+   "fetch works" only if nothing is actually invoked. (Original finding: Slice 3.2.2 Task 5.)
+
+   **A second collision, found the same session, is not scoped to this package at all.**
+   The no-isolation mechanism is process-wide: registering happy-dom from an editor test, in
+   the same `bun test` invocation that also covers `packages/core`, flipped
+   `packages/core/src/texture/load.gpu.test.ts`'s `typeof createImageBitmap === "function"`
+   feature-detection gate from false (bun has no native `createImageBitmap`, so the case
+   skips) to true — the case then ran and failed against happy-dom's own `ImageBitmap`
+   implementation. Any `typeof <web API> === "function"` skip gate anywhere in the workspace
+   is a candidate for this once happy-dom is global, not just the editor's own suites.
+
+2. **`navigator.gpu` clobber — the `navigator.gpu` half is CLOSED by Task E1 (2026-08-04).**
+   happy-dom installs a `navigator` with no `.gpu`. If a happy-dom test ran BEFORE a
+   `*.gpu.test.ts`, every later GPU test used to throw "WebGPU unavailable" (Surfaced in
+   Slice 3.2.2 Task 7 — 13 GPU failures until the DOM test was moved from `tests/theme.test.ts`
+   into `tests/inspector/`). **The fix an earlier revision of this entry proposed —
+   "have `ensureBunWebGpu` re-check `navigator.gpu` … and re-run `setupGlobals()`" — cannot
+   work:** `setupGlobals()` throws `Attempted to assign to readonly property` against
+   happy-dom's `navigator` (measured). What works, and what Task E1 shipped
+   (`packages/core/tests/_helpers/gpu-fixture.ts`), is `Object.defineProperty` re-attaching
+   the `GPU` object saved from the first successful setup — `navigator.gpu` stays
+   `configurable` under happy-dom even though plain assignment is blocked, and
+   `Object.defineProperty` doesn't go through the assignment path `setupGlobals()` does.
+   `ensureBunWebGpu()` now validates against the live `navigator.gpu` on every call instead
+   of trusting its memoized promise, and
+   `packages/editor/tests/gpu-fixture-survives-dom.test.ts` proves a device is still
+   acquirable after a happy-dom registration lands mid-process.
+
+   **A third finding, discovered getting that test to clean up after itself, belongs here
+   too: `GlobalRegistrator.unregister()` is not a safe cleanup — it is its own, worse,
+   process-wide hazard.** The obvious fix for finding 1's leakage is a `finally` block
+   calling `unregister()`. Measured cost of doing exactly that, via a clean sequential A/B
+   with no other process running (ruling out ambient load): the REST OF THE SUITE went from
+   65s to ~205s wall-clock — a ~3x regression, reproduced 1:1 across repeats, and gone the
+   instant `unregister()` was removed and register-only was tried instead (which reproduces
+   finding 1's failures exactly, confirming the regression was `unregister()`'s specifically,
+   not registration). The likely mechanism: `unregister()` restores ~100 happy-dom-only
+   globals via `delete globalThis[key]`, and a delete storm on the global object is a
+   well-documented JS-engine de-optimization trigger — `register()`'s own
+   `Object.defineProperty` path, adding a comparable number of properties, does not trigger
+   it. The shipped fix is narrower than a full unregister: capture and restore only the
+   globals a repo-wide grep confirmed are actually load-bearing (`fetch` via
+   `Object.defineProperty`, `createImageBitmap` / `ImageData` via `delete` — three keys, not
+   ~100), which reproduces neither hazard. **Any future fix that reaches for
+   `GlobalRegistrator.unregister()` as "the clean way" should re-read this paragraph
+   first** — it was the first thing tried here and it was worse than the disease.
 
 **Current mitigation (convention, not enforced):** every DOM/happy-dom test lives
 in a `tests/` SUBDIR (`tests/inspector/`, `tests/chrome/`), never bare `tests/`,
 so it sorts AFTER the top-level `*.gpu.test.ts` and the daemon HTTP suites in the
-file walk. This works today but is fragile — it relies on alphabetical file-walk
-ordering and a placement comment, and a new bare-`tests/` DOM file silently
-reintroduces either failure.
+file walk. **This works because of directory-files-before-subdirectory-files, not because
+of alphabetical order** — a claim this entry carried until 2026-08-04. The distinction
+matters for anyone reasoning about placement *within* a directory: that order is readdir
+order, not the file's name. The convention holds today but is fragile — it's a placement
+comment, not something enforced, and a new bare-`tests/` DOM file silently reintroduces
+finding 1 (now known to reach across package boundaries, not just editor's own suites).
 
 **The convention has a SECOND half nobody had written down, found 2026-07-31
 (F4.5b Task 3).** It also constrains where GPU tests may live: a `*.gpu.test.ts`
@@ -42,11 +107,9 @@ admits the test and `requestContext` then throws "WebGPU unavailable". Observed
 as 4 failures that are green in isolation and red in the full suite — the worst
 shape a harness failure can take, because the task-scoped gate passes. Worked
 around by keeping the file in bare `tests/` beside the five other host GPU tests.
-The `readSse`-style real fix here is one line of *validation* rather than caching:
-have `ensureBunWebGpu` re-check `navigator.gpu` before returning the memoized
-promise and re-run `setupGlobals()` when it has gone. Left unwritten because it is
-in `packages/core/tests/`, outside that task's boundary, and because the
-environment isolation proposed below subsumes it.
+**CLOSED by Task E1** — see point 2 above; `ensureBunWebGpu` now validates rather than
+caches, so a `*.gpu.test.ts` no longer needs to out-position a happy-dom registration to
+stay correct.
 
 3. **Radix PORTAL content does not render unless a `tests/inspector/` file ran
    first.** Found in F3a Task 8 (2026-07-22). `bun test` from the repo root is
@@ -114,19 +177,33 @@ environment isolation proposed below subsumes it.
    without** it. A suite that is green by load order is the shape this whole entry is
    about.
 
-**A real fix worth designing when this bites again:** isolate the environments —
-e.g. a separate `bun test` invocation (or bunfig test project) for DOM tests vs
-GPU tests vs daemon tests, so global state can't leak across families; or a
-per-file teardown that unregisters happy-dom. Either removes the ordering
-dependency entirely.
+**What remains OPEN after Task E1.** Two things, not one — E1 closed the `navigator.gpu`
+half of finding 2 (see above) and proved, in one file, that a per-file targeted-global
+teardown removes finding 1's blast radius for that file WITHOUT paying finding 3's
+`unregister()` cost. It did **not** apply that teardown to the package's existing DOM
+suites — `tests/chrome/*` and `tests/inspector/*` still register happy-dom and never clean
+up after themselves, which is exactly why the subdir convention still has to exist and
+still isn't enforced. Generalizing E1's teardown to every DOM-registering file is not a
+copy-paste of what E1 shipped, either: it hardcoded the three globals a repo-wide grep
+found load-bearing TODAY, and a chrome/inspector-wide version would need to re-derive that
+set (or capture/restore the full window property list, minus whatever in it turns out to
+carry finding 3's cost — not yet known which subset that is). **A real fix worth designing
+when this bites again:** isolate the environments — e.g. a separate `bun test` invocation
+(or bunfig test project) for DOM tests vs GPU tests vs daemon tests, so global state can't
+leak across families at all; or a generalized, audited version of E1's targeted teardown on
+every DOM-registering file. Either removes the ordering dependency entirely; both are
+bigger than a single task.
 
 **Trigger to revisit:** the next time a DOM+GPU or DOM+daemon test-ordering
 failure appears, or when the suite grows enough DOM tests that the subdir
 convention becomes unwieldy. Not urgent — the convention holds for now.
 
 **Reference:** `packages/editor/tests/inspector/_register.ts` (the happy-dom
-registration); placement comments in `tests/chrome/*`; surfaced in Slice 3.2.2 Tasks 5
-and 7, re-measured at F4.5a Task 13.
+registration); `packages/editor/tests/chrome/keybindings-dom.test.ts` (an existing,
+independently-measured account of finding 1); `packages/editor/tests/gpu-fixture-survives-dom.test.ts`
++ `packages/core/tests/_helpers/gpu-fixture.ts` (Task E1's fix and proof for finding 2);
+placement comments in `tests/chrome/*`; surfaced in Slice 3.2.2 Tasks 5 and 7, re-measured
+at F4.5a Task 13 and Task E1 (2026-08-04).
 
 ## Flaky daemon test: `session lifecycle over HTTP with a live SSE feed + watcher reload`
 
