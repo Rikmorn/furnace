@@ -44,11 +44,16 @@ The one-line `field/types.ts:1` fix (`Vec3Tuple` is exported from
 `physics/index.ts`) was deliberately NOT made at T1a — it belongs with this
 design, not ahead of it.
 
-**Trigger to revisit:** the next foundations tranche that touches module
-boundaries (T1b registry factoring is adjacent), OR the first time a deep import
-causes a real bill (a refactor breaks distant modules, a bundle pulls something
-it shouldn't), OR a T2-era pass once `scene` dies and the module graph is
-smaller.
+**Trigger to revisit — SCHEDULED (user decision, 2026-08-04): immediately after
+foundations T2 lands.** Scene's deletion removes a chunk of the graph, so the
+design runs against the post-T2 tree, starting by re-deriving this inventory
+(do not trust the ~190 above). Leading shape going in: legitimize sibling
+`types.ts` imports as a third door (types are erased leaves — that reclassifies
+~130 of the sites as fine), grow `internal.ts` seams in `shader/` and `binding/`
+for the underscore plumbing (~half the remaining value imports), and land the
+clause as a RATCHET — pin the residual edge list, fail only new ones, burn down
+per-module. New modules conform from birth meanwhile (T1b's `core/registry`
+imports zod + errors only).
 
 **Reference:** `packages/core/tests/architecture.test.ts` (the four landed
 clauses + the scanner); `docs/reference/api-posture.md` §R8 enforcement note
