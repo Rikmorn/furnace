@@ -17,6 +17,29 @@
 
 let _setup: Promise<boolean> | null = null;
 let _availableSync = false;
+/** The GPU object from the first successful setup. happy-dom replaces globalThis.navigator
+ *  wholesale, so the only way back is to re-attach this — setupGlobals() throws
+ *  ("Attempted to assign to readonly property") on happy-dom's navigator. */
+let _gpu: GPU | null = null;
+
+/**
+ * bun runs every test file in one process, and a happy-dom registration between two
+ * ensureBunWebGpu() calls silently replaces navigator wholesale, taking navigator.gpu with
+ * it. Re-attach the GPU object from the first successful setup rather than re-running
+ * setupGlobals(), which throws on happy-dom's navigator ("Attempted to assign to readonly
+ * property"). Returns whether navigator.gpu is now usable.
+ */
+function reattachGpuIfMissing(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (navigator.gpu) return true;
+  if (!_gpu) return false;
+  Object.defineProperty(navigator, "gpu", {
+    value: _gpu,
+    configurable: true,
+    writable: true,
+  });
+  return !!navigator.gpu;
+}
 
 async function trySetup(): Promise<boolean> {
   try {
@@ -24,6 +47,7 @@ async function trySetup(): Promise<boolean> {
     if (typeof mod.setupGlobals !== "function") return false;
     await mod.setupGlobals();
     const ok = typeof navigator !== "undefined" && !!navigator.gpu;
+    if (ok) _gpu = navigator.gpu;
     _availableSync = ok;
     return ok;
   } catch {
@@ -43,10 +67,16 @@ export function bunWebGpuAvailable(): boolean {
 
 /**
  * Eagerly initialize the bun-webgpu globals. Returns true if navigator.gpu is now usable.
- * Idempotent.
+ * Idempotent — and self-healing: validates the memoized promise against the live
+ * navigator.gpu rather than trusting it blindly, since a happy-dom registration between two
+ * calls silently removes it (see reattachGpuIfMissing above).
  */
 export function ensureBunWebGpu(): Promise<boolean> {
-  if (_setup) return _setup;
+  if (_setup) {
+    if (reattachGpuIfMissing()) return _setup;
+    _setup = null;
+    _availableSync = false;
+  }
   _setup = trySetup();
   return _setup;
 }
