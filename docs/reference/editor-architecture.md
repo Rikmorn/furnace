@@ -1061,13 +1061,13 @@ mind.
   seam is plain structural DATA (no class identity, no `instanceof`, no symbols, so which core
   minted a value cannot matter), and the two share no module-level state (our copy runs the pure
   column pass and the placement rasterizer; the bundle's owns the physics context and the
-  collider derivation). That second one is a claim about EXECUTION, not bundle content — Rapier
-  ships inside `analyzer-worker.js` and nothing in this realm calls it.
+  collider derivation). That second one is a claim about EXECUTION, not bundle content — even
+  when Rapier ships inside a worker bundle, nothing in this realm calls it.
   `tests/frontend-no-engine-leakage.test.ts` widened its rule to `(field|analyzer)-protocol` and
-  carries the full argument, the measurements, and the one value import that drags core's whole
-  graph in (`field/artifact.ts` → `@furnace/core/scene`) in its exemption comment; the
-  design question is
-  `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`.
+  carries the full argument and the measurements in its exemption comment. The value import
+  that historically dragged core's whole graph in (`field/artifact.ts` → `@furnace/core/scene`)
+  was severed 2026-08-04 (foundations T1a): the codec is its own engine-tier leaf,
+  `@furnace/core/mesh-blob`, and a field-only entry bundles no Rapier.
 - **`catalog/agent.json` — the third project→editor catalog contract**, DATA only, exactly
   parallel to the F2a materials and F3b entities ones. The run-once catalog effect
   (`FieldToolbar`'s then, `hooks/useCatalogs.tsx`'s since F4.5a) fetches all three in ONE
