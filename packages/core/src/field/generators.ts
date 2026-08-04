@@ -13,7 +13,7 @@ import {
   assertPatchValid,
   assertPlacementsValid,
 } from "./ops.ts";
-import { defineGenerator } from "./registry.ts";
+import { defineGenerator, MUST_BE_INTEGER } from "./registry.ts";
 import { fnv1a, makeIntRng } from "./rng.ts";
 import { scatterGenerator } from "./scatter.ts";
 import type {
@@ -386,10 +386,6 @@ function kitClassId(table: MaterialTable): number {
  *  the narrowed param type (zod's enum check is the runtime guard). */
 const PILLAR_KINDS = ["none", "grid", "colonnade"] as const;
 type PillarKind = (typeof PILLAR_KINDS)[number];
-
-/** The integer notch's error text — the message the hand validators always
- *  used; `generators.test.ts`'s multipleOf-agreement loop pins it. */
-const MUST_BE_INTEGER = "must be an integer";
 
 /** The hall's narrowed, range-validated params. `doors` holds one
  *  {@link DoorSpec} per ENABLED wall — wall, offset param key, and resolved

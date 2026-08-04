@@ -34,6 +34,8 @@ export type GeneratorDeclaration<S extends z.ZodRawShape> = {
   id: string;
   name: string;
   params: S;
+  /** Optional schema-level prose, emitted as the JSON root `description`. */
+  description?: string;
   contextFree: boolean;
   emits: GeneratorEmits;
   usesSeed: boolean;
@@ -51,6 +53,11 @@ const generators = createRegistry<GeneratorDef>({
   prefix: "field",
   noun: "generator",
 });
+
+/** The integer notch's error text — the message the hand validators always
+ *  used; `generators.test.ts`'s multipleOf-agreement loop pins it. Spell every
+ *  whole-number param `.multipleOf(1, MUST_BE_INTEGER)`. */
+export const MUST_BE_INTEGER = "must be an integer";
 
 /** The per-property `default` values off an emitted schema — the one source
  *  both the session seed (`defaults`) and the rendered form (`paramSchema`)
@@ -77,6 +84,8 @@ export function defineGenerator<S extends z.ZodRawShape>(
 ): GeneratorDef {
   const schema = z.object(decl.params);
   const paramSchema = toJsonSchema(schema, { io: "output" });
+  if (decl.description !== undefined)
+    paramSchema["description"] = decl.description;
   const def: GeneratorDef = {
     id: decl.id,
     name: decl.name,

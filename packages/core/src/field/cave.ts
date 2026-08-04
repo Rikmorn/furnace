@@ -15,6 +15,7 @@
 // edge cannot fail to connect. Verticality is EXPLICIT edge types with a
 // per-segment grade budget (D-F3-11 bias), never emergent worm pitch.
 
+import { z } from "../registry/index.ts";
 import {
   CHUNK_DIM,
   chunkKey,
@@ -25,8 +26,8 @@ import {
   voxelChunk,
   worldToVoxel,
 } from "./chunks.ts";
-import { boolParam, intParam, numParam } from "./generator-params.ts";
 import { PATCH_MASK_BYTES } from "./ops.ts";
+import { defineGenerator, MUST_BE_INTEGER } from "./registry.ts";
 import { fnv1a, makeIntRng, rand01, randInt, randRange } from "./rng.ts";
 import type {
   GeneratorDef,
@@ -1217,132 +1218,63 @@ function emitCave(
 
 // ─── the caveGenerator def (strict, setup-loud param validation) ───
 
-/** Static supremum for a mouth's lateral offset (metres). The real per-region
- *  bound is the skeleton's internal clamp (`mouthXZ`), so this is a schema
- *  supremum like the hall/maze offset ranges — generous enough for the regions
- *  the editor's selection produces. */
-const CAVE_OFFSET_RANGE = {
-  type: "number",
-  minimum: AUTO_CENTRE,
-  maximum: 62,
-  multipleOf: 1,
-  default: AUTO_CENTRE,
-} as const;
+/** The cave's door-offset param. `max(62)` is the static supremum for a
+ *  mouth's lateral offset (metres); the real per-region bound is the
+ *  skeleton's internal clamp (`mouthXZ`), so this is a schema supremum like
+ *  the hall/maze offset ranges — generous enough for the regions the editor's
+ *  selection produces. The four offsets are the params that POSTDATE persisted
+ *  data (`.default().optional()` — the optional-bucket rule in generators.ts). */
+const caveOffset = () =>
+  z
+    .number()
+    .min(AUTO_CENTRE)
+    .max(62)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .default(AUTO_CENTRE)
+    .optional();
 
-/** The per-wall param spellings — the door-authoring convention the skeleton's
- *  `readCaveParams` already parses, restated here for the schema/validator. */
-const CAVE_WALLS = [
-  { enable: "doorNorth", offsetKey: "doorNorthOffset" },
-  { enable: "doorSouth", offsetKey: "doorSouthOffset" },
-  { enable: "doorEast", offsetKey: "doorEastOffset" },
-  { enable: "doorWest", offsetKey: "doorWestOffset" },
-] as const;
-
-const CAVE_PROPERTIES = {
-  theme: { enum: CAVE_THEMES, default: "mixed" },
-  chambers: {
-    type: "number",
-    minimum: 2,
-    maximum: 6,
-    multipleOf: 1,
-    default: 3,
-  },
+// Bounds reference the `*_RANGE` constants the tolerant skeleton reader
+// (`readCaveParams`) clamps with, so a bound changes in ONE place and the two
+// readers cannot drift. The cave has NO `rotation` param: its skeleton is
+// seeded isotropically in the region, with no lattice grid to quarter-turn
+// (stated in the schema description so the absence reads as a decision).
+const CAVE_PARAMS = {
+  theme: z.enum(CAVE_THEMES).meta({ default: "mixed" }),
+  chambers: z
+    .number()
+    .min(CHAMBERS_RANGE.min)
+    .max(CHAMBERS_RANGE.max)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: CHAMBERS_RANGE.def }),
   // METRES, and verifiably so: the radius is compared against `extent[i] / 2`
-  // and `extent` is the region size in metres. `numParam`, not `intParam` — a
-  // 5.5 m chamber is legal, so there is deliberately no `multipleOf` here.
-  chamberRadius: {
-    type: "number",
-    minimum: 3,
-    maximum: 8,
-    default: 5,
-    furnace: { unit: "m" },
-  },
-  verticality: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
-  roughness: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
-  extraLoops: {
-    type: "number",
-    minimum: 0,
-    maximum: 3,
-    multipleOf: 1,
-    default: 1,
-  },
-  doorNorth: { type: "boolean", default: true },
-  doorSouth: { type: "boolean", default: false },
-  doorEast: { type: "boolean", default: false },
-  doorWest: { type: "boolean", default: false },
-  doorNorthOffset: CAVE_OFFSET_RANGE,
-  doorSouthOffset: CAVE_OFFSET_RANGE,
-  doorEastOffset: CAVE_OFFSET_RANGE,
-  doorWestOffset: CAVE_OFFSET_RANGE,
-} as const;
-
-/** The params that POSTDATE persisted data (optional on input) — the four door
- *  offsets. The cave has NO `rotation` param (mirrored from the hall/maze
- *  optional list, minus rotation): its skeleton is seeded isotropically in the
- *  region, with no lattice grid to quarter-turn (stated in the schema
- *  description so the absence reads as a decision). */
-const CAVE_OPTIONAL_KEYS: readonly string[] = CAVE_WALLS.map(
-  (w) => w.offsetKey,
-);
-
-const CAVE_SCHEMA = {
-  type: "object",
-  description:
-    "An organic cave — floor-anchored chambers joined by winding passages with quantized, stepped floors. Seeded isotropically in the region: there is deliberately NO rotation param (unlike the hall/maze, the cave has no lattice grid to quarter-turn).",
-  properties: CAVE_PROPERTIES,
-  required: Object.keys(CAVE_PROPERTIES).filter(
-    (k) => !CAVE_OPTIONAL_KEYS.includes(k),
-  ),
-} as const;
-
-/** The schema's per-property defaults, DERIVED (never restated) — the
- *  HALL_DEFAULTS pattern. */
-const CAVE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
-  Object.entries(CAVE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
-);
-
-/** Setup-loud door offset: absent (auto-centre) or an integer in range. Every
- *  wall's offset is validated, enabled or not — the hall/maze stance (a bad
- *  offset on a disabled door must not lurk in persisted params). */
-function assertOffsetParam(params: Record<string, unknown>, key: string): void {
-  const v = params[key];
-  if (v === undefined) return;
-  if (
-    typeof v !== "number" ||
-    !Number.isInteger(v) ||
-    v < CAVE_OFFSET_RANGE.minimum ||
-    v > CAVE_OFFSET_RANGE.maximum
-  )
-    throw new Error(
-      `cave: ${key} must be an integer in [${CAVE_OFFSET_RANGE.minimum}, ${CAVE_OFFSET_RANGE.maximum}] or absent, got ${JSON.stringify(v)}`,
-    );
-}
-
-/** Narrows + range-validates the cave's carve params setup-loud (mirrors
- *  hall/maze). Returns the two the carver needs beyond the skeleton (`theme`,
- *  `roughness`); the skeleton params are validated here and re-read tolerantly
- *  by {@link buildCaveSkeleton}. */
-function caveParams(params: Record<string, unknown>): {
-  theme: CaveTheme;
-  roughness: number;
-} {
-  const P = CAVE_SCHEMA.properties;
-  const theme = params["theme"];
-  if (!CAVE_THEMES.some((t) => t === theme))
-    throw new Error(
-      `cave: theme must be one of ${CAVE_THEMES.map((t) => `"${t}"`).join(" | ")}, got ${JSON.stringify(theme)}`,
-    );
-  intParam("cave", params, "chambers", P.chambers);
-  numParam("cave", params, "chamberRadius", P.chamberRadius);
-  numParam("cave", params, "verticality", P.verticality);
-  const roughness = numParam("cave", params, "roughness", P.roughness);
-  intParam("cave", params, "extraLoops", P.extraLoops);
-  for (const w of CAVE_WALLS) {
-    boolParam("cave", params, w.enable);
-    assertOffsetParam(params, w.offsetKey);
-  }
-  return { theme: theme as CaveTheme, roughness };
-}
+  // and `extent` is the region size in metres. A 5.5 m chamber is legal, so
+  // there is deliberately no `multipleOf` here.
+  chamberRadius: z
+    .number()
+    .min(RADIUS_RANGE.min)
+    .max(RADIUS_RANGE.max)
+    .meta({ default: RADIUS_RANGE.def, furnace: { unit: "m" } }),
+  verticality: z
+    .number()
+    .min(VERTICALITY_RANGE.min)
+    .max(VERTICALITY_RANGE.max)
+    .meta({ default: VERTICALITY_RANGE.def }),
+  roughness: z.number().min(0).max(1).meta({ default: 0.5 }),
+  extraLoops: z
+    .number()
+    .min(LOOPS_RANGE.min)
+    .max(LOOPS_RANGE.max)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: LOOPS_RANGE.def }),
+  doorNorth: z.boolean().meta({ default: true }),
+  doorSouth: z.boolean().meta({ default: false }),
+  doorEast: z.boolean().meta({ default: false }),
+  doorWest: z.boolean().meta({ default: false }),
+  doorNorthOffset: caveOffset(),
+  doorSouthOffset: caveOffset(),
+  doorEastOffset: caveOffset(),
+  doorWestOffset: caveOffset(),
+};
 
 /** The cave generator: build the deterministic macro skeleton (chambers,
  *  connected passages, mouths), then STAMP it into ONE absolute patch op —
@@ -1365,17 +1297,18 @@ function caveParams(params: Record<string, unknown>): {
  *
  *  @throws {@link Error} if any param is missing, mistyped, or out of its schema
  *    range (setup-loud, before any emission). */
-export const caveGenerator: GeneratorDef = {
+export const caveGenerator: GeneratorDef = defineGenerator({
   id: "cave",
   name: "Cave",
-  paramSchema: CAVE_SCHEMA,
-  defaults: CAVE_DEFAULTS,
+  params: CAVE_PARAMS,
+  description:
+    "An organic cave — floor-anchored chambers joined by winding passages with quantized, stepped floors. Seeded isotropically in the region: there is deliberately NO rotation param (unlike the hall/maze, the cave has no lattice grid to quarter-turn).",
   contextFree: true, // seeded-but-pure; no field reads
   emits: "ops", // a pure carver — one patch op, no placed instances
   usesSeed: true, // skeleton AND wall noise are both seeded
   evaluate(params, seed, region, table, policy): GeneratorResult {
     void table; // the cave emits rock (materialMask null) — no kit class needed
-    const { theme, roughness } = caveParams(params); // narrow + validate, setup-loud
+    const { theme, roughness } = params;
     const extent: [number, number, number] = [
       region.max[0] - region.min[0],
       region.max[1] - region.min[1],
@@ -1388,4 +1321,4 @@ export const caveGenerator: GeneratorDef = {
     // error rather than assertPatchValid's "op writes no chunks".
     return { ops: patch.chunks.length > 0 ? [patch] : [], placements: [] };
   },
-};
+});
