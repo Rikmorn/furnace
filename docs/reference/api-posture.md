@@ -88,6 +88,22 @@ When adding or changing public surface, apply these.
 
 - **R8 — Abstraction tier.** (The guiding principle, restated as a rule.) Keep the core a low-level, unopinionated, performance-first GPU-resource layer. New higher-tier conveniences (Scene, ECS, render-graph) live in their own modules built on top, or as triggered backlog entries — never folded into the core vocabulary.
 
+  - **R8 enforcement (2026-08-04, foundations T1a):** the tier boundary is now
+    mechanical, not aspirational. `@furnace/core` names two tiers — the
+    **engine substrate** (every module except the two below) and the **world
+    tier** (`field`, `scene` while it lasts, `registry` when it lands) — and
+    `packages/core/tests/architecture.test.ts` fails any engine-tier import of
+    a world-tier module, any `@furnace/core` self-import, any `_`-prefixed
+    export in a public index, and any unpinned module-global mutable state.
+    (A fifth clause — cross-module imports only through a module's
+    `index.ts`/`internal.ts` doors — was deferred at T1a execution: the tree
+    carries ~190 deep cross-module imports, so the door rule needs its own
+    design pass; see `docs/backlog/engine-architecture/cross-module-import-doors.md`.)
+    Extraction trigger: a consumer wants the renderer without the world model
+    (or the world model on another renderer) → the world tier promotes to
+    `@furnace/world`, mechanically, because the import direction was enforced
+    all along.
+
 - **R9 — Failure-policy composition.** Each kind has a default failure-policy stance: Factory → cold-path-validate (throw on bad input); per-frame Core-mutator (pose setters) → hot-path-trust (no validation, sentinel on degenerate); config Core-mutator (`setAspect`, `setFitPolicy`) → cold-path-validate; Command (`render*`) → warm-path-validate (throw with positional context); Lifecycle setup → cold-path; observability cross-cuts (no-op + warn on writes, zero defaults on reads). **`engine-conventions.md §Failure policy` is the authority** — this rule maps kind→default stance; it never overrides the stance definitions.
 
 ### Supporting rules (surfaced by the conformance sweep)

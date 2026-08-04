@@ -22,6 +22,7 @@
 12. [AI in games — classical vs ML, GPU vs CPU](#12-ai-in-games--classical-vs-ml-gpu-vs-cpu)
 13. [Could a tiny LLM replace state machines / pathfinding?](#13-could-a-tiny-llm-replace-state-machines--pathfinding)
 14. [LLM-as-planner — the actual architecture that works](#14-llm-as-planner--the-actual-architecture-that-works)
+15. [The two tiers of `@furnace/core` (as-built)](#15-the-two-tiers-of-furnacecore-as-built)
 
 ---
 
@@ -374,6 +375,31 @@ Pass to 3B-param local model, get JSON in 50-100ms. No training, no RL, no label
 3. **Local vs cloud inference economics** — cloud = $/NPC; local NPU = consumer hardware constraints. 1-3B param local models with NPU acceleration are getting capable. 2-3 years probably solved.
 
 **The product opportunity:** make this architecture a **first-class engine primitive**. Built-in `AgentContext` component with automatic state serialization, prompt templating, structured output validation, pluggable LLM backends (WebNN local, cloud, hybrid). Babylon and Unity have nothing like this. First engine to ship a clean version becomes the default for "AI-native games," a category that will exist in 5 years whether or not incumbents are ready.
+
+---
+
+## 15. The two tiers of `@furnace/core` (as-built)
+
+Unlike the exploration notes above, this section records a **decision** (foundations
+program, 2026-08-04). `@furnace/core` is one package but names two tiers:
+
+- **Engine substrate** — the GPU-resource and math layer: `gpu`, `frame`, `transform`,
+  `events`, `stats`, `camera`, `input`, `log`, `geometry`, `material`, `texture`,
+  `binding`, `shader`, `mesh`, `mesh-blob`, `post`, `physics`, `rigid-mesh`,
+  `resources`, `rng`, plus the shared root leaves (`errors.ts`). Knows nothing about
+  documents, registries, or worlds.
+- **World tier** — the modules that model *content* on top of the substrate: `field`
+  and `scene` today, `registry` when T1b lands. World-tier modules may import the
+  substrate freely; the substrate must NEVER import upward.
+
+The direction is enforced by `packages/core/tests/architecture.test.ts` (tier
+direction, `@furnace/core` self-import ban, no `_`-prefixed exports in public
+indexes, pinned module-global mutable state). The payoff is the extraction trigger:
+the day a consumer wants the renderer without the world model (or the world model on
+another renderer), the world tier promotes to its own `@furnace/world` package
+mechanically, because the import direction was never allowed to blur. The first
+dividend was immediate: relocating the mesh-blob codec out of `scene` (2026-08-04)
+took a field-only bundle from ~2.9 MB with Rapier inside to ~15 KB without it.
 
 ---
 

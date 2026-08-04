@@ -181,7 +181,7 @@ Used indirectly by every input/resize-driven demo (`gpu.onResize`, `input.onKeyD
 
 ### Internal (`_*`) — not for consumers
 
-Re-exported from `index.ts` so other core modules can `import * as stats` and call hooks consistently. **Not** part of the consumer-facing API.
+Live in `stats/internal.ts` — other core modules import `../stats/internal.ts` directly (the sanctioned intra-package seam). **Not** part of the consumer-facing API, and since 2026-08-04 (foundations T1a) not re-exported from `index.ts` either: the architecture test bans `_`-prefixed exports in public module indexes.
 
 | Export | Used by |
 |---|---|
@@ -293,7 +293,7 @@ Re-exported from `index.ts` so other core modules can `import * as stats` and ca
 
 ### Internal (`_*`) — not for consumers
 
-Re-exported from `index.ts` so the binding subsystem (Task 3+) can `import * as shader` and call the accessor without reaching into the module's internal files.
+Live in `shader/shader.ts` — the consuming core modules (`material`, `post`, `binding`) import it directly. **Not** part of the consumer-facing API, and since 2026-08-04 (foundations T1a) not re-exported from `index.ts` either: the architecture test bans `_`-prefixed exports in public module indexes.
 
 | Export | Used by |
 |---|---|
@@ -573,6 +573,34 @@ module-level mutable-state exception.
 
 ---
 
+## `@furnace/core/mesh-blob`
+
+`import { encodeMeshBlob, decodeMeshBlob } from "@furnace/core/mesh-blob";`
+(types: `import type { MeshBlob, RenderBlock, CollisionBlock } from "@furnace/core/mesh-blob";`)
+
+The `.fmesh` binary codec — an engine-tier leaf module (imports only the shared
+`errors.ts`; no GPU context, no scene coupling). Moved out of `./scene`
+2026-08-04 (foundations T1a) so that `field` and bake tooling can encode/decode
+mesh regions without dragging the scene graph (and Rapier) into their bundles;
+the wire format is unchanged.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `encodeMeshBlob` | `(blob: MeshBlob) => ArrayBuffer` | Encode a `MeshBlob` to a self-describing little-endian `ArrayBuffer` (the `.fmesh` format). Layout: `magic(4) + headerByteLen(4) + UTF-8 JSON header (padded to 4-byte alignment) + 4-byte-aligned typed-array regions (render first, then optional collision)`. Browser-safe: uses only `DataView`, `TextEncoder`, and typed arrays. |
+| `decodeMeshBlob` | `(buf: ArrayBuffer) => MeshBlob` | Decode an `ArrayBuffer` produced by `encodeMeshBlob`. Throws `FurnaceError` if the magic number does not match (`"not a .fmesh buffer"`). |
+| `MeshBlob` | `{ render: RenderBlock; collision?: CollisionBlock }` | The in-memory representation of a `.fmesh` sidecar: render buffers plus optional collision geometry. The `collision` block is consumed by `geometry.create(..., { retainForCollision: true })` for physics trimesh support. |
+| `RenderBlock` | `{ positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array }` | Render geometry buffers for a mesh region (xyz positions, normals, uvs, u32 indices). |
+| `CollisionBlock` | `{ vertices: Float32Array; indices: Uint32Array }` | Simplified collision geometry — vertices + indices only (no normals/uvs). |
+
+### Reference-only (no demo, by design)
+
+- The whole module — used by region bake tooling and the scene loader's `"mesh"`
+  resource kind, not a general cookbook topic.
+
+---
+
 ## `@furnace/core/post`
 
 `import * as post from "@furnace/core/post";`
@@ -733,8 +761,8 @@ Deterministic, seeded pseudo-random number generators — replay-safe randomness
 
 ## `@furnace/core/scene`
 
-`import { loadScene, encodeMeshBlob, decodeMeshBlob, defineComponent, defineResource } from "@furnace/core/scene";`
-(types: `import type { SceneDocument, LoadedScene, LoadSceneOptions, MeshBlob, SceneSettings, EntityDoc, LoadSceneOptions } from "@furnace/core/scene";`)
+`import { loadScene, defineComponent, defineResource } from "@furnace/core/scene";`
+(types: `import type { SceneDocument, LoadedScene, LoadSceneOptions, SceneSettings, EntityDoc } from "@furnace/core/scene";`)
 
 The scene format: a text-JSON document (`SceneDocument`) with typed resource tables and entity component lists, validated by a consumer-extensible registry, loaded by `loadScene` into live engine objects. Built-in resource kinds and components register automatically at module import.
 
@@ -744,9 +772,6 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 |---|---|---|
 | `loadScene` | `(ctx: Context, doc: SceneDocument, opts?: LoadSceneOptions) => Promise<LoadedScene>` | Validate the document against the registry, build resources in fixed table order (`geometries → textures → shaders → materials → effects`), instantiate entity components in registration order with pre-resolved resource refs, and return the scene's render inputs + a `destroy` that frees everything this call created. A failed load tears down everything it already built (no leaks). Throws `FurnaceError` on validation failure, unknown resource kind, or (unless `opts.fragment` is set) a document with no camera entity. With `opts.world`, builds rigid bodies into an existing world (the world is NOT destroyed by the returned `destroy`); without it, a physics world is lazily created and owned by the loaded scene. With `opts.fragment`, suppresses the missing-camera error — the caller owns the camera (used for region fragments: mesh + bodies, no camera). |
 | `LoadSceneOptions` | `{ world?: World; fragment?: boolean }` | Options for `loadScene`. `world` injects an existing `World` so the loader builds rigid bodies into it without creating a new one. `fragment` suppresses the missing-camera guard (for documents that contain geometry + bodies but no camera entity). |
-| `encodeMeshBlob` | `(blob: MeshBlob) => ArrayBuffer` | Encode a `MeshBlob` to a self-describing little-endian `ArrayBuffer` (the `.fmesh` format). Layout: `magic(4) + headerByteLen(4) + UTF-8 JSON header (padded to 4-byte alignment) + 4-byte-aligned typed-array regions (render first, then optional collision)`. Browser-safe: uses only `DataView`, `TextEncoder`, and typed arrays. |
-| `decodeMeshBlob` | `(buf: ArrayBuffer) => MeshBlob` | Decode an `ArrayBuffer` produced by `encodeMeshBlob`. Throws `FurnaceError` if the magic number does not match (`"not a .fmesh buffer"`). |
-| `MeshBlob` | `{ render: { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array }; collision?: { vertices: Float32Array; indices: Uint32Array } }` | The in-memory representation of a `.fmesh` sidecar: render buffers (positions, normals, uvs, u32 indices) plus optional collision geometry (xyz positions + u32 indices). The `collision` block is consumed by `geometry.create(..., { retainForCollision: true })` for physics trimesh support. |
 | `SceneDocument` | `{ version: number; settings?: SceneSettings; resources?: { geometries?, textures?, shaders?, materials?, effects? }; entities: EntityDoc[] }` | Text-JSON shape of a serialized scene. Resource entries and component entries are open (`unknown`) — the registry is the authority on what is valid; `validateDocument` proves every entry at the load boundary. |
 | `SceneSettings` | `{ clearColor?, ambient?, post?, gravity?, lengthUnit?, sim?, msaa?, hdr?, region? }` | Scene-level render/world globals. `region` (added in Slice 2.1) carries optional provenance + theme + origin metadata for baked region documents: `{ provenance?: { generatorId, generatorVersion, seed, kind }; theme?: string; origin?: [x,y,z] }`. Loaded into `LoadedScene.settings`; the loader validates and carries all fields but does not act on `region` (it is metadata for the consumer and for bake tooling). |
 | `validateDocument` | `(doc: SceneDocument) => void` | Validate a document against the registry without loading it (throws `FurnaceError` on any invalid entry). Side-effect-free — does not build any resources. |
@@ -778,7 +803,6 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 ### Reference-only (no demo, by design)
 
-- `encodeMeshBlob` / `decodeMeshBlob` / `MeshBlob` — the `.fmesh` codec; used by region bake tooling, not a general cookbook topic.
 - `defineComponent` / `defineResource` / `introspect` — extension and reflection surface; used by the editor.
 - `validateDocument` — load-boundary guard; consumers call `loadScene` which runs it internally.
 
