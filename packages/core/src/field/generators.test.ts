@@ -289,7 +289,7 @@ describe("field generators — the hall", () => {
     const hall = generatorById("hall");
     const run = (over: Record<string, unknown>) => () =>
       hall.evaluate({ ...HALL_PARAMS, ...over }, 7, REGION, TABLE, "replace");
-    expect(run({ width: 2 })).toThrow(/width.*got 2/); // below minimum 4, value echoed
+    expect(run({ width: 2 })).toThrow(/invalid at "width".*>=4/); // below minimum 4, bound echoed
     expect(run({ width: 40 })).toThrow(/width/); // above schema maximum 24
     expect(run({ height: 4 })).toThrow(/height/); // below door height
     expect(run({ depth: 8.5 })).toThrow(/depth/); // non-integer

@@ -5,6 +5,7 @@
 // compiles the grid into a span of lattice-snapped brush ops. The registry is
 // the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
 // commitGenerator owns the entity semantics: one commit = one undo entry.
+import { z } from "../registry/index.ts";
 import { caveGenerator } from "./cave.ts";
 import { boolParam, intParam, numParam } from "./generator-params.ts";
 import {
@@ -13,6 +14,7 @@ import {
   assertPatchValid,
   assertPlacementsValid,
 } from "./ops.ts";
+import { defineGenerator } from "./registry.ts";
 import { fnv1a, makeIntRng } from "./rng.ts";
 import { scatterGenerator } from "./scatter.ts";
 import type {
@@ -141,7 +143,7 @@ type Wall = "north" | "south" | "east" | "west";
  *  actually declare them: rename or drop one of those properties on either
  *  schema and the `satisfies` below stops compiling. It pins existence, not
  *  role — it cannot tell a door key from a rotation key. */
-type SharedParamKey = keyof typeof HALL_SCHEMA.properties &
+type SharedParamKey = keyof typeof HALL_PARAMS &
   keyof typeof MAZE_SCHEMA.properties;
 
 /** The per-wall param spellings — ONE table feeding the enable lookup, the
@@ -447,12 +449,14 @@ function kitClassId(table: MaterialTable): number {
   return kit.id;
 }
 
-/** The hall's pillar vocabularies — ONE spelling feeding the schema enum, the
- *  narrowed param type, and the runtime check (no drift between the three). */
+/** The hall's pillar vocabularies — ONE spelling feeding the schema enum and
+ *  the narrowed param type (zod's enum check is the runtime guard). */
 const PILLAR_KINDS = ["none", "grid", "colonnade"] as const;
 type PillarKind = (typeof PILLAR_KINDS)[number];
-const isPillarKind = (v: unknown): v is PillarKind =>
-  PILLAR_KINDS.some((k) => k === v);
+
+/** The integer notch's error text — the message the hand validators always
+ *  used; `generators.test.ts`'s multipleOf-agreement loop pins it. */
+const MUST_BE_INTEGER = "must be an integer";
 
 /** The hall's narrowed, range-validated params. `doors` holds one
  *  {@link DoorSpec} per ENABLED wall — wall, offset param key, and resolved
@@ -468,94 +472,81 @@ type HallParams = {
   doors: DoorSpec[];
 };
 
-/** The hall's door-offset schema range. `maximum` is the supremum over every
+/** The hall's door-offset param. `max(28)` is the supremum over every
  *  admissible hall: the longest wall an offset can sit on is `depth` (max 32),
  *  and a door needs DOOR_W_CELLS of it — 32 − 4 = 28. The bound for a GIVEN
- *  hall is tighter and is enforced by {@link assertDoorOffsetFits}. */
-const HALL_OFFSET_RANGE = {
-  type: "number",
-  minimum: AUTO_CENTRE,
-  maximum: 28,
-  multipleOf: 1,
-  default: AUTO_CENTRE,
-  // No `furnace.unit`: the range is coarse cells EXCEPT for the AUTO_CENTRE
-  // sentinel, so a "cells" suffix would be wrong on exactly the default.
-} as const;
+ *  hall is tighter and is enforced by {@link assertDoorOffsetFits}.
+ *  No `furnace.unit`: the range is coarse cells EXCEPT for the AUTO_CENTRE
+ *  sentinel, so a "cells" suffix would be wrong on exactly the default. */
+const hallOffset = () =>
+  z
+    .number()
+    .min(AUTO_CENTRE)
+    .max(28)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .default(AUTO_CENTRE)
+    .optional();
 
 // The dimension params count COARSE CELLS (CELL = 0.5 m), which is why they
 // carry `"cells"` and not `"m"`: a hall of width 8 is 4 m across, and a metre
-// suffix on this row would be a false statement in the UI.
-const HALL_PROPERTIES = {
-  width: {
-    type: "number",
-    minimum: 4,
-    maximum: 24,
-    multipleOf: 1,
-    default: 8,
-    furnace: { unit: "cells" },
-  },
-  height: {
-    type: "number",
-    minimum: 6,
-    maximum: 12,
-    multipleOf: 1,
-    default: 6,
-    furnace: { unit: "cells" },
-  },
-  depth: {
-    type: "number",
-    minimum: 4,
-    maximum: 32,
-    multipleOf: 1,
-    default: 8,
-    furnace: { unit: "cells" },
-  },
-  pillars: { enum: PILLAR_KINDS, default: "none" },
-  pillarSpacing: {
-    type: "number",
-    minimum: 2,
-    maximum: 8,
-    multipleOf: 1,
-    default: 3,
-    furnace: { unit: "cells" },
-  },
-  rotation: { enum: ROTATIONS, default: "0" },
-  doorNorth: { type: "boolean", default: true },
-  doorSouth: { type: "boolean", default: false },
-  doorEast: { type: "boolean", default: false },
-  doorWest: { type: "boolean", default: false },
-  doorNorthOffset: HALL_OFFSET_RANGE,
-  doorSouthOffset: HALL_OFFSET_RANGE,
-  doorEastOffset: HALL_OFFSET_RANGE,
-  doorWestOffset: HALL_OFFSET_RANGE,
-} as const;
+// suffix on this row would be a false statement in the UI. Required params
+// carry `.meta({ default })` (form metadata; a missing key still throws);
+// the post-hoc optional ones (`OPTIONAL_PARAM_KEYS`) carry
+// `.default().optional()` — see GeneratorDeclaration's TSDoc.
+const HALL_PARAMS = {
+  width: z
+    .number()
+    .min(4)
+    .max(24)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 8, furnace: { unit: "cells" } }),
+  height: z
+    .number()
+    .min(6)
+    .max(12)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 6, furnace: { unit: "cells" } }),
+  depth: z
+    .number()
+    .min(4)
+    .max(32)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 8, furnace: { unit: "cells" } }),
+  pillars: z.enum(PILLAR_KINDS).meta({ default: "none" }),
+  pillarSpacing: z
+    .number()
+    .min(2)
+    .max(8)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 3, furnace: { unit: "cells" } }),
+  rotation: z.enum(ROTATIONS).default("0").optional(),
+  doorNorth: z.boolean().meta({ default: true }),
+  doorSouth: z.boolean().meta({ default: false }),
+  doorEast: z.boolean().meta({ default: false }),
+  doorWest: z.boolean().meta({ default: false }),
+  doorNorthOffset: hallOffset(),
+  doorSouthOffset: hallOffset(),
+  doorEastOffset: hallOffset(),
+  doorWestOffset: hallOffset(),
+};
 
-const HALL_SCHEMA = {
-  type: "object",
-  properties: HALL_PROPERTIES,
-  required: requiredKeys(HALL_PROPERTIES),
-} as const;
-
-/** The schema's per-property defaults, DERIVED (never restated) — the one
- *  source both the session seed (defaults) and the rendered form (paramSchema)
- *  agree on. */
-const HALL_DEFAULTS: Record<string, unknown> = Object.fromEntries(
-  Object.entries(HALL_SCHEMA.properties).map(([k, p]) => [k, p.default]),
-);
-
-/** Narrows + range-validates hall params (ranges from HALL_SCHEMA), throwing
- *  setup-loud on a missing, mistyped, or out-of-range field. */
-function hallParams(params: Record<string, unknown>): HallParams {
-  const p = HALL_SCHEMA.properties;
-  const pillars = params["pillars"];
-  if (!isPillarKind(pillars))
-    throw new Error(
-      `hall: pillars must be one of ${PILLAR_KINDS.map((k) => `"${k}"`).join(" | ")}, got ${JSON.stringify(pillars)}`,
-    );
-  const width = intParam("hall", params, "width", p.width);
-  const height = intParam("hall", params, "height", p.height);
-  const depth = intParam("hall", params, "depth", p.depth);
-  const doors = doorsParam("hall", params, HALL_OFFSET_RANGE);
+/** Assembles evaluate's working params from the zod-parsed record: doors
+ *  resolve in {@link WALLS} order (AUTO_CENTRE → auto-centre; an absent key
+ *  parses to the sentinel via the schema default), the rotation string maps to
+ *  its quarter turn, and each enabled door's offset is checked against ITS
+ *  wall — {@link assertDoorOffsetFits}, the cross-field rule the schema range
+ *  (a static supremum) cannot express. */
+function hallParams(p: z.output<z.ZodObject<typeof HALL_PARAMS>>): HallParams {
+  const doors: DoorSpec[] = [];
+  for (const w of WALLS) {
+    if (!p[w.enable]) continue;
+    const raw = p[w.offsetKey];
+    doors.push({
+      wall: w.wall,
+      offsetKey: w.offsetKey,
+      offset: raw === undefined || raw === AUTO_CENTRE ? undefined : raw,
+    });
+  }
   // A hall offset counts COARSE CELLS along its wall, so the wall's interior
   // length bounds it: north/south run along width, east/west along depth.
   for (const door of doors) {
@@ -563,17 +554,17 @@ function hallParams(params: Record<string, unknown>): HallParams {
     assertDoorOffsetFits(
       "hall",
       door,
-      (alongX ? width : depth) - DOOR_W_CELLS,
+      (alongX ? p.width : p.depth) - DOOR_W_CELLS,
       "coarse cells",
     );
   }
   return {
-    width,
-    height,
-    depth,
-    pillars,
-    pillarSpacing: intParam("hall", params, "pillarSpacing", p.pillarSpacing),
-    rotation: rotParam("hall", params),
+    width: p.width,
+    height: p.height,
+    depth: p.depth,
+    pillars: p.pillars,
+    pillarSpacing: p.pillarSpacing,
+    rotation: QUARTER_TURNS[p.rotation ?? "0"],
     doors,
   };
 }
@@ -614,17 +605,16 @@ function stampPillars(g: MiniGrid, p: HallParams): void {
  *    range; if a door offset does not fit its wall; if a door's walk lane is
  *    blocked (the donor validateDoorApproach rule); or if the catalog has no
  *    kit class. All setup-loud, before any op is emitted. */
-const hallGenerator: GeneratorDef = {
+const hallGenerator: GeneratorDef = defineGenerator({
   id: "hall",
   name: "Hall",
-  paramSchema: HALL_SCHEMA,
-  defaults: HALL_DEFAULTS,
+  params: HALL_PARAMS,
   contextFree: true, // params-determined; no field reads
   emits: "ops", // a pure carver — the masonry stamp, no placed instances
   usesSeed: false, // the ONE seedless generator — see the `void seed` below
   evaluate(params, seed, region, table, policy) {
     void seed; // hall structure is params-determined (donor contract)
-    const p = hallParams(params); // narrow + range-validate, setup-loud
+    const p = hallParams(params); // doors + rotation + the cross-field check
     const dims: [number, number, number] = [
       p.width + 2,
       p.height + 2,
@@ -650,7 +640,7 @@ const hallGenerator: GeneratorDef = {
     for (const op of ops) assertOpValid(op, table);
     return { ops, placements: [] };
   },
-};
+});
 
 // ——— the maze (donor: packages/dungeon/src/themes/maze.ts — W3) ———
 // carvePlan and braidPass port VERBATIM: any change to the mixer changes every

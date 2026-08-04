@@ -275,7 +275,7 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
         { params: { depth: 12 } },
         TABLE,
       ),
-    ).toThrow(/pillars must be one of/);
+    ).toThrow(/field: hall params invalid at/); // a missing required key rejects the partial
     // …and omitting `params` entirely keeps the recorded set verbatim
     const r = reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE);
     expect(r.entity.params).toEqual(e.params);
@@ -785,7 +785,7 @@ describe("reconfigureGenerator — setup-loud guards", () => {
     {
       name: "params the generator rejects",
       changes: { params: { width: 999 } },
-      message: /width must be an integer/,
+      message: /invalid at "width".*<=24/,
     },
     {
       name: "params that break a door walk lane",

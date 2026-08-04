@@ -109,6 +109,7 @@ const PINNED_GLOBALS = [
   "frame/render.ts::warnedShadowOverflow",
   "gpu/internal.ts::nextCtxId",
   "log/internal.ts::currentSink",
+  "field/registry.ts::generators",
   "physics/internal.ts::initPromise",
   "registry/registry.ts::services",
   "scene/registry.ts::components",
