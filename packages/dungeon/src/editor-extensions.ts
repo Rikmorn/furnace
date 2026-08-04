@@ -5,9 +5,10 @@
 // test) that the dungeon's generator import graph is browser-bundlable from the dungeon
 // root. The engine bundle may tree-shake unused exports.
 //
-// WHAT THE EDITOR ACTUALLY CALLS OFF THIS MODULE, as of the F4.5 seal (2026-08-03): exactly
-// ONE member, `analyzerVerify`, from `frontend/analyzer-worker.ts`, through a single
-// structural boundary cast (`AnalyzerEngine`). The Epic 3 world seam this file was written
+// WHAT THE EDITOR ACTUALLY CALLS OFF THIS MODULE, as of T1b (2026-08-04): exactly ONE
+// function, `analyzerVerify`, resolved by `frontend/analyzer-worker.ts` through the
+// registry service seam (`defineService` below / `getService` off the bundle) and narrowed
+// once at the worker's boundary cast (`AnalyzerEngine`). The Epic 3 world seam this file was written
 // for — runWorld/bakeWorldFiles worker-side, realizeRegion/MaterialCache/worldDir
 // panel-side — HAS NO EDITOR CALLER: the generation cockpit that used it (preview host,
 // World panel, generation worker) was deleted at F4.5a, and the dungeon's worlds are dug in

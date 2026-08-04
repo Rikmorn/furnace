@@ -388,9 +388,10 @@ program, 2026-08-04). `@furnace/core` is one package but names two tiers:
   `binding`, `shader`, `mesh`, `mesh-blob`, `post`, `physics`, `rigid-mesh`,
   `resources`, `rng`, plus the shared root leaves (`errors.ts`). Knows nothing about
   documents, registries, or worlds.
-- **World tier** — the modules that model *content* on top of the substrate: `field`
-  and `scene` today, `registry` when T1b lands. World-tier modules may import the
-  substrate freely; the substrate must NEVER import upward.
+- **World tier** — the modules that model *content* on top of the substrate: `field`,
+  `registry` (the neutral definer machinery, landed T1b 2026-08-04), and `scene`.
+  World-tier modules may import the substrate freely; the substrate must NEVER
+  import upward.
 
 The direction is enforced by `packages/core/tests/architecture.test.ts` (tier
 direction, `@furnace/core` self-import ban, no `_`-prefixed exports in public

@@ -764,7 +764,7 @@ Deterministic, seeded pseudo-random number generators — replay-safe randomness
 `import { loadScene, defineComponent, defineResource } from "@furnace/core/scene";`
 (types: `import type { SceneDocument, LoadedScene, LoadSceneOptions, SceneSettings, EntityDoc } from "@furnace/core/scene";`)
 
-The scene format: a text-JSON document (`SceneDocument`) with typed resource tables and entity component lists, validated by a consumer-extensible registry, loaded by `loadScene` into live engine objects. Built-in resource kinds and components register automatically at module import.
+The scene format: a text-JSON document (`SceneDocument`) with typed resource tables and entity component lists, validated by a consumer-extensible registry, loaded by `loadScene` into live engine objects. Built-in resource kinds and components register automatically at module import. The registry store/parse machinery (`createRegistry`, `parseOrThrow`, `toJsonSchema`, the furnace-meta readers) lives in `@furnace/core/registry` since T1b — scene instantiates its stores from that factory; its public surface and error messages are unchanged.
 
 ### Public
 
@@ -805,6 +805,43 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 - `defineComponent` / `defineResource` / `introspect` — extension and reflection surface; used by the editor.
 - `validateDocument` — load-boundary guard; consumers call `loadScene` which runs it internally.
+
+---
+
+## `@furnace/core/registry`
+
+`import { createRegistry, defineService, getService, toJsonSchema, parseOrThrow, z } from "@furnace/core/registry";`
+(types: `import type { Registry, RegistryOptions, ServiceDefinition, JsonSchema } from "@furnace/core/registry";`)
+
+The neutral definer machinery (foundations T1b) — a world-tier leaf module importing
+**zod + the shared `errors.ts` only**. A FACTORY, not a store: each vocabulary owner
+instantiates its own registry (scene's components/resource kinds, field's generators)
+and keeps its own error prefix. Also carries the validated consumer→editor service
+seam (`defineService`/`getService`) that replaced the analyzer worker's blind
+structural cast.
+
+### Public
+
+| Export | Signature | Notes |
+|---|---|---|
+| `createRegistry` | `<R>(opts: RegistryOptions) => Registry<R>` | A named-entry store with setup-loud duplicate registration — throws `FurnaceError` `` `${prefix}: ${noun} "name" is already registered` ``. `entries()` returns registration order (load-bearing for the scene loader's two-pass build). Module-scope instances are process-global mutable state and MUST be pinned in `packages/core/tests/architecture.test.ts`. |
+| `Registry` | `{ register(name, entry); get(name); entries(); reset() }` | The instance shape. `reset()` is tests-only (suites re-register after). |
+| `RegistryOptions` | `{ prefix: string; noun: string }` | Naming for the registry's setup-loud errors. |
+| `toJsonSchema` | `(schema: z.ZodObject, opts: { io: "input" \| "output" }) => JsonSchema` | Reflect a zod object as JSON Schema. `io` is a PER-REGISTRY choice: scene uses `"input"`, field generators use `"output"` (defaulted fields stay required, `.optional()` drops). The root `$schema` key is stripped — dialect metadata, not shape. |
+| `parseOrThrow` | `<T>(schema: T, value, where: string, prefix: string) => z.infer<T>` | Parse `value` against `schema`, translating the first zod issue into a `FurnaceError`: `` `<prefix>: <where> invalid at "<path>": <message>` ``. Moved from `scene/schema.ts` with the prefix parameterized (scene shims it back with `"scene"`). |
+| `fieldFurnaceMeta` | `<M>(field: z.ZodType) => M \| undefined` | Read the `furnace` meta payload off a shape field, unwrapping `.optional()`. The payload's shape is the registry owner's contract (scene narrows to `FurnaceMeta`; generators attach `{ unit }`). |
+| `asNestedObject` | `(field: z.ZodType) => z.ZodObject \| undefined` | Unwrap `.optional()` and return the inner object schema if the field is one; `undefined` otherwise. Drives scene's nested-ref recursion. |
+| `defineService` | `(name: string, def: ServiceDefinition) => void` | Register a named service a consumer project exposes to the editor — called at import time from the project's editor-extensions module (Branch A). Throws `FurnaceError` on duplicate (setup-loud). |
+| `getService` | `(name: string) => ServiceDefinition["fn"]` | Validated lookup: throws a `FurnaceError` NAMING the missing service (`registry: service "x" is not registered — is the project's editor-extensions module imported before use?`) instead of a downstream `TypeError`. The registry proves EXISTENCE; the contract TYPE stays structural at the consuming edge (the wire-twin rule). |
+| `ServiceDefinition` | `{ fn: (...args: never[]) => unknown }` | The registered shape — deliberately untyped beyond "a function". |
+| `resetServicesForTests` | `() => void` | Tests only. |
+| `JsonSchema` | `Record<string, unknown>` | A JSON Schema document (draft 2020-12), as produced by zod. |
+| `z` | re-export of zod | The zod instance the furnace registries validate with. Definition authors MUST build schemas from this re-export — schema objects cross registry boundaries, and mixing zod instances/versions breaks `instanceof`-based introspection. |
+
+### Reference-only (no demo, by design)
+
+- The whole module — definer machinery consumed by `scene`/`field` internals and by
+  project editor-extensions modules (`defineService`), not a standalone cookbook topic.
 
 ---
 
@@ -884,8 +921,9 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   in op masks (floods re-evaluate against replayed state).
 - **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave + scatter)** —
   `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall,
-  maze, **cave**, and **scatter** (`GeneratorDef` — plain JSON-Schema params; integer-only maze RNG, donor
-  bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`
+  maze, **cave**, and **scatter** (`GeneratorDef` — params authored as zod tables and
+  emitted as plain-JSON `paramSchema`/`defaults` by `defineGenerator` (T1b); integer-only
+  maze RNG, donor bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`
   are lattice-snapped brush AND patch ops, `placements` are explicit `PlacementRecord`s;
   a `MergePolicy` (replace | keep-existing-air) rides in. Each `GeneratorDef` declares
   `contextFree: boolean` — `true` = pure in (params, seed, region), so the recorded span
@@ -916,11 +954,15 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   all. Neither corrupts anything — unlike `emits`, whose violation puts a forbidden channel
   into the op log, a wrong `usesSeed` only mis-shapes a form — which is why the pin is
   BEHAVIOURAL instead: every def in `FIELD_GENERATORS` is evaluated at two seeds, and
-  `usesSeed` must predict whether the output moved, which catches both directions. The
-  shared strict param
-  validators (`numParam`/`intParam`/`boolParam`) live in a cycle-free `generator-params.ts`
-  leaf (the `rng.ts` precedent — the registry imports the defs, so a def importing validators
-  back out of `generators.ts` would cycle). `commitGenerator` applies the field ops
+  `usesSeed` must predict whether the output moved, which catches both directions. Param
+  validation rides `defineGenerator` (`field/registry.ts`, built on
+  `@furnace/core/registry`): one zod declaration per generator drives BOTH the runtime
+  validation (`parseOrThrow` inside the evaluate wrapper — messages
+  `field: <id> params invalid at "<key>": …`) and the emitted plain-JSON
+  `paramSchema`/`defaults` (structured-clone-safe; zod never leaves the module).
+  Unknown keys are TOLERATED (strip, not reject) — params records round-trip fields
+  the module does not own; cross-field rules (door-offset fit, `scaleMax >= scaleMin`)
+  stay plain code inside evaluate. `commitGenerator` applies the field ops
   and, if any, wraps `placements` in ONE placement op appended after them (inside `opSpan`),
   then records the `EntityOp` (`GeneratorEntity`: generator id, params, seed, region, opSpan
   — full provenance) under ONE undo entry; an empty result (no ops AND no placements) is

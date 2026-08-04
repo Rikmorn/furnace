@@ -79,7 +79,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 `createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and `viewport-host/index.ts`'s own header records that the directory name is what is left of them. The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
 
-**The namespace has exactly ONE consumer today** — the walkability analyzer's stage 2 (§15). `frontend/analyzer-worker.ts` imports the same same-origin `/engine.js` and narrows `mod.extensions` to `AnalyzerEngine` (`{ analyzerVerify }`) at one boundary cast; the type is declared structurally in `lib/analyzer-protocol.ts` and applied once, in the worker entry. Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
+**The analyzer no longer reads the namespace** (T1b): the virtual entry additionally re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `lib/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
 
 **(b) Node-platform registry bundle** — `src/daemon/registry-bundle.ts`. The daemon needs the *same* registry the engine bundle has, but on the Node side for validation. Its virtual entry imports the consumer's extensions then re-exports exactly three names from the consumer's `@furnace/core/scene`:
 
@@ -973,8 +973,9 @@ mind.
   headless test.
 - **Stage 2 — the verify verb, and the one place the editor loads the PROJECT'S engine into a
   worker.** `verifyFlag(key)` posts the flag to the analyzer worker, which imports
-  `/engine.js` (`ANALYZER_ENGINE_URL`) and calls `extensions.analyzerVerify` — the dungeon's
-  own `walk-probe.ts`, driving the real `CharacterMover` down directed lanes in a locally
+  `/engine.js` (`ANALYZER_ENGINE_URL`) and resolves `getService("analyzerVerify")` off the
+  bundle (T1b: the validated registry lookup replaced the `extensions` namespace read) — the
+  dungeon's own `walk-probe.ts`, driving the real `CharacterMover` down directed lanes in a locally
   built physics scene. There is no engine-generic form of this and there should not be: "test
   the code, not the data" only means anything if the code under test is the project's own.
   The verdict crosses as `VerifyVerdictWire`, a deliberate STRUCTURAL twin of the dungeon's
