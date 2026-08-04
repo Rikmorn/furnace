@@ -4,8 +4,7 @@ import { Glob } from "bun";
 
 // The two tiers of @furnace/core (spec: foundations program §2 D2, §4 T1a).
 // World-tier modules may import engine-tier modules; NEVER the reverse.
-// `registry` joins WORLD_TIER when T1b lands.
-const WORLD_TIER = new Set(["field", "scene"]);
+const WORLD_TIER = new Set(["field", "registry", "scene"]);
 
 const SRC = resolve(import.meta.dir, "../src");
 
@@ -111,6 +110,7 @@ const PINNED_GLOBALS = [
   "gpu/internal.ts::nextCtxId",
   "log/internal.ts::currentSink",
   "physics/internal.ts::initPromise",
+  "registry/registry.ts::services",
   "scene/registry.ts::components",
   "scene/registry.ts::resources",
   "scene/registry.ts::settingsSchema",
@@ -119,7 +119,7 @@ const PINNED_GLOBALS = [
 test("module-global mutable state matches the pinned inventory", async () => {
   const found: string[] = [];
   const declRe =
-    /^(?:let\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+(?:Map|Set)[<(])/;
+    /^(?:let\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+(?:Map|Set)[<(]|createRegistry[<(]))/;
   const glob = new Glob("**/*.ts");
   for await (const f of glob.scan({ cwd: SRC })) {
     if (f.endsWith(".test.ts")) continue;

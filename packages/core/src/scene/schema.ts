@@ -1,6 +1,12 @@
-import { z } from "zod";
-import { FurnaceError } from "../errors.ts";
+import type { z } from "zod";
+import {
+  asNestedObject,
+  fieldFurnaceMeta as registryFieldFurnaceMeta,
+  parseOrThrow as registryParseOrThrow,
+} from "../registry/registry.ts";
 import type { FurnaceMeta, TableHandle, TableName } from "./t.ts";
+
+export { asNestedObject };
 
 /**
  * Maps a raw param shape to its build-side type: `t.resource` fields become
@@ -39,26 +45,11 @@ type ResolveField<S, V> = [FurnaceTableOf<S>] extends [never]
 
 /**
  * Read the furnace meta off a shape field, unwrapping `.optional()`.
- * Returns `undefined` for plain zod fields.
+ * Returns `undefined` for plain zod fields. Scene-typed shim over the
+ * neutral reader in `registry/registry.ts`.
  */
 export function fieldFurnaceMeta(field: z.ZodType): FurnaceMeta | undefined {
-  let s = field;
-  while (s instanceof z.ZodOptional) s = s.unwrap() as z.ZodType;
-  const meta = s.meta();
-  return (meta as { furnace?: FurnaceMeta } | undefined)?.furnace;
-}
-
-/**
- * Unwrap `.optional()` and return the inner `z.ZodObject` if the field is one
- * (directly or optional-wrapped); `undefined` for any other zod type. Used to
- * decide whether `resolveParams` (resolution) and `checkResourceRefs`
- * (validation) should recurse into a nested object shape — kept in sync so a
- * nested resource ref is validated at the boundary exactly where it resolves.
- */
-export function asNestedObject(field: z.ZodType): z.ZodObject | undefined {
-  let s = field;
-  while (s instanceof z.ZodOptional) s = s.unwrap() as z.ZodType;
-  return s instanceof z.ZodObject ? s : undefined;
+  return registryFieldFurnaceMeta<FurnaceMeta>(field);
 }
 
 /**
@@ -105,19 +96,12 @@ export function resolveParams(
 /**
  * Parse `value` against `schema`, translating the first zod issue into a
  * `FurnaceError` locating the failure: `scene: <where> invalid at "<path>": <message>`.
+ * Scene-prefixed shim over the neutral `parseOrThrow` in `registry/registry.ts`.
  */
 export function parseOrThrow<T extends z.ZodType>(
   schema: T,
   value: unknown,
   where: string,
 ): z.infer<T> {
-  const result = schema.safeParse(value);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    const path = issue?.path.join(".") ?? "";
-    throw new FurnaceError(
-      `scene: ${where} invalid at "${path}": ${issue?.message ?? "unknown issue"}`,
-    );
-  }
-  return result.data;
+  return registryParseOrThrow(schema, value, where, "scene");
 }
