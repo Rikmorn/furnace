@@ -24,6 +24,7 @@ test("bundles the fixture project's extensions + field host into one ESM string"
   expect(result.code).toContain("fixtureGlow"); // extension registration made it in
   expect(result.code).toContain("createFieldHost"); // host export made it in
   expect(result.code).toContain("extensions"); // consumer extensions namespace re-exported
+  expect(result.code).toContain("getService"); // registry lookup re-exported for the worker seam
   await bundler.dispose();
 });
 

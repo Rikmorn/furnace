@@ -16,10 +16,18 @@
 // own; they are not a live editor contract, so do not treat a change to their shape as an
 // editor-facing break. `docs/reference/editor-architecture.md` §3a records the same fact
 // from the editor's side.
+import { defineService } from "@furnace/core/registry";
+import { analyzerVerify } from "./agent/walk-probe.ts";
 import { type BakeFile, bakeWorld } from "./world/bake.ts";
 import type { RegionData, Vec3 } from "./world/region.ts";
 import { realizeWorldSpec } from "./world/world-build.ts";
 import type { WorldSpec } from "./world/world-spec.ts";
+
+// Branch A: importing this module is what makes the service reachable.
+// Boundary note: analyzerVerify's opts carry runtime objects (FieldStore),
+// so the service registers UNVALIDATED input — existence is what the
+// registry guarantees; the shape contract stays the editor-side wire twin.
+defineService("analyzerVerify", { fn: analyzerVerify });
 
 // Stage 2 of the walkability advisor. The analyzer worker calls `analyzerVerify` off this same
 // untyped view of the module; it needs no GPU context (Task 4's headless physics context) and

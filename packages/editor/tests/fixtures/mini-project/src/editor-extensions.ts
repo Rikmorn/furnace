@@ -1,3 +1,4 @@
+import { defineService } from "@furnace/core/registry";
 import { defineComponent, z } from "@furnace/core/scene";
 
 // Fixture extension: a pure-data custom component. Its presence in
@@ -5,3 +6,7 @@ import { defineComponent, z } from "@furnace/core/scene";
 defineComponent("fixtureGlow", {
   params: { intensity: z.number() },
 });
+
+// Fixture service: registration at import time is the Branch-A proof for the
+// service seam, mirroring the component above.
+defineService("fixtureService", { fn: () => "ok" });

@@ -13,10 +13,16 @@ async function loadEngine(engineUrl: string): Promise<AnalyzerEngine> {
   // Variable indirection: the runtime-built /engine.js must not be resolved at
   // build time — a literal specifier is exactly what a bundler resolves eagerly.
   const url: string = engineUrl;
-  const mod = (await import(url)) as { extensions: Record<string, unknown> };
-  // Boundary cast: the engine bundle's `extensions` namespace crosses the
-  // project-first bundle boundary untyped; the worker narrows it ONCE here.
-  return mod.extensions as unknown as AnalyzerEngine;
+  const mod = (await import(url)) as { getService(name: string): unknown };
+  // Boundary cast: the service crosses the project-first bundle boundary
+  // untyped; the registry proved EXISTENCE (getService throws a nameable
+  // FurnaceError when the project registered nothing) and the worker narrows
+  // the looked-up fn ONCE here — the wire-twin rule survives unchanged.
+  return {
+    analyzerVerify: mod.getService(
+      "analyzerVerify",
+    ) as unknown as AnalyzerEngine["analyzerVerify"],
+  };
 }
 
 const handle = createAnalyzerWorkerHandler({
