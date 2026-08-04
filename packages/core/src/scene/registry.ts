@@ -5,6 +5,11 @@ import type { Light } from "../frame/index.ts";
 import type { Context } from "../gpu/context-types.ts";
 import type { Mesh } from "../mesh/types.ts";
 import type { World } from "../physics/index.ts";
+import {
+  createRegistry,
+  type Registry,
+  toJsonSchema,
+} from "../registry/index.ts";
 import type { ResolvedParamsOf } from "./schema.ts";
 import { TABLE_ORDER, type TableHandle, type TableName } from "./t.ts";
 
@@ -86,9 +91,18 @@ export type ResourceRegistration = {
   destroy?: (ctx: Context, instance: unknown) => void;
 };
 
-const components = new Map<string, ComponentRegistration>();
-const resources = new Map<TableName, Map<string, ResourceRegistration>>(
-  TABLE_ORDER.map((table) => [table, new Map()]),
+const components = createRegistry<ComponentRegistration>({
+  prefix: "scene",
+  noun: "component",
+});
+const resources = new Map<TableName, Registry<ResourceRegistration>>(
+  TABLE_ORDER.map((table) => [
+    table,
+    createRegistry<ResourceRegistration>({
+      prefix: "scene",
+      noun: "resource kind",
+    }),
+  ]),
 );
 let settingsSchema: z.ZodObject<z.ZodRawShape> = z.strictObject({});
 
@@ -110,11 +124,8 @@ export function defineComponent<S extends z.ZodRawShape, I>(
   name: string,
   def: ComponentDefinition<S, I>,
 ): void {
-  if (components.has(name)) {
-    throw new FurnaceError(`scene: component "${name}" is already registered`);
-  }
   const shape = def.params ?? {};
-  components.set(name, {
+  components.register(name, {
     shape,
     schema: z.strictObject(shape),
     // Boundary cast: erased storage of the generically-typed hooks; the loader
@@ -159,13 +170,11 @@ export function defineResource<T extends TableName, S extends z.ZodRawShape, I>(
   const perTable = resources.get(table);
   if (!perTable)
     throw new FurnaceError(`scene: unknown resource table "${table}"`);
-  if (perTable.has(kind)) {
-    throw new FurnaceError(
-      `scene: resource kind "${table}/${kind}" is already registered`,
-    );
-  }
   const shape = def.params ?? {};
-  perTable.set(kind, {
+  // Registered under `table/kind` so the duplicate message stays byte-identical
+  // (`scene: resource kind "meshes/mesh" is already registered`); the accessors
+  // below re-key by bare kind.
+  perTable.register(`${table}/${kind}`, {
     shape,
     schema: z.strictObject(shape),
     // Boundary cast: erased storage, see defineComponent.
@@ -182,7 +191,7 @@ export function getComponent(name: string): ComponentRegistration | undefined {
 
 /** Internal: all component registrations in registration order. */
 export function componentEntries(): [string, ComponentRegistration][] {
-  return [...components.entries()];
+  return components.entries();
 }
 
 /** Internal: look up a resource-kind registration. */
@@ -190,14 +199,19 @@ export function getResourceKind(
   table: TableName,
   kind: string,
 ): ResourceRegistration | undefined {
-  return resources.get(table)?.get(kind);
+  return resources.get(table)?.get(`${table}/${kind}`);
 }
 
-/** Internal: all kind registrations of a table. */
+/** Internal: all kind registrations of a table, keyed by bare kind. */
 export function resourceKindEntries(
   table: TableName,
 ): [string, ResourceRegistration][] {
-  return [...(resources.get(table)?.entries() ?? [])];
+  return (resources.get(table)?.entries() ?? []).map(
+    ([key, reg]): [string, ResourceRegistration] => [
+      key.slice(table.length + 1),
+      reg,
+    ],
+  );
 }
 
 /** Internal: install the scene-level settings schema (core-owned, builtins). */
@@ -212,8 +226,8 @@ export function getSettingsSchema(): z.ZodObject<z.ZodRawShape> {
 
 /** Internal, tests only: wipe the registry (suites re-register builtins after). */
 export function resetRegistryForTests(): void {
-  components.clear();
-  for (const m of resources.values()) m.clear();
+  components.reset();
+  for (const r of resources.values()) r.reset();
   settingsSchema = z.strictObject({});
 }
 
@@ -236,9 +250,7 @@ export type SceneSchemaReflection = {
  */
 export function introspect(): SceneSchemaReflection {
   const toJson = (schema: z.ZodObject<z.ZodRawShape>): JsonSchema =>
-    // Boundary cast: z.toJSONSchema returns a wide JSON-serialisable type;
-    // we narrow to Record<string,unknown> for a stable internal contract.
-    z.toJSONSchema(schema, { io: "input" }) as JsonSchema;
+    toJsonSchema(schema, { io: "input" });
   return {
     components: Object.fromEntries(
       componentEntries().map(([n, r]) => [n, toJson(r.schema)]),
