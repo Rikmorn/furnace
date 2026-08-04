@@ -1,4 +1,4 @@
-import { test } from "bun:test";
+import { expect, test } from "bun:test";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
 
@@ -95,6 +95,42 @@ test("underscore-prefixed exports stay out of public module indexes", async () =
       `_-prefixed names are internal plumbing, not public surface:\n${offenders.join("\n")}`,
     );
   }
+});
+
+// Process-global mutable state is a design decision, not a default. This pin
+// is the friction: adding an entry means editing this list and justifying it
+// in review. Per-context state belongs in a WeakMap<Context, …> (exempted —
+// that is the house pattern, 23 sites strong). LIMITATION: this regex catches
+// module-scope `let` and Map/Set containers; a mutable object literal behind
+// a `const` evades it (e.g. input/state.ts's singleton — tracked by backlog
+// entry input-module-pass.md, not by this test).
+const PINNED_GLOBALS = [
+  "frame/render-lines.ts::warnedMsaaPostChain",
+  "frame/render.ts::warnedLightOverflow",
+  "frame/render.ts::warnedShadowOverflow",
+  "gpu/internal.ts::nextCtxId",
+  "log/internal.ts::currentSink",
+  "physics/internal.ts::initPromise",
+  "scene/registry.ts::components",
+  "scene/registry.ts::resources",
+  "scene/registry.ts::settingsSchema",
+];
+
+test("module-global mutable state matches the pinned inventory", async () => {
+  const found: string[] = [];
+  const declRe =
+    /^(?:let\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+(?:Map|Set)[<(])/;
+  const glob = new Glob("**/*.ts");
+  for await (const f of glob.scan({ cwd: SRC })) {
+    if (f.endsWith(".test.ts")) continue;
+    const text = await Bun.file(join(SRC, f)).text();
+    for (const lineText of text.split("\n")) {
+      if (lineText.includes("WeakMap")) continue;
+      const m = declRe.exec(lineText); // ^-anchored: module scope only
+      if (m) found.push(`${f}::${m[1] ?? m[2]}`);
+    }
+  }
+  expect(found.sort()).toEqual([...PINNED_GLOBALS].sort());
 });
 
 test("core never imports itself by package specifier", async () => {
