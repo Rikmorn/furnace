@@ -20,7 +20,7 @@ import type {
 
 /** Authoring shape for {@link defineGenerator}: zod params in, GeneratorDef
  *  out. Two default spellings, chosen by the param's REQUIRED bucket (the
- *  OPTIONAL_PARAM_KEYS rule in generators.ts):
+ *  optional-bucket rule in generators.ts):
  *  - A required param carries `.meta({ default: X })` — the default is FORM
  *    metadata only; a missing key still throws at parse (required is
  *    load-bearing, `generators.test.ts` pins it).

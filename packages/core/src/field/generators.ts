@@ -7,7 +7,6 @@
 // commitGenerator owns the entity semantics: one commit = one undo entry.
 import { z } from "../registry/index.ts";
 import { caveGenerator } from "./cave.ts";
-import { boolParam, intParam, numParam } from "./generator-params.ts";
 import {
   applyFieldOp,
   assertOpValid,
@@ -138,13 +137,12 @@ function gridToOps(
 
 type Wall = "north" | "south" | "east" | "west";
 
-/** A param key BOTH generator schemas declare. Used to PIN the key strings the
- *  parsers look up ({@link WALLS}, {@link ROTATION_KEY}) to the schemas that
- *  actually declare them: rename or drop one of those properties on either
- *  schema and the `satisfies` below stops compiling. It pins existence, not
- *  role — it cannot tell a door key from a rotation key. */
-type SharedParamKey = keyof typeof HALL_PARAMS &
-  keyof typeof MAZE_SCHEMA.properties;
+/** A param key BOTH generator param tables declare. Used to PIN the key
+ *  strings {@link WALLS} looks up to the zod tables that actually declare
+ *  them: rename or drop one of those params on either table and the
+ *  `satisfies` below stops compiling. It pins existence, not role — it cannot
+ *  tell a door key from a rotation key. */
+type SharedParamKey = keyof typeof HALL_PARAMS & keyof typeof MAZE_PARAMS;
 
 /** The per-wall param spellings — ONE table feeding the enable lookup, the
  *  offset lookup, and the carve/validate order for BOTH generators (so the two
@@ -177,31 +175,15 @@ type DoorSpec = { wall: Wall; offsetKey: string; offset: number | undefined };
  *  to mean "auto-centre this door". */
 const AUTO_CENTRE = -1;
 
-/** The rotation param key, pinned to both schemas the same way {@link WALLS}
- *  pins the door keys. */
-const ROTATION_KEY = "rotation" satisfies SharedParamKey;
-
-/** The params that POSTDATE persisted data and are therefore optional on input.
- *
- *  THE RULE, for every future param addition: `GeneratorEntity.params` is
- *  persisted, and `reconfigureGenerator` re-evaluates from the recorded set as a
- *  COMPLETE replacement. So a param added after entities exist in the wild MUST
- *  be optional with an identity default, or every previously-saved entity
- *  becomes un-reconfigurable. A param present since a generator's first release
- *  stays REQUIRED — missing it is a caller bug, not old data.
- *
- *  This list is the machine-readable half of that rule: each schema's `required`
- *  is DERIVED as "every property not named here", so a newly added property is
- *  required by default and making it optional is a conscious edit here. */
-const OPTIONAL_PARAM_KEYS: readonly string[] = [
-  ROTATION_KEY,
-  ...WALLS.map((w) => w.offsetKey),
-];
-
-/** A schema's `required` list: every property except the post-hoc optional ones
- *  ({@link OPTIONAL_PARAM_KEYS}). Derived, never restated. */
-const requiredKeys = (props: Record<string, unknown>): string[] =>
-  Object.keys(props).filter((k) => !OPTIONAL_PARAM_KEYS.includes(k));
+// THE OPTIONAL-BUCKET RULE, for every future param addition:
+// `GeneratorEntity.params` is persisted, and `reconfigureGenerator`
+// re-evaluates from the recorded set as a COMPLETE replacement. So a param
+// added after entities exist in the wild MUST be spelled
+// `.default(identity).optional()`, or every previously-saved entity becomes
+// un-reconfigurable. A param present since a generator's first release stays
+// REQUIRED (`.meta({ default })` — form metadata, missing key still throws) —
+// missing it is a caller bug, not old data. `generators.test.ts`'s
+// no-third-bucket test pins the derived `required` list to exactly this split.
 
 /** The quarter-turn rotations, as STRINGS — ONE spelling feeding the schema
  *  enum, the narrowed type and the runtime check, so the three cannot drift.
@@ -220,8 +202,6 @@ const requiredKeys = (props: Record<string, unknown>): string[] =>
  *  dead on arrival*. */
 const ROTATIONS = ["0", "90", "180", "270"] as const;
 type Rotation = (typeof ROTATIONS)[number];
-const isRotation = (v: unknown): v is Rotation =>
-  ROTATIONS.some((r) => r === v);
 
 /** Quarter turns about +Y, the integer form {@link rotateGrid} works in: 1 =
  *  90° counter-clockwise viewed from +Y (the repo's right-handed Y-up
@@ -330,82 +310,35 @@ function openDoor(
       }
 }
 
-/** The stamp's quarter-turn rotation.
- *
- *  ABSENT means rotation 0. That optionality is a backward-compatibility
- *  allowance for RECORDED params, not the normal path: `GeneratorEntity.params`
- *  is persisted and {@link reconfigureGenerator} re-evaluates from the recorded
- *  set, so every hall/maze entity written before F3a carries no `rotation` key
- *  and would become un-reconfigurable if this field were required. The schema
- *  default is `"0"`, so anything seeding from {@link GeneratorDef.defaults}
- *  always sends it explicitly.
- *
- *  The same allowance is why a MISSPELLED key (`rotaion`) silently means
- *  rotation 0 rather than throwing: unknown keys must survive on the record
- *  (the params record round-trips fields this module does not own), so they
- *  cannot be rejected. That trade is accepted, not overlooked.
- *
- *  @throws {@link Error} if `rotation` is present but not one of the
- *    {@link ROTATIONS} strings — including the NUMBER `90`, which is not a
- *    member (see the ROTATIONS TSDoc for why the enum is spelled in strings). */
-function rotParam(label: string, params: Record<string, unknown>): QuarterTurn {
-  const v = params[ROTATION_KEY];
-  if (v === undefined) return 0;
-  if (!isRotation(v))
-    throw new Error(
-      `${label}: rotation must be one of ${ROTATIONS.map((r) => `"${r}"`).join(" | ")}, got ${JSON.stringify(v)}`,
-    );
-  return QUARTER_TURNS[v];
-}
-
-/** One wall's lateral door offset, or `undefined` for auto-centre.
- *
- *  An ABSENT key normalises to the {@link AUTO_CENTRE} sentinel FIRST, so
- *  "key omitted" and "key set to -1" reach auto-centre through the same single
- *  branch and cannot drift apart. Absence is the same recorded-params
- *  allowance {@link rotParam} documents.
- *
- *  @throws {@link Error} if the value is present but not an integer in the
- *    schema's [minimum, maximum]. The schema range is a static supremum over
- *    admissible geometries; the REAL per-wall bound is
- *    {@link assertDoorOffsetFits}. */
-function doorOffsetParam(
-  label: string,
-  params: Record<string, unknown>,
-  key: string,
-  range: { minimum: number; maximum: number },
-): number | undefined {
-  const raw =
-    params[key] === undefined
-      ? AUTO_CENTRE
-      : intParam(label, params, key, range);
-  return raw === AUTO_CENTRE ? undefined : raw;
-}
+/** The door fields as they come off a zod-parsed hall/maze record — what
+ *  {@link doorsOf} consumes; both generators' param tables satisfy it. */
+type ParsedDoorParams = {
+  [K in (typeof WALLS)[number]["enable"]]: boolean;
+} & {
+  [K in (typeof WALLS)[number]["offsetKey"]]?: number | undefined;
+};
 
 /** The enabled doorways with their resolved offsets, in {@link WALLS} order —
- *  the ONE door-authoring convention both generators parse through.
+ *  the ONE door-authoring convention both generators assemble through.
  *
- *  EVERY wall's offset is parsed, including walls whose door is switched off,
- *  and only the enabled ones are returned. Validating just the enabled walls
- *  would let a malformed offset on a disabled door slip through into the
- *  persisted `GeneratorEntity.params` (which `reconfigureGenerator` re-evaluates
- *  as a COMPLETE replacement set), and detonate later when the user toggles that
- *  door on — an error about a value they never touched. Every other knob in this
- *  module validates unconditionally; doors are not an exception.
- *
- *  @throws {@link Error} if any wall's enable flag is not a boolean, or any
- *    wall's offset is present but not an integer in `offsetRange` — whether or
- *    not that wall's door is enabled. */
-function doorsParam(
-  label: string,
-  params: Record<string, unknown>,
-  offsetRange: { minimum: number; maximum: number },
-): DoorSpec[] {
+ *  EVERY wall's offset is schema-validated at parse, including walls whose
+ *  door is switched off (they are ordinary schema fields), so a malformed
+ *  offset on a disabled door can never slip into the persisted
+ *  `GeneratorEntity.params` and detonate when that door is later toggled on.
+ *  An ABSENT key parses to the {@link AUTO_CENTRE} sentinel (the schema
+ *  default — the recorded-params allowance: pre-F3a entities carry none of
+ *  these keys), so "key omitted" and "key set to -1" reach auto-centre through
+ *  the same single branch and cannot drift apart. */
+function doorsOf(p: ParsedDoorParams): DoorSpec[] {
   const doors: DoorSpec[] = [];
   for (const w of WALLS) {
-    const offset = doorOffsetParam(label, params, w.offsetKey, offsetRange);
-    if (boolParam(label, params, w.enable))
-      doors.push({ wall: w.wall, offsetKey: w.offsetKey, offset });
+    if (!p[w.enable]) continue;
+    const raw = p[w.offsetKey];
+    doors.push({
+      wall: w.wall,
+      offsetKey: w.offsetKey,
+      offset: raw === undefined || raw === AUTO_CENTRE ? undefined : raw,
+    });
   }
   return doors;
 }
@@ -491,8 +424,8 @@ const hallOffset = () =>
 // carry `"cells"` and not `"m"`: a hall of width 8 is 4 m across, and a metre
 // suffix on this row would be a false statement in the UI. Required params
 // carry `.meta({ default })` (form metadata; a missing key still throws);
-// the post-hoc optional ones (`OPTIONAL_PARAM_KEYS`) carry
-// `.default().optional()` — see GeneratorDeclaration's TSDoc.
+// the post-hoc optional ones carry `.default().optional()` — the
+// optional-bucket rule above, spelled out in GeneratorDeclaration's TSDoc.
 const HALL_PARAMS = {
   width: z
     .number()
@@ -537,16 +470,7 @@ const HALL_PARAMS = {
  *  wall — {@link assertDoorOffsetFits}, the cross-field rule the schema range
  *  (a static supremum) cannot express. */
 function hallParams(p: z.output<z.ZodObject<typeof HALL_PARAMS>>): HallParams {
-  const doors: DoorSpec[] = [];
-  for (const w of WALLS) {
-    if (!p[w.enable]) continue;
-    const raw = p[w.offsetKey];
-    doors.push({
-      wall: w.wall,
-      offsetKey: w.offsetKey,
-      offset: raw === undefined || raw === AUTO_CENTRE ? undefined : raw,
-    });
-  }
+  const doors = doorsOf(p);
   // A hall offset counts COARSE CELLS along its wall, so the wall's interior
   // length bounds it: north/south run along width, east/west along depth.
   for (const door of doors) {
@@ -788,44 +712,43 @@ function carveBlock(
       for (let i = i0; i < i0 + wCells; i++) gridSet(g, i, j, k, AIR);
 }
 
-/** The maze's door-offset schema range. A maze offset counts MAZE CELLS, so
- *  the supremum is one less than the largest admissible cell count (8 − 1 = 7);
+/** The maze's door-offset param. A maze offset counts MAZE CELLS, so the
+ *  supremum is one less than the largest admissible cell count (8 − 1 = 7);
  *  {@link assertDoorOffsetFits} enforces the tighter per-maze bound. */
-const MAZE_OFFSET_RANGE = {
-  type: "number",
-  minimum: AUTO_CENTRE,
-  maximum: 7,
-  multipleOf: 1,
-  default: AUTO_CENTRE,
-} as const;
+const mazeOffset = () =>
+  z
+    .number()
+    .min(AUTO_CENTRE)
+    .max(7)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .default(AUTO_CENTRE)
+    .optional();
 
-const MAZE_PROPERTIES = {
+const MAZE_PARAMS = {
   // The names already say the unit, so no `furnace.unit` — "Cells X 3 cells".
-  cellsX: { type: "number", minimum: 2, maximum: 8, multipleOf: 1, default: 3 },
-  cellsZ: { type: "number", minimum: 2, maximum: 8, multipleOf: 1, default: 3 },
-  braid: { type: "number", minimum: 0, maximum: 1, default: 0.25 },
-  rotation: { enum: ROTATIONS, default: "0" },
-  doorNorth: { type: "boolean", default: true },
-  doorSouth: { type: "boolean", default: false },
-  doorEast: { type: "boolean", default: false },
-  doorWest: { type: "boolean", default: false },
-  doorNorthOffset: MAZE_OFFSET_RANGE,
-  doorSouthOffset: MAZE_OFFSET_RANGE,
-  doorEastOffset: MAZE_OFFSET_RANGE,
-  doorWestOffset: MAZE_OFFSET_RANGE,
-} as const;
-
-const MAZE_SCHEMA = {
-  type: "object",
-  properties: MAZE_PROPERTIES,
-  required: requiredKeys(MAZE_PROPERTIES),
-} as const;
-
-/** The schema's per-property defaults, DERIVED (never restated) — the
- *  HALL_DEFAULTS pattern. */
-const MAZE_DEFAULTS: Record<string, unknown> = Object.fromEntries(
-  Object.entries(MAZE_SCHEMA.properties).map(([k, p]) => [k, p.default]),
-);
+  cellsX: z
+    .number()
+    .min(2)
+    .max(8)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 3 }),
+  cellsZ: z
+    .number()
+    .min(2)
+    .max(8)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 3 }),
+  braid: z.number().min(0).max(1).meta({ default: 0.25 }),
+  rotation: z.enum(ROTATIONS).default("0").optional(),
+  doorNorth: z.boolean().meta({ default: true }),
+  doorSouth: z.boolean().meta({ default: false }),
+  doorEast: z.boolean().meta({ default: false }),
+  doorWest: z.boolean().meta({ default: false }),
+  doorNorthOffset: mazeOffset(),
+  doorSouthOffset: mazeOffset(),
+  doorEastOffset: mazeOffset(),
+  doorWestOffset: mazeOffset(),
+};
 
 /** The maze's narrowed, range-validated params. `doors` holds one
  *  {@link DoorSpec} per ENABLED wall — wall, offset param key, and resolved
@@ -839,25 +762,24 @@ type MazeParams = {
   doors: DoorSpec[];
 };
 
-/** Narrows + range-validates maze params (ranges from MAZE_SCHEMA), throwing
- *  setup-loud on a missing, mistyped, or out-of-range field. Braid is a REAL
- *  number in [0, 1] (numParam); the cell counts are integers. */
-function mazeParams(params: Record<string, unknown>): MazeParams {
-  const p = MAZE_SCHEMA.properties;
-  const cellsX = intParam("maze", params, "cellsX", p.cellsX);
-  const cellsZ = intParam("maze", params, "cellsZ", p.cellsZ);
-  const doors = doorsParam("maze", params, MAZE_OFFSET_RANGE);
+/** Assembles evaluate's working params from the zod-parsed record — the
+ *  {@link hallParams} pattern: doors via {@link doorsOf}, the rotation string
+ *  mapped to its quarter turn, and each enabled door's offset checked against
+ *  ITS wall's cell count (braid stays a REAL number in [0, 1] — no integer
+ *  notch on the schema). */
+function mazeParams(p: z.output<z.ZodObject<typeof MAZE_PARAMS>>): MazeParams {
+  const doors = doorsOf(p);
   // A maze offset counts MAZE CELLS, so the wall's cell count bounds it:
   // north/south run along cellsX, east/west along cellsZ.
   for (const door of doors) {
-    const alongCells = runsAlongX(door.wall) ? cellsX : cellsZ;
+    const alongCells = runsAlongX(door.wall) ? p.cellsX : p.cellsZ;
     assertDoorOffsetFits("maze", door, alongCells - 1, "maze cells");
   }
   return {
-    cellsX,
-    cellsZ,
-    braid: numParam("maze", params, "braid", p.braid),
-    rotation: rotParam("maze", params),
+    cellsX: p.cellsX,
+    cellsZ: p.cellsZ,
+    braid: p.braid,
+    rotation: QUARTER_TURNS[p.rotation ?? "0"],
     doors,
   };
 }
@@ -882,16 +804,15 @@ function mazeParams(params: Record<string, unknown>): MazeParams {
  *  @throws {@link Error} if any param is missing, mistyped or out of its schema
  *    range; if a door offset does not fit its wall's cell count; if a door's
  *    walk lane is blocked; or if the catalog has no kit class. */
-const mazeGenerator: GeneratorDef = {
+const mazeGenerator: GeneratorDef = defineGenerator({
   id: "maze",
   name: "Maze",
-  paramSchema: MAZE_SCHEMA,
-  defaults: MAZE_DEFAULTS,
+  params: MAZE_PARAMS,
   contextFree: true, // seeded-but-pure; no field reads
   emits: "ops", // a pure carver — the passage stamp, no placed instances
   usesSeed: true, // the carve plan is seeded (fnv1a(String(seed)))
   evaluate(params, seed, region, table, policy) {
-    const p = mazeParams(params); // narrow + range-validate, setup-loud
+    const p = mazeParams(params); // doors + rotation + the cross-field check
     const w = PITCH * p.cellsX - 1;
     const d = PITCH * p.cellsZ - 1;
     const dims: [number, number, number] = [w + 2, MAZE_H_CELLS + 2, d + 2];
@@ -955,7 +876,7 @@ const mazeGenerator: GeneratorDef = {
     for (const op of ops) assertOpValid(op, table);
     return { ops, placements: [] };
   },
-};
+});
 
 /** The staged-generator registry — the one plug point (a new vocabulary = one
  *  entry here; nothing downstream dispatches on generator identity). */
