@@ -438,7 +438,7 @@ describe("scatter — param validation (setup-loud)", () => {
       {
         name: "density out of range",
         over: { density: 999 },
-        msg: /density must be a number/,
+        msg: /invalid at "density"/,
       },
       {
         name: "scaleMax < scaleMin",
@@ -448,12 +448,12 @@ describe("scatter — param validation (setup-loud)", () => {
       {
         name: "unknown orientation",
         over: { orientation: "sideways" },
-        msg: /orientation must be one of/,
+        msg: /invalid at "orientation".*one of/,
       },
       {
         name: "non-integer variants",
         over: { variants: 2.5 },
-        msg: /variants must be an integer/,
+        msg: /invalid at "variants".*must be an integer/,
       },
     ];
   for (const c of cases)

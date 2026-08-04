@@ -14,8 +14,9 @@
 // quaternions are built from sqrt-only half-angle and shortest-arc formulae, and
 // the blend is nlerp (normalized lerp) — NEVER slerp/trig.
 
+import { z } from "../registry/index.ts";
 import { getDensity, worldToVoxel } from "./chunks.ts";
-import { boolParam, intParam, numParam } from "./generator-params.ts";
+import { defineGenerator, MUST_BE_INTEGER } from "./registry.ts";
 import { fnv1a, makeIntRng, rand01, randInt } from "./rng.ts";
 import type {
   FieldStore,
@@ -61,113 +62,42 @@ const clampInt = (v: number, lo: number, hi: number): number =>
 
 // ─── params ───
 const ORIENTATIONS = ["gravity", "normal", "blend"] as const;
-type Orientation = (typeof ORIENTATIONS)[number];
-const isOrientation = (v: unknown): v is Orientation =>
-  ORIENTATIONS.some((o) => o === v);
 const HEMISPHERES = ["floor", "wall", "ceiling"] as const;
 type Hemisphere = (typeof HEMISPHERES)[number];
-const isHemisphere = (v: unknown): v is Hemisphere =>
-  HEMISPHERES.some((h) => h === v);
 
-const SCATTER_PROPERTIES = {
-  archetypeId: { type: "string", default: "rock" },
-  density: { type: "number", minimum: 0.05, maximum: 2, default: 0.3 },
+// Every key has been present since scatter's first release, so ALL TEN are
+// REQUIRED — the optional-bucket rule in generators.ts (only params that
+// POSTDATE persisted entities are optional). `.meta({ default })` throughout:
+// form metadata, a missing key still throws. `.min(1)` on archetypeId absorbs
+// the old bespoke non-empty check.
+const SCATTER_PARAMS = {
+  archetypeId: z.string().min(1).meta({ default: "rock" }),
+  density: z.number().min(0.05).max(2).meta({ default: 0.3 }),
   // METRES: the candidate lattice pitch is `max(minSpacing, 1/sqrt(density))`
   // metres and the acceptance filter measures a world-space distance.
-  minSpacing: {
-    type: "number",
-    minimum: 0.25,
-    maximum: 8,
-    default: 1.0,
-    furnace: { unit: "m" },
-  },
-  scaleMin: { type: "number", minimum: 0.05, maximum: 8, default: 0.6 },
-  scaleMax: { type: "number", minimum: 0.05, maximum: 8, default: 1.6 },
-  randomYaw: { type: "boolean", default: true },
-  orientation: { enum: ORIENTATIONS, default: "gravity" },
-  blend: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
-  hemisphere: { enum: HEMISPHERES, default: "floor" },
-  variants: {
-    type: "number",
-    minimum: 1,
-    maximum: 8,
-    multipleOf: 1,
-    default: 3,
-  },
-} as const;
-
-const SCATTER_SCHEMA = {
-  type: "object",
-  description:
-    "Scatter prop instances onto carved surfaces (floor / wall / ceiling) — reads the field to project onto rock↔air crossings, emitting explicit placements (no field-cell writes). Deterministic: same params + seed + carved field reproduce the same records.",
-  properties: SCATTER_PROPERTIES,
-  // Every key has been present since scatter's first release, so all are
-  // REQUIRED — the standing rule (only params that POSTDATE persisted entities
-  // are optional). GeneratorDef.defaults carries them all explicitly.
-  required: Object.keys(SCATTER_PROPERTIES),
-} as const;
-
-/** The schema's per-property defaults, DERIVED (never restated) — the
- *  HALL_DEFAULTS pattern. */
-const SCATTER_DEFAULTS: Record<string, unknown> = Object.fromEntries(
-  Object.entries(SCATTER_SCHEMA.properties).map(([k, p]) => [k, p.default]),
-);
-
-type ScatterParams = {
-  archetypeId: string;
-  density: number;
-  minSpacing: number;
-  scaleMin: number;
-  scaleMax: number;
-  randomYaw: boolean;
-  orientation: Orientation;
-  blend: number;
-  hemisphere: Hemisphere;
-  variants: number;
+  minSpacing: z
+    .number()
+    .min(0.25)
+    .max(8)
+    .meta({ default: 1.0, furnace: { unit: "m" } }),
+  scaleMin: z.number().min(0.05).max(8).meta({ default: 0.6 }),
+  scaleMax: z.number().min(0.05).max(8).meta({ default: 1.6 }),
+  randomYaw: z.boolean().meta({ default: true }),
+  orientation: z.enum(ORIENTATIONS).meta({ default: "gravity" }),
+  blend: z.number().min(0).max(1).meta({ default: 0.5 }),
+  hemisphere: z.enum(HEMISPHERES).meta({ default: "floor" }),
+  variants: z
+    .number()
+    .min(1)
+    .max(8)
+    .multipleOf(1, MUST_BE_INTEGER)
+    .meta({ default: 3 }),
 };
 
-/** Narrows + range-validates scatter params (ranges from SCATTER_SCHEMA),
- *  throwing setup-loud on a missing, mistyped, or out-of-range field — the
- *  hall/maze/cave stance. `scaleMax >= scaleMin` is enforced too (a reversed
- *  pair is a caller error, not silently swapped). */
-function scatterParams(params: Record<string, unknown>): ScatterParams {
-  // Bounds are single-sourced from the schema properties (the cave pattern) —
-  // the validators read `{minimum, maximum}` straight off each property object.
-  const P = SCATTER_SCHEMA.properties;
-  const archetypeId = params["archetypeId"];
-  if (typeof archetypeId !== "string" || archetypeId.length === 0)
-    throw new Error(
-      `scatter: archetypeId must be a non-empty string, got ${JSON.stringify(archetypeId)}`,
-    );
-  const orientation = params["orientation"];
-  if (!isOrientation(orientation))
-    throw new Error(
-      `scatter: orientation must be one of ${ORIENTATIONS.map((o) => `"${o}"`).join(" | ")}, got ${JSON.stringify(orientation)}`,
-    );
-  const hemisphere = params["hemisphere"];
-  if (!isHemisphere(hemisphere))
-    throw new Error(
-      `scatter: hemisphere must be one of ${HEMISPHERES.map((h) => `"${h}"`).join(" | ")}, got ${JSON.stringify(hemisphere)}`,
-    );
-  const scaleMin = numParam("scatter", params, "scaleMin", P.scaleMin);
-  const scaleMax = numParam("scatter", params, "scaleMax", P.scaleMax);
-  if (scaleMax < scaleMin)
-    throw new Error(
-      `scatter: scaleMax (${scaleMax}) must be >= scaleMin (${scaleMin})`,
-    );
-  return {
-    archetypeId,
-    density: numParam("scatter", params, "density", P.density),
-    minSpacing: numParam("scatter", params, "minSpacing", P.minSpacing),
-    scaleMin,
-    scaleMax,
-    randomYaw: boolParam("scatter", params, "randomYaw"),
-    orientation,
-    blend: numParam("scatter", params, "blend", P.blend),
-    hemisphere,
-    variants: intParam("scatter", params, "variants", P.variants),
-  };
-}
+/** The zod-parsed scatter params — what every helper below consumes.
+ *  `scaleMax >= scaleMin` is cross-field and stays plain code at the top of
+ *  evaluate (a reversed pair is a caller error, not silently swapped). */
+type ScatterParams = z.output<z.ZodObject<typeof SCATTER_PARAMS>>;
 
 // ─── region → sample bounds ───
 type SampleBounds = {
@@ -641,25 +571,31 @@ function scatter(
  *  @throws {@link Error} if any param is missing, mistyped, or out of its schema
  *    range (setup-loud); if `scaleMax < scaleMin`; or if the candidate lattice
  *    exceeds {@link MAX_CANDIDATES} (shrink the region or lower density). */
-export const scatterGenerator: GeneratorDef = {
+export const scatterGenerator: GeneratorDef = defineGenerator({
   id: "scatter",
   name: "Scatter",
-  paramSchema: SCATTER_SCHEMA,
-  defaults: SCATTER_DEFAULTS,
+  params: SCATTER_PARAMS,
+  description:
+    "Scatter prop instances onto carved surfaces (floor / wall / ceiling) — reads the field to project onto rock↔air crossings, emitting explicit placements (no field-cell writes). Deterministic: same params + seed + carved field reproduce the same records.",
   contextFree: false, // reads the field to project onto surfaces
   emits: "placements", // a pure placer — writes no field cells at all
   usesSeed: true, // lattice jitter, yaw, scale and variant all draw from it
-  evaluate(params, seed, region, table, policy, ctx): GeneratorResult {
+  evaluate(p, seed, region, table, policy, ctx): GeneratorResult {
     void table; // scatter writes no cells and needs no material catalog
     void policy; // scatter emits placements, not merge-policied field ops
     if (ctx === undefined)
       throw new Error(
         "scatter: evaluate requires an EvaluateContext (field access)",
       );
-    const p = scatterParams(params); // narrow + range-validate, setup-loud
+    // Cross-field: the schema ranges admit each scale alone; the PAIR is
+    // checked here (a reversed pair is a caller error, not silently swapped).
+    if (p.scaleMax < p.scaleMin)
+      throw new Error(
+        `scatter: scaleMax (${p.scaleMax}) must be >= scaleMin (${p.scaleMin})`,
+      );
     const cell = ctx.store.cellSize;
     const sb = sampleBounds(region, cell);
     const placements = scatter(ctx.store, p, seed, region, sb, cell);
     return { ops: [], placements };
   },
-};
+});

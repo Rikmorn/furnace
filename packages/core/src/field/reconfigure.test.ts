@@ -1331,7 +1331,7 @@ describe("reconfigureGenerator — contextFree:false re-cook + placement drift",
         { params: { ...SCATTER_PARAMS(), density: 999 } },
         TABLE,
       ),
-    ).toThrow(/density must be a number/);
+    ).toThrow(/invalid at "density"/);
 
     expect(snapshotAll(store)).toEqual(beforeStore);
     expect(snapshotLog(log)).toEqual(beforeLog);
