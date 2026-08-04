@@ -1,4 +1,4 @@
-import { encodeMeshBlob } from "@furnace/core/scene";
+import { encodeMeshBlob } from "../mesh-blob/index.ts";
 import {
   CHUNK_DIM,
   CHUNK_SAMPLES,

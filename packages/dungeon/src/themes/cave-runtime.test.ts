@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeMeshBlob, encodeMeshBlob } from "@furnace/core/scene";
+import { decodeMeshBlob, encodeMeshBlob } from "@furnace/core/mesh-blob";
 import { cave, caveDressing, caveProxy } from "./cave.ts";
 
 // Parity contract: the runtime paths (proxy without meshing; dressing from the DECODED

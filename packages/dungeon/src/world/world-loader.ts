@@ -12,12 +12,9 @@
 // loudly beats silently degrading.
 import type { Context } from "@furnace/core/gpu";
 import type * as mesh from "@furnace/core/mesh";
+import { decodeMeshBlob } from "@furnace/core/mesh-blob";
 import * as physics from "@furnace/core/physics";
-import {
-  decodeMeshBlob,
-  loadScene,
-  type SceneDocument,
-} from "@furnace/core/scene";
+import { loadScene, type SceneDocument } from "@furnace/core/scene";
 import { isFieldManifest, loadFieldWorld } from "../field/field-world.ts";
 import { type CaveParams, caveDressing, caveProxy } from "../themes/cave.ts";
 import {

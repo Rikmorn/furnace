@@ -1,4 +1,4 @@
-import { encodeMeshBlob } from "@furnace/core/scene";
+import { encodeMeshBlob } from "@furnace/core/mesh-blob";
 import { bakeCavernMesh } from "../src/themes/cave.ts";
 
 // Throwaway one-shot baker for the cavern grotto. Since 2.2.2 the cavern mesh comes

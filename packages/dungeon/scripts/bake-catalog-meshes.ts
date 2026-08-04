@@ -20,7 +20,7 @@
 // real sizing. Smooth normals are recomputed area-weighted from the welded topology.
 
 import { resolve } from "node:path";
-import { encodeMeshBlob, type MeshBlob } from "@furnace/core/scene";
+import { encodeMeshBlob, type MeshBlob } from "@furnace/core/mesh-blob";
 
 type RenderBlock = MeshBlob["render"];
 type V3 = [number, number, number];

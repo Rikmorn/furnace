@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { decodeMeshBlob } from "@furnace/core/scene";
+import { decodeMeshBlob } from "@furnace/core/mesh-blob";
 import { bakeCatalogMeshes } from "../scripts/bake-catalog-meshes.ts";
 
 const MESHES_DIR = resolve(import.meta.dir, "../catalog/meshes");

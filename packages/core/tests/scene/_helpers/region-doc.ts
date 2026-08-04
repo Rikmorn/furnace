@@ -1,4 +1,4 @@
-import { encodeMeshBlob } from "../../../src/scene/mesh-blob.ts";
+import { encodeMeshBlob } from "../../../src/mesh-blob/index.ts";
 import type { EntityDoc, SceneDocument } from "../../../src/scene/types.ts";
 
 /** An encoded .fmesh for a 2-triangle floor quad (render == collision). */

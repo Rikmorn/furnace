@@ -50,21 +50,20 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // own"). (2) The two instances share no module-level state: our copy runs only the
 // pure column pass and the placement rasterizer, the bundle's copy owns the physics
 // context and the collider derivation, and neither reads the other's registries.
-// That is a claim about EXECUTION, not about bundle content: the physics module
-// (Rapier's wasm-bindgen glue and all) DOES ship inside analyzer-worker.js, and no code
+// That is a claim about EXECUTION, not about bundle content: even when the physics
+// module (Rapier's wasm-bindgen glue and all) ships inside a worker bundle, no code
 // path in this realm calls it. The lever is one VALUE import, not the module graph of
-// `@furnace/core/field` generally — that entry alone reaches only `transform/` and
-// `log/` and bundles to 15 KB. What drags the rest in is
-// `packages/core/src/field/artifact.ts` importing `encodeMeshBlob` from
-// `@furnace/core/scene`, and the scene graph pulls gpu/mesh/material/physics/post behind
-// it: measured 2026-07-26, a throwaway entry importing only `@furnace/core/field`
-// bundles to 208 modules with `rapier` in it, and to 31 modules without, once
-// `@furnace/core/scene` is marked external — ~2.9 MB against ~15 KB, though the
-// BYTE figures move with the probe entry's import form and the module counts do
-// not (the backlog entry names the exact entry). Filed as
-// `docs/backlog/engine-architecture/field-module-pulls-whole-engine.md`. The same is
-// already true of field-worker.js (both ~2.65 MB on the daemon-served bundle). The cost
-// is a second copy of core's JS in the worker's memory, which is accepted.
+// `@furnace/core/field` generally. Historically (measured 2026-07-26) that one import
+// dragged the whole engine in: `packages/core/src/field/artifact.ts` imported
+// `encodeMeshBlob` through `@furnace/core/scene`, whose graph pulled
+// gpu/mesh/material/physics/post behind it — a throwaway entry importing only
+// `@furnace/core/field` bundled to 208 modules with `rapier` in it (~2.9 MB, against
+// ~15 KB with scene marked external). Resolved 2026-08-04 (foundations T1a): the
+// codec is its own engine-tier leaf module, `@furnace/core/mesh-blob`, and a
+// field-only entry bundles no rapier at all. What still ships in these worker
+// bundles is whatever the dungeon pass graph itself pulls; the exemption never
+// depended on that being small. The cost is a second copy of core's JS in the
+// worker's memory, which is accepted.
 //
 // Exempt files may (1) value-import @furnace/core AND (2) value-import a core-carrying
 // protocol module — they ARE those bundles (field-worker.ts value-imports

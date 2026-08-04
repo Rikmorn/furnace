@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decodeMeshBlob, encodeMeshBlob } from "./mesh-blob.ts";
+import { decodeMeshBlob, encodeMeshBlob } from "./index.ts";
 
 test("encode→decode round-trips render buffers exactly", () => {
   const render = {

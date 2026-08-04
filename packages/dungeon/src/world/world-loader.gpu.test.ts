@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import * as gpu from "@furnace/core/gpu";
+import { decodeMeshBlob } from "@furnace/core/mesh-blob";
 import * as physics from "@furnace/core/physics";
-import { decodeMeshBlob } from "@furnace/core/scene";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,

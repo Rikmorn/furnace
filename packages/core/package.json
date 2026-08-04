@@ -18,6 +18,7 @@
     "./binding": "./src/binding/index.ts",
     "./shader": "./src/shader/index.ts",
     "./mesh": "./src/mesh/index.ts",
+    "./mesh-blob": "./src/mesh-blob/index.ts",
     "./post": "./src/post/index.ts",
     "./physics": "./src/physics/index.ts",
     "./rigid-mesh": "./src/rigid-mesh/index.ts",

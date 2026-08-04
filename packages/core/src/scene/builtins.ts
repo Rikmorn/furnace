@@ -11,6 +11,7 @@ import * as material from "../material/index.ts";
 import type { Material } from "../material/types.ts";
 import * as mesh from "../mesh/index.ts";
 import type { Mesh } from "../mesh/types.ts";
+import { decodeMeshBlob } from "../mesh-blob/index.ts";
 import type { ShapeDescriptor } from "../physics/index.ts";
 import * as post from "../post/index.ts";
 import * as rigidMesh from "../rigid-mesh/index.ts";
@@ -19,7 +20,6 @@ import * as texture from "../texture/index.ts";
 import { quat } from "../transform/quat.ts";
 import { vec3 } from "../transform/vec3.ts";
 import { vec4 } from "../transform/vec4.ts";
-import { decodeMeshBlob } from "./mesh-blob.ts";
 import {
   defineComponent,
   defineResource,

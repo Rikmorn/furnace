@@ -13,10 +13,10 @@
 // transform positions them in world (the 3.0 baker convention — avoids a
 // double-offset). The manifest is written LAST (crash-safety: an interrupted bake
 // leaves no manifest, so a torn world never loads).
+import { encodeMeshBlob } from "@furnace/core/mesh-blob";
 import {
   CURRENT_SCENE_VERSION,
   type EntityDoc,
-  encodeMeshBlob,
   type SceneDocument,
 } from "@furnace/core/scene";
 import type { HallParams } from "../themes/hall.ts";
