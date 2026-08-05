@@ -45,16 +45,16 @@ export type { CascadeTeardownSlot } from "./dispose.ts";
  */
 export { INVALID_HANDLE } from "./handle.ts";
 /**
- * Construct a Context's resource manager — empty pools for every resource kind
- * plus empty pipeline caches — and the shape it returns. Engine-internal:
- * `gpu.createInternalState` and `gpu.requestContext` are the only callers.
- */
-/**
- * The two refcounted, ctx-scoped GPU-pipeline caches. `acquire*` builds on a
- * miss and bumps the refcount on a hit; `release*` evicts at zero and no-ops on
- * an unknown key. The `Sync` variant exists for `frame.render`'s synchronous
- * hot path. Engine-internal: `material.pipeline` and `post.pipeline-cache` own
- * the keys.
+ * The manager side of the seam, one statement (the formatter merges same-source
+ * exports). `createResourceManager` constructs a Context's resource manager —
+ * empty pools for every resource kind plus empty pipeline caches — and
+ * `ResourceManager` is the shape it returns; `gpu.createInternalState` and
+ * `gpu.requestContext` are the only construction callers. The `acquire*` /
+ * `release*` pairs are the two refcounted, ctx-scoped GPU-pipeline caches:
+ * `acquire*` builds on a miss and bumps the refcount on a hit; `release*`
+ * evicts at zero and no-ops on an unknown key. The `Sync` variant exists for
+ * `frame.render`'s synchronous hot path. Engine-internal: `material.pipeline`
+ * and `post.pipeline-cache` own the cache keys.
  */
 export {
   acquireMaterialPipeline,
