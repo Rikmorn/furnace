@@ -4,12 +4,12 @@ import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
 import { MaterialCache } from "../src/world/realize.ts";
 import { loadWorld } from "../src/world/world-loader.ts";
+import { bakedFetchStub, runWalk } from "./_helpers/field-walk.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "./_helpers/gpu-fixture.ts";
-import { bakedFetchStub, runWalk } from "./_helpers/walk-fixture.ts";
 
 // One Field · F1 Task 11 — THE GATE: dig a tunnel in memory, bake it (v2 field artifact), serve
 // the bake through the fetch stub, load it through the REAL `loadWorld` (which gates on the v2

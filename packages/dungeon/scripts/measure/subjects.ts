@@ -92,7 +92,7 @@ export function chamberSeeds(
  *
  *  The rest offset is derived from {@link AGENT} here, so it cannot drift from the profile the
  *  analyzer reads. Note that is only true of THIS side: the harness computes the same offset
- *  from a LOCAL literal (`walk-fixture.ts`'s `CAPSULE = { halfHeight: 0.6, radius: 0.3 }`), not
+ *  from a LOCAL literal (`field-walk.ts`'s `CAPSULE = { halfHeight: 0.6, radius: 0.3 }`), not
  *  from `catalog/agent.json`. The two agree at 0.9 m today by coincidence of two independent
  *  sources, not by construction. Nothing here depends on the exact value — `seedAnchor` snaps
  *  DOWN to the floor, so any Y inside the chamber's air lands on the same anchor — but do not

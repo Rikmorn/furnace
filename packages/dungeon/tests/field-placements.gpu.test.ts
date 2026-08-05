@@ -52,16 +52,12 @@ import { MaterialCache } from "../src/world/realize.ts";
 import type { Vec3 } from "../src/world/region.ts";
 import { loadWorld } from "../src/world/world-loader.ts";
 import { at, expectDefined } from "./_helpers/expect.ts";
+import { bakedFetchStub, REST_OFFSET, runWalk } from "./_helpers/field-walk.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "./_helpers/gpu-fixture.ts";
-import {
-  bakedFetchStub,
-  REST_OFFSET,
-  runWalk,
-} from "./_helpers/walk-fixture.ts";
 
 await ensureBunWebGpu();
 

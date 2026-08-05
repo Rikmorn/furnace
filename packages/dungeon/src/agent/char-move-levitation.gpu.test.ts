@@ -84,7 +84,7 @@ test.skipIf(!bunWebGpuAvailable())(
         physics.setBodyNextKinematicTranslation(ctx, body, pos);
         physics.step(ctx, world, DT);
         // Settle window: bodies aren't queryable until the world has stepped
-        // (the walk-fixture harness settles 3 frames for the same reason).
+        // (the field-walk harness settles 3 frames for the same reason).
         if (i < 3) continue;
         expect(res.grounded).toBe(true);
         // The levitator climbed +0.4 m/frame; a resting capsule must hold height.

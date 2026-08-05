@@ -12,7 +12,7 @@
 //
 // The walk plumbing (bake -> stub fetch -> loadWorld -> runWalk against the per-chunk shell
 // voxel colliders — the SAME collision the game uses) is lifted from field-world.gpu.test.ts;
-// `runWalk` + `bakedFetchStub` are reused VERBATIM from tests/_helpers/walk-fixture.ts. Only
+// `runWalk` + `bakedFetchStub` are reused VERBATIM from tests/_helpers/field-walk.ts. Only
 // the cave fixture build, the skeleton-derived lanes, and the classifier are new.
 //
 // DEVIATIONS from the plan's literal recipe (each justified in place below):
@@ -61,18 +61,18 @@ import {
 } from "./_helpers/cave-matrix.ts";
 import { at } from "./_helpers/expect.ts";
 import {
-  bunWebGpuAvailable,
-  ensureBunWebGpu,
-  makeOffscreenCanvas,
-} from "./_helpers/gpu-fixture.ts";
-import {
   along,
   bakedFetchStub,
   FRAME_STEP,
   REST_OFFSET,
   runWalk,
   SPAWN_RISE,
-} from "./_helpers/walk-fixture.ts";
+} from "./_helpers/field-walk.ts";
+import {
+  bunWebGpuAvailable,
+  ensureBunWebGpu,
+  makeOffscreenCanvas,
+} from "./_helpers/gpu-fixture.ts";
 
 await ensureBunWebGpu();
 
@@ -86,7 +86,7 @@ const RISER = DEFAULT_CELL_SIZE; // 0.25 m
  *  walkability backlog records). */
 const SKIN_MARGIN = 0.05;
 /** Capsule centre height above the floor at spawn — grounded rest + a touch, so the first
- *  frame settles rather than teleports (the analyzer-probe / walk-fixture convention). */
+ *  frame settles rather than teleports (the analyzer-probe / field-walk convention). */
 const SPAWN_ABOVE_FLOOR = REST_OFFSET + SPAWN_RISE; // 1.0 m
 /** Passage headroom the cave carves above a floor (`cave.ts` PASSAGE_HEIGHT) — sizes the
  *  per-lane ceiling guard so a legitimate stepped climb never reads as a launch. */

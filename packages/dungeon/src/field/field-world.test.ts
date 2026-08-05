@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import * as field from "@furnace/core/field";
 import * as gpu from "@furnace/core/gpu";
 import * as physics from "@furnace/core/physics";
+import { bakedFetchStub } from "../../tests/_helpers/field-walk.ts";
 import {
   bunWebGpuAvailable,
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../../tests/_helpers/gpu-fixture.ts";
-import { bakedFetchStub } from "../../tests/_helpers/walk-fixture.ts";
 import { MaterialCache } from "../world/realize.ts";
 import type { MaterialDescriptor } from "../world/region.ts";
 import type { LoadedWorld } from "../world/world-loader.ts";

@@ -24,7 +24,7 @@ import { placementCollider } from "../world/placement-collider.ts";
 import { type Capsule, CharacterMover, GROUND_SNAP } from "./char-move.ts";
 import { AGENT } from "./walkability.ts";
 
-// The drive loop is `tests/_helpers/walk-fixture.ts` runWalk's, constant for constant: the probe
+// The drive loop is `tests/_helpers/field-walk.ts` runWalk's, constant for constant: the probe
 // must move the capsule exactly the way the game does, or its verdicts are about a different
 // mover than the one that ships.
 const DT = 1 / 60;
@@ -34,9 +34,9 @@ const SPEED = 3;
 const FRAME_STEP = SPEED * DT;
 /** ~4 s per lane. A lane needs ~1.7 m (approach + clear bar); this is ~12 m of slack. */
 const MAX_ITERS = 240;
-/** ~0.75 s of no horizontal progress = wedged (walk-fixture's MAX_STALL_FRAMES). */
+/** ~0.75 s of no horizontal progress = wedged (field-walk's MAX_STALL_FRAMES). */
 const STALL_LIMIT = 45;
-/** Per-frame horizontal progress at or below this is no progress (walk-fixture's literal). */
+/** Per-frame horizontal progress at or below this is no progress (field-walk's literal). */
 const STALL_EPS = 0.005;
 
 /** Preferred spawn distance before the flag, against the sweep direction. */
@@ -47,7 +47,7 @@ const APPROACH_M = 1.2;
 const MIN_APPROACH_M = 0.9;
 const MAX_APPROACH_M = 2.0;
 const APPROACH_STEP_M = 0.25;
-/** Spawn a touch above rest so frame 1 settles rather than teleports (walk-fixture). */
+/** Spawn a touch above rest so frame 1 settles rather than teleports (field-walk). */
 const SPAWN_RISE = 0.1;
 /** Lateral nudges (m, perpendicular to the sweep dir) tried when the flag's own line is not a
  *  legal capsule pose. A floor cell whose centre is under a capsule radius from a wall is
@@ -200,7 +200,7 @@ type Budget = { readonly startedAt: number; readonly limitMs: number };
 const budgetSpent = (b: Budget): number => performance.now() - b.startedAt;
 const budgetExpired = (b: Budget): boolean => budgetSpent(b) >= b.limitMs;
 
-/** Scalar advance of a point along a horizontal unit direction (walk-fixture's `along`). */
+/** Scalar advance of a point along a horizontal unit direction (field-walk's `along`). */
 const along = (p: Vec3, dir: Vec3): number => p[0] * dir[0] + p[2] * dir[2];
 
 /** ONE headless context for this module's whole lifetime, created on first use.
@@ -543,7 +543,7 @@ function findSpawn(p: Probe, flag: field.FieldFlag, dir: Vec3): Vec3 | null {
       const [cx, cz] = worldColumn(p.store, wx, wz);
       const cy = nearestWalkableY(p.store, p.m, cx, cz, flag.cell[1]);
       if (cy === null) continue;
-      // Spawn a touch above rest so frame 1 settles rather than teleports (walk-fixture).
+      // Spawn a touch above rest so frame 1 settles rather than teleports (field-walk).
       const floor = cellFloorWorld(p.store.cellSize, cy);
       const pos: Vec3 = [wx, floor + p.m.restOffset + SPAWN_RISE, wz];
       if (poseIsFree(p, pos, dir) && hasSupport(p, pos)) return pos;
@@ -565,7 +565,7 @@ const noLane = (dir: Vec3): VerifyLane => ({
 
 /** Drive the real mover down one lane: spawn on walkable floor before the flag, walk `dir` until
  *  the capsule clears the flag, stalls, levitates, falls out of the neighbourhood, or runs out of
- *  budget. The per-frame loop is walk-fixture's runWalk, minus its asserts (a lane walking into a
+ *  budget. The per-frame loop is field-walk's runWalk, minus its asserts (a lane walking into a
  *  hazard is SUPPOSED to stall) and plus the levitation guards. */
 function runLane(p: Probe, flag: field.FieldFlag, dir: Vec3): VerifyLane {
   if (!hasExit(p, flag, dir)) return noLane(dir);
