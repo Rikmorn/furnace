@@ -89,3 +89,19 @@ test("parseOrThrow returns parsed data with defaults applied", () => {
   const schema = z.strictObject({ a: z.number().default(7) });
   expect(parseOrThrow(schema, {}, "thing", "x")).toEqual({ a: 7 });
 });
+
+test("entries() returns [name, entry] pairs in registration order, as a fresh array", () => {
+  const r = createRegistry<number>({ prefix: "t", noun: "thing" });
+  r.register("b", 2);
+  r.register("a", 1);
+  expect(r.entries()).toEqual([
+    ["b", 2],
+    ["a", 1],
+  ]);
+  // Fresh array each call: mutating one read never corrupts the registry.
+  const first = r.entries();
+  first.pop();
+  expect(r.entries()).toHaveLength(2);
+  r.reset();
+  expect(r.entries()).toEqual([]);
+});

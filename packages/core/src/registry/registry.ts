@@ -11,6 +11,10 @@ export type RegistryOptions = { prefix: string; noun: string };
 export type Registry<R> = {
   register(name: string, entry: R): void;
   get(name: string): R | undefined;
+  /** Registered entries as `[name, entry]` pairs in REGISTRATION ORDER (Map
+   *  insertion order — the guarantee an ordered enumeration pass reads). A
+   *  fresh array each call; mutating it never touches the registry. */
+  entries(): [string, R][];
   /** Tests only — suites re-register after. */
   reset(): void;
 };
@@ -31,6 +35,7 @@ export function createRegistry<R>(opts: RegistryOptions): Registry<R> {
       store.set(name, entry);
     },
     get: (name) => store.get(name),
+    entries: () => [...store.entries()],
     reset: () => store.clear(),
   };
 }
