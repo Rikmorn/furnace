@@ -1,4 +1,4 @@
-import { computeLayout } from "../binding/layout.ts";
+import { computeLayout } from "../binding/internal.ts";
 import type {
   AddressSpace,
   LayoutSchema,
@@ -123,7 +123,8 @@ export async function _createShader(
  *
  * Pass `opts.layout` to declare the shader's `@group(1)` uniform-buffer schema;
  * the layout is resolved at compile time and stored on the handle — readable via
- * {@link _layoutOf}. `opts.addressSpace` defaults to `"uniform"`. Omit `opts`
+ * the internal `_layoutOf` accessor (shader/internal.ts). `opts.addressSpace`
+ * defaults to `"uniform"`. Omit `opts`
  * entirely for shaders with no `@group(1)` binding; existing 2-arg calls are
  * unaffected (the parameter is optional and `L` defaults to `LayoutSchema`).
  *
@@ -186,57 +187,4 @@ export function destroy(ctx: Context, shader: Shader): void {
   if (slot === null) return;
   if (slot.engineOwned) return;
   _destroyShader<ShaderSlot>(ctx, shader, (s) => s._teardown());
-}
-
-/**
- * Engine-internal: read the resolved `@group(1)` {@link ResolvedLayout} stored
- * on a shader slot, or `null` if no layout was declared at compile time.
- *
- * Used by the binding subsystem (Task 3+) to validate that a `Binding` matches
- * its paired shader's declared schema. Not part of the consumer surface.
- */
-export function _layoutOf(ctx: Context, shader: Shader): ResolvedLayout | null {
-  return _lookupShader<ShaderSlot>(ctx, shader)?.layout ?? null;
-}
-
-/**
- * Engine-internal: read the `textureBinding` flag stored on a shader slot.
- * Returns `true` when the shader was compiled with `textureBinding: true`
- * (declares a texture+sampler at `@group(1)`, bindings 0 and 1); `false`
- * otherwise (default for all built-ins and shaders created without the flag).
- *
- * Used by `material.create` (Task 8) to enforce that a `texture` is supplied
- * when the shader samples one. Not part of the consumer surface.
- */
-export function _textureBindingOf(ctx: Context, shader: Shader): boolean {
-  return _lookupShader<ShaderSlot>(ctx, shader)?.textureBinding ?? false;
-}
-
-/**
- * Engine-internal: read the `usesScene` flag stored on a shader slot. `true`
- * when the shader reads the Scene UBO at `@group(0) @binding(1)`. Read by
- * `material.create` to record it on the material slot for the render path.
- */
-export function _usesSceneOf(ctx: Context, shader: Shader): boolean {
-  return _lookupShader<ShaderSlot>(ctx, shader)?.usesScene ?? false;
-}
-
-/**
- * Engine-internal: read the `usesShadows` flag stored on a shader slot. `true`
- * when the shader samples the engine shadow maps at `@group(0) @binding(2)`
- * (depth array) + `@binding(3)` (comparison sampler). Read by `material.create`
- * to record it on the material slot for the render path.
- */
-export function _usesShadowsOf(ctx: Context, shader: Shader): boolean {
-  return _lookupShader<ShaderSlot>(ctx, shader)?.usesShadows ?? false;
-}
-
-/**
- * Engine-internal: read the `instanced` flag stored on a shader slot. `true`
- * when the shader sources its model matrix from per-instance vertex attributes
- * (locations 3–6) and bypasses the `@group(2)` Object UBO. Read by
- * `material.create` to select the instance vertex-buffer pipeline layout.
- */
-export function _instancedOf(ctx: Context, shader: Shader): boolean {
-  return _lookupShader<ShaderSlot>(ctx, shader)?.instanced ?? false;
 }

@@ -1,8 +1,8 @@
 import * as binding from "../binding/index.ts";
-import { computeLayout } from "../binding/layout.ts";
+import { computeLayout } from "../binding/internal.ts";
 import { _onDispose } from "../gpu/dispose-cascade.ts";
 import type { Context } from "../gpu/index.ts";
-import { _createShader } from "../shader/shader.ts";
+import { _createShader } from "../shader/internal.ts";
 import type { Shader } from "../shader/types.ts";
 import type { Effect } from "./effect.ts";
 import { _setOwnedBindings, create as createEffect } from "./effect.ts";

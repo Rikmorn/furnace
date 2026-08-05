@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import {
-  _flushDirtyBindings,
-  _isDirty,
-  _scratchOf,
-} from "../../src/binding/binding.ts";
+import { _isDirty, _scratchOf } from "../../src/binding/binding.ts";
 import * as binding from "../../src/binding/index.ts";
+import { _flushDirtyBindings } from "../../src/binding/internal.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import * as shader from "../../src/shader/index.ts";
 import * as stats from "../../src/stats/index.ts";

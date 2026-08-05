@@ -7,7 +7,7 @@ import {
   makeOffscreenCanvas,
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
-import { _layoutOf } from "./shader.ts";
+import { _layoutOf } from "./internal.ts";
 
 await ensureBunWebGpu();
 

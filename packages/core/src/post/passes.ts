@@ -1,4 +1,4 @@
-import { _bufferOf } from "../binding/binding.ts";
+import { _bufferOf } from "../binding/internal.ts";
 import type { Binding } from "../binding/types.ts";
 import { FurnaceError } from "../errors.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";

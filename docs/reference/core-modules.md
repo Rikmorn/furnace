@@ -293,7 +293,7 @@ Live in `stats/internal.ts` — other core modules import `../stats/internal.ts`
 
 ### Internal (`_*`) — not for consumers
 
-Live in `shader/shader.ts` — the consuming core modules (`material`, `post`, `binding`) import it directly. **Not** part of the consumer-facing API, and since 2026-08-04 (foundations T1a) not re-exported from `index.ts` either: the architecture test bans `_`-prefixed exports in public module indexes.
+Live in `shader/internal.ts` — the consuming core modules (`material`, `post`, `binding`, `frame`) import that door, which also re-exports `_createShader` (from `shader/shader.ts`), `_shadowCasterSrc` (`shader/shadows.ts`) and `_cameraBinding` (`shader/preamble.ts`). Moved there at foundations T2 (2026-08-05): the architecture test's door rule requires cross-module imports to land on `index.ts` / `internal.ts` / `types.ts` / `context-types.ts`. **Not** part of the consumer-facing API, and since 2026-08-04 (foundations T1a) not re-exported from `index.ts` either: the architecture test bans `_`-prefixed exports in public module indexes.
 
 | Export | Used by |
 |---|---|

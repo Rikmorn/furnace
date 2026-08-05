@@ -1,4 +1,4 @@
-import { _flushDirtyBindings } from "../binding/binding.ts";
+import { _flushDirtyBindings } from "../binding/internal.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";

@@ -1,4 +1,4 @@
-import { _bufferOf } from "../binding/binding.ts";
+import { _bufferOf } from "../binding/internal.ts";
 import type { LayoutSchema } from "../binding/types.ts";
 import { FurnaceError } from "../errors.ts";
 import type { Context } from "../gpu/index.ts";
@@ -15,7 +15,7 @@ import {
   _textureBindingOf,
   _usesSceneOf,
   _usesShadowsOf,
-} from "../shader/shader.ts";
+} from "../shader/internal.ts";
 import type { ShaderSlot } from "../shader/types.ts";
 import { _recordDestroy } from "../stats/internal.ts";
 import { _getSampler } from "../texture/sampler-cache.ts";

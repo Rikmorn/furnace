@@ -6,7 +6,7 @@ import {
 } from "../../tests/_helpers/gpu-fixture.ts";
 import * as gpu from "../gpu/index.ts";
 import * as shader from "./index.ts";
-import { _usesShadowsOf } from "./shader.ts";
+import { _usesShadowsOf } from "./internal.ts";
 
 await ensureBunWebGpu();
 

@@ -7,7 +7,7 @@ import {
   _destroyBinding,
   _lookupBinding,
 } from "../resources/internal.ts";
-import { _layoutOf } from "../shader/shader.ts";
+import { _layoutOf } from "../shader/internal.ts";
 import type { Shader } from "../shader/types.ts";
 import { _recordAlloc, _recordDestroy } from "../stats/internal.ts";
 import { computeLayout } from "./layout.ts";
@@ -234,35 +234,9 @@ export function setUniform<L extends LayoutSchema, K extends keyof L>(
 }
 
 // ---------------------------------------------------------------------------
-// Render-boundary flush (engine-internal)
-// ---------------------------------------------------------------------------
-
-/**
- * Drain the per-ctx dirty-binding set: upload each dirty binding's CPU
- * scratch to its `GPUBuffer` via one `queue.writeBuffer` call, then clear
- * `slot.dirty` and the set. Called by `frame.render` before any draw calls.
- *
- * Stale handles in the set (binding destroyed after being marked dirty) are
- * silently skipped — the slot lookup returns `null` and the handle is removed
- * from the set with the rest of `dirty.clear()`. Engine-internal; not
- * re-exported from the public `@furnace/core/binding` sub-path.
- */
-export function _flushDirtyBindings(ctx: Context): void {
-  const dirty = ctx._internal.resources.dirtyBindings;
-  for (const handle of dirty) {
-    const slot = _lookupBinding<BindingSlot>(ctx, handle);
-    // Skip a stale handle (destroyed since marked) or an already-clean slot;
-    // both are cleared from the set by dirty.clear() below.
-    if (slot === null || !slot.dirty) continue;
-    ctx.queue.writeBuffer(slot.buffer, 0, slot.scratch);
-    slot.dirty = false;
-  }
-  dirty.clear();
-}
-
-// ---------------------------------------------------------------------------
-// Internal test accessors (engine-internal; exported from index.ts so tests
-// can reach them via `import * as binding from ".../index.ts"`)
+// Internal test accessors. Engine-internal and deliberately absent from both
+// index.ts (consumer surface) and internal.ts (the sibling-module door) — only
+// this module's own tests deep-import them.
 // ---------------------------------------------------------------------------
 
 /** Return the slot's CPU scratch `ArrayBuffer`, or `null` on stale handles. */
@@ -275,12 +249,4 @@ export function _scratchOf(ctx: Context, b: BindingHandle): ArrayBuffer | null {
 export function _isDirty(ctx: Context, b: BindingHandle): boolean {
   const slot = _lookupBinding<BindingSlot>(ctx, b);
   return slot !== null ? slot.dirty : false;
-}
-
-/** Return the binding's `GPUBuffer`, or `null` on stale handles. Used by
- *  `material.create` to build the `@group(1)` bind group over the binding's
- *  buffer without coupling to {@link BindingSlot}'s shape. */
-export function _bufferOf(ctx: Context, b: BindingHandle): GPUBuffer | null {
-  const slot = _lookupBinding<BindingSlot>(ctx, b);
-  return slot !== null ? slot.buffer : null;
 }

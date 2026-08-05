@@ -1,5 +1,5 @@
-import { _bufferOf } from "../binding/binding.ts";
 import * as binding from "../binding/index.ts";
+import { _bufferOf } from "../binding/internal.ts";
 import type { Binding, LayoutSchema } from "../binding/types.ts";
 import { FurnaceError } from "../errors.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
@@ -11,7 +11,7 @@ import {
   _lookupEffect,
   _lookupShader,
 } from "../resources/internal.ts";
-import { _layoutOf } from "../shader/shader.ts";
+import { _layoutOf } from "../shader/internal.ts";
 import type { Shader, ShaderSlot } from "../shader/types.ts";
 import { _ensureFullscreenVS } from "./fullscreen.ts";
 import type { PassSlot } from "./passes.ts";

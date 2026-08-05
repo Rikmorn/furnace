@@ -8,7 +8,7 @@ import * as gpu from "../../src/gpu/index.ts";
 import * as material from "../../src/material/index.ts";
 import * as mesh from "../../src/mesh/index.ts";
 import * as shader from "../../src/shader/index.ts";
-import { _instancedOf } from "../../src/shader/shader.ts";
+import { _instancedOf } from "../../src/shader/internal.ts";
 import { vec4 } from "../../src/transform/vec4.ts";
 import {
   bunWebGpuAvailable,

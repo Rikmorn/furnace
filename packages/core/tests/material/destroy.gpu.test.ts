@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { _bufferOf } from "../../src/binding/binding.ts";
 import * as binding from "../../src/binding/index.ts";
+import { _bufferOf } from "../../src/binding/internal.ts";
 import * as gpu from "../../src/gpu/index.ts";
 import { _resolveMaterial } from "../../src/material/internal.ts";
 import { create, destroy } from "../../src/material/material.ts";

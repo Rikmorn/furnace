@@ -1,4 +1,4 @@
-import { computeLayout } from "../binding/layout.ts";
+import { computeLayout } from "../binding/internal.ts";
 import type { ResolvedLayout } from "../binding/types.ts";
 import type { Context } from "../gpu/index.ts";
 import { lightingHelpers } from "./lighting.ts";

@@ -5,8 +5,8 @@ import type { Context } from "../gpu/index.ts";
 import * as gpu from "../gpu/index.ts";
 import { warn } from "../log/internal.ts";
 import { _ENGINE_DEPTH_FORMAT } from "../material/material.ts";
-import { _cameraBinding } from "../shader/preamble.ts";
-import { toWgsl } from "../shader/source.ts";
+import { toWgsl } from "../shader/index.ts";
+import { _cameraBinding } from "../shader/internal.ts";
 import {
   _recordAlloc,
   _recordDestroy,

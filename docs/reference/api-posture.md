@@ -95,14 +95,33 @@ When adding or changing public surface, apply these.
     `packages/core/tests/architecture.test.ts` fails any engine-tier import of
     a world-tier module, any `@furnace/core` self-import, any `_`-prefixed
     export in a public index, and any unpinned module-global mutable state.
-    (A fifth clause — cross-module imports only through a module's
-    `index.ts`/`internal.ts` doors — was deferred at T1a execution: the tree
-    carries ~190 deep cross-module imports, so the door rule needs its own
-    design pass; see `docs/backlog/engine-architecture/cross-module-import-doors.md`.)
     Extraction trigger: a consumer wants the renderer without the world model
     (or the world model on another renderer) → the world tier promotes to
     `@furnace/world`, mechanically, because the import direction was enforced
     all along.
+
+  - **The door rule + its ratchet (2026-08-05, foundations T2):** the fifth
+    clause deferred at T1a now ships. A module's **doors** are four files —
+    `index.ts` (consumer surface), `internal.ts` (the engine-private seam
+    siblings reach through), and the type leaves `types.ts` /
+    `context-types.ts`. Every cross-module import must land on one of them; an
+    import that names any other file reaches past a module's façade into its
+    implementation. `shader/` and `binding/` grew `internal.ts` seams in this
+    tranche so their `_layoutOf`/`_createShader`/`_bufferOf`/`computeLayout`
+    plumbing has a door to walk through, joining the eight modules that already
+    had one (`gpu`, `input`, `log`, `material`, `mesh`, `physics`, `resources`,
+    `stats`).
+
+    The clause lands as a **ratchet**, not a clean rule: 68 of 256 cross-module
+    edges pre-date it and are pinned in `RATCHETED_EDGES`
+    (`packages/core/tests/architecture.test.ts`). The test fails in **both**
+    directions — a new deep import is a violation, and a pin whose edge no
+    longer exists is a stale pin that would silently re-authorize that exact
+    import if it came back. So the list only ever shrinks. The residual is
+    dominated by shared **value** leaves (`resources/handle.ts`,
+    `gpu/errors.ts`, `gpu/dispose-cascade.ts`, `transform/vec3.ts`/`mat4.ts`),
+    which no type-door can absorb; what should replace them is the open
+    question in `docs/backlog/engine-architecture/cross-module-import-doors.md`.
 
 - **R9 — Failure-policy composition.** Each kind has a default failure-policy stance: Factory → cold-path-validate (throw on bad input); per-frame Core-mutator (pose setters) → hot-path-trust (no validation, sentinel on degenerate); config Core-mutator (`setAspect`, `setFitPolicy`) → cold-path-validate; Command (`render*`) → warm-path-validate (throw with positional context); Lifecycle setup → cold-path; observability cross-cuts (no-op + warn on writes, zero defaults on reads). **`engine-conventions.md §Failure policy` is the authority** — this rule maps kind→default stance; it never overrides the stance definitions.
 

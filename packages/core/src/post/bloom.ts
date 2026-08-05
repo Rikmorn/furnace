@@ -1,10 +1,10 @@
 import * as binding from "../binding/index.ts";
-import { computeLayout } from "../binding/layout.ts";
+import { computeLayout } from "../binding/internal.ts";
 import type { Binding } from "../binding/types.ts";
 import { _onDispose } from "../gpu/dispose-cascade.ts";
 import { FurnaceGpuError } from "../gpu/errors.ts";
 import type { Context } from "../gpu/index.ts";
-import { _createShader } from "../shader/shader.ts";
+import { _createShader } from "../shader/internal.ts";
 import type { Shader } from "../shader/types.ts";
 import type { Effect } from "./effect.ts";
 import { _setOwnedBindings } from "./effect.ts";

@@ -1,4 +1,4 @@
-import { _flushDirtyBindings } from "../binding/binding.ts";
+import { _flushDirtyBindings } from "../binding/internal.ts";
 import type { Camera } from "../camera/index.ts";
 import * as camera from "../camera/index.ts";
 import type { GeometrySlot } from "../geometry/types.ts";
