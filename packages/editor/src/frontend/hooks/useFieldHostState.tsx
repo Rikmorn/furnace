@@ -9,10 +9,12 @@
 // them out of context. Nothing below this provider may subscribe to anything it owns.
 //
 // That rule used to enforce itself, loudly and by accident (the displaced surface went
-// dead). It does not any more: a duplicate subscription is now invisible at runtime, and
-// the only thing that catches one is the ownership case in
-// `tests/chrome/host-seams-and-catalogs.test.tsx`, which counts claims and delivered
-// subscribers across the whole mounted shell.
+// dead). It does not any more: a duplicate subscription is now invisible at runtime, so
+// only the suite catches one, and it takes TWO cases to do it. The ownership case in
+// `tests/chrome/host-seams-and-catalogs.test.tsx` counts claims and delivered subscribers
+// over this provider stack alone (its child is a bare `<span />`), which is what pins the
+// PROVIDER's own releases; a duplicate inside a real surface is caught by the suites that
+// mount one — `tests/chrome/shell.test.tsx` and the per-palette files.
 //
 // ALL THIRTEEN seams are here: `subscribeStats` (the status bar's chips),
 // `subscribeToolError` (a toast, plus the verify release below), `subscribeCameraPose` (the

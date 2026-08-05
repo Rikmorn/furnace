@@ -428,10 +428,15 @@ export function makeStubHost(
       cameraAimed = aimed;
     },
     /** Fire a host→chrome push (callers wrap in act). EVERY fire returns the DELIVERED
-     *  COUNT — how many live subscribers the seam had at publish time. `0` is a seam
-     *  nobody holds (the release was real), `1` is the provider holding it alone, and
-     *  a count above what a case expects is a cleanup that did not run. It is the
-     *  leak detector a single slot used to give for free by failing loudly. */
+     *  COUNT — the seam's live subscriber count read AFTER the publish returns. `0` is a
+     *  seam nobody holds (the release was real), `1` is the provider holding it alone,
+     *  and a count above what a case expects is a cleanup that did not run. It is the
+     *  leak detector a single slot used to give for free by failing loudly.
+     *
+     *  Read after rather than before deliberately — it is the count a test asserts
+     *  against, and the two readings differ only for a subscriber that (un)subscribes
+     *  from inside its own delivery. No case does that today; one that did would be
+     *  asserting about the membership it just changed, which is the honest number. */
     fire: {
       /** The tool seam carries the RADIUS too (F4.5 gate, W-2). Radius defaults to the
        *  host's own initial 1.25 so the three existing callers that only care about the
