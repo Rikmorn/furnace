@@ -222,9 +222,10 @@ export function scatterProps(
 
 // ─── committed field worlds ───
 
-/** Every v2 field manifest under `worlds/`, largest first — usually NONE. `.gitignore` keeps
- *  `worlds/*` out of the repo apart from `worlds/index.json` and the v1 region world
- *  `worlds/default`, which this filter drops, so anything found here is a LOCAL user bake. */
+/** Every world manifest under `worlds/`, largest first. `.gitignore` keeps `worlds/*` out of the
+ *  repo apart from `worlds/index.json` and the committed `worlds/default`, so beyond that one
+ *  world anything found here is a LOCAL user bake. The shape filter below drops any dir whose
+ *  `manifest.json` is not a manifest this runtime understands. */
 async function committedManifests(): Promise<
   { name: string; manifest: field.FieldManifest }[]
 > {
@@ -237,7 +238,7 @@ async function committedManifests(): Promise<
       .text()
       .catch(() => undefined);
     if (text === undefined) continue;
-    // Boundary parse: a world manifest is on-disk data; v1 region worlds are filtered out here.
+    // Boundary parse: a world manifest is on-disk data; the shape check below is the gate.
     const manifest = JSON.parse(text) as field.FieldManifest;
     if (manifest.version === 2 && manifest.kind === "field")
       found.push({ name: entry.name, manifest });
@@ -247,7 +248,7 @@ async function committedManifests(): Promise<
   );
 }
 
-/** Rebuild a store from a committed world's per-chunk density files — `field-world.ts`'s
+/** Rebuild a store from a committed world's per-chunk density files — `world-loader.ts`'s
  *  `rebuildStore` with `readFile` where the game has `fetch`. READ ONLY: `worlds/` is user data
  *  and this script never writes to it. */
 async function loadCommittedWorld(

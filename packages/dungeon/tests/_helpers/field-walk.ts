@@ -1,15 +1,11 @@
-// The world-CLASS-AGNOSTIC half of the GPU walk harness: the capsule/lane constants, the
-// baked-file fetch stub, and the per-frame drive loop. Lifted VERBATIM from
-// `walk-fixture.ts` (itself lifted from world-traversal.gpu.test.ts) so the forward-lane
-// semantics (no wedge/stall, no teleport, no ghost-launch, no fall-through) stay
-// byte-identical across every walking test.
+// The load-agnostic half of the GPU walk harness: the capsule/lane constants, the baked-file
+// fetch stub, and the per-frame drive loop. Every walking test shares these so the forward-lane
+// semantics (no wedge/stall, no teleport, no ghost-launch, no fall-through) stay byte-identical
+// across all of them.
 //
-// Nothing here reaches the v1 bake/load path — `bakeWorld`, `WorldSpec`, and `loadWorld` live
-// next door in `walk-fixture.ts` with the `withLoadedWorld` fixture that needs them, so field
-// tests importing the harness from here survive that file's retirement. The one region-module
-// import below is the type-only `Vec3` from `world/region.ts`, which is safe on both counts:
-// `region.ts` outlives the v1 cut (only its v1-only half is trimmed, `Vec3` stays), and a
-// type-only import contributes no runtime edge to the module graph either way.
+// Nothing here loads a world — a caller brings its own `loadWorld` call (or its own hand-built
+// scene) and drives it through `runWalk`, so this file stays usable by tests that never touch
+// the world loader at all.
 import { expect } from "bun:test";
 import type { BakedFile } from "@furnace/core/field";
 import type { Context } from "@furnace/core/gpu";

@@ -4,9 +4,9 @@
 // "Test the code, not the data" — this probe runs `char-move.ts` itself, so a verdict is a
 // statement about the SHIPPED controller, never about a model of it.
 //
-// Ported in spirit from the F0 probe `scripts/analyzer-probe/sweep.ts` (which swept a dense
-// per-body occupancy grid); the algorithm, the constants and the guards are that file's, the
-// data source is the sparse `FieldStore` and the scene is built headlessly.
+// Ported in spirit from the retired F0 analyzer probe (which swept a dense per-body occupancy
+// grid); the algorithm, the constants and the guards are that probe's, the data source is the
+// sparse `FieldStore` and the scene is built headlessly.
 //
 // STAGE 2 IS A FILTER, AND IT MUST BE TRUSTWORTHY IN BOTH DIRECTIONS. The two errors are not
 // symmetric:
@@ -374,7 +374,7 @@ function neighborhoodOf(
 }
 
 /** One static shell voxel collider per allocated chunk in the neighbourhood — the same derivation
- *  `field-world.ts` gives the running game, so the capsule touches the geometry it would touch
+ *  `world-loader.ts` gives the running game, so the capsule touches the geometry it would touch
  *  in play. Bodies die with the world.
  *
  *  Geometry OUTSIDE the box is simply absent, which is the one place the probe and the column
@@ -428,7 +428,7 @@ function reachesBox(centre: Vec3, radius: number, hood: Neighborhood): boolean {
 }
 
 /** One static collider per placed record reaching the neighbourhood: `placementCollider` for the
- *  shape, core's `field.collisionCenter` for the anchored pose — the same pair `field-world.ts`
+ *  shape, core's `field.collisionCenter` for the anchored pose — the same pair `world-loader.ts`
  *  builds the game's props from, and the same pose `voxelizePlacements` rasterizes around. */
 function buildPlacementBodies(
   ctx: physics.PhysicsContext,

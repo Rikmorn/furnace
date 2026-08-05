@@ -11,7 +11,6 @@
     "port": 8766
   },
   "editor": {
-    "scenes": "regions/**/*.scene.json",
     "extensions": "src/editor-extensions.ts"
   }
 }

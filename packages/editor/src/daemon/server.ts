@@ -82,11 +82,11 @@ function serveStatic(
   streamFile(abs, res);
 }
 
-/** Serve a project file for a GET the chrome doesn't own. Scene documents reference
- *  asset sidecars by root-absolute URL (e.g. the dungeon's `/regions/*.fmesh`), which
- *  the browser-side loader fetches same-origin — the daemon mirrors the consumer dev
+/** Serve a project file for a GET the chrome doesn't own. Projects reference asset
+ *  sidecars by root-absolute URL (e.g. the dungeon's `/catalog/*.fmesh`), which the
+ *  browser-side loader fetches same-origin — the daemon mirrors the consumer dev
  *  server's layout by mapping the path onto the project root (found live at the 3.0
- *  gate: region-cavern's sidecar 404'd). Root-contained; dotfile segments and
+ *  gate: a `.fmesh` sidecar 404'd). Root-contained; dotfile segments and
  *  node_modules are refused (the daemon is localhost single-user, but `.env` must
  *  never be one GET away). Returns false when not served. */
 function serveProjectAsset(

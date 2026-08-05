@@ -130,7 +130,7 @@ function expectedGroupCount(files: BakedFile[]): number {
 }
 
 /** Bake a field world (built by `build`), serve it + the real catalog through `fieldFetchStub`,
- *  load it through the REAL `loadWorld` (v2 gate -> loadFieldWorld), then run `body` against the
+ *  load it through the REAL `loadWorld`, then run `body` against the
  *  loaded world — restoring fetch and tearing down GPU/physics afterwards. Mirrors
  *  field-world.gpu.test.ts's per-test harness. */
 async function withLoadedField(
@@ -387,7 +387,7 @@ describe("field world: placement loading (F3b Task 8)", () => {
       // CLIMBED by the step-up + rim-ride, so it renders but does not block; that mover/prop-size
       // interaction is a tuning matter tracked separately (docs/backlog), out of Task 8's scope.
       //
-      // SABOTAGE-VERIFIED: comment out the `createPlacementColliders` call in field-world.ts and the
+      // SABOTAGE-VERIFIED: comment out the `createPlacementColliders` call in world-loader.ts and the
       // capsule walks THROUGH to the far wall (x ≈ 7.9) — the `< 4.5` assertion goes red.
       const rock: PlacementRecord = {
         archetypeId: "rock",

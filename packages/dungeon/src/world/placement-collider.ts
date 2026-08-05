@@ -1,7 +1,7 @@
 // packages/dungeon/src/world/placement-collider.ts
 // The catalog collision primitive → physics shape descriptor mapping, alone in its own
 // module so the two consumers that need it can have it without each other's dependencies:
-// `field-world.ts` (the GPU-side world loader) and `walk-probe.ts` (the headless verify
+// `world-loader.ts` (the GPU-side world loader) and `walk-probe.ts` (the headless verify
 // probe, which runs with `createHeadlessPhysicsContext` and must not pull the renderer
 // into an analyzer worker's bundle to derive a collider shape).
 //

@@ -11,11 +11,10 @@ import {
   makeOffscreenCanvas,
 } from "./_helpers/gpu-fixture.ts";
 
-// One Field · F1 Task 11 — THE GATE: dig a tunnel in memory, bake it (v2 field artifact), serve
-// the bake through the fetch stub, load it through the REAL `loadWorld` (which gates on the v2
-// manifest and dispatches to `loadFieldWorld`), then walk the actual `CharacterMover` through the
-// dug space against the chunk-derived voxel colliders. This closes the F1 loop: dig -> bake ->
-// spawn-in-the-dug-space -> walk-it.
+// THE GATE: dig a tunnel in memory, bake it, serve the bake through the fetch stub, load it
+// through the REAL `loadWorld` (which gates on the manifest shape), then walk the actual
+// `CharacterMover` through the dug space against the chunk-derived voxel colliders. This closes
+// the loop: dig -> bake -> spawn-in-the-dug-space -> walk-it.
 //
 // Tunnel geometry (avoid the filed char-move levitation bug that trips on < 2.2 m clearance):
 // a chain of r=1.4 m spheres centred at y=1.4, z=1.5 along +x -> a tube with ~2.8 m clearance

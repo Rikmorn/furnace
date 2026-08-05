@@ -86,9 +86,9 @@ const RISER = DEFAULT_CELL_SIZE; // 0.25 m
  *  walkability backlog records). */
 const SKIN_MARGIN = 0.05;
 /** Capsule centre height above the floor at spawn — grounded rest + a touch, so the first
- *  frame settles rather than teleports (the analyzer-probe / field-walk convention). */
+ *  frame settles rather than teleports (the field-walk harness convention). */
 const SPAWN_ABOVE_FLOOR = REST_OFFSET + SPAWN_RISE; // 1.0 m
-/** Passage headroom the cave carves above a floor (`cave.ts` PASSAGE_HEIGHT) — sizes the
+/** Passage headroom the cave fixture carves above a floor — sizes the
  *  per-lane ceiling guard so a legitimate stepped climb never reads as a launch. */
 const PASSAGE_HEADROOM = 3.0;
 /** `floorY` guard drop below a lane's lowest floor: a real fall-through still trips it, a

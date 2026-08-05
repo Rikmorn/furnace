@@ -1,9 +1,9 @@
 // packages/dungeon/src/agent/walkability.ts
 /** Single source for the locomotion constants that define what the CharacterMover can
  *  traverse. `char-move.ts` reads both: SLOPE_LIMIT_COS gates which surface normals count
- *  as ground, STEP_HEIGHT sizes the step-up sweep and the ground-snap reach. The voxel
- *  proxy (`proxy.ts`, and the grids in `connector.ts` / `themes/cave.ts`) sizes its
- *  anisotropic Y cell BELOW STEP_HEIGHT so a one-cell lip is always climbable.
+ *  as ground, STEP_HEIGHT sizes the step-up sweep and the ground-snap reach. A world's shell
+ *  voxel colliders (`field.chunkColliders`, per chunk) size their anisotropic Y cell BELOW
+ *  STEP_HEIGHT so a one-cell lip is always climbable.
  *
  *  The underlying capsule facts (radius, half-height, step/climb/clearance, slope limit)
  *  are authored once in `catalog/agent.json` (D-F4-4) — not restated here — so the game's

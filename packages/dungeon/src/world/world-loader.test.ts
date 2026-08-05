@@ -8,34 +8,36 @@ import {
   ensureBunWebGpu,
   makeOffscreenCanvas,
 } from "../../tests/_helpers/gpu-fixture.ts";
-import { MaterialCache } from "../world/realize.ts";
-import type { MaterialDescriptor } from "../world/region.ts";
-import type { LoadedWorld } from "../world/world-loader.ts";
-import { loadWorld } from "../world/world-loader.ts";
-import { isFieldManifest } from "./field-world.ts";
+import { MaterialCache } from "./realize.ts";
+import type { MaterialDescriptor } from "./region.ts";
+import {
+  isWorldManifest,
+  type LoadedWorld,
+  loadWorld,
+} from "./world-loader.ts";
 
-// One Field · F1 Task 11: the v2 field-manifest gate. `world-loader.loadWorld` fetches ONE
-// `manifest.json` for both world classes, so the (version:2, kind:"field") discriminant is the
-// only thing that routes a bake to the field loader instead of the v1 `assertCompatible` path.
-describe("field manifest gate", () => {
-  test("accepts v2 field manifests, rejects everything else", () => {
-    expect(isFieldManifest({ version: 2, kind: "field" })).toBe(true);
-    // v1 region manifest: no kind, version 1.
-    expect(isFieldManifest({ version: 1 })).toBe(false);
+// The manifest gate. `loadWorld` fetches ONE `manifest.json` and this guard is the only thing
+// standing between a stale or foreign bake and the GPU/physics allocation that follows, so it
+// must reject everything that is not the (version:2, kind:"field") shape the baker writes.
+describe("manifest gate", () => {
+  test("accepts the baked manifest shape, rejects everything else", () => {
+    expect(isWorldManifest({ version: 2, kind: "field" })).toBe(true);
+    // A retired region-world manifest: no kind, version 1.
+    expect(isWorldManifest({ version: 1 })).toBe(false);
     // Right kind, wrong (future) version.
-    expect(isFieldManifest({ version: 3, kind: "field" })).toBe(false);
+    expect(isWorldManifest({ version: 3, kind: "field" })).toBe(false);
     // Right version, wrong kind.
-    expect(isFieldManifest({ version: 2, kind: "region" })).toBe(false);
-    expect(isFieldManifest(null)).toBe(false);
-    expect(isFieldManifest("nope")).toBe(false);
-    expect(isFieldManifest(undefined)).toBe(false);
-    expect(isFieldManifest(42)).toBe(false);
+    expect(isWorldManifest({ version: 2, kind: "region" })).toBe(false);
+    expect(isWorldManifest(null)).toBe(false);
+    expect(isWorldManifest("nope")).toBe(false);
+    expect(isWorldManifest(undefined)).toBe(false);
+    expect(isWorldManifest(42)).toBe(false);
   });
 });
 
-// One Field · F2a Task 13 — the game-side material + kit load. These exercise the real
-// `loadFieldWorld` (via `loadWorld` + the fetch stub), so they need a GPU device and are
-// gated on bun-webgpu; only the pure manifest-gate test above runs GPU-free.
+// The game-side material + kit load. These exercise the real `loadWorld` (via the fetch stub),
+// so they need a GPU device and are gated on bun-webgpu; only the pure manifest-gate test above
+// runs GPU-free.
 await ensureBunWebGpu();
 
 // This file's copy of the 3-class fixture table (rock id0 organic, dirt id1 organic,
@@ -65,7 +67,7 @@ const TABLE: field.MaterialTable = {
   ],
 };
 
-// The STONE colour the F1 loader shares (field-world.ts STONE.color) — the back-compat
+// The STONE colour a table-less bake shares (world-loader.ts STONE.color) — the back-compat
 // assertion checks a table-less manifest still lands on exactly this descriptor.
 const STONE_COLOR: [number, number, number, number] = [0.62, 0.6, 0.58, 1];
 
@@ -141,7 +143,8 @@ function stripToF1(files: field.BakedFile[]): field.BakedFile[] {
 
 /** Bake-then-load harness: serve `files` through the fetch stub, spy on `matCache.get` so a
  *  test can count the DISTINCT render-material descriptors the load requested, run `body`, then
- *  tear the GPU/physics resources down. Mirrors walk-fixture.ts's `withLoadedWorld`. */
+ *  tear the GPU/physics resources down. Shares the bake-then-serve shape with the GPU walk
+ *  tests' `bakedFetchStub` harness (`tests/_helpers/field-walk.ts`). */
 async function withFieldLoad(
   files: field.BakedFile[],
   name: string,

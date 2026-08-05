@@ -7,7 +7,7 @@
 // while REPORTING GROUNDED. F1 digs low tunnels, so this is the new normal case.
 //
 // The fixture rides the FIELD path: one box `dig` into a `createFieldStore`, then one
-// static shell voxel collider per allocated chunk — `field-world.ts`'s
+// static shell voxel collider per allocated chunk — `world-loader.ts`'s
 // `createColliderBodies` in behaviour, so this guards the collision the runtime loader
 // actually builds. Its load-bearing property is the LOW ceiling, and a port that
 // silently widened the gap would leave every assertion below passing while guarding
@@ -72,7 +72,7 @@ function digLowRoom(): field.FieldStore {
   return store;
 }
 
-/** One static shell voxel collider per allocated chunk — `field-world.ts`'s
+/** One static shell voxel collider per allocated chunk — `world-loader.ts`'s
  *  `createColliderBodies`, so the mover below casts against the collision the runtime
  *  loader builds. Bodies die with the world; nothing is tracked for teardown. */
 function createChunkColliderBodies(

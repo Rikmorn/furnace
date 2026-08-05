@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "../src/daemon/server.ts";
 
-// Scene documents reference asset sidecars by root-absolute URL (e.g. the dungeon's
-// region docs: `"src": "/regions/region-cavern.fmesh"`), resolved same-origin by the
-// browser-side loader. The consumer's own dev server maps those paths onto the project
-// tree — the daemon must mirror that layout for GET misses of the chrome, or every
-// sidecar fetch 404s in the editor (found live at the 3.0 gate on region-cavern).
+// Projects reference asset sidecars by root-absolute URL (e.g. the dungeon's entity-catalog
+// meshes: `"catalog/meshes/rock.0.fmesh"`, fetched as `/catalog/...`), resolved same-origin
+// by the browser-side loader. The consumer's own dev server maps those paths onto the project
+// tree — the daemon must mirror that layout for GET misses of the chrome, or every sidecar
+// fetch 404s in the editor (found live at the 3.0 gate, on a since-retired `.fmesh` fixture).
+// The temp dir below is a stand-in for any such asset dir; the mapping under test is
+// name-agnostic.
 describe("project asset serving", () => {
   const setup = () => {
     const root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-assets-"));

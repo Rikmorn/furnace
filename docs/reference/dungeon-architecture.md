@@ -262,8 +262,8 @@ draws, static bodies, and shovable `DynamicProp`s with per-frame sync.
   capped by test — further would put tunnel rock in room air). **`TUNNEL_RADIUS =
   1.6` MUST match the cave bore** — the W1 probe: overlapping air volumes collapse
   walkable space to their INTERSECTION; radius-match is the mitigation on organic
-  seams, carve-union the durable fix (`world-connector-bore-and-overlap.md`; the
-  BUILT side is already carve-union by construction, below). `boreAxis` reads the
+  seams, carve-union the durable fix (the BUILT side is already carve-union by
+  construction, below). `boreAxis` reads the
   DOMINANT facing component (join float-dust safe).
 - **`connector-built.ts` (W2)** — connectors may MUTATE joined regions' grids:
   `aperture` (door AIR through two abutting shells — pure mutation; first

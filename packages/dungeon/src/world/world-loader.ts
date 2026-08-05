@@ -1,92 +1,68 @@
 // packages/dungeon/src/world/world-loader.ts
-// Load a baked declarative world (Epic 3 W1): the GAME-side loader for the world
-// manifest. Reads the worlds index → the default world's manifest,
-// fragment-loads the ONE merged render-only doc, creates static bodies from the manifest's
-// per-region cuboid lists, re-expands each cave's voxel proxy + dressing from provenance,
-// and — the new W1 behaviour — re-expands each CONNECTOR's voxel proxy from its placed
-// portals + tunnel opts (the connector carries no cuboids: its collision IS the bore).
+// Load a baked world: the GAME-side loader for a `@furnace/core/field` bake, and the one owner
+// of {@link LoadedWorld}.
 //
-// SETUP-LOUD: a missing index/manifest THROWS with a fix-it message — there is no
-// live-generation fallback. A healthy clone commits the default world's fixtures, so an
-// absent index/manifest is a broken checkout, not a "nothing baked yet" state; failing
-// loudly beats silently degrading.
+// A world IS a chunked density store. Loading rebuilds that store from the per-chunk density
+// files (the authoring truth), derives one shell voxel collider per chunk for traversal, renders
+// the pre-baked `.fmesh` per class with a per-class material, draws one instanced kit mesh per
+// kit chunk, and loads the placement artifact: one instanced mesh per (catalog archetype,
+// variant) for scattered props, each prop given a static collider DERIVED from the catalog's
+// collision primitive at load (D-F3-10: no stored collider data).
+//
+// SETUP-LOUD: a missing index/manifest THROWS with a fix-it message — there is no live-generation
+// fallback. A healthy clone commits the default world's fixtures, so an absent index/manifest is a
+// broken checkout, not a "nothing baked yet" state; failing loudly beats silently degrading. The
+// same stance covers a partial/corrupt bake: any manifest-referenced artifact that fails to fetch
+// throws with the offending path.
+//
+// Teardown discipline: static bodies (chunk shell voxels AND per-prop placement colliders) are NOT
+// freed here — they die with `physics.destroyWorld`; the returned `destroy()` frees only this
+// world's meshes + geometries + instanced kit + instanced placement meshes (NOT the physics world,
+// NOT the matCache).
+import * as field from "@furnace/core/field";
+import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
-import type * as mesh from "@furnace/core/mesh";
+import type { Material } from "@furnace/core/material";
+import * as mesh from "@furnace/core/mesh";
 import { decodeMeshBlob } from "@furnace/core/mesh-blob";
 import * as physics from "@furnace/core/physics";
-import { loadScene, type SceneDocument } from "@furnace/core/scene";
-import { isFieldManifest, loadFieldWorld } from "../field/field-world.ts";
-import { type CaveParams, caveDressing, caveProxy } from "../themes/cave.ts";
-import {
-  type WorldBoreConnectorEntry,
-  type WorldCaveRegionEntry,
-  type WorldManifest,
-  worldDir,
-} from "./bake.ts";
-import { organicTunnel } from "./connector.ts";
-import { buildCorridor } from "./connector-built.ts";
-import { placePiece } from "./placement.ts";
-import {
-  type DynamicProp,
-  type MaterialCache,
-  realizeRegion,
-} from "./realize.ts";
-import {
-  GENERATOR_VERSION,
-  type RegionCollider,
-  type RegionData,
-  type Vec3,
-} from "./region.ts";
-import { expandGridRegionFromEntry } from "./world-build.ts";
+import { placementCollider } from "./placement-collider.ts";
+import type { DynamicProp, MaterialCache } from "./realize.ts";
+import type { MaterialDescriptor, Vec3 } from "./region.ts";
 
-/** The runtime handles of a loaded world: its draws (region + dressing meshes, dynamic props)
- *  and per-frame/teardown hooks, plus the player spawn the manifest bakes — so `main.ts` reads
- *  its spawn from the same object that carries the draws. */
+/** The runtime handles of a loaded world: its draws (render + instanced kit/placement meshes,
+ *  dynamic props) and per-frame/teardown hooks, plus the player spawn the manifest bakes — so
+ *  `main.ts` reads its spawn from the same object that carries the draws. */
 export type LoadedWorld = {
   meshes: mesh.Mesh[];
   instanced: mesh.InstancedMesh[];
   dynamicProps: DynamicProp[];
   update: () => void;
   destroy: () => void;
-  /** World-space player spawn baked by `realizeWorldSpec` (world-build.ts). */
+  /** World-space player spawn baked into the manifest. */
   playerStart: Vec3;
   /** Player yaw (FpController convention) baked alongside `playerStart`. */
   playerYaw: number;
 };
 
-/** The only manifest version this loader understands. */
-const SUPPORTED_MANIFEST_VERSION = 1;
-/** Regions bake + re-expand in their own LOCAL frame; `placePiece` seats them in world. */
-const LOCAL_ORIGIN: Vec3 = [0, 0, 0];
 /** The well-known worlds index: `{ version, default }` — names the default world to load. */
 const WORLDS_INDEX_PATH = "/worlds/index.json";
-/** The connector kinds a W2 manifest may declare (assertCompatible rejects the rest). */
-const KNOWN_CONNECTOR_KINDS = new Set([
-  "organic-tunnel",
-  "corridor",
-  "aperture",
-  "collar-bore",
-]);
+/** URL prefix every world's artifacts live under (`serve.ts`'s `/worlds/*` route). */
+const WORLDS_ROOT = "/worlds";
 
 /** External-JSON shape of the worlds index (validated at the fetch boundary). */
 type WorldsIndex = { version: number; default: string };
 
 /**
- * Load the committed default world: worlds index → its manifest → the merged render-only
- * doc + deterministic re-expansion of every voxel proxy and dressing group, plus the baked
- * player spawn.
+ * Load the committed default world: worlds index → its manifest → the density store rebuilt from
+ * its per-chunk files, one static shell voxel collider per chunk (traversal), the pre-baked
+ * `.fmesh` render mesh per class with a per-class material, one instanced kit mesh per kit chunk,
+ * and the placed props with their derived colliders.
  *
- * Renders from the single merged doc for the cave + collar-bore/organic-tunnel meshes,
- * plus RE-EXPANDED render for the grid class: each `hall`/`maze` region rebuilds its patch
- * mesh + kit instances + voxel collider via `expandGridRegion`, and each `corridor` re-expands
- * its tube — neither bakes scene entities (D-W2-6). Collides against the manifest's world-frame
- * cuboids, a voxel proxy per cave and per organic-tunnel/collar-bore connector, and the
- * re-expanded grid/corridor voxel proxies. Cave scatter re-expands from the seed.
- *
- * @throws if the worlds index or the default world's manifest is missing (a broken clone —
- *   commit or bake a default world); if the manifest version is unknown or was baked by a
- *   different `generatorVersion`; or if a region algorithm is not `cave`/`hall`/`maze` or a
- *   connector kind is not one of the four W2 kinds (a stale/foreign bake).
+ * @throws if the worlds index or the default world's manifest is missing (a broken clone — commit
+ *   or bake a default world); if the manifest is not one this runtime understands (see
+ *   {@link isWorldManifest} — a stale/foreign bake); or if any manifest-referenced chunk, mesh,
+ *   kit, placement or catalog artifact fails to fetch (a partial/corrupt bake).
  */
 export async function loadWorld(
   ctx: Context,
@@ -102,294 +78,427 @@ export async function loadWorld(
   // Boundary cast: the worlds index is external JSON — { version, default }.
   const index = (await indexRes.json()) as WorldsIndex;
 
-  const manifestPath = `/${worldDir(index.default)}/manifest.json`;
+  const baseUrl = `${WORLDS_ROOT}/${index.default}`;
+  const manifestPath = `${baseUrl}/manifest.json`;
   const manifestRes = await fetch(manifestPath);
   if (!manifestRes.ok) {
     throw new Error(
       `world: manifest missing at ${manifestPath} — commit or bake a default world`,
     );
   }
-  // Boundary cast: the manifest is external JSON — inspect it as `unknown` so the v2 field-world
-  // gate can branch off it BEFORE the v1 `assertCompatible`. A v2 field manifest has none of the
-  // v1 fields (provenance, scene, regions), so it MUST NOT reach `assertCompatible`.
+  // Boundary cast: the manifest is external JSON — inspect it as `unknown` so `isWorldManifest`
+  // can reject a stale/foreign bake BEFORE any GPU or physics allocation.
   const manifestJson = (await manifestRes.json()) as unknown;
-  if (isFieldManifest(manifestJson)) {
-    return loadFieldWorld(
-      ctx,
-      world,
-      matCache,
-      manifestJson,
-      `/${worldDir(index.default)}`,
+  if (!isWorldManifest(manifestJson)) {
+    throw new Error(
+      `world: ${manifestPath} is not a world this runtime understands — re-bake`,
     );
   }
-  // Boundary cast: past the v2 gate this is a v1 region-world manifest; assertCompatible validates it.
-  const manifest = manifestJson as WorldManifest;
-  assertCompatible(manifest);
-  // Dev-facing load banner: which bake is this? (bakedAt is deliberately absent —
-  // re-bakes are byte-deterministic — so the seeds ARE the bake's identity.)
-  console.info(
-    `world "${index.default}" loaded: ${manifest.regions.length} region(s) [${manifest.regions
-      .map((r) => `${r.id}:${r.seed}`)
-      .join(", ")}], ${manifest.connectors.length} connector(s)`,
+  return loadFromManifest(ctx, world, matCache, manifestJson, baseUrl);
+}
+
+/** Narrow gate: is this parsed JSON a manifest this runtime can load? The `version: 2` +
+ *  `kind: "field"` pair is the discriminant baked by {@link field.bakeFieldWorld}, and the only
+ *  shape `loadWorld` accepts — anything else is a stale or foreign bake. */
+export function isWorldManifest(m: unknown): m is field.FieldManifest {
+  return (
+    typeof m === "object" &&
+    m !== null &&
+    (m as { version?: unknown }).version === 2 &&
+    (m as { kind?: unknown }).kind === "field"
+  );
+}
+
+/** The lit stone material a table-less render mesh shares, and the shared specular every
+ *  per-class material rides (dungeon `MaterialDescriptor` shape — BOTH 4-tuples). With a material
+ *  table present, each mesh's colour comes from its class instead; {@link STONE.specular} stays the
+ *  one specular across all surfaces (colour-only variation, matching the editor field-host). */
+const STONE: MaterialDescriptor = {
+  color: [0.62, 0.6, 0.58, 1],
+  specular: [0.06, 0.06, 0.06, 16],
+};
+
+/** The render-material descriptor for one manifest mesh bucket. Table ABSENT (a table-less bake) →
+ *  the shared {@link STONE}. Table present → the entry's class colour: an ORGANIC class contributes
+ *  its surface colour; a kit BACKING bucket contributes the kit's `backingColor` (the raw surface
+ *  behind proud kit pieces). Every surface shares {@link STONE.specular} (colour-only variation,
+ *  matching the editor field-host). */
+function materialDescriptorFor(
+  entry: field.FieldManifest["meshes"][number],
+  table: field.MaterialTable | undefined,
+): MaterialDescriptor {
+  if (!table) return STONE;
+  const cls = field.classOf(table, entry.classId ?? field.MAT_ROCK);
+  if (entry.backing) {
+    const color = cls.kind === "kit" ? cls.kit.backingColor : cls.color;
+    return { color, specular: STONE.specular };
+  }
+  return { color: cls.color, specular: STONE.specular };
+}
+
+/** Load a validated manifest's world into `world`, assembling every draw and collider the
+ *  {@link LoadedWorld} contract promises. */
+async function loadFromManifest(
+  ctx: Context,
+  world: physics.World,
+  matCache: MaterialCache,
+  manifest: field.FieldManifest,
+  baseUrl: string, // "/worlds/<name>"
+): Promise<LoadedWorld> {
+  const store = await rebuildStore(manifest, baseUrl);
+  createColliderBodies(ctx, world, store);
+  const { meshes, geometries } = await buildRenderMeshes(
+    ctx,
+    matCache,
+    manifest,
+    baseUrl,
+  );
+  const kitOwned = await buildKitInstances(
+    ctx,
+    matCache,
+    manifest,
+    store.cellSize,
+    baseUrl,
+  );
+  const placementOwned = await buildPlacementInstances(
+    ctx,
+    world,
+    matCache,
+    manifest,
+    baseUrl,
   );
 
-  // 1) The ONE merged render-only doc → meshes (regions AND connectors, resource-key-prefixed).
-  // Boundary cast: the merged scene doc is external JSON; loadScene validates it.
-  const doc = (await (
-    await fetchArtifact(`/${manifest.scene}`)
-  ).json()) as SceneDocument;
-  const scene = await loadScene(ctx, doc, { world, fragment: true });
-
-  // The sidecars (cave `.fmesh`) live beside the merged scene doc — derive their base dir.
-  const dir = manifest.scene.slice(0, manifest.scene.lastIndexOf("/"));
-  // Every re-expanded region/connector `realizeRegion` result: grid regions + corridors bake
-  // NO scene entities, so their meshes/instances come back HERE, not from the merged doc.
-  const realized: Awaited<ReturnType<typeof realizeRegion>>[] = [];
-
-  // 2) Regions dispatched by class. Cave: manifest cuboids → static bodies, voxel proxy +
-  // dressing re-expanded from provenance. Grid (hall|maze): ONE `realizeRegion` builds its
-  // patch mesh, kit instances AND voxel collider from the re-expanded local RegionData (D-W2-6).
-  for (const r of manifest.regions) {
-    if (r.class === "field-organic") {
-      createColliderBodies(ctx, world, r.cuboids);
-      createCaveProxyBody(ctx, world, r);
-      const dressing = await dressingFor(r, dir);
-      realized.push(
-        await realizeRegion(
-          ctx,
-          world,
-          matCache,
-          placePiece(dressing, r.placement),
-        ),
-      );
-      continue;
-    }
-    // grid-built (hall | maze): re-expand its local RegionData from params/seed + the touching
-    // connectors (grouped by aRef/bRef), then place it. `realizeRegion` creates the voxel
-    // body + patch mesh + kit instances in one call — no separate cuboids/proxy/dressing.
-    const touching = manifest.connectors.filter(
-      (c) => c.aRef[0] === r.id || c.bRef[0] === r.id,
-    );
-    const data = expandGridRegionFromEntry(r, touching, r.id);
-    realized.push(
-      await realizeRegion(ctx, world, matCache, placePiece(data, r.placement)),
-    );
-  }
-
-  // 3) Connectors dispatched by kind. organic-tunnel / collar-bore: voxel proxy re-expanded
-  // from its placed portals + tunnel opts (its render mesh came from the merged doc). corridor:
-  // re-expand its world-frame tube via `realizeRegion` (already world-frame — NO placePiece).
-  // aperture: a pure hole (no proxy, no render).
-  for (const c of manifest.connectors) {
-    if (c.kind === "organic-tunnel" || c.kind === "collar-bore") {
-      createConnectorProxyBody(ctx, world, c);
-    } else if (c.kind === "corridor") {
-      realized.push(
-        await realizeRegion(
-          ctx,
-          world,
-          matCache,
-          buildCorridor(c.a, c.b, c.seed),
-        ),
-      );
-    }
-  }
-
   return {
-    // Grid-region + corridor meshes re-expand HERE (not in the merged doc); cave +
-    // collar-bore/organic-tunnel meshes stay in `scene.meshes`.
-    meshes: [...scene.meshes, ...realized.flatMap((a) => a.meshes)],
-    instanced: realized.flatMap((a) => a.instanced),
-    dynamicProps: realized.flatMap((a) => a.dynamicProps),
+    meshes,
+    instanced: [
+      ...kitOwned.map((o) => o.im),
+      ...placementOwned.map((o) => o.im),
+    ],
+    dynamicProps: [],
     update: () => {
-      for (const a of realized) a.update();
+      // No-op: a world is static level geometry — no dynamic props to sync per frame.
+      // The LoadedWorld contract requires an `update`, so it's present but intentionally empty.
     },
+    // Free THIS world's meshes + geometries + instanced kit + instanced placement meshes only;
+    // the static collider bodies (chunk shells AND per-prop placement colliders) die with the
+    // world (physics.destroyWorld), never explicitly here. Mirrors the field-host destroy order:
+    // destroyInstanced BEFORE the owned geometry.
     destroy: () => {
-      for (const a of realized) a.destroy();
-      scene.destroy();
+      for (const m of meshes) mesh.destroy(ctx, m);
+      for (const g of geometries) geometry.destroy(ctx, g);
+      for (const o of kitOwned) {
+        mesh.destroyInstanced(ctx, o.im);
+        geometry.destroy(ctx, o.g);
+      }
+      for (const o of placementOwned) {
+        mesh.destroyInstanced(ctx, o.im);
+        geometry.destroy(ctx, o.g);
+      }
     },
     playerStart: manifest.playerStart,
     playerYaw: manifest.playerYaw,
   };
 }
 
-/** Reject a manifest the runtime cannot faithfully reproduce (wrong schema, generator, or
- *  content). PURE manifest inspection — runs BEFORE any GPU/scene allocation, so a malformed
- *  region algorithm / connector kind throws setup-loud without leaking an already-loaded
- *  scene (the "throws before GPU use" invariant covers content errors, not only 404s). */
-function assertCompatible(manifest: WorldManifest): void {
-  if (manifest.version !== SUPPORTED_MANIFEST_VERSION) {
-    throw new Error(`world: unknown manifest version ${manifest.version}`);
-  }
-  if (manifest.provenance.generatorVersion !== GENERATOR_VERSION) {
-    throw new Error(
-      `world: baked with generatorVersion ${manifest.provenance.generatorVersion}, runtime is ${GENERATOR_VERSION} — re-bake`,
+/** Rebuild the density store from the manifest's per-chunk density files (the authoring truth).
+ *  Sequential (`for ... await`) so a partial bake fails loud on the FIRST missing chunk. */
+async function rebuildStore(
+  manifest: field.FieldManifest,
+  baseUrl: string,
+): Promise<field.FieldStore> {
+  const store = field.createFieldStore(manifest.cellSize);
+  for (const c of manifest.chunks) {
+    const res = await fetch(`${baseUrl}/${c.file}`);
+    if (!res.ok) {
+      throw new Error(`world: chunk missing ${c.file} (${res.status})`);
+    }
+    store.chunks.set(
+      c.key,
+      field.decodeChunkFile(new Uint8Array(await res.arrayBuffer())),
     );
   }
-  // Boundary cast: manifest is external JSON; a malformed/pre-schema bake lacks the scene field.
-  if (typeof (manifest as { scene?: unknown }).scene !== "string") {
-    throw new Error("world: malformed bake (manifest has no scene) — re-bake");
-  }
-  // Content validation BEFORE loadScene: cave + hall + maze regions and all four connector
-  // kinds exist as of W3, so anything else is a stale/foreign bake — throw here, not mid-loop
-  // after GPU alloc.
-  for (const r of manifest.regions) {
-    // The manifest is external JSON: widen `algorithm` to `string` so an unknown value from a
-    // stale/foreign bake is caught here rather than exhausting the typed union to `never`.
-    const algorithm: string = r.algorithm;
-    if (algorithm !== "cave" && algorithm !== "hall" && algorithm !== "maze") {
-      throw new Error(
-        `world: unsupported region algorithm "${algorithm}" — re-bake`,
-      );
-    }
-  }
-  for (const c of manifest.connectors) {
-    const kind: string = c.kind;
-    if (!KNOWN_CONNECTOR_KINDS.has(kind)) {
-      throw new Error(`world: unsupported connector kind "${kind}" — re-bake`);
-    }
-  }
+  return store;
 }
 
-/** Fetch a world artifact the manifest references, failing loud with the offending path on a
- *  partial/corrupt bake (a referenced doc/`.fmesh` missing → `serve.ts` 404) instead of the
- *  opaque downstream error (`"Not found" is not valid JSON` / `mesh-blob: bad magic`). NOT
- *  used for the index/manifest — those 404s are distinct "broken clone" throws above. */
-async function fetchArtifact(path: string): Promise<Response> {
-  const res = await fetch(path);
-  if (!res.ok) {
-    throw new Error(`world: artifact ${path} failed to load (${res.status})`);
-  }
-  return res;
-}
-
-/** Build a region's manifest cuboid colliders as static bodies — one static body per
- *  manifest cuboid. A region's render-only meshes live in the world's single merged
- *  scene doc, loaded once. */
+/** One static shell voxel collider per allocated chunk (interior rock is unreachable, so only the
+ *  air-adjacent shell colliders). Density-only: masonry is solid density, so a kit wall blocks with
+ *  no material-channel involvement here. Bodies die with the world — not tracked for teardown. */
 function createColliderBodies(
   ctx: Context,
   world: physics.World,
-  colliders: RegionCollider[],
+  store: field.FieldStore,
 ): void {
-  for (const c of colliders) {
+  for (const key of store.chunks.keys()) {
+    const col = field.chunkColliders(store, key);
+    if (col === null) continue;
     physics.createBody(ctx, world, {
       type: "static",
-      shape: c.shape,
-      position: c.position,
-      rotation: c.rotation,
+      shape: { voxels: { coords: col.coords, size: col.size } },
+      position: col.position,
     });
   }
 }
 
-/** Re-expand a cave region's field-derived voxel proxy from its recorded `params`/`seed` and
- *  seat it in world via the same placement its meshes went through. Cave-only by type — the
- *  loader dispatches on `class` and routes grid regions elsewhere (`expandGridRegionFromEntry`). */
-function createCaveProxyBody(
+/** Decode each per-class `.fmesh` bucket into a GPU mesh at its chunk origin, each with the
+ *  material its class resolves to ({@link materialDescriptorFor}). `matCache.get` dedupes by
+ *  descriptor, so classes sharing a colour share one material. Returns meshes + owned geometries
+ *  for teardown. Sequential (`for ... await`): `matCache.get` is async and not concurrency-safe. */
+async function buildRenderMeshes(
   ctx: Context,
-  world: physics.World,
-  r: WorldCaveRegionEntry,
-): void {
-  // `params` is the recorded (typed) cave call params, spread over the base RegionParams.
-  const local = caveProxy({
-    theme: "cave",
-    seed: r.seed,
-    origin: LOCAL_ORIGIN,
-    ...r.params,
-  } as CaveParams);
-  // The proxy is LOCAL-frame; run it through `placePiece` (which rotates+translates a
-  // collider's position and carries the yaw on its body rotation) so it lands exactly where
-  // the placed meshes did. The voxel shape itself is placement-invariant.
-  const placed = placePiece(
-    pieceRegion({
-      colliders: [{ shape: local.shape, position: local.position }],
-    }),
-    r.placement,
-  );
-  const col = placed.colliders[0];
-  if (!col) return;
-  physics.createBody(ctx, world, {
-    type: "static",
-    shape: col.shape,
-    position: col.position,
-    rotation: col.rotation,
-  });
+  matCache: MaterialCache,
+  manifest: field.FieldManifest,
+  baseUrl: string,
+): Promise<{ meshes: mesh.Mesh[]; geometries: geometry.Geometry[] }> {
+  const meshes: mesh.Mesh[] = [];
+  const geometries: geometry.Geometry[] = [];
+  const table = manifest.materialTable;
+  for (const m of manifest.meshes) {
+    const mat = await matCache.get(materialDescriptorFor(m, table));
+    const res = await fetch(`${baseUrl}/${m.file}`);
+    if (!res.ok) {
+      throw new Error(`world: mesh missing ${m.file} (${res.status})`);
+    }
+    const blob = decodeMeshBlob(await res.arrayBuffer());
+    const g = geometry.create(ctx, blob.render, { retainForCollision: false });
+    const handle = mesh.create(ctx, { geometry: g, material: mat });
+    mesh.setPosition(ctx, handle, new Float32Array(m.origin));
+    geometries.push(g);
+    meshes.push(handle);
+  }
+  return { meshes, geometries };
 }
 
-/** Re-expand a BORE connector's (organic-tunnel or collar-bore) field-derived voxel proxy
- *  from its placed portals + EXPLICIT tunnel opts (the manifest records `radius`/`overshoot`,
- *  so a non-default bore re-expands faithfully rather than snapping back to `organicTunnel`'s
- *  internal defaults). `organicTunnel` is symmetric in `a`/`b` and its proxy is ALREADY
- *  world-frame (its portals are world-frame) — no `placePiece`. Setup-loud: the connector
- *  carries no cuboids, so this bore IS its collision. */
-function createConnectorProxyBody(
+/** One owned instanced kit mesh: the draw handle + its per-chunk unit-cube geometry. */
+type KitOwned = { im: mesh.InstancedMesh; g: geometry.Geometry };
+
+/** Build one instanced kit mesh per kit chunk: a unit cube drawn once per piece, each transformed
+ *  by its (yaw · box) matrix at its world position (chunk-local position + chunk origin), tinted
+ *  per piece. One packed matrix array + one bulk upload per chunk. All kit pieces share ONE
+ *  white-base lit-instanced material (per-piece colour rides the tint). Sequential (`for ... await`):
+ *  `matCache.getInstanced` is async and not concurrency-safe. */
+async function buildKitInstances(
   ctx: Context,
-  world: physics.World,
-  c: WorldBoreConnectorEntry,
-): void {
-  const tunnel = organicTunnel(c.a, c.b, c.seed, {
-    radius: c.radius,
-    overshoot: c.overshoot,
-    extendA: c.extendA,
+  matCache: MaterialCache,
+  manifest: field.FieldManifest,
+  cellSize: number,
+  baseUrl: string,
+): Promise<KitOwned[]> {
+  const table = manifest.materialTable;
+  const kitFiles = manifest.kit ?? [];
+  if (kitFiles.length === 0 || !table) return [];
+  const mat = await matCache.getInstanced(
+    { color: [1, 1, 1, 1], specular: STONE.specular },
+    "lit",
+  );
+  const owned: KitOwned[] = [];
+  for (const { key, file } of kitFiles) {
+    const res = await fetch(`${baseUrl}/${file}`);
+    if (!res.ok) {
+      throw new Error(`world: kit missing ${file} (${res.status})`);
+    }
+    // Boundary cast: the kit file is external JSON — an array of KitInstance the bake wrote.
+    const pieces = (await res.json()) as field.KitInstance[];
+    if (pieces.length === 0) continue;
+    owned.push(buildKitChunk(ctx, mat, table, key, pieces, cellSize));
+  }
+  return owned;
+}
+
+/** Build one chunk's instanced kit mesh from its pieces (chunk-local positions) at `key`'s world
+ *  origin, packing every piece's TRS matrix into one array and uploading it in a single call, then
+ *  tinting each instance per piece. */
+function buildKitChunk(
+  ctx: Context,
+  mat: Material,
+  table: field.MaterialTable,
+  key: string,
+  pieces: field.KitInstance[],
+  cellSize: number,
+): KitOwned {
+  // The unit-cube + quarter-turn no-normal-matrix invariant that makes
+  // litInstanced safe is documented on core's `packKitMatrices` — do NOT swap to
+  // non-axis-aligned kit geometry (it would skew normals with no test to catch).
+  const g = geometry.cube(ctx, { size: 1 });
+  const im = mesh.createInstanced(ctx, {
+    geometry: g,
+    material: mat,
+    count: pieces.length,
   });
-  const col = tunnel.colliders[0];
-  if (!col) {
+  const [cx, cy, cz] = field.parseChunkKey(key);
+  const dim = field.CHUNK_DIM * cellSize;
+  mesh.setInstanceMatrices(
+    ctx,
+    im,
+    field.packKitMatrices(pieces, [cx * dim, cy * dim, cz * dim]),
+  );
+  pieces.forEach((k, i) =>
+    mesh.setInstanceTint(ctx, im, i, field.pieceColor(table, k)),
+  );
+  return { im, g };
+}
+
+// ─── placement loading ───
+
+/** The dungeon's entity catalog (`catalog/entities.json`), the boundary shape the loader reads: per
+ *  archetype, its variant `.fmesh` paths, its lit colour, and the collision primitive each placed
+ *  instance derives a static collider from at load (D-F3-10). Mesh paths are package-relative
+ *  ("catalog/meshes/rock.0.fmesh") and fetch as a leading-slash URL. Only the fields the loader
+ *  consumes are typed here; the catalog also carries `name`/`scatter` (the bake-time authoring
+ *  fields), which the loader ignores.
+ *
+ *  `collision` is core's {@link field.PlacementCollision} rather than a local restatement: the
+ *  analyzer voxelizes placements from that exact type (D-F4-5), so sharing it is what keeps the
+ *  flags the analyzer produces describing the colliders this loader creates — including the
+ *  `anchor` this file honours below (D-F4-14). */
+type CatalogArchetype = {
+  id: string;
+  meshes: string[];
+  material: { litColor: [number, number, number] };
+  collision: field.PlacementCollision;
+};
+type EntityCatalog = { archetypes: CatalogArchetype[] };
+
+/** Well-known global path of the entity catalog (served by `serve.ts`'s `/catalog/*` route). It
+ *  lives OUTSIDE the per-world dir — placements name archetype ids the catalog resolves, so one
+ *  catalog is shared across every world. */
+const CATALOG_URL = "/catalog/entities.json";
+
+/** Fetch + index the entity catalog by archetype id. Setup-loud (a file the process did not write),
+ *  matching the index/manifest fetch stance. */
+async function fetchCatalog(): Promise<Map<string, CatalogArchetype>> {
+  const res = await fetch(CATALOG_URL);
+  if (!res.ok) {
     throw new Error(
-      `world: connector ${c.id} re-expanded no voxel proxy — traversal would break`,
+      `world: entity catalog missing at ${CATALOG_URL} (${res.status})`,
     );
   }
-  physics.createBody(ctx, world, {
-    type: "static",
-    shape: col.shape,
-    position: col.position,
-    rotation: col.rotation,
-  });
+  // Boundary cast: entities.json is external data the loader did not write; the archetype fields the
+  // loader consumes are the typed subset above (the loader ignores name/scatter).
+  const catalog = (await res.json()) as EntityCatalog;
+  return new Map(catalog.archetypes.map((a) => [a.id, a]));
 }
 
-/** Local-frame dressing for a baked cave region: scatter re-derived over its DECODED baked
- *  mesh (sidecar index 0), reproducing the live scatter byte-for-byte from the seed.
- *  `placePiece` seats it in world after. Cave-only by type — the loader dispatches on `class`
- *  and only routes field-organic regions here. */
-async function dressingFor(
-  r: WorldCaveRegionEntry,
-  dir: string,
-): Promise<RegionData> {
-  // The cave's baked isosurface (mesh index 0) sidecar — see bake.ts appendPiece; it lives
-  // beside the merged scene doc, so its base dir comes from `manifest.scene`.
-  const buf = await (
-    await fetchArtifact(`/${dir}/${r.id}-0.fmesh`)
-  ).arrayBuffer();
-  const surface = decodeMeshBlob(buf).render;
-  // Boundary cast: see createCaveProxyBody — recorded materializer params.
-  const d = caveDressing(
-    {
-      theme: "cave",
-      seed: r.seed,
-      origin: LOCAL_ORIGIN,
-      ...r.params,
-    } as CaveParams,
-    surface,
+/** One owned instanced placement mesh: the draw handle + its per-variant archetype geometry. */
+type PlacementOwned = { im: mesh.InstancedMesh; g: geometry.Geometry };
+
+/** Load the placement artifact: parse `placements.json` into per-archetype groups, resolve each
+ *  archetype in the catalog, create one static collider per placed record (derived, D-F3-10), and
+ *  build one instanced mesh per (archetype, variant) group. Returns owned instanced meshes +
+ *  geometries for teardown; the collider bodies die with the world (not tracked), matching
+ *  {@link createColliderBodies}. Absent `manifest.placements` (a props-free world) → `[]`, the
+ *  optional-field contract. Sequential (`for ... await`): `matCache.getInstanced` is async and not
+ *  concurrency-safe.
+ *
+ *  @throws if the placement artifact / an archetype `.fmesh` fails to fetch (a partial bake), or a
+ *    placement group names an archetype/variant the catalog does not define (a stale/foreign
+ *    artifact) — setup-loud, like {@link buildRenderMeshes}. */
+async function buildPlacementInstances(
+  ctx: Context,
+  world: physics.World,
+  matCache: MaterialCache,
+  manifest: field.FieldManifest,
+  baseUrl: string,
+): Promise<PlacementOwned[]> {
+  if (manifest.placements === undefined) return [];
+  const res = await fetch(`${baseUrl}/${manifest.placements}`);
+  if (!res.ok) {
+    throw new Error(
+      `world: placements missing ${manifest.placements} (${res.status})`,
+    );
+  }
+  const groups = field.parsePlacements(await res.text());
+  if (groups.length === 0) return [];
+  const catalog = await fetchCatalog();
+  const owned: PlacementOwned[] = [];
+  for (const group of groups) {
+    const archetype = catalog.get(group.id);
+    if (archetype === undefined) {
+      throw new Error(
+        `world: placement archetype "${group.id}" absent from ${CATALOG_URL}`,
+      );
+    }
+    createPlacementColliders(ctx, world, archetype, group.records);
+    owned.push(
+      ...(await buildArchetypeGroups(ctx, matCache, archetype, group)),
+    );
+  }
+  return owned;
+}
+
+/** One derived static collider per placed record at its baked world pose
+ *  (`placement-collider.ts`'s {@link placementCollider} for the shape, core's
+ *  `field.collisionCenter` for the anchored position —
+ *  the same function the F4 analyzer's `voxelizePlacements` rasterizes around, so the walkability
+ *  flags describe these bodies). Density-agnostic: props carry their OWN colliders (the "if you
+ *  can dig it, it's field, else it's an entity with its own collider" jurisdiction rule),
+ *  independent of the chunk shell voxels. Bodies die with the world — not tracked for teardown,
+ *  matching {@link createColliderBodies}. */
+function createPlacementColliders(
+  ctx: Context,
+  world: physics.World,
+  archetype: CatalogArchetype,
+  records: readonly field.PlacementRecord[],
+): void {
+  for (const r of records) {
+    physics.createBody(ctx, world, {
+      type: "static",
+      shape: placementCollider(archetype.collision, r.scale),
+      position: field.collisionCenter(archetype.collision, r),
+      rotation: r.quat,
+    });
+  }
+}
+
+/** Build one instanced mesh per VARIANT within an archetype group: split the records by
+ *  `variantIndex`, decode that variant's `.fmesh` into a GPU geometry, and pack every record's TRS
+ *  matrix into one bulk `setInstanceMatrices` upload. All variants of the archetype share ONE
+ *  `litInstanced` material tinted by the catalog's `litColor`. The `litInstanced` shader transforms
+ *  normals by the upper-3×3 of the per-instance model and normalizes in the fragment, so a prop's
+ *  ARBITRARY rotation shades correctly as long as its scale is uniform (scatter emits uniform scale
+ *  — see `packPlacementMatrices`' caveat: the kit's no-normal-matrix shortcut does NOT apply, but
+ *  the uniform-scale case the same shader handles is exactly what scatter produces). */
+async function buildArchetypeGroups(
+  ctx: Context,
+  matCache: MaterialCache,
+  archetype: CatalogArchetype,
+  group: field.PlacementGroup,
+): Promise<PlacementOwned[]> {
+  const [r, g, b] = archetype.material.litColor;
+  const mat = await matCache.getInstanced(
+    { color: [r, g, b, 1], specular: STONE.specular },
+    "lit",
   );
-  return pieceRegion({ instances: d.instances, materials: d.materials });
-}
-
-/** A minimal, valid `RegionData` carrying only the fields a caller sets — the rest are empty
- *  defaults — so `placePiece`/`realizeRegion` can process a dressing or a lone collider
- *  without a full generator run. */
-function pieceRegion(over: Partial<RegionData>): RegionData {
-  return {
-    meshes: [],
-    colliders: [],
-    materials: [],
-    connections: [],
-    instances: [],
-    origin: LOCAL_ORIGIN,
-    bounds: { min: [0, 0, 0], max: [0, 0, 0] },
-    provenance: {
-      generatorId: "dungeon",
-      generatorVersion: GENERATOR_VERSION,
-      theme: "connector",
-      seed: "world-loader",
-    },
-    ...over,
-  };
+  const byVariant = new Map<number, field.PlacementRecord[]>();
+  for (const rec of group.records) {
+    const list = byVariant.get(rec.variantIndex);
+    if (list) list.push(rec);
+    else byVariant.set(rec.variantIndex, [rec]);
+  }
+  const owned: PlacementOwned[] = [];
+  for (const [variantIndex, records] of byVariant) {
+    const meshPath = archetype.meshes[variantIndex];
+    if (meshPath === undefined) {
+      throw new Error(
+        `world: archetype "${archetype.id}" has no mesh for variant ${variantIndex}`,
+      );
+    }
+    const res = await fetch(`/${meshPath}`);
+    if (!res.ok) {
+      throw new Error(
+        `world: archetype mesh missing ${meshPath} (${res.status})`,
+      );
+    }
+    const blob = decodeMeshBlob(await res.arrayBuffer());
+    const geo = geometry.create(ctx, blob.render, {
+      retainForCollision: false,
+    });
+    const im = mesh.createInstanced(ctx, {
+      geometry: geo,
+      material: mat,
+      count: records.length,
+    });
+    mesh.setInstanceMatrices(ctx, im, field.packPlacementMatrices(records));
+    owned.push({ im, g: geo });
+  }
+  return owned;
 }
