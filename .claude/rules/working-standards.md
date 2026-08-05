@@ -33,6 +33,15 @@ From the placement-arc postmortem (`docs/learnings/2026-07-05-dungeon-placement-
 - **Search systems get budgets on day one.** Any task that introduces a search/solve loop ships wall-clock/attempt ceilings with fail-fast semantics in that same task, not as later hardening — robustness lives in the outer retry loop, not in search depth (the DunGen/Warframe shape). Unbounded search cost discovered late makes measurement, retries, and the bars themselves intractable.
 
 ## Design
+- **Boundaries enforce declared surface, not path shapes.** A module's contract is what
+  it *declares* — its public surface (`index.ts`) and its package-private seam
+  (`internal.ts`). Importing a declared name through a deep file path is fine; importing
+  an undeclared name is the violation, whatever path it takes. Design rules and checks
+  around imports/boundaries must test surface membership, and mechanical churn
+  (re-pointing imports, adding barrel seams) is only justified when it closes a real
+  ownership gap — publicness should be a decision someone made, never an accident of
+  file layout. (Stated 2026-08-05 during the foundations doors design; canonical form in
+  `docs/reference/api-posture.md` §R8 enforcement.)
 - **Deletion pass before addition pass.** When evolving existing API surface, list deletion candidates before listing additions. For every existing export in the affected area, ask "if we add the new thing, could we delete this?" Removing surface is a first-class option, not a fallback.
 - **Single source of truth as a forcing function.** Two ways to spell the same thing — sugar fields alongside explicit fields, two parallel mutators, derived state that's also user-settable — is a smell. Pick one path and delete the other. Parallel paths force conflict-resolution rules (throw / warn / clear / silent) that are pure cost.
 - **Mine wrong proposals.** A rejected design idea usually surfaces a real constraint that a different shape can satisfy. Don't dismiss rejections; ask "what was that trying to solve?" and propose differently. Tranche A-2's construct-time sugar was wrong but exposed the constraint that the policy-factory namespace then satisfied cleanly.

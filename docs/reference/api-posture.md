@@ -112,6 +112,20 @@ When adding or changing public surface, apply these.
     had one (`gpu`, `input`, `log`, `material`, `mesh`, `physics`, `resources`,
     `stats`).
 
+  - **The principle behind the door rule (2026-08-05 refinement):** the path was
+    always a proxy — **the real rule is surface membership**. Importing a name a
+    module *declared* (its `index.ts` = public surface, its `internal.ts` =
+    package-private seam) is legitimate through any file path; importing an
+    UNDECLARED name is the violation, because it makes publicness an accident of
+    file layout instead of a decision someone made. Deep imports of public names
+    are therefore fine, and plumbing added purely to satisfy a path shape is
+    churn without ownership value. The mechanical clause is being rewritten from
+    path-checking to name-checking against the declared surfaces (the pinned
+    `RATCHETED_EDGES` list shrinks to the genuine ownership gaps, each resolved
+    explicitly: promote-to-public / declare-internal / fix-the-importer). Status
+    + the per-edge audit live in
+    `docs/backlog/engine-architecture/cross-module-import-doors.md`.
+
     The clause lands as a **ratchet**, not a clean rule: 68 of 256 cross-module
     edges pre-date it and are pinned in `RATCHETED_EDGES`
     (`packages/core/tests/architecture.test.ts`). The test fails in **both**
