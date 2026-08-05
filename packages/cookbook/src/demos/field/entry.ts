@@ -198,8 +198,10 @@ type SceneRef = {
   bindings: Binding[];
 };
 
-/** Mutate the field the only way it mutates: brush ops through the op log.
- *  Returns the store plus the union of every op's dirty chunk set. */
+/** Mutate the field the only way it mutates: brush ops through the op log —
+ *  one at a time with `logApply`, or a whole gesture at once with
+ *  `logApplyGroup`. Returns the store plus the union of every op's dirty chunk
+ *  set. */
 function buildField(): { store: field.FieldStore; dirty: Set<field.ChunkKey> } {
   const store = field.createFieldStore();
   const log = field.createOpLog();
@@ -243,14 +245,17 @@ function buildField(): { store: field.FieldStore; dirty: Set<field.ChunkKey> } {
       effect: "dig",
       shape: { kind: "box", center: PIT_CENTER, halfExtents: PIT_HALF },
     },
-    // …a shallow step it handles fine…
+    // …and a shallow step it handles fine.
     {
       id: 0,
       kind: "brush",
       effect: "dig",
       shape: { kind: "box", center: STEP_CENTER, halfExtents: STEP_HALF },
     },
-    // …and two blocks pinching a lane too tight to walk down.
+  ];
+  // Two blocks pinching a lane too tight to walk down — TWO ops, but ONE
+  // authoring gesture: nobody places half a pinch.
+  const pinch: field.BrushOp[] = [
     {
       id: 0,
       kind: "brush",
@@ -267,8 +272,13 @@ function buildField(): { store: field.FieldStore; dirty: Set<field.ChunkKey> } {
     },
   ];
   const dirty = new Set<field.ChunkKey>();
+  // One op, one entry: six separate ⌘Z steps.
   for (const op of ops)
     for (const key of field.logApply(store, log, op, TABLE)) dirty.add(key);
+  // One LIST, one entry: logApplyGroup validates all before applying any, then
+  // pushes a SINGLE undo entry, so one ⌘Z takes the whole pinch back out.
+  for (const key of field.logApplyGroup(store, log, pinch, TABLE))
+    dirty.add(key);
   return { store, dirty };
 }
 

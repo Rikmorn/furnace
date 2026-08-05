@@ -843,15 +843,25 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   organic-only / kit-only / class / solid-only / selection-embedding) evaluate per
   sample and ride the op record — a masked op replays identically; `solid-only` is the
   keep-existing-air building block. Kit lattice validation is per-op and re-checked by
-  the applier (`assertOpValid`). `applyOp`, `logApply`, `undo`/`redo`, `opBounds`,
-  `createOpLog`. An undo/redo unit is a `LogEntry`: `ops` (an appended op LIST — one
-  entry per generator commit), `splice` (an in-place span replacement — `before`/`after`
+  the applier (`assertOpValid`). `applyOp`, `logApply`, `logApplyGroup`, `undo`/`redo`,
+  `opBounds`, `createOpLog`. An undo/redo unit is a `LogEntry`: `ops` (an appended op
+  LIST — one entry per generator commit), `splice` (an in-place span replacement — `before`/`after`
   chunk images are RESTORED on undo/redo, the span is never re-executed), or
   `entity-update` (an in-place entity-record swap that touches no chunks; its
   `opIndex` is validated to address a real entity op before either direction writes,
   so a hand-built entry cannot grow `log.ops` with holes or install a non-index
   property). `restoreImages` is the shared image→store writer (both channels; a null
   channel deletes). Both stacks are strictly LIFO.
+  `logApplyGroup(store, log, ops, table)` is the PLURAL `logApply` — a whole brush-op
+  list lands as ONE `ops` entry, so a gesture that commits several ops undoes with a
+  single ⌘Z (the entry type was always plural; this is the managed way to fill it).
+  Its four contract clauses: every op is validated BEFORE the first is applied, so a
+  mid-list rejection mutates nothing (store, `log.ops`, both stacks and `nextId` all
+  untouched); ids stamp sequentially in list order onto COPIES of the records, leaving
+  the caller's op objects alone; the entry's inverse keeps each chunk's FIRST pre-image
+  (the `redo` replay convention), so undo restores pre-group bytes even where ops
+  overlap; and an EMPTY list is free — no entry is pushed and the redo stack survives,
+  rather than costing a phantom history step.
 - **Patch ops (F3a)** — `PatchOp` = ABSOLUTE masked per-cell writes, one `PatchChunk`
   slice per chunk: 512-byte density/material bitmasks (bit `lx + 16·(ly + 16·lz)`) plus
   one value per set bit in ascending bit order, each channel tracking its own mask.

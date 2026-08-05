@@ -78,6 +78,7 @@ export {
   fieldOpChunks,
   isBrushOp,
   logApply,
+  logApplyGroup,
   logApplyPatch,
   opBounds,
   redo,

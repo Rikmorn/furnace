@@ -19,6 +19,7 @@ import {
   getDensity,
   getMaterial,
   logApply,
+  logApplyGroup,
   MAT_ROCK,
   MAX_SELECTION_BUDGET,
   opBounds,
@@ -1522,5 +1523,160 @@ describe("splice + entity-update log entries (F3a)", () => {
       expect(log.ops[1]).toBe(before);
       expect(log.ops.length).toBe(2);
     });
+  });
+});
+
+// One GESTURE, one undo entry. The op list was always plural (`LogEntry.ops`,
+// `revertEntry` peeling `entry.ops.length` off the tail); what was missing was a
+// managed way to fill it. These pin the four contract clauses that separate
+// `logApplyGroup` from a loop over `logApply`: one entry, a first-image inverse,
+// all-validation-before-any-apply, and an empty list that costs no history step.
+describe("logApplyGroup (one gesture, one undo entry)", () => {
+  /** Everything a group must leave alone when it rejects or no-ops: the op
+   *  array, both channels of the store, both stack depths, and the id counter. */
+  const logState = (s: FieldStore, log: OpLog) => ({
+    ops: [...log.ops],
+    store: snapshotAll(s),
+    undoDepth: log.undoStack.length,
+    redoDepth: log.redoStack.length,
+    nextId: log.nextId,
+  });
+
+  /** The room the painted fixtures need: paint retints SOLID cells only, so the
+   *  bands below sit in the rock UNDER this dug room's floor. */
+  const room = (): BrushOp => digBox([2, 2, 2], [2, 2, 2]);
+  const dirtBand = (): BrushOp => paintBox([2, -0.5, 2], [1, 0.3, 1], 1);
+  const mossBand = (): BrushOp => paintBox([2, -1.5, 2], [1, 0.3, 1], 3);
+
+  test("a two-op group is ONE undo entry: one undo reverts both, one redo replays both", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    const before = snapshotAll(s);
+
+    const dirty = logApplyGroup(s, log, [dirtBand(), mossBand()], TABLE);
+
+    expect(dirty.size).toBeGreaterThan(0);
+    expect(getMaterial(s, 8, -2, 8)).toBe(1); // both ops landed
+    expect(getMaterial(s, 8, -6, 8)).toBe(3);
+    expect(log.ops.length).toBe(3);
+    // the room's entry plus ONE for the whole group — not one entry per op
+    expect(log.undoStack.length).toBe(2);
+    const entry = log.undoStack[1];
+    if (entry?.kind !== "ops")
+      throw new Error(`expected an "ops" entry, got ${entry?.kind}`);
+    expect(entry.ops.length).toBe(2);
+
+    undo(s, log);
+    expect(log.ops.length).toBe(1); // shrank by the whole group
+    expect(log.undoStack.length).toBe(1); // ONE pop took both ops
+    expect(snapshotAll(s)).toEqual(before); // BOTH bands gone
+
+    redo(s, log, TABLE);
+    expect(log.ops.length).toBe(3);
+    expect(getMaterial(s, 8, -2, 8)).toBe(1);
+    expect(getMaterial(s, 8, -6, 8)).toBe(3);
+  });
+
+  test("overlapping ops: the inverse keeps the FIRST pre-image, so undo restores pre-GROUP bytes", () => {
+    const a = digSphere([1, 1, 1], 1.2);
+    const b: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: 1,
+      shape: { kind: "sphere", center: [1, 1, 1], radius: 0.6 },
+    };
+    // Non-vacuity: the two ops must genuinely write a SHARED chunk, or
+    // first-vs-last image is an unobservable distinction.
+    const scratch = createFieldStore();
+    const ra = applyOp(scratch, a, TABLE);
+    const rb = applyOp(scratch, b, TABLE);
+    expect([...ra.inverse.keys()].some((k) => rb.inverse.has(k))).toBe(true);
+
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApplyGroup(s, log, [a, b], TABLE);
+    expect(getMaterial(s, 4, 4, 4)).toBe(1); // the fill claimed the probed cell
+
+    undo(s, log);
+    // Last-touch-wins would restore b's pre-image — which already contains a's
+    // dig — and leave the chunk (and its material record) behind.
+    expect(s.chunks.size).toBe(0);
+    expect(s.materials.size).toBe(0);
+  });
+
+  test("ids stamp sequentially in list order; the caller's records are not mutated", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    expect(log.nextId).toBe(2);
+
+    const ops = [
+      dirtBand(),
+      mossBand(),
+      paintBox([2, -2.5, 2], [1, 0.3, 1], 1),
+    ];
+    logApplyGroup(s, log, ops, TABLE);
+
+    expect(log.nextId).toBe(5); // advanced by ops.length, not by 1
+    expect(log.ops.map((o) => o.id)).toEqual([1, 2, 3, 4]);
+    const entry = log.undoStack[1];
+    if (entry?.kind !== "ops")
+      throw new Error(`expected an "ops" entry, got ${entry?.kind}`);
+    expect(entry.ops.map((o) => o.id)).toEqual([2, 3, 4]);
+    // The log stamps a COPY: a caller reusing its op records across gestures
+    // never finds them rewritten (the logApply provenance posture).
+    expect(ops.map((o) => o.id)).toEqual([0, 0, 0]);
+  });
+
+  test("validation is all-before-any: a bad SECOND op mutates nothing", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    logApply(s, log, dirtBand(), TABLE);
+    undo(s, log); // a real redo step to protect as well
+
+    const good = digBox([6, 2, 2], [1, 1, 1]); // virgin rock: a REAL mutation
+    // Non-vacuity: op 1 of the group would have written, so "nothing changed"
+    // means the validation pass genuinely ran before the first apply.
+    expect(applyOp(createFieldStore(), good, TABLE).dirty.size).toBeGreaterThan(
+      0,
+    );
+    const bad: BrushOp = {
+      ...mossBand(),
+      mask: { kind: "class", classId: 99 },
+    };
+    const state = logState(s, log);
+
+    expect(() => logApplyGroup(s, log, [good, bad], TABLE)).toThrow(/unknown/);
+
+    expect(logState(s, log)).toEqual(state);
+  });
+
+  test("an empty group is free: no entry, no dirty chunks, and the redo step survives", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    undo(s, log);
+    expect(log.redoStack.length).toBe(1);
+    const state = logState(s, log);
+
+    expect(logApplyGroup(s, log, [], TABLE).size).toBe(0);
+
+    expect(logState(s, log)).toEqual(state); // no entry, no phantom ⌘Z step
+    expect(redo(s, log, TABLE).size).toBeGreaterThan(0); // still takeable
+  });
+
+  test("a non-empty group clears the redo stack, like any other mutation", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    undo(s, log);
+    expect(log.redoStack.length).toBe(1);
+
+    logApplyGroup(s, log, [digBox([6, 2, 2], [1, 1, 1])], TABLE);
+
+    expect(log.redoStack.length).toBe(0);
   });
 });

@@ -896,6 +896,48 @@ export function logApply(
   return dirty;
 }
 
+/** Validates then applies a whole op list through the log as ONE undo entry —
+ *  the {@link logApply} analogue for a gesture that commits several ops but must
+ *  undo as a single ⌘Z. Every op is validated ({@link assertOpValid}) BEFORE the
+ *  first is applied, so a mid-list rejection mutates nothing — not the store,
+ *  the log, the stacks, or the id counter. Ids stamp sequentially in list order
+ *  onto COPIES of the records, so a caller reusing its op objects never finds
+ *  them rewritten. The recorded inverse keeps the FIRST pre-image per chunk (the
+ *  {@link redo} replay convention, shared with `reapplyOps`), so undo restores
+ *  pre-group bytes even where ops overlap. An empty list is a no-op: no entry is
+ *  pushed and the redo stack survives — a phantom history step would cost a real
+ *  one.
+ *
+ *  @returns the union of the ops' dirty chunk sets.
+ *  @throws {@link Error} if any op fails {@link assertOpValid} — before any
+ *    mutation. */
+export function logApplyGroup(
+  store: FieldStore,
+  log: OpLog,
+  ops: BrushOp[],
+  table: MaterialTable,
+): Set<ChunkKey> {
+  if (ops.length === 0) return new Set();
+  for (const op of ops) assertOpValid(op, table);
+  const dirty = new Set<ChunkKey>();
+  const inverse: OpInverse = new Map();
+  const stamped: BrushOp[] = [];
+  for (const op of ops) {
+    const s: BrushOp = { ...op, id: log.nextId++ };
+    const r = applyOp(store, s, table);
+    for (const key of r.dirty) dirty.add(key);
+    for (const [key, pre] of r.inverse)
+      if (!inverse.has(key)) inverse.set(key, pre);
+    stamped.push(s);
+  }
+  // Loop push, not spread: spread hits JS-engine argument-count ceilings
+  // (~65k in JSC) on mega commit spans — the `reapplyOps` convention.
+  for (const s of stamped) log.ops.push(s);
+  log.undoStack.push({ kind: "ops", ops: stamped, inverse });
+  log.redoStack.length = 0;
+  return dirty;
+}
+
 /** Deep copy of one patch slice — the log's own buffers (see
  *  {@link logApplyPatch}). */
 const clonePatchChunk = (c: PatchChunk): PatchChunk => ({
