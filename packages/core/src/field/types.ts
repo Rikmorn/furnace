@@ -449,9 +449,10 @@ export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
 
 /** One undo/redo unit.
  *
- *  `ops` = an op LIST appended to the tail — a single brush op, or a generator
- *  commit's whole span + its entity op (one ⌘Z per commit, charter §2.3) —
- *  with the chunk pre-images taken before the list applied.
+ *  `ops` = an op LIST appended to the tail — a single brush op, one gesture's
+ *  whole op list (`logApplyGroup`), or a generator commit's whole span + its
+ *  entity op (one ⌘Z per commit, charter §2.3) — with the chunk pre-images
+ *  taken before the list applied.
  *
  *  `splice` = an in-place span replacement (reconfigure): `at` is the index in
  *  `ops` where `removed` sat, and `before`/`after` are the affected chunks'

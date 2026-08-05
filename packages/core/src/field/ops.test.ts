@@ -1554,11 +1554,22 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
     logApply(s, log, room(), TABLE);
     const before = snapshotAll(s);
 
-    const dirty = logApplyGroup(s, log, [dirtBand(), mossBand()], TABLE);
+    // DISJOINT chunks, so the returned set can only be right by being the
+    // UNION — with both ops in one chunk, returning just the LAST op's dirty
+    // set would pass too.
+    const a = digBox([18, 2, 2], [1, 1, 1]);
+    const b = digBox([34, 2, 2], [1, 1, 1]);
+    const da = applyOp(createFieldStore(), a, TABLE).dirty;
+    const db = applyOp(createFieldStore(), b, TABLE).dirty;
+    expect(da.size).toBeGreaterThan(0);
+    expect(db.size).toBeGreaterThan(0);
+    expect([...da].some((k) => db.has(k))).toBe(false); // genuinely disjoint
 
-    expect(dirty.size).toBeGreaterThan(0);
-    expect(getMaterial(s, 8, -2, 8)).toBe(1); // both ops landed
-    expect(getMaterial(s, 8, -6, 8)).toBe(3);
+    const dirty = logApplyGroup(s, log, [a, b], TABLE);
+
+    expect([...dirty].sort()).toEqual([...new Set([...da, ...db])].sort());
+    expect(getDensity(s, 72, 8, 8)).toBeGreaterThan(0); // both ops landed
+    expect(getDensity(s, 136, 8, 8)).toBeGreaterThan(0);
     expect(log.ops.length).toBe(3);
     // the room's entry plus ONE for the whole group — not one entry per op
     expect(log.undoStack.length).toBe(2);
@@ -1574,8 +1585,8 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
 
     redo(s, log, TABLE);
     expect(log.ops.length).toBe(3);
-    expect(getMaterial(s, 8, -2, 8)).toBe(1);
-    expect(getMaterial(s, 8, -6, 8)).toBe(3);
+    expect(getDensity(s, 72, 8, 8)).toBeGreaterThan(0);
+    expect(getDensity(s, 136, 8, 8)).toBeGreaterThan(0);
   });
 
   test("overlapping ops: the inverse keeps the FIRST pre-image, so undo restores pre-GROUP bytes", () => {
@@ -1652,6 +1663,54 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
     expect(() => logApplyGroup(s, log, [good, bad], TABLE)).toThrow(/unknown/);
 
     expect(logState(s, log)).toEqual(state);
+  });
+
+  // Pass 2 is NOT covered by the all-before-any guarantee: `assertOpValid` does
+  // not check a sphere's radius (see
+  // docs/backlog/engine-architecture/field-brush-shape-numeric-validation.md),
+  // so an op can validate and still throw out of the applier. The store writes
+  // that op 1 already made are stranded — a module-wide class `commitGenerator`
+  // shares, tracked separately — but the ID SPACE must not also be corrupted:
+  // `commitGenerator` stamps from a LOCAL counter and commits `log.nextId` only
+  // after pass 2, and this pins the same posture here, so `log.ops` never
+  // acquires a gap it cannot explain.
+  test("an applier throw burns no ids: log.nextId survives a pass-2 failure", () => {
+    // A smooth over a sphere of INFINITE radius: valid on paper, fatal in the
+    // applier (its scratch buffer allocation gets a non-finite length).
+    const unbuildable: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "smooth",
+      smooth: { strength: 64, iterations: 1, mode: "both" },
+      shape: {
+        kind: "sphere",
+        center: [1, 1, 1],
+        radius: Number.POSITIVE_INFINITY,
+      },
+    };
+    // This test is only about PASS 2, so prove the op clears pass 1 — otherwise
+    // it silently degrades into a duplicate of the all-before-any test above.
+    expect(() => assertOpValid(unbuildable, TABLE)).not.toThrow();
+    expect(() => applyOp(createFieldStore(), unbuildable, TABLE)).toThrow();
+
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, room(), TABLE);
+    const nextId = log.nextId;
+
+    expect(() =>
+      logApplyGroup(
+        s,
+        log,
+        [digBox([18, 2, 2], [1, 1, 1]), unbuildable],
+        TABLE,
+      ),
+    ).toThrow();
+
+    // No entry was pushed, so nothing may have consumed an id.
+    expect(log.ops.length).toBe(1);
+    expect(log.undoStack.length).toBe(1);
+    expect(log.nextId).toBe(nextId);
   });
 
   test("an empty group is free: no entry, no dirty chunks, and the redo step survives", () => {

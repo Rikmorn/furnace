@@ -845,7 +845,8 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   keep-existing-air building block. Kit lattice validation is per-op and re-checked by
   the applier (`assertOpValid`). `applyOp`, `logApply`, `logApplyGroup`, `undo`/`redo`,
   `opBounds`, `createOpLog`. An undo/redo unit is a `LogEntry`: `ops` (an appended op
-  LIST — one entry per generator commit), `splice` (an in-place span replacement — `before`/`after`
+  LIST — one brush op, one gesture's list via `logApplyGroup`, or one generator
+  commit's span), `splice` (an in-place span replacement — `before`/`after`
   chunk images are RESTORED on undo/redo, the span is never re-executed), or
   `entity-update` (an in-place entity-record swap that touches no chunks; its
   `opIndex` is validated to address a real entity op before either direction writes,
@@ -861,7 +862,11 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   the caller's op objects alone; the entry's inverse keeps each chunk's FIRST pre-image
   (the `redo` replay convention), so undo restores pre-group bytes even where ops
   overlap; and an EMPTY list is free — no entry is pushed and the redo stack survives,
-  rather than costing a phantom history step.
+  rather than costing a phantom history step. It is NOT a transaction: all-or-nothing
+  covers validation only, and an op that validates but throws out of the APPLIER leaves
+  earlier ops' writes in the store with no entry describing them (the same exposure
+  `commitGenerator` has). Ids survive that failure — they commit only after the apply
+  pass — but the store is not rolled back.
 - **Patch ops (F3a)** — `PatchOp` = ABSOLUTE masked per-cell writes, one `PatchChunk`
   slice per chunk: 512-byte density/material bitmasks (bit `lx + 16·(ly + 16·lz)`) plus
   one value per set bit in ascending bit order, each channel tracking its own mask.

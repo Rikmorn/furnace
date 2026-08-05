@@ -908,6 +908,16 @@ export function logApply(
  *  pushed and the redo stack survives — a phantom history step would cost a real
  *  one.
  *
+ *  What this does NOT buy is a transaction. The all-or-nothing guarantee covers
+ *  VALIDATION only: an op that passes {@link assertOpValid} and then throws out
+ *  of the APPLIER (`assertOpValid` does not check every shape number, so an
+ *  unbuildable shape reaches pass 2) leaves the earlier ops' writes sitting in
+ *  the store with no entry describing them — exactly what a per-op
+ *  {@link logApply} loop would leave. The log's id space is kept whole across
+ *  that failure (ids commit only once the apply pass finishes, the
+ *  `commitGenerator` posture), but the store is not rolled back. A group buys
+ *  ONE undo entry, not atomicity.
+ *
  *  @returns the union of the ops' dirty chunk sets.
  *  @throws {@link Error} if any op fails {@link assertOpValid} — before any
  *    mutation. */
@@ -918,18 +928,24 @@ export function logApplyGroup(
   table: MaterialTable,
 ): Set<ChunkKey> {
   if (ops.length === 0) return new Set();
+  // Pass 1 — validate the WHOLE list before any write.
   for (const op of ops) assertOpValid(op, table);
+  // Pass 2 — apply. Ids come from a LOCAL counter committed only once the pass
+  // completes (the `commitGenerator` posture): an applier throw leaves the
+  // log's id space gapless rather than burning the ids it got as far as.
+  let nextId = log.nextId;
   const dirty = new Set<ChunkKey>();
   const inverse: OpInverse = new Map();
   const stamped: BrushOp[] = [];
   for (const op of ops) {
-    const s: BrushOp = { ...op, id: log.nextId++ };
+    const s: BrushOp = { ...op, id: nextId++ };
     const r = applyOp(store, s, table);
     for (const key of r.dirty) dirty.add(key);
     for (const [key, pre] of r.inverse)
       if (!inverse.has(key)) inverse.set(key, pre);
     stamped.push(s);
   }
+  log.nextId = nextId;
   // Loop push, not spread: spread hits JS-engine argument-count ceilings
   // (~65k in JSC) on mega commit spans — the `reapplyOps` convention.
   for (const s of stamped) log.ops.push(s);
