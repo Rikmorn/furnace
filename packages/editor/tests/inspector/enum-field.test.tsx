@@ -131,11 +131,11 @@ test("memberAt on an unknown value returns undefined rather than guessing", () =
 /** Render a single-target EnumField and return the commit spy. */
 function renderEnum(schema: { enum: unknown[] }, value: unknown) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	render(
 		<EnumField
 			schema={schema}
-			values={[value]}
+			value={value}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onPreview={() => {}}
 			onCommit={onCommit}
@@ -158,23 +158,12 @@ test("a numeric enum's trigger shows the member's LABEL, not the placeholder", (
 	expect(trigger.textContent).toContain("90");
 });
 
-test("a mixed selection shows the mixed placeholder rather than a member", () => {
-	renderEnum({ enum: [0, 90] }, 0);
-	cleanup();
-	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
-	render(
-		<EnumField
-			schema={{ enum: [0, 90] }}
-			values={[0, 90]}
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
-			onPreview={() => {}}
-			onCommit={onCommit}
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
-			onCancel={() => {}}
-			path="rotation"
-		/>,
-	);
+test("a value the schema no longer lists shows the placeholder, not a neighbour", () => {
+	// The stale-param case, and the reason `optionFor` returns undefined rather than
+	// falling back to member 0: a schema that dropped `45` must not make the row read as
+	// though the value were `0`. The multi-select flavour of this branch retired with the
+	// inspector's ghost arity; the stale param is what still reaches it.
+	renderEnum({ enum: [0, 90, 180, 270, 360] }, 45);
 	expect(
 		screen.getByRole("combobox", { name: "Rotation" }).textContent,
 	).toContain("—");

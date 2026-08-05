@@ -1,20 +1,16 @@
 import { Checkbox } from "../../components/ui/checkbox.tsx";
-import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldRow } from "./common.tsx";
 
-export function BooleanField({ values, onCommit, path }: FieldProps) {
-	const mixed = isMixed(values);
-	const checked = !mixed && Boolean(values[0]);
+export function BooleanField({ value, onCommit, path }: FieldProps) {
 	return (
 		<FieldRow path={path}>
-			{/* Radix Checkbox renders the mixed state via checked="indeterminate"
-          (replacing the old imperative ref .indeterminate). onCheckedChange is the
-          commit path, mirroring the native `change`: fan the new boolean to all
-          targets (a click out of indeterminate yields `true`). */}
+			{/* onCheckedChange is the commit path, mirroring the native `change`. Radix's
+          CheckedState is tri-state, so the `=== true` narrowing is what turns it back
+          into the boolean the schema declares. */}
 			<Checkbox
-				checked={mixed ? "indeterminate" : checked}
-				onCheckedChange={(c) => onCommit(values.map(() => c === true))}
+				checked={Boolean(value)}
+				onCheckedChange={(c) => onCommit(c === true)}
 			/>
 		</FieldRow>
 	);

@@ -23,13 +23,13 @@ afterEach(cleanup);
 /** Render a single-target ColorField and return the input + spies. */
 function renderColorField(rgba: number[] = [0, 0, 0, 1]) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onPreview = mock((_next: unknown[]) => {});
+	const onPreview = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	render(
 		<ColorField
 			schema={{}}
-			values={[rgba]}
+			value={rgba}
 			onPreview={onPreview}
 			onCommit={onCommit}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
@@ -45,7 +45,7 @@ test("React onChange (native `input`) previews live and does NOT commit", () => 
 	const { input, onPreview, onCommit } = renderColorField();
 	fireEvent.input(input, { target: { value: "#ff0000" } });
 	expect(onPreview).toHaveBeenCalledTimes(1);
-	expect(onPreview).toHaveBeenLastCalledWith([[1, 0, 0, 1]]);
+	expect(onPreview).toHaveBeenLastCalledWith([1, 0, 0, 1]);
 	expect(onCommit).not.toHaveBeenCalled();
 });
 
@@ -54,7 +54,7 @@ test("commit fires on the native `change` event, preserving the existing alpha",
 	fireEvent.change(input, { target: { value: "#ff0000" } });
 	expect(onCommit).toHaveBeenCalledTimes(1);
 	// Alpha (0.5) is carried through parseHex; RGB comes from the picked hex.
-	expect(onCommit).toHaveBeenLastCalledWith([[1, 0, 0, 0.5]]);
+	expect(onCommit).toHaveBeenLastCalledWith([1, 0, 0, 0.5]);
 });
 
 test("blur alone NEVER commits (the Safari-saga guarantee)", () => {
@@ -69,7 +69,7 @@ test("commit does not wait for blur — `change` without any blur commits", () =
 	// No blur is ever dispatched; the change event alone must commit.
 	fireEvent.change(input, { target: { value: "#00ff00" } });
 	expect(onCommit).toHaveBeenCalledTimes(1);
-	expect(onCommit).toHaveBeenLastCalledWith([[0, 1, 0, 1]]);
+	expect(onCommit).toHaveBeenLastCalledWith([0, 1, 0, 1]);
 });
 
 test("ordering: live preview (input) precedes commit (change); blur adds nothing", () => {
@@ -77,7 +77,7 @@ test("ordering: live preview (input) precedes commit (change); blur adds nothing
 	render(
 		<ColorField
 			schema={{}}
-			values={[[0, 0, 0, 1]]}
+			value={[0, 0, 0, 1]}
 			onPreview={() => events.push("preview")}
 			onCommit={() => events.push("commit")}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op

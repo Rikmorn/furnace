@@ -5,16 +5,14 @@
 //
 // The `committed` baseline is per-scalar (per vector/euler component for Vec/Quat) and must
 // be captured while UNfocused, so it holds the pre-edit value rather than the live-previewed
-// draft the field re-renders with mid-edit. A NaN baseline encodes a MIXED selection (the
-// targets disagree on this value) — there is no single committed value to compare against,
-// so a concrete entry always commits and the multi-select fan-out still fires.
+// draft the field re-renders with mid-edit.
 
-/** Run `doCommit` only when `parsed` differs from the `committed` baseline (or the baseline
- *  is mixed → NaN). The one comparison every numeric field's blur path routes through. */
+/** Run `doCommit` only when `parsed` differs from the `committed` baseline. The one
+ *  comparison every numeric field's blur path routes through. */
 export function commitIfChanged(
   committed: number,
   parsed: number,
   doCommit: () => void,
 ): void {
-  if (Number.isNaN(committed) || parsed !== committed) doCommit();
+  if (parsed !== committed) doCommit();
 }

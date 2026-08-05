@@ -6,11 +6,16 @@
 import "./_register.ts";
 
 // Task 8 carried fix (from Task 4 review): the shadcn Checkbox rendered the SAME check
-// glyph for both checked and indeterminate, so the BooleanField MIXED state looked almost
-// identical to checked. The fix adds a distinct minus/dash glyph for indeterminate. The
-// field logic (data-state="indeterminate") was already correct.
+// glyph for both checked and indeterminate, so the two states looked almost identical.
+// The fix adds a distinct minus/dash glyph for indeterminate.
+//
+// The indeterminate case is driven through `ui/checkbox.tsx` DIRECTLY rather than through
+// `BooleanField`, because the field no longer produces it: the inspector edits ONE target,
+// so there is no disagreeing selection left to render as a dash. Radix's `CheckedState` is
+// still tri-state, so the primitive keeps the glyph and keeps the pin.
 
 import { afterEach, expect, test } from "bun:test";
+import { Checkbox } from "../../src/frontend/components/ui/checkbox.tsx";
 import { BooleanField } from "../../src/frontend/inspector/fields/BooleanField.tsx";
 import { cleanup, render } from "./_harness.tsx";
 
@@ -19,11 +24,11 @@ afterEach(cleanup);
 // biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 const noop = () => {};
 
-function renderBool(values: unknown[]) {
+function renderBool(value: unknown) {
 	return render(
 		<BooleanField
 			schema={{ type: "boolean" }}
-			values={values}
+			value={value}
 			onPreview={noop}
 			onCommit={noop}
 			onCancel={noop}
@@ -35,8 +40,8 @@ function renderBool(values: unknown[]) {
 // Both glyphs are always in the DOM; the visible one is chosen by the `hidden` class
 // (display:none), which is JS-driven off the checked prop — so happy-dom (which can read
 // the class attribute but can't compute CSS) can verify the differentiation deterministically.
-test("mixed → indeterminate hides the check glyph and shows the minus glyph", () => {
-	const { container } = renderBool([true, false]);
+test("indeterminate hides the check glyph and shows the minus glyph", () => {
+	const { container } = render(<Checkbox checked="indeterminate" />);
 	const box = container.querySelector('[role="checkbox"]');
 	expect(box?.getAttribute("data-state")).toBe("indeterminate");
 	expect(
@@ -48,7 +53,7 @@ test("mixed → indeterminate hides the check glyph and shows the minus glyph", 
 });
 
 test("checked → shows the check glyph and hides the minus glyph", () => {
-	const { container } = renderBool([true]);
+	const { container } = renderBool(true);
 	const box = container.querySelector('[role="checkbox"]');
 	expect(box?.getAttribute("data-state")).toBe("checked");
 	expect(

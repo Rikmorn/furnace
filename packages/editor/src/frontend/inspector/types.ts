@@ -1,10 +1,10 @@
 /**
  * The inspector module's public, LIBRARY-AGNOSTIC contract. The chrome consumes
  * the inspector ONLY through <SchemaForm> (index.tsx) + these types. Input is
- * standard JSON Schema (+ a top-level `furnace` field-semantics key) + N target
- * values + change callbacks; output is rendered controls — the same shape a form
- * library would consume, so a future swap touches only this directory. See the
- * M5A spec §A.
+ * standard JSON Schema (+ a top-level `furnace` field-semantics key) + the
+ * target's value + change callbacks; output is rendered controls — the same
+ * shape a form library would consume, so a future swap touches only this
+ * directory. See the M5A spec §A.
  *
  * NOTE: this module must not value-import @furnace/core (frontend leakage scan).
  * JSON Schema nodes are plain data from introspect(); the quat↔euler math is
@@ -30,8 +30,6 @@ export type JsonSchemaNode = {
     /** The physical unit of the value, rendered beside the control (D-25:
      *  units always). A display suffix — never parsed, never converted. */
     unit?: string;
-    table?: string;
-    requires?: readonly string[];
   };
   /** JSON Schema default value, emitted by zod `.default()` — used by field renderers to seed display when the doc omits the field. */
   default?: unknown;
@@ -56,17 +54,15 @@ export type FieldKind =
   | "vec4"
   | "quat"
   | "color"
-  | "resource"
-  | "ref"
   | "object"
   | "unknown";
 
-/** Props every field renderer receives. `values` holds the N selected targets' values for this field. */
+/** Props every field renderer receives. `value` is the target's value for this field. */
 export type FieldProps = {
   schema: JsonSchemaNode;
-  values: unknown[];
-  onPreview: (next: unknown[]) => void;
-  onCommit: (next: unknown[]) => void;
+  value: unknown;
+  onPreview: (next: unknown) => void;
+  onCommit: (next: unknown) => void;
   onCancel: () => void;
   path: string;
 };

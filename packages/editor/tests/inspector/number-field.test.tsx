@@ -16,15 +16,15 @@ afterEach(cleanup);
 /** Render a single-target NumberField seeded to `3` and return the input + spies. */
 function renderNumberField(value = 3) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onPreview = mock((_next: unknown[]) => {});
+	const onPreview = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
 	const onCancel = mock(() => {});
 	render(
 		<NumberField
 			schema={{ type: "number" }}
-			values={[value]}
+			value={value}
 			onPreview={onPreview}
 			onCommit={onCommit}
 			onCancel={onCancel}
@@ -35,16 +35,16 @@ function renderNumberField(value = 3) {
 	return { input, onPreview, onCommit, onCancel };
 }
 
-test("typing then blur commits exactly once with the fanned value", () => {
+test("typing then blur commits exactly once with the typed value", () => {
 	const { input, onPreview, onCommit } = renderNumberField();
 	input.focus();
 	fireEvent.change(input, { target: { value: "5" } });
 	// onChange previews live while typing (value is finite + non-empty).
-	expect(onPreview).toHaveBeenLastCalledWith([5]);
+	expect(onPreview).toHaveBeenLastCalledWith(5);
 	fireEvent.blur(input);
 	// onBlur is the SOLE committer; commits once.
 	expect(onCommit).toHaveBeenCalledTimes(1);
-	expect(onCommit).toHaveBeenLastCalledWith([5]);
+	expect(onCommit).toHaveBeenLastCalledWith(5);
 });
 
 test("typing then Enter commits (Enter blurs; blur is the committer)", () => {
@@ -54,7 +54,7 @@ test("typing then Enter commits (Enter blurs; blur is the committer)", () => {
 	// Enter does NOT call onCommit itself — it blur()s the input, and onBlur commits.
 	fireEvent.keyDown(input, { key: "Enter" });
 	expect(onCommit).toHaveBeenCalledTimes(1);
-	expect(onCommit).toHaveBeenLastCalledWith([7]);
+	expect(onCommit).toHaveBeenLastCalledWith(7);
 	expect(onCancel).not.toHaveBeenCalled();
 });
 

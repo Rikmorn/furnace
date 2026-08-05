@@ -6,9 +6,13 @@ import {
 	SelectValue,
 } from "../../components/ui/select.tsx";
 import { enumOptions, memberAt, optionFor } from "../lib/enum-options.ts";
-import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
-import { denseTriggerCls, FieldRow, MIXED } from "./common.tsx";
+import { denseTriggerCls, FieldRow } from "./common.tsx";
+
+/** What the trigger shows when the current value is not one of the schema's members —
+ *  a stale param the schema has since dropped. An em-dash rather than a substituted
+ *  neighbour: the placeholder is the honest reading. */
+const NO_MEMBER = "—";
 
 /**
  * The dropdown an enum falls back to above the segmented control's cardinality cap
@@ -17,17 +21,14 @@ import { denseTriggerCls, FieldRow, MIXED } from "./common.tsx";
  * Radix item's string value, so a `{ enum: [0, 90] }` param round-tripped `90` as `"90"`
  * and every core generator refused it setup-loud.
  */
-export function EnumField({ schema, values, onCommit, path }: FieldProps) {
+export function EnumField({ schema, value, onCommit, path }: FieldProps) {
 	const options = enumOptions(schema);
-	const mixed = isMixed(values);
-	const current = mixed ? undefined : optionFor(options, values[0]);
+	const current = optionFor(options, value);
 	return (
 		<FieldRow path={path}>
-			{/* Mixed → undefined value so the "—" placeholder shows; otherwise the current
-          member's option binds. A member the schema no longer lists also resolves to
-          undefined, which is the honest reading: the placeholder rather than a
-          silently-substituted neighbour. onValueChange fires only for a real item pick,
-          fanning the MEMBER to every selected target. */}
+			{/* A member the schema no longer lists resolves to undefined, so the "—"
+          placeholder shows rather than a silently-substituted neighbour.
+          onValueChange fires only for a real item pick, committing the MEMBER. */}
 			<Select
 				value={current?.value}
 				onValueChange={(v) => {
@@ -37,11 +38,11 @@ export function EnumField({ schema, values, onCommit, path }: FieldProps) {
 					// unknown-value case is the one that can actually fire.
 					const member = memberAt(options, v);
 					if (member === undefined) return;
-					onCommit(values.map(() => member));
+					onCommit(member);
 				}}
 			>
 				<SelectTrigger className={denseTriggerCls}>
-					<SelectValue placeholder={MIXED} />
+					<SelectValue placeholder={NO_MEMBER} />
 				</SelectTrigger>
 				<SelectContent>
 					{options.map((o) => (

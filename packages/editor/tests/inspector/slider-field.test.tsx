@@ -47,15 +47,15 @@ const METRES_SCHEMA: JsonSchemaNode = {
 
 function renderSlider(schema: JsonSchemaNode, value: number, path = "width") {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onPreview = mock((_next: unknown[]) => {});
+	const onPreview = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
 	const onCancel = mock(() => {});
 	render(
 		<SliderField
 			schema={schema}
-			values={[value]}
+			value={value}
 			onPreview={onPreview}
 			onCommit={onCommit}
 			onCancel={onCancel}
@@ -94,12 +94,12 @@ test("dragging the range PREVIEWS per move and COMMITS on release", () => {
 	fireEvent.change(range, { target: { value: "12" } });
 	// A live ghost is the whole reason this is a preview: the user is watching the field
 	// change under the drag, not reading a number.
-	expect(onPreview).toHaveBeenLastCalledWith([12]);
+	expect(onPreview).toHaveBeenLastCalledWith(12);
 	expect(onCommit).not.toHaveBeenCalled();
 	// Release is the committer — one undo entry per drag, not one per pixel.
 	fireEvent.pointerUp(range);
 	expect(onCommit).toHaveBeenCalledTimes(1);
-	expect(onCommit).toHaveBeenLastCalledWith([12]);
+	expect(onCommit).toHaveBeenLastCalledWith(12);
 });
 
 // --- the scrubby label -------------------------------------------------------
@@ -123,9 +123,9 @@ test("the label scrubs the value and CAPTURES the pointer for the whole drag", (
 	// 100 px at the slider's own sensitivity, SNAPPED to the schema's step — a scrub that
 	// ignored the step is the live defect this field exists to close (a hall width of 8.35
 	// is refused by `intParam`, from the worker, one round trip after the drag).
-	const previewed = onPreview.mock.calls.at(-1)?.[0] as number[];
-	expect(Number.isInteger(previewed[0])).toBe(true);
-	expect(previewed[0]).toBeGreaterThan(8);
+	const previewed = onPreview.mock.calls.at(-1)?.[0] as number;
+	expect(Number.isInteger(previewed)).toBe(true);
+	expect(previewed).toBeGreaterThan(8);
 
 	fireEvent.pointerUp(label, { clientX: 200, pointerId: 7 });
 	expect(onCommit).toHaveBeenCalledTimes(1);
@@ -157,7 +157,7 @@ test("a scrub CLAMPS to the schema's bounds rather than running past them", () =
 	// Far past the top end. The bound is the schema's, so a clamp that used the control's
 	// own idea of a maximum would drift the moment a generator widened its range.
 	fireEvent.pointerMove(label, { clientX: 100_000, pointerId: 1 });
-	expect(onPreview).toHaveBeenLastCalledWith([24]);
+	expect(onPreview).toHaveBeenLastCalledWith(24);
 });
 
 test("the label carries the scrub affordance classes", () => {
@@ -175,7 +175,7 @@ test("the exact input takes a typed value and commits it on blur", () => {
 	exact.focus();
 	fireEvent.change(exact, { target: { value: "17" } });
 	fireEvent.blur(exact);
-	expect(onCommit).toHaveBeenLastCalledWith([17]);
+	expect(onCommit).toHaveBeenLastCalledWith(17);
 });
 
 test("clearing the exact input never snaps the value to 0", () => {
@@ -214,11 +214,11 @@ const SMALL_INT: JsonSchemaNode = {
 
 function renderStepper(value: number) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	render(
 		<StepperField
 			schema={SMALL_INT}
-			values={[value]}
+			value={value}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onPreview={() => {}}
 			onCommit={onCommit}
@@ -233,11 +233,11 @@ function renderStepper(value: number) {
 test("the stepper's ± commit one step and are BOUNDED at each end", () => {
 	const { onCommit } = renderStepper(3);
 	fireEvent.click(screen.getByRole("button", { name: "increase Chambers" }));
-	expect(onCommit).toHaveBeenLastCalledWith([4]);
+	expect(onCommit).toHaveBeenLastCalledWith(4);
 	fireEvent.click(screen.getByRole("button", { name: "decrease Chambers" }));
 	// Two clicks in, one each way: the second reads the COMMITTED value, so a stepper
 	// that stepped its own stale draft would answer 5 here.
-	expect(onCommit).toHaveBeenLastCalledWith([2]);
+	expect(onCommit).toHaveBeenLastCalledWith(2);
 });
 
 test("ONE press is ONE commit — the row must not re-dispatch the click", () => {

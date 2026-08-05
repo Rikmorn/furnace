@@ -142,8 +142,6 @@ export function FieldGroupRow({
 	);
 }
 
-export const MIXED = "—";
-
 /**
  * A visible per-axis label chip shown before a vector/quaternion component input
  * (x/y/z/w, or the euler-degree labels). Discoverable at a glance rather than hidden
@@ -213,7 +211,6 @@ export function UnitSuffix({ unit }: { unit: string | undefined }) {
  */
 export function ExactNumberInput({
 	value,
-	mixed,
 	label,
 	onPreview,
 	onCommit,
@@ -221,7 +218,6 @@ export function ExactNumberInput({
 	className,
 }: {
 	value: number;
-	mixed: boolean;
 	/** The row's human label; the accessible name is `<label> exact` so it is
 	 *  distinguishable from the slider sharing the row. */
 	label: string;
@@ -230,16 +226,16 @@ export function ExactNumberInput({
 	onCancel: () => void;
 	className?: string;
 }) {
-	const settled = mixed ? "" : String(roundForDisplay(value));
+	const settled = String(roundForDisplay(value));
 	const [text, setText] = useState(settled);
 	const focused = useRef(false);
-	const committed = useRef(mixed ? Number.NaN : roundForDisplay(value));
+	const committed = useRef(roundForDisplay(value));
 
 	// Re-seed from the outside only while the user is not typing. `settled` changes on
 	// every preview we ourselves fired, which is exactly why this is guarded.
 	if (!focused.current && text !== settled) {
 		setText(settled);
-		committed.current = mixed ? Number.NaN : roundForDisplay(value);
+		committed.current = roundForDisplay(value);
 	}
 
 	const revert = () => setText(settled);
@@ -249,7 +245,6 @@ export function ExactNumberInput({
 			className={`${denseNumericInputCls} ${className ?? ""}`}
 			inputMode="decimal"
 			aria-label={`${label} exact`}
-			placeholder={mixed ? MIXED : undefined}
 			value={text}
 			onFocus={() => {
 				focused.current = true;

@@ -61,7 +61,6 @@ import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -103,7 +102,8 @@ const PHASE_LABEL: Record<StampSession["phase"], string> = {
 };
 
 /** The empty params record, hoisted so the fallback below is a STABLE identity — a `{}`
- *  literal in the expression would defeat the `formValues` memo it feeds. */
+ *  literal in the expression would hand `SchemaForm` a new `value` on every render, and it
+ *  re-seeds its draft on identity. */
 const NO_PARAMS: Record<string, unknown> = {};
 
 /** One update to a live session, as a PATCH: the fields the card is changing, with the
@@ -192,26 +192,12 @@ export function SessionCard() {
 	const generatorId = stamp?.generator ?? record?.generator;
 	const def = generators.find((g) => g.id === generatorId);
 
-	const params = stamp?.params ?? record?.params ?? NO_PARAMS;
-	// SchemaForm re-seeds its drafts whenever `values` is a new ARRAY (`seed.current !==
-	// values`), and a re-seed is a state write DURING render — so a fresh `[params]` literal
-	// made every card render cost TWO SchemaForm renders, each rebuilding every field row,
-	// and made `onBlurCapture`'s deferred re-seed fire unconditionally on every focus-out.
-	//
-	// MEASURED, both sides, 20 session pushes through the real Shell (and the number is not
-	// the flattering one): with the host cloning the session as it actually does, this memo
-	// changes nothing — 40 renders either way — because `structuredClone` in `notifyStamp`
-	// hands the card a new `params` identity on every push, nudge and phase transition. Hold
-	// that identity stable and the same 20 pushes cost 40 renders WITHOUT this memo and 21
-	// with it. So the memo is the necessary half that lives in this file, and it is not the
-	// sufficient one: the other half is a value-equality guard on the stamp seam, which is
-	// the provider's call and is filed
+	// SchemaForm re-seeds its draft whenever this is a new object identity, and a re-seed is
+	// a state write DURING render. `structuredClone` in `notifyStamp` hands the card a fresh
+	// `params` identity on every push, nudge and phase transition, so holding that identity
+	// stable is a value-equality guard on the stamp seam — the provider's call, and filed
 	// (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The stamp seam pushes fresh identities per frame, so no consumer memo can hold*).
-	//
-	// ABOVE the early return, and that is not stylistic: as the first hook BELOW it this
-	// crashed the card outright ("Rendered more hooks than during the previous render") the
-	// moment the placeholder path rendered — which the burger-summon case reaches on purpose.
-	const formValues = useMemo(() => [params], [params]);
+	const params = stamp?.params ?? record?.params ?? NO_PARAMS;
 
 	// The parked touch, applied to the session the promotion opened. ONE SHOT: cleared on
 	// the first run whatever it finds, so a refusal (no session arrives) drops it rather
@@ -364,19 +350,19 @@ export function SessionCard() {
 							// the generator's JSON-Schema object node, which is exactly SchemaForm's
 							// structural input.
 							schema={def.paramSchema as JsonSchemaNode}
-							values={formValues}
+							value={params}
 							onPreview={(next) => {
 								// Previews only reach a LIVE session: with none, there is no ghost to
 								// preview against, and promoting per keystroke would open a session on
 								// a half-typed number. See this file's header.
 								if (stamp !== null)
-									// Boundary cast: SchemaForm emits unknown[] drafts; draft 0 is this
-									// subject's params record (values={formValues}).
-									push({ params: next[0] as Record<string, unknown> });
+									// Boundary cast: SchemaForm emits an unknown draft; it is this
+									// subject's params record (value={params}).
+									push({ params: next as Record<string, unknown> });
 							}}
 							onCommit={(next) =>
 								// Boundary cast: see onPreview.
-								push({ params: next[0] as Record<string, unknown> })
+								push({ params: next as Record<string, unknown> })
 							}
 							onCancel={() => {
 								/* nothing to revert — the ghost already shows the last applied params */

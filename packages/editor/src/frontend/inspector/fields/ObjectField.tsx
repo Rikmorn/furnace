@@ -7,7 +7,7 @@ import type { FieldProps, JsonSchemaNode } from "../types.ts";
 
 export function ObjectField({
 	schema,
-	values,
+	value,
 	onPreview,
 	onCommit,
 	onCancel,
@@ -37,17 +37,17 @@ export function ObjectField({
 			{Object.entries(properties).map(([key, fieldSchema]) => {
 				const kind = resolveKind(fieldSchema);
 				const Renderer = registry[kind] ?? fallbackRenderer;
-				const childValues = values.map((v) => getAtPath(v, key));
-				const fan = (next: unknown[], cb: (n: unknown[]) => void) =>
-					cb(values.map((v, i) => setAtPath(v, key, next[i])));
+				const childValue = getAtPath(value, key);
+				const write = (next: unknown, cb: (n: unknown) => void) =>
+					cb(setAtPath(value, key, next));
 				return (
 					<Renderer
 						key={key}
 						schema={fieldSchema}
-						values={childValues}
+						value={childValue}
 						path={`${path}.${key}`}
-						onPreview={(next) => fan(next, onPreview)}
-						onCommit={(next) => fan(next, onCommit)}
+						onPreview={(next) => write(next, onPreview)}
+						onCommit={(next) => write(next, onCommit)}
 						onCancel={onCancel}
 					/>
 				);

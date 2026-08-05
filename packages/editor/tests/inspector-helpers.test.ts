@@ -4,7 +4,6 @@ import {
   eulerDegToQuat,
   quatToEulerDeg,
 } from "../src/frontend/inspector/lib/euler.ts";
-import { isMixed } from "../src/frontend/inspector/lib/mixed.ts";
 import { getAtPath, setAtPath } from "../src/frontend/inspector/lib/paths.ts";
 
 test("getAtPath / setAtPath handle top-level and nested, immutably", () => {
@@ -14,23 +13,6 @@ test("getAtPath / setAtPath handle top-level and nested, immutably", () => {
   const next = setAtPath(o, "params.color", [0, 1, 0, 1]) as typeof o;
   expect(next.params.color).toEqual([0, 1, 0, 1]);
   expect(o.params.color).toEqual([1, 0, 0, 1]); // original untouched
-});
-
-test("isMixed detects differing values across targets (deep)", () => {
-  expect(
-    isMixed([
-      [1, 2, 3],
-      [1, 2, 3],
-    ]),
-  ).toBe(false);
-  expect(
-    isMixed([
-      [1, 2, 3],
-      [1, 2, 4],
-    ]),
-  ).toBe(true);
-  expect(isMixed([5])).toBe(false);
-  expect(isMixed([])).toBe(false);
 });
 
 test("eulerDegToQuat matches core quat.fromEuler exactly (XYZ convention)", () => {

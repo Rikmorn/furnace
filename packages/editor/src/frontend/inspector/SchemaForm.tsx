@@ -44,10 +44,15 @@ class RowErrorBoundary extends Component<
 export type FieldRefusal = { path: string; message: string };
 
 export type SchemaFormProps = {
-	schema: JsonSchemaNode; // an object schema (component / settings / resource params)
-	values: unknown[]; // N target params objects (one per selected entity)
-	onPreview: (next: unknown[]) => void;
-	onCommit: (next: unknown[]) => void;
+	schema: JsonSchemaNode; // an object schema (the generator's params)
+	/**
+	 * The target's params object. Re-seeding is keyed on IDENTITY, not on a deep
+	 * compare — hand this a fresh object per render and every render re-seeds the
+	 * drafts.
+	 */
+	value: unknown;
+	onPreview: (next: unknown) => void;
+	onCommit: (next: unknown) => void;
 	onCancel: () => void;
 	/**
 	 * The FIRST field currently refusing its value, in the schema's own property order,
@@ -63,29 +68,18 @@ export type SchemaFormProps = {
 	onInvalid?: (refusal: FieldRefusal | null) => void;
 };
 
-/** Why `next` is inadmissible under `schema`, or `null`. All N targets are checked: a
- *  multi-select fans one value to every target, so one bad entry poisons the whole
- *  commit. */
-function refuse(schema: JsonSchemaNode, next: unknown[]): string | null {
-	for (const value of next) {
-		const message = validateNumber(schema, value);
-		if (message !== null) return message;
-	}
-	return null;
-}
-
-/** Render an object schema's properties as editable rows. Tracks N working drafts. */
+/** Render an object schema's properties as editable rows. Tracks one working draft. */
 export function SchemaForm({
 	schema,
-	values,
+	value,
 	onPreview,
 	onCommit,
 	onCancel,
 	onInvalid,
 }: SchemaFormProps) {
-	// Drafts are the live edited copies; re-seed when the committed values change.
-	const [drafts, setDrafts] = useState<unknown[]>(values);
-	const seed = useRef(values);
+	// The draft is the live edited copy; re-seed when the committed value changes.
+	const [draft, setDraft] = useState<unknown>(value);
+	const seed = useRef(value);
 	// Echo-guard: track whether any input inside this form currently has focus.
 	// While focused, incoming session-updated re-seeds are deferred so an external
 	// edit mid-interaction does not clobber the in-progress draft.
@@ -102,24 +96,24 @@ export function SchemaForm({
 	// disable the commit verb while naming a field that now holds a valid number.
 	const [refusals, setRefusals] = useState<Record<string, string>>({});
 
-	/** Adopt the incoming values as the drafts, dropping any refusal they replace.
+	/** Adopt the incoming value as the draft, dropping any refusal it replaces.
 	 *
 	 *  The non-empty guard is REQUIRED, not an optimization: this runs during render, and
 	 *  an unconditional `setRefusals({})` hands React a fresh object identity every pass,
 	 *  which never bails out and loops. */
-	const reseed = (next: unknown[]): void => {
-		setDrafts(next);
+	const reseed = (next: unknown): void => {
+		setDraft(next);
 		if (Object.keys(refusals).length > 0) setRefusals({});
 	};
 
-	if (seed.current !== values) {
+	if (seed.current !== value) {
 		// Always record that a new value arrived so we know to reseed on blur.
-		seed.current = values;
+		seed.current = value;
 		// Only re-seed immediately when no input is active (shouldReseed returns true).
 		// While one IS active the whole re-seed is deferred, refusal included — clearing
 		// it here would leave the user's offending text on screen with nothing saying why
 		// the commit verb is dead, which is the exact state this channel exists to stop.
-		if (drafts !== values && shouldReseed(focusWithin.current)) reseed(values);
+		if (draft !== value && shouldReseed(focusWithin.current)) reseed(value);
 	}
 
 	const properties = schema.properties ?? {};
@@ -169,18 +163,18 @@ export function SchemaForm({
 					// Through `reseed`, so the deferred case drops its refusal at the same
 					// moment the immediate one does; two spellings here is how the fix would
 					// come back as "it only happens when you were typing at the time".
-					if (drafts !== values) reseed(values);
+					if (draft !== value) reseed(value);
 				}
 			}}
 		>
 			{Object.entries(properties).map(([key, fieldSchema]) => {
 				const kind = resolveKind(fieldSchema);
 				const Renderer = registry[kind] ?? fallbackRenderer;
-				const fieldValues = drafts.map((d) => getAtPath(d, key));
+				const fieldValue = getAtPath(draft, key);
 				const refusal = refusals[key];
 				/** Record (or clear) this row's refusal and say whether the value may pass. */
-				const admits = (next: unknown[]): boolean => {
-					const message = refuse(fieldSchema, next);
+				const admits = (next: unknown): boolean => {
+					const message = validateNumber(fieldSchema, next);
 					setRefusals((prev) => {
 						if (prev[key] === (message ?? undefined)) return prev;
 						const updated = { ...prev };
@@ -190,31 +184,29 @@ export function SchemaForm({
 					});
 					return message === null;
 				};
-				const fan = (next: unknown[]) =>
-					drafts.map((d, i) => setAtPath(d, key, next[i]));
 				return (
 					<RowErrorBoundary key={key} path={key}>
 						<Renderer
 							schema={fieldSchema}
-							values={fieldValues}
+							value={fieldValue}
 							path={key}
 							onPreview={(next) => {
 								// The refusal is AT the field: nothing is written and nothing is
 								// previewed, so the worker never evaluates a ghost the generator
 								// is going to throw on.
 								if (!admits(next)) return;
-								const updated = fan(next);
-								setDrafts(updated);
+								const updated = setAtPath(draft, key, next);
+								setDraft(updated);
 								onPreview(updated);
 							}}
 							onCommit={(next) => {
 								if (!admits(next)) return;
-								const updated = fan(next);
-								setDrafts(updated);
+								const updated = setAtPath(draft, key, next);
+								setDraft(updated);
 								onCommit(updated);
 							}}
 							onCancel={() => {
-								setDrafts(values);
+								setDraft(value);
 								onCancel();
 							}}
 						/>

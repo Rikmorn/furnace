@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Input } from "../../components/ui/input.tsx";
 import { commitIfChanged } from "../lib/commit-guard.ts";
 import { eulerDegToQuat, quatToEulerDeg } from "../lib/euler.ts";
-import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { AxisChip, denseNumericInputCls, FieldRow } from "./common.tsx";
 
@@ -11,7 +10,7 @@ const LABELS = ["x°", "y°", "z°"];
 /** Rotation as Euler degrees; stored value stays a quaternion (single source of truth). */
 export function QuatField({
 	schema,
-	values,
+	value,
 	onPreview,
 	onCommit,
 	onCancel,
@@ -21,7 +20,7 @@ export function QuatField({
 		? schema.default
 		: [0, 0, 0, 1];
 	const fallback = rawDefault as [number, number, number, number];
-	const q0 = (values[0] as [number, number, number, number]) ?? fallback;
+	const q0 = (value as [number, number, number, number]) ?? fallback;
 	const euler0 = quatToEulerDeg(q0).map((v) => Math.round(v * 100) / 100) as [
 		number,
 		number,
@@ -32,12 +31,10 @@ export function QuatField({
 	// "90", making decimals untypeable. Parse only when emitting preview/commit.
 	const [text, setText] = useState<string[]>(seed);
 	const focusedRef = useRef(false);
-	const mixed = isMixed(values);
-	// Per-euler-component committed baseline for the blur dirty-check (NaN when the quat is
-	// mixed across the selection → always commit). Synced only while UNfocused so it holds the
-	// pre-edit value, not the live-previewed draft (mirrors NumberField / the text seed).
-	const committedAt = (): number[] =>
-		euler0.map((v) => (mixed ? Number.NaN : Number(v)));
+	// Per-euler-component committed baseline for the blur dirty-check. Synced only while
+	// UNfocused so it holds the pre-edit value, not the live-previewed draft (mirrors
+	// NumberField / the text seed).
+	const committedAt = (): number[] => euler0.map(Number);
 	const committedRef = useRef<number[]>(committedAt());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: re-seed on an external quat change, keyed by the value-stringified q0 — euler0/committedAt are per-render derivations intentionally omitted (re-adding them would fire every render and clobber active typing)
 	useEffect(() => {
@@ -47,18 +44,15 @@ export function QuatField({
 		}
 	}, [JSON.stringify(q0)]);
 
-	// Emit a single euler component change: each target converts its own quat to euler,
-	// sets component i, then converts back — preserving each target's other euler components.
+	// Emit a single euler component change: convert the quat to euler, set component i,
+	// then convert back — preserving the other two euler components.
 	const emitComp = (i: number, raw: string, commit: boolean) => {
 		if (raw.trim() === "" || !Number.isFinite(Number(raw))) return;
-		const next = values.map((q) => {
-			const e = quatToEulerDeg(
-				(q as [number, number, number, number]) ?? [0, 0, 0, 1],
-			) as [number, number, number];
-			e[i] = Number(raw);
-			return eulerDegToQuat(e);
-		});
-		(commit ? onCommit : onPreview)(next);
+		const e = quatToEulerDeg(
+			(value as [number, number, number, number]) ?? [0, 0, 0, 1],
+		) as [number, number, number];
+		e[i] = Number(raw);
+		(commit ? onCommit : onPreview)(eulerDegToQuat(e));
 	};
 	const setComp = (i: number, raw: string, commit: boolean) => {
 		const next = text.slice();
@@ -75,8 +69,7 @@ export function QuatField({
 						className={denseNumericInputCls}
 						inputMode="decimal"
 						title={label}
-						placeholder={mixed ? "—" : undefined}
-						value={mixed && text[i] === seed[i] ? "" : (text[i] ?? "")}
+						value={text[i] ?? ""}
 						onFocus={() => {
 							focusedRef.current = true;
 						}}

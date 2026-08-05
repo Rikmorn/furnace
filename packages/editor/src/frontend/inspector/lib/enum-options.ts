@@ -44,8 +44,8 @@ export const memberAt = (
 ): unknown => options.find((o) => o.value === value)?.member;
 
 /** The option whose member IS `value` (identity), or `undefined` when the current value is
- *  not one of the members — which is what a mixed selection and a stale param both look
- *  like, and both must show the placeholder rather than a wrong member. */
+ *  not one of the members — a stale param the schema has since dropped, which must show
+ *  the placeholder rather than a wrong member. */
 export const optionFor = (
   options: readonly EnumOption[],
   value: unknown,

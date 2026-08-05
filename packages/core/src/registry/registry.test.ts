@@ -30,20 +30,11 @@ test("duplicate registration throws the prefix/noun-shaped message", () => {
   );
 });
 
-test("entries() preserves registration order", () => {
-  const r = createRegistry<number>({ prefix: "x", noun: "thing" });
-  r.register("b", 2);
-  r.register("a", 1);
-  r.register("c", 3);
-  expect(r.entries().map(([name]) => name)).toEqual(["b", "a", "c"]);
-});
-
 test("reset() empties the store and allows re-registration", () => {
   const r = createRegistry<number>({ prefix: "x", noun: "thing" });
   r.register("a", 1);
   r.reset();
   expect(r.get("a")).toBeUndefined();
-  expect(r.entries()).toEqual([]);
   r.register("a", 2);
   expect(r.get("a")).toBe(2);
 });

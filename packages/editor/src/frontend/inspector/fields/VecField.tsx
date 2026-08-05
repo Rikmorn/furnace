@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Input } from "../../components/ui/input.tsx";
 import { commitIfChanged } from "../lib/commit-guard.ts";
 import { roundForDisplay } from "../lib/format.ts";
-import { isMixed } from "../lib/mixed.ts";
-import { fanComponent } from "../lib/vec-fan.ts";
+import { setComponent } from "../lib/vec-component.ts";
 import type { FieldProps } from "../types.ts";
 import { AxisChip, denseNumericInputCls, FieldRow } from "./common.tsx";
 
@@ -13,7 +12,7 @@ const LABELS = ["x", "y", "z", "w"];
 export function makeVecField(n: number) {
 	return function VecField({
 		schema,
-		values,
+		value,
 		onPreview,
 		onCommit,
 		onCancel,
@@ -22,7 +21,7 @@ export function makeVecField(n: number) {
 		const fallback = (
 			Array.isArray(schema.default) ? schema.default : new Array(n).fill(0)
 		) as number[];
-		const vec0 = (values[0] as number[]) ?? fallback;
+		const vec0 = (value as number[]) ?? fallback;
 		const seed = vec0
 			.slice(0, n)
 			.map((v) => String(roundForDisplay(Number(v ?? 0))));
@@ -30,16 +29,12 @@ export function makeVecField(n: number) {
 		// "1", making decimals untypeable. Parse only when emitting preview/commit.
 		const [text, setText] = useState<string[]>(seed);
 		const focusedRef = useRef(false);
-		const mixedAt = (i: number) =>
-			isMixed(values.map((v) => (v as number[])?.[i]));
-		// Per-component committed baseline for the blur dirty-check (NaN = that component is
-		// mixed across the selection → always commit). Synced only while UNfocused so it holds
-		// the pre-edit value, not the live-previewed draft (mirrors NumberField / the text seed).
+		// Per-component committed baseline for the blur dirty-check. Synced only while
+		// UNfocused so it holds the pre-edit value, not the live-previewed draft (mirrors
+		// NumberField / the text seed).
 		const committedAt = (): number[] =>
 			Array.from({ length: n }, (_, i) =>
-				mixedAt(i)
-					? Number.NaN
-					: roundForDisplay(Number((vec0[i] as number) ?? 0)),
+				roundForDisplay(Number((vec0[i] as number) ?? 0)),
 			);
 		const committedRef = useRef<number[]>(committedAt());
 		// biome-ignore lint/correctness/useExhaustiveDependencies: re-seed on an external vec change, keyed by the value-stringified vec0 — seed/committedAt are per-render derivations intentionally omitted (re-adding them would fire every render and clobber active typing)
@@ -50,10 +45,10 @@ export function makeVecField(n: number) {
 			}
 		}, [JSON.stringify(vec0)]);
 
-		// Emit a single component change: preserves every target's own other components.
+		// Emit a single component change: preserves the vector's own other components.
 		const emitComp = (i: number, raw: string, commit: boolean) => {
 			if (raw.trim() === "" || !Number.isFinite(Number(raw))) return;
-			(commit ? onCommit : onPreview)(fanComponent(values, i, Number(raw), n));
+			(commit ? onCommit : onPreview)(setComponent(value, i, Number(raw), n));
 		};
 		const setComp = (i: number, raw: string, commit: boolean) => {
 			const next = text.slice();
@@ -70,8 +65,7 @@ export function makeVecField(n: number) {
 							className={denseNumericInputCls}
 							inputMode="decimal"
 							title={LABELS[i]}
-							placeholder={mixedAt(i) ? "—" : undefined}
-							value={mixedAt(i) && text[i] === seed[i] ? "" : (text[i] ?? "")}
+							value={text[i] ?? ""}
 							onFocus={() => {
 								focusedRef.current = true;
 							}}

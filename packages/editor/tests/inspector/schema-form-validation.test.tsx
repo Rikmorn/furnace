@@ -34,9 +34,9 @@ const WIDTH = {
 
 function renderForm(value: Record<string, unknown> = { width: 8, depth: 8 }) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onPreview = mock((_next: unknown[]) => {});
+	const onPreview = mock((_next: unknown) => {});
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	const onInvalid = mock(
 		// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
 		(_bad: { path: string; message: string } | null) => {},
@@ -44,7 +44,7 @@ function renderForm(value: Record<string, unknown> = { width: 8, depth: 8 }) {
 	render(
 		<SchemaForm
 			schema={WIDTH}
-			values={[value]}
+			value={value}
 			onPreview={onPreview}
 			onCommit={onCommit}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
@@ -61,14 +61,14 @@ function renderForm(value: Record<string, unknown> = { width: 8, depth: 8 }) {
 /** The onInvalid spy the two re-seed cases share, rebuilt per case. */
 let lastInvalid: ReturnType<typeof mock<(bad: unknown) => void>>;
 
-/** The form as an ELEMENT, so a case can `rerender` it with new `values` — which is what
+/** The form as an ELEMENT, so a case can `rerender` it with a new `value` — which is what
  *  an external host push looks like (the stamp seam clones the session on every notify,
- *  so a fresh array identity is the production shape, not a synthetic one). */
-function refusableForm(values: unknown[]) {
+ *  so a fresh object identity is the production shape, not a synthetic one). */
+function refusableForm(value: unknown) {
 	return (
 		<SchemaForm
 			schema={WIDTH}
-			values={values}
+			value={value}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onPreview={() => {}}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
@@ -80,10 +80,10 @@ function refusableForm(values: unknown[]) {
 	);
 }
 
-function renderRefusable(values: unknown[]) {
+function renderRefusable(value: unknown) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
 	lastInvalid = mock((_bad: unknown) => {});
-	return render(refusableForm(values));
+	return render(refusableForm(value));
 }
 
 test("an out-of-bounds value refuses AT the field and never previews", () => {
@@ -118,7 +118,7 @@ test("correcting the value clears the refusal on both channels", () => {
 	// `toBeNull()` on a happy-dom element serialises React's fiber graph and hangs).
 	expect(screen.queryByRole("alert") === null).toBe(true);
 	expect(onInvalid).toHaveBeenLastCalledWith(null);
-	expect(onPreview).toHaveBeenLastCalledWith([{ width: 9, depth: 8 }]);
+	expect(onPreview).toHaveBeenLastCalledWith({ width: 9, depth: 8 });
 });
 
 test("a fractional value on a whole-number param refuses too", () => {
@@ -140,16 +140,16 @@ test("a valid value still previews per keystroke and commits on blur", () => {
 	const { exact, onPreview, onCommit } = renderForm();
 	exact.focus();
 	fireEvent.change(exact, { target: { value: "12" } });
-	expect(onPreview).toHaveBeenLastCalledWith([{ width: 12, depth: 8 }]);
+	expect(onPreview).toHaveBeenLastCalledWith({ width: 12, depth: 8 });
 	fireEvent.blur(exact);
-	expect(onCommit).toHaveBeenLastCalledWith([{ width: 12, depth: 8 }]);
+	expect(onCommit).toHaveBeenLastCalledWith({ width: 12, depth: 8 });
 });
 
 test("an external RE-SEED clears a standing refusal", () => {
 	// The mount-surviving flavour of the unmount case below, and the one that actually
 	// bites: the card is NOT remounted on a subject change (`SessionCardPresence` only
 	// calls `setDrivenOpen("session", true)`, which is already true), so the SAME form
-	// instance sees a brand-new `values` array. Refuse a field, then let any external push
+	// instance sees a brand-new `value` identity. Refuse a field, then let any external push
 	// land — a different entity's reconfigure, a ⚄ reroll, an undo, an SSE change. The
 	// field re-seeds to the incoming valid number, so a refusal that outlived it is about
 	// text nobody can see any more, and it keeps the commit verb disabled naming a field
@@ -158,7 +158,7 @@ test("an external RE-SEED clears a standing refusal", () => {
 	// The form's own header reasons about the INTRA-form case ("a refused draft is never
 	// written, so a row stays wrong until its own field is fixed") — true, and silent
 	// about this one, which is why it took a probe rather than a read to find.
-	const view = renderRefusable([{ width: 8, depth: 8 }]);
+	const view = renderRefusable({ width: 8, depth: 8 });
 	const exact = screen.getByRole("textbox", {
 		name: "Width exact",
 	}) as HTMLInputElement;
@@ -171,7 +171,7 @@ test("an external RE-SEED clears a standing refusal", () => {
 	fireEvent.focusOut(exact);
 	expect(screen.getByRole("alert").textContent).toContain("must be at most 24");
 
-	view.rerender(refusableForm([{ width: 12, depth: 8 }]));
+	view.rerender(refusableForm({ width: 12, depth: 8 }));
 	// The field shows the incoming value…
 	expect(exact.value).toBe("12");
 	// …so the refusal about the old text must be gone from BOTH channels.
@@ -182,11 +182,11 @@ test("an external RE-SEED clears a standing refusal", () => {
 
 test("a re-seed DEFERRED by focus keeps the refusal until the field is actually re-seeded", () => {
 	// The other side of the same branch, and the reason the clear cannot simply hang off
-	// "a new `values` arrived": the echo guard DEFERS a re-seed while an input has focus,
+	// "a new `value` arrived": the echo guard DEFERS a re-seed while an input has focus,
 	// precisely so an external edit does not clobber what the user is typing. Clearing the
 	// refusal there would leave the offending text on screen with nothing explaining why
 	// the commit verb is dead — the exact state this whole channel exists to prevent.
-	const view = renderRefusable([{ width: 8, depth: 8 }]);
+	const view = renderRefusable({ width: 8, depth: 8 });
 	const width = screen.getByRole("textbox", {
 		name: "Width exact",
 	}) as HTMLInputElement;
@@ -202,7 +202,7 @@ test("a re-seed DEFERRED by focus keeps the refusal until the field is actually 
 	// second field rather than blurring the first is deliberate — see the note below.
 	fireEvent.focusIn(depth);
 	// The push lands with focus still inside the form.
-	view.rerender(refusableForm([{ width: 12, depth: 8 }]));
+	view.rerender(refusableForm({ width: 12, depth: 8 }));
 	// The typed text is untouched (the echo guard did its job)…
 	expect(width.value).toBe("99");
 	// …so its explanation must be too. Clearing here would leave the offending text on

@@ -25,16 +25,6 @@ export const registry: Partial<Record<FieldKind, FieldRenderer>> = {
 	vec4: makeVecField(4),
 	color: ColorField,
 	quat: QuatField,
-	// `resource` and `ref` render READ-ONLY (DefaultField prints the value as JSON in a
-	// muted <pre>) rather than as pickers, and that is honest rather than a stub: the
-	// pickers that used to sit here read their option lists off an `InspectorOptions`
-	// context that has had NO provider anywhere in `src/` since the scene-editing surface
-	// was deleted, so they always offered an EMPTY list. A control that can never offer a
-	// choice is worse than a legible value. The KINDS stay in the union because a schema
-	// may still name them, but since the scene module was deleted (T2) NO schema in the
-	// repo does — the `t.resource`/`t.ref` helpers that emitted them went with it.
-	resource: DefaultField,
-	ref: DefaultField,
 	object: ObjectField,
 };
 export const fallbackRenderer: FieldRenderer = DefaultField;

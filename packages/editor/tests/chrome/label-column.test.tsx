@@ -135,12 +135,15 @@ type Fixture = { schema: JsonSchemaNode; value: unknown; row: boolean };
  * directions were sabotaged, together with a full revert of the source change, before this
  * comment was written.
  *
- * WHY THE THREE ARE NON-ROWS:
+ * WHY THE ONE IS A NON-ROW:
  *   - `object` renders a nested GROUP (`ObjectField`) — a `<p>` heading over an indented
  *     block, not a column beside a value. Its CHILDREN are ordinary rows and are covered by
  *     every other entry here, which is why its fixture declares no properties.
- *   - `resource` / `ref` render read-only JSON (`DefaultField`): the path over a `<pre>`,
- *     again with no caption column.
+ *
+ * It used to have two siblings, `resource` and `ref`, which rendered read-only JSON through
+ * `DefaultField`. Both were the scene resource-table kinds and retired with it (T2), so the
+ * non-row side is now a set of one. `DefaultField` still backs the `unknown` fallback, which
+ * the registry does not map and this file therefore does not cover.
  */
 const FIXTURES: Partial<Record<FieldKind, Fixture>> = {
 	number: { schema: { type: "number" }, value: 1, row: true },
@@ -180,12 +183,6 @@ const FIXTURES: Partial<Record<FieldKind, Fixture>> = {
 		row: true,
 	},
 	object: { schema: { type: "object", properties: {} }, value: {}, row: false },
-	resource: {
-		schema: { furnace: { kind: "resource" } },
-		value: "materials/rock",
-		row: false,
-	},
-	ref: { schema: { furnace: { kind: "ref" } }, value: "entity:3", row: false },
 };
 
 const kindsWhere = (row: boolean): FieldKind[] =>
@@ -201,7 +198,9 @@ const NON_ROW_KINDS = kindsWhere(false);
  *  that holds nothing, and shrinking the list is the cheapest way to make this file agree
  *  with any source at all. */
 const MIN_ROW_KINDS = 12;
-const MIN_NON_ROW_KINDS = 3;
+/** One, since `resource`/`ref` retired with the scene surface — but still a floor, because
+ *  the point is that the non-row loop below cannot silently become empty. */
+const MIN_NON_ROW_KINDS = 1;
 
 // A path whose humanized label appears nowhere else on the row, so `getByText` cannot land
 // on a control's own text.
@@ -219,7 +218,7 @@ function renderFixture(kind: FieldKind): ReturnType<typeof render> {
 	return render(
 		<SchemaForm
 			schema={{ type: "object", properties: { [PATH]: fixture.schema } }}
-			values={[{ [PATH]: fixture.value }]}
+			value={{ [PATH]: fixture.value }}
 			onPreview={noop}
 			onCommit={noop}
 			onCancel={noop}

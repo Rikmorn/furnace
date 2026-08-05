@@ -35,7 +35,7 @@ test("a scrubbable NumberField label shows the ew-resize + hover-underline affor
 	render(
 		<NumberField
 			schema={{ type: "number" }}
-			values={[3]}
+			value={3}
 			onPreview={noop}
 			onCommit={noop}
 			onCancel={noop}
@@ -59,7 +59,7 @@ test("a non-scrubbable StringField label has no scrub affordance", () => {
 	render(
 		<StringField
 			schema={{ type: "string" }}
-			values={["hi"]}
+			value={"hi"}
 			onPreview={noop}
 			onCommit={noop}
 			onCancel={noop}

@@ -20,7 +20,6 @@
 import { useRef } from "react";
 import { humanizeLabel } from "../../lib/humanize.ts";
 import { roundForDisplay } from "../lib/format.ts";
-import { isMixed } from "../lib/mixed.ts";
 import {
 	type NumericSchema,
 	numericSchema,
@@ -46,28 +45,26 @@ export function SliderField(props: FieldProps) {
 
 function BoundedSlider({
 	schema,
-	values,
+	value,
 	onPreview,
 	onCommit,
 	onCancel,
 	path,
 	bounds,
 }: FieldProps & { bounds: NumericSchema }) {
-	const mixed = isMixed(values);
 	const label = humanizeLabel(path.split(".").at(-1) ?? path);
 	const def = typeof schema.default === "number" ? schema.default : bounds.min;
-	const current = mixed ? def : Number((values[0] as number) ?? def);
+	const current = Number((value as number) ?? def);
 
 	// The last value PREVIEWED and not yet committed. A ref rather than a read of the
 	// incoming prop, because the release has to commit what the drag produced: the prop
 	// arrives back through the host, and a gesture that ended before the round trip (or a
 	// consumer that refuses the draft) would otherwise commit the pre-drag value.
 	const pending = useRef<number | null>(null);
-	const fanout = (n: number) => values.map(() => n);
 	const push = (raw: number, commit: boolean) => {
 		const next = snapToStep(bounds, raw);
 		pending.current = commit ? null : next;
-		(commit ? onCommit : onPreview)(fanout(next));
+		(commit ? onCommit : onPreview)(next);
 	};
 
 	// One commit per gesture, not one per pixel. Bound to release AND to keyup — a range
@@ -77,7 +74,7 @@ function BoundedSlider({
 		const next = pending.current;
 		if (next === null) return;
 		pending.current = null;
-		onCommit(fanout(next));
+		onCommit(next);
 	};
 
 	const scrub = useRef<{ startX: number; startVal: number } | null>(null);
@@ -143,11 +140,10 @@ function BoundedSlider({
 			    why. Out of range is what the field-level refusal is FOR. */}
 			<ExactNumberInput
 				value={current}
-				mixed={mixed}
 				label={label}
 				className="w-14"
-				onPreview={(n) => onPreview(fanout(n))}
-				onCommit={(n) => onCommit(fanout(n))}
+				onPreview={onPreview}
+				onCommit={onCommit}
 				onCancel={onCancel}
 			/>
 			<UnitSuffix unit={schema.furnace?.unit} />

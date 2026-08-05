@@ -27,7 +27,7 @@ test("a nested object renders WITHOUT a <fieldset> card", () => {
 	const { container } = render(
 		<SchemaForm
 			schema={NESTED_SCHEMA}
-			values={[{ bounds: { min: 1 } }]}
+			value={{ bounds: { min: 1 } }}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 			onPreview={() => {}}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
@@ -45,7 +45,7 @@ test("the nested group still shows its label and inner field", () => {
 	render(
 		<SchemaForm
 			schema={NESTED_SCHEMA}
-			values={[{ bounds: { min: 1 } }]}
+			value={{ bounds: { min: 1 } }}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
 			onPreview={() => {}}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op

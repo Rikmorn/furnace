@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
 import { FieldRow } from "./common.tsx";
 
@@ -24,11 +23,8 @@ const parseHex = (h: string, alpha: number): number[] => [
 	alpha,
 ];
 
-export function ColorField({ values, onPreview, onCommit, path }: FieldProps) {
-	const mixed = isMixed(values);
-	const rgba = (values[0] as number[]) ?? [0, 0, 0, 1];
-	// Color is always broadcast: all targets get the same picked value (no per-target channel to preserve).
-	const fanout = (next: number[]) => values.map(() => next);
+export function ColorField({ value, onPreview, onCommit, path }: FieldProps) {
+	const rgba = (value as number[]) ?? [0, 0, 0, 1];
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	// Commit on the native `change` event (fires once when the OS color picker is
@@ -43,7 +39,7 @@ export function ColorField({ values, onPreview, onCommit, path }: FieldProps) {
 	// listener subscribes once.
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: placeholder; commitRef.current is assigned on the next line
 	const commitRef = useRef<(h: string) => void>(() => {});
-	commitRef.current = (h) => onCommit(fanout(parseHex(h, rgba[3] ?? 1)));
+	commitRef.current = (h) => onCommit(parseHex(h, rgba[3] ?? 1));
 	useEffect(() => {
 		const el = inputRef.current;
 		if (!el) return;
@@ -57,10 +53,8 @@ export function ColorField({ values, onPreview, onCommit, path }: FieldProps) {
 			<input
 				ref={inputRef}
 				type="color"
-				value={mixed ? "#000000" : hex(rgba)}
-				onChange={(e) =>
-					onPreview(fanout(parseHex(e.target.value, rgba[3] ?? 1)))
-				}
+				value={hex(rgba)}
+				onChange={(e) => onPreview(parseHex(e.target.value, rgba[3] ?? 1))}
 			/>
 		</FieldRow>
 	);

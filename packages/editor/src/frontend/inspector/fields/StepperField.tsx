@@ -9,11 +9,10 @@
 // Each button reads the COMMITTED value, never an internal draft. The host publishes a
 // session synchronously (`updateStamp` → `notifyStamp`), so two presses in a row see 3 → 4
 // → 5; a stepper that stepped its own remembered number would drift the moment anything
-// else moved the value (an undo, a re-seed, the slider's twin on a multi-select).
+// else moved the value (an undo, a re-seed, an SSE change).
 
 import { Button } from "../../components/ui/button.tsx";
 import { humanizeLabel } from "../../lib/humanize.ts";
-import { isMixed } from "../lib/mixed.ts";
 import {
 	type NumericSchema,
 	numericSchema,
@@ -37,20 +36,18 @@ export function StepperField(props: FieldProps) {
 
 function BoundedStepper({
 	schema,
-	values,
+	value,
 	onPreview,
 	onCommit,
 	onCancel,
 	path,
 	bounds,
 }: FieldProps & { bounds: NumericSchema }) {
-	const mixed = isMixed(values);
 	const label = humanizeLabel(path.split(".").at(-1) ?? path);
 	const def = typeof schema.default === "number" ? schema.default : bounds.min;
-	const current = mixed ? def : Number((values[0] as number) ?? def);
+	const current = Number((value as number) ?? def);
 
-	const fanout = (n: number) => values.map(() => n);
-	const commit = (raw: number) => onCommit(fanout(snapToStep(bounds, raw)));
+	const commit = (raw: number) => onCommit(snapToStep(bounds, raw));
 
 	return (
 		<FieldGroupRow path={path}>
@@ -62,7 +59,7 @@ function BoundedStepper({
 				// The name says what it does to WHICH field: a params list is a column of
 				// identical ± pairs, and "decrease" alone names six controls.
 				aria-label={`decrease ${label}`}
-				disabled={!mixed && current <= bounds.min}
+				disabled={current <= bounds.min}
 				onClick={() => commit(current - bounds.step)}
 			>
 				−
@@ -73,11 +70,10 @@ function BoundedStepper({
 			    refusal's job (SchemaForm), not this control's. */}
 			<ExactNumberInput
 				value={current}
-				mixed={mixed}
 				label={label}
 				className="w-12"
-				onPreview={(n) => onPreview(fanout(n))}
-				onCommit={(n) => onCommit(fanout(n))}
+				onPreview={onPreview}
+				onCommit={onCommit}
 				onCancel={onCancel}
 			/>
 			<Button
@@ -86,7 +82,7 @@ function BoundedStepper({
 				variant="secondary"
 				className={STEP_BUTTON_CLASS}
 				aria-label={`increase ${label}`}
-				disabled={!mixed && current >= bounds.max}
+				disabled={current >= bounds.max}
 				onClick={() => commit(current + bounds.step)}
 			>
 				+

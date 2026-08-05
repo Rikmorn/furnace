@@ -11,42 +11,37 @@
 //
 // The WIDGET is `components/ui/segmented.tsx` (D-24: one control library) — this file is
 // the schema half and nothing else. What lives here is what only a field knows: which
-// members exist, what a mixed multi-selection looks like, and that the option handed back
-// has to be resolved to its member before it commits.
+// members exist, and that the option handed back has to be resolved to its member before
+// it commits.
 
 import { Segmented } from "../../components/ui/segmented.tsx";
 import { humanizeLabel } from "../../lib/humanize.ts";
 import { enumOptions, optionFor } from "../lib/enum-options.ts";
-import { isMixed } from "../lib/mixed.ts";
 import type { FieldProps } from "../types.ts";
-import { FieldGroupRow, MIXED } from "./common.tsx";
+import { FieldGroupRow } from "./common.tsx";
 
-export function SegmentedField({ schema, values, onCommit, path }: FieldProps) {
+export function SegmentedField({ schema, value, onCommit, path }: FieldProps) {
 	const options = enumOptions(schema);
-	const mixed = isMixed(values);
 	const label = humanizeLabel(path.split(".").at(-1) ?? path);
-	// `null` rather than "the first member" when there is nothing to select: a mixed
-	// selection checks NOTHING, which is what every other field in this system does.
-	const selected = mixed ? undefined : optionFor(options, values[0]);
+	// `null` rather than "the first member" when the value names no member: a stale param
+	// checks NOTHING, which is what every other field in this system does.
+	const selected = optionFor(options, value);
 
 	return (
 		<FieldGroupRow path={path}>
-			{mixed && (
-				<span className="shrink-0 text-muted-foreground text-xs">{MIXED}</span>
-			)}
 			<Segmented
 				label={label}
 				value={selected?.value ?? null}
 				options={options}
-				onChange={(value) => {
+				onChange={(next) => {
 					// Resolved back to the OPTION rather than parsed: the member travels beside
 					// its label precisely so it never has to be reconstructed from a string.
 					// Undefined is unreachable (the values are our own) and returns rather than
 					// falling back — committing member 0 for a value nobody sent would turn a
 					// mapping bug into a silent data change.
-					const picked = options.find((o) => o.value === value);
+					const picked = options.find((o) => o.value === next);
 					if (picked === undefined) return;
-					onCommit(values.map(() => picked.member));
+					onCommit(picked.member);
 				}}
 			/>
 		</FieldGroupRow>

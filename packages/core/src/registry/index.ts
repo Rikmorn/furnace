@@ -6,10 +6,8 @@
  */
 export { z } from "zod";
 export {
-  asNestedObject,
   createRegistry,
   defineService,
-  fieldFurnaceMeta,
   getService,
   type JsonSchema,
   parseOrThrow,

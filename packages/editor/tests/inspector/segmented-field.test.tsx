@@ -27,11 +27,11 @@ function renderForm(
 	value: unknown,
 ) {
 	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+	const onCommit = mock((_next: unknown) => {});
 	render(
 		<SchemaForm
 			schema={{ type: "object", properties }}
-			values={[value]}
+			value={value}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onPreview={() => {}}
 			onCommit={onCommit}
@@ -85,12 +85,9 @@ test("picking a segment COMMITS the schema member, not its label", () => {
 	);
 	fireEvent.click(screen.getByRole("radio", { name: "90" }));
 	expect(onCommit).toHaveBeenCalledTimes(1);
-	const committed = onCommit.mock.calls.at(-1)?.[0] as Record<
-		string,
-		unknown
-	>[];
-	expect(committed[0]?.["rotation"]).toBe(90);
-	expect(typeof committed[0]?.["rotation"]).toBe("number");
+	const committed = onCommit.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+	expect(committed["rotation"]).toBe(90);
+	expect(typeof committed["rotation"]).toBe("number");
 });
 
 test("the segmented control is ONE tab stop with a roving tabindex (D-26)", () => {
@@ -151,9 +148,9 @@ test("ArrowRight moves FOCUS to the newly selected member, not just the selectio
 	const [first, second, third] = radios;
 	if (!(first && second && third)) throw new Error("expected three members");
 
-	// From the selected member (index 1). The commit is fanned to `onCommit` and the values
-	// prop does not move, so this asserts the FOCUS half on its own — which is the half with
-	// no other witness.
+	// From the selected member (index 1). Arrowing does not commit and the `value` prop does
+	// not move, so this asserts the FOCUS half on its own — which is the half with no other
+	// witness.
 	fireEvent.keyDown(second, { key: "ArrowRight" });
 	expectFocused(third, "colonnade");
 
@@ -204,19 +201,20 @@ test("a member wrapped in ActionTip is still a DIRECT child of the radiogroup", 
 	expectFocused(normals, "Normals");
 });
 
-test("a mixed selection checks NOTHING rather than the first member", () => {
-	// biome-ignore lint/suspicious/noEmptyBlockStatements: mock records calls; impl is a no-op
-	const onCommit = mock((_next: unknown[]) => {});
+test("a value naming no member checks NOTHING rather than the first member", () => {
+	// The stale-param case: a schema that dropped `arcade` must not silently read as
+	// `none`. `null` down to the widget is what makes the whole group uncheck.
 	render(
 		<SchemaForm
 			schema={{
 				type: "object",
 				properties: { pillars: { enum: ["none", "grid", "colonnade"] } },
 			}}
-			values={[{ pillars: "none" }, { pillars: "grid" }]}
+			value={{ pillars: "arcade" }}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onPreview={() => {}}
-			onCommit={onCommit}
+			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
+			onCommit={() => {}}
 			// biome-ignore lint/suspicious/noEmptyBlockStatements: inert
 			onCancel={() => {}}
 		/>,
@@ -224,6 +222,4 @@ test("a mixed selection checks NOTHING rather than the first member", () => {
 	expect(
 		screen.getAllByRole("radio").map((r) => r.getAttribute("aria-checked")),
 	).toEqual(["false", "false", "false"]);
-	// …and the mixed marker is visible, the same "—" every other field uses.
-	expect(screen.getByText("—")).toBeTruthy();
 });

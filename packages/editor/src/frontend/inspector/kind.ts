@@ -1,15 +1,7 @@
 import { numericSchema, stepSpan } from "./lib/numeric-schema.ts";
 import type { FieldKind, JsonSchemaNode } from "./types.ts";
 
-const FURNACE_KINDS = new Set([
-  "vec2",
-  "vec3",
-  "vec4",
-  "quat",
-  "color",
-  "resource",
-  "ref",
-]);
+const FURNACE_KINDS = new Set(["vec2", "vec3", "vec4", "quat", "color"]);
 
 /** Above this many members an enum stops fitting on one row and goes back to the
  *  Select. Four is the mock's own cap and it is what the palette width allows for

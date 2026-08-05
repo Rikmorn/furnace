@@ -3,10 +3,10 @@
 // the width.
 //
 // It is here rather than beside either caller because there are TWO — the inspector's
-// `SegmentedField` (schema-driven, mixed-state) and the View popover's shading row — and
+// `SegmentedField` (schema-driven) and the View popover's shading row — and
 // D-24's whole point is that one widget must not be two implementations. This file is the
 // presentational core: a value, some options, a change handler. Everything about schemas,
-// members, mixed selections and humanized labels stays in `SegmentedField`.
+// members and humanized labels stays in `SegmentedField`.
 //
 // NOT vendored shadcn (there is no shadcn segmented control) and not a Radix primitive
 // either: `RadioGroup` renders a dot-and-box per member and would defeat the joined look
@@ -61,9 +61,9 @@ export function Segmented<T extends string = string>({
 	 *  heading VERBATIM — a divergence is a screen reader and a screen disagreeing about
 	 *  what a thing is called. */
 	label: string;
-	/** The selected option's `value`, or `null` for "none of them" — which is what a mixed
-	 *  multi-selection and a value matching no member both look like, and neither may render
-	 *  as a checked member. */
+	/** The selected option's `value`, or `null` for "none of them" — which is what a
+	 *  value matching no member looks like (a stale param the schema has since dropped),
+	 *  and it may not render as a checked member. */
 	value: T | null;
 	options: readonly SegmentedOption<T>[];
 	onChange: (value: T) => void;
@@ -71,7 +71,7 @@ export function Segmented<T extends string = string>({
 }) {
 	const selectedIndex = options.findIndex((o) => o.value === value);
 	// Which button Tab reaches. The selected one when there is one; otherwise the first, so
-	// a mixed selection does not make the whole group unreachable from the keyboard.
+	// an unmatched value does not make the whole group unreachable from the keyboard.
 	const tabIndex = selectedIndex === -1 ? 0 : selectedIndex;
 
 	return (

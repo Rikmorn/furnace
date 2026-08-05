@@ -9,12 +9,13 @@ test("furnace.kind wins", () => {
   expect(resolveKind({ type: "array", furnace: { kind: "vec3" } })).toBe(
     "vec3",
   );
-  expect(
-    resolveKind({
-      type: "string",
-      furnace: { kind: "resource", table: "materials" },
-    }),
-  ).toBe("resource");
+  // A `furnace.kind` the union does not name falls THROUGH to the shape rules rather
+  // than being trusted: `resource`/`ref` were the scene resource-table kinds and went
+  // with it, and a stale schema still naming one must not resolve to a renderer that
+  // no longer exists.
+  expect(resolveKind({ type: "string", furnace: { kind: "resource" } })).toBe(
+    "string",
+  );
   expect(resolveKind({ furnace: { kind: "color" } })).toBe("color");
 });
 test("enum before plain type", () => {
@@ -45,8 +46,8 @@ test("unknown shapes fall back", () => {
 
 // Regression: resolveKind must dispatch off the REAL `toJsonSchema` wire shape,
 // not a hand-written fixture. zod hoists `.meta({ furnace })` to the node root;
-// an earlier `schema.meta?.furnace` read silently rendered vec/quat/color/resource
-// fields as the read-only DefaultField (the M5A holistic-review CRITICAL).
+// an earlier `schema.meta?.furnace` read silently rendered vec/quat/color fields
+// as the read-only DefaultField (the M5A holistic-review CRITICAL).
 //
 // The wrappers are load-bearing, not decoration: hoisting has to survive
 // `.default().optional()` (how a schema authors an omittable field with a display
@@ -69,9 +70,10 @@ const REFLECTED = toJsonSchema(
       .meta({ furnace: { kind: "vec3" } })
       .default([1, 1, 1])
       .optional(),
-    geometry: z
-      .string()
-      .meta({ furnace: { kind: "resource", table: "geometries" } }),
+    // The REQUIRED, unwrapped case — and the one that carries a furnace member
+    // OTHER than `kind`, since `unit` has to reach the node root by the same
+    // hoisting or every unit-bearing row silently loses its suffix.
+    thickness: z.number().meta({ furnace: { unit: "m" } }),
     clearColor: z
       .tuple([z.number(), z.number(), z.number(), z.number()])
       .meta({ furnace: { kind: "color" } })
@@ -93,9 +95,9 @@ test("resolves real reflected nodes (root-level furnace key)", () => {
   expect(resolveKind(prop(REFLECTED, "rotation"))).toBe("quat");
   expect(resolveKind(prop(REFLECTED, "scale"))).toBe("vec3");
 
-  const geometry = prop(REFLECTED, "geometry");
-  expect(resolveKind(geometry)).toBe("resource");
-  expect(geometry.furnace?.table).toBe("geometries");
+  const thickness = prop(REFLECTED, "thickness");
+  expect(resolveKind(thickness)).toBe("number");
+  expect(thickness.furnace?.unit).toBe("m");
 
   expect(resolveKind(prop(REFLECTED, "clearColor"))).toBe("color");
 });

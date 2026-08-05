@@ -10,8 +10,8 @@ const Checkbox = React.forwardRef<
 	React.ElementRef<typeof CheckboxPrimitive.Root>,
 	React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
 >(({ className, ...props }, ref) => {
-	// Distinct glyph per state: a minus/dash for `indeterminate` (the mixed-selection
-	// state), a check for `checked`, so the two never look alike. Driven off the controlled
+	// Distinct glyph per state: a minus/dash for Radix's tri-state `indeterminate`, a check
+	// for `checked`, so the two never look alike. Driven off the controlled
 	// `checked` prop and toggled with the plain `hidden` (display:none) utility — a JS-owned
 	// choice, NOT CSS-only state matching — so the visible glyph is deterministic.
 	const indeterminate = props.checked === "indeterminate";

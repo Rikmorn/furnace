@@ -100,7 +100,7 @@ const REGISTER = /^import "(?:\.\.\/inspector|\.)\/_register\.ts";$/m;
  *  only open question is whether it happens FIRST.
  *
  *  So the exemption is sound and the residual hole is a different shape. The five pure-logic
- *  inspector tests (`format`, `scrub`, `numeric-schema`, `echo-guard`, `vec-fan`) render
+ *  inspector tests (`format`, `scrub`, `numeric-schema`, `echo-guard`, `vec-component`) render
  *  nothing AND reach no Radix — verified by a transitive trace that skips type-only imports —
  *  so leaving them alone is right, and injecting happy-dom's globals into suites that never
  *  render is what `_register.ts`'s own scoping note says not to do.
@@ -179,7 +179,7 @@ const NON_RENDERING = [
   "format.test.ts",
   "numeric-schema.test.ts",
   "scrub.test.ts",
-  "vec-fan.test.ts",
+  "vec-component.test.ts",
 ];
 
 test("every rendering inspector test registers happy-dom before its first import", () => {

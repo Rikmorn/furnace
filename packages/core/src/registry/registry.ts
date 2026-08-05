@@ -7,16 +7,10 @@ export type JsonSchema = Record<string, unknown>;
 /** Naming for a registry's setup-loud errors: `${prefix}: ${noun} "x" is already registered`. */
 export type RegistryOptions = { prefix: string; noun: string };
 
-/**
- * A named-entry store with setup-loud duplicate registration. `entries()` is
- * registration order — a guarantee a registry owner may build an ordered pass
- * on. No owner reads it today; `registry.test.ts` pins the order regardless,
- * so the guarantee cannot silently lapse before the next one needs it.
- */
+/** A named-entry store with setup-loud duplicate registration. */
 export type Registry<R> = {
   register(name: string, entry: R): void;
   get(name: string): R | undefined;
-  entries(): [string, R][];
   /** Tests only — suites re-register after. */
   reset(): void;
 };
@@ -37,7 +31,6 @@ export function createRegistry<R>(opts: RegistryOptions): Registry<R> {
       store.set(name, entry);
     },
     get: (name) => store.get(name),
-    entries: () => [...store.entries()],
     reset: () => store.clear(),
   };
 }
@@ -82,39 +75,6 @@ export function parseOrThrow<T extends z.ZodType>(
     );
   }
   return result.data;
-}
-
-/**
- * Read the `furnace` meta payload off a shape field, unwrapping `.optional()`.
- * Returns `undefined` for plain zod fields. The payload's shape is the
- * registry owner's contract (the field generators attach `{ unit }`) — zod
- * metas are untyped bags, so the owner names `M`.
- *
- * No caller today: the pre-reflection reader for owners that need the meta off
- * the zod schema rather than off `toJsonSchema`'s output.
- */
-export function fieldFurnaceMeta<M = Record<string, unknown>>(
-  field: z.ZodType,
-): M | undefined {
-  let s = field;
-  while (s instanceof z.ZodOptional) s = s.unwrap() as z.ZodType;
-  const meta = s.meta();
-  // Boundary cast: zod metas are untyped; the registry owner declares M.
-  return (meta as { furnace?: M } | undefined)?.furnace;
-}
-
-/**
- * Unwrap `.optional()` and return the inner `z.ZodObject` if the field is one
- * (directly or optional-wrapped); `undefined` for any other zod type. The test
- * a registry owner walking a shape asks before recursing into a nested object.
- *
- * No caller today: its user was the scene loader's paired resolution/validation
- * walk, which needed both halves to agree on where they recursed.
- */
-export function asNestedObject(field: z.ZodType): z.ZodObject | undefined {
-  let s = field;
-  while (s instanceof z.ZodOptional) s = s.unwrap() as z.ZodType;
-  return s instanceof z.ZodObject ? s : undefined;
 }
 
 /**
