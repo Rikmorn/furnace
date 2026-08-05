@@ -1,347 +1,360 @@
 {
-  "version": 1,
-  "scene": "worlds/default/world.scene.json",
+  "version": 2,
+  "kind": "field",
+  "cellSize": 0.25,
   "playerStart": [
     3,
-    1.1,
-    7
+    1.5,
+    1
   ],
-  "playerYaw": -3.141592653589793,
-  "regions": [
+  "playerYaw": 3.141592653589793,
+  "chunks": [
     {
-      "id": "hall-a",
-      "class": "grid-built",
-      "algorithm": "hall",
-      "params": {
-        "size": [
-          10,
-          7,
-          16
-        ],
-        "pillars": {
-          "kind": "colonnade",
-          "spacing": 3
-        },
-        "doors": [
-          {
-            "wall": "north",
-            "offset": 3
-          }
-        ]
-      },
-      "seed": "world-default:a",
-      "placement": {
-        "translation": [
-          0,
-          0,
-          0
-        ],
-        "yaw": 0
-      },
-      "cuboids": []
+      "key": "0,0,0",
+      "file": "chunks/0_0_0.bin"
     },
     {
-      "id": "maze-1",
-      "class": "grid-built",
-      "algorithm": "maze",
-      "params": {
-        "cells": [
-          4,
-          4
-        ],
-        "braid": 0.15,
-        "doors": [
-          {
-            "wall": "south",
-            "offset": 1
-          },
-          {
-            "wall": "east",
-            "offset": 2
-          },
-          {
-            "wall": "west",
-            "offset": 2
-          }
-        ]
-      },
-      "seed": "world-default:m",
-      "placement": {
-        "translation": [
-          -1,
-          1.5,
-          15
-        ],
-        "yaw": 0
-      },
-      "cuboids": []
+      "key": "1,0,0",
+      "file": "chunks/1_0_0.bin"
     },
     {
-      "id": "hall-b",
-      "class": "grid-built",
-      "algorithm": "hall",
-      "params": {
-        "size": [
-          8,
-          6,
-          8
-        ],
-        "pillars": {
-          "kind": "none"
-        },
-        "doors": [
-          {
-            "wall": "east",
-            "offset": 2
-          }
-        ]
-      },
-      "seed": "world-default:b",
-      "placement": {
-        "translation": [
-          -6,
-          1.5,
-          19
-        ],
-        "yaw": 0
-      },
-      "cuboids": []
+      "key": "0,0,1",
+      "file": "chunks/0_0_1.bin"
     },
     {
-      "id": "cave-c",
-      "class": "field-organic",
-      "algorithm": "cave",
-      "params": {
-        "mouths": 1
-      },
-      "seed": "world-default:c",
-      "placement": {
-        "translation": [
-          26.380397150479258,
-          3.5,
-          21.5
-        ],
-        "yaw": 3.141592653589793
-      },
-      "cuboids": [
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            3.5,
-            19.799999999999997
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              0.7,
-              2,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            3.5,
-            23.2
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.6000000000000001,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            4.9,
-            21.5
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        },
-        {
-          "shape": {
-            "cuboid": [
-              2.4,
-              0.15,
-              0.6000000000000001
-            ]
-          },
-          "position": [
-            17.5,
-            1.35,
-            21.5
-          ],
-          "rotation": [
-            0,
-            0.7071067690849304,
-            0,
-            -0.7071067690849304
-          ]
-        }
-      ]
+      "key": "1,0,1",
+      "file": "chunks/1_0_1.bin"
+    },
+    {
+      "key": "-1,0,2",
+      "file": "chunks/-1_0_2.bin"
+    },
+    {
+      "key": "0,0,2",
+      "file": "chunks/0_0_2.bin"
+    },
+    {
+      "key": "1,0,2",
+      "file": "chunks/1_0_2.bin"
+    },
+    {
+      "key": "-1,0,3",
+      "file": "chunks/-1_0_3.bin"
+    },
+    {
+      "key": "0,0,3",
+      "file": "chunks/0_0_3.bin"
+    },
+    {
+      "key": "1,0,3",
+      "file": "chunks/1_0_3.bin"
     }
   ],
-  "connectors": [
+  "meshes": [
     {
-      "id": "corridor-1",
-      "seed": "world-default:t1",
-      "a": {
-        "position": [
-          3,
-          0,
-          9
-        ],
-        "facing": [
-          0,
-          0,
+      "key": "0,0,0",
+      "file": "meshes/0_0_0.c3b.fmesh",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "classId": 3,
+      "backing": true
+    },
+    {
+      "key": "1,0,0",
+      "file": "meshes/1_0_0.c3b.fmesh",
+      "origin": [
+        4,
+        0,
+        0
+      ],
+      "classId": 3,
+      "backing": true
+    },
+    {
+      "key": "0,0,1",
+      "file": "meshes/0_0_1.c3b.fmesh",
+      "origin": [
+        0,
+        0,
+        4
+      ],
+      "classId": 3,
+      "backing": true
+    },
+    {
+      "key": "0,0,1",
+      "file": "meshes/0_0_1.c0.fmesh",
+      "origin": [
+        0,
+        0,
+        4
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "0,0,1",
+      "file": "meshes/0_0_1.c2.fmesh",
+      "origin": [
+        0,
+        0,
+        4
+      ],
+      "classId": 2,
+      "backing": false
+    },
+    {
+      "key": "1,0,1",
+      "file": "meshes/1_0_1.c3b.fmesh",
+      "origin": [
+        4,
+        0,
+        4
+      ],
+      "classId": 3,
+      "backing": true
+    },
+    {
+      "key": "1,0,1",
+      "file": "meshes/1_0_1.c0.fmesh",
+      "origin": [
+        4,
+        0,
+        4
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "1,0,1",
+      "file": "meshes/1_0_1.c2.fmesh",
+      "origin": [
+        4,
+        0,
+        4
+      ],
+      "classId": 2,
+      "backing": false
+    },
+    {
+      "key": "-1,0,2",
+      "file": "meshes/-1_0_2.c0.fmesh",
+      "origin": [
+        -4,
+        0,
+        8
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "0,0,2",
+      "file": "meshes/0_0_2.c2.fmesh",
+      "origin": [
+        0,
+        0,
+        8
+      ],
+      "classId": 2,
+      "backing": false
+    },
+    {
+      "key": "0,0,2",
+      "file": "meshes/0_0_2.c0.fmesh",
+      "origin": [
+        0,
+        0,
+        8
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "1,0,2",
+      "file": "meshes/1_0_2.c2.fmesh",
+      "origin": [
+        4,
+        0,
+        8
+      ],
+      "classId": 2,
+      "backing": false
+    },
+    {
+      "key": "1,0,2",
+      "file": "meshes/1_0_2.c0.fmesh",
+      "origin": [
+        4,
+        0,
+        8
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "-1,0,3",
+      "file": "meshes/-1_0_3.c0.fmesh",
+      "origin": [
+        -4,
+        0,
+        12
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "0,0,3",
+      "file": "meshes/0_0_3.c0.fmesh",
+      "origin": [
+        0,
+        0,
+        12
+      ],
+      "classId": 0,
+      "backing": false
+    },
+    {
+      "key": "1,0,3",
+      "file": "meshes/1_0_3.c0.fmesh",
+      "origin": [
+        4,
+        0,
+        12
+      ],
+      "classId": 0,
+      "backing": false
+    }
+  ],
+  "materialTable": {
+    "classes": [
+      {
+        "id": 0,
+        "name": "rock",
+        "kind": "organic",
+        "color": [
+          0.62,
+          0.6,
+          0.58,
+          1
+        ]
+      },
+      {
+        "id": 1,
+        "name": "dirt",
+        "kind": "organic",
+        "color": [
+          0.45,
+          0.36,
+          0.26,
+          1
+        ]
+      },
+      {
+        "id": 2,
+        "name": "moss-stone",
+        "kind": "organic",
+        "color": [
+          0.38,
+          0.52,
+          0.42,
+          1
+        ]
+      },
+      {
+        "id": 3,
+        "name": "masonry",
+        "kind": "kit",
+        "color": [
+          0.55,
+          0.53,
+          0.5,
           1
         ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "b": {
-        "position": [
-          3,
-          1.5,
-          15
-        ],
-        "facing": [
-          0,
-          0,
-          -1
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "aRef": [
-        "hall-a",
-        0
-      ],
-      "bRef": [
-        "maze-1",
-        0
-      ],
-      "kind": "corridor"
+        "kit": {
+          "panelProud": 0.06,
+          "panelReveal": 0.02,
+          "collarSection": 0.14,
+          "backingColor": [
+            0.34,
+            0.32,
+            0.3,
+            1
+          ],
+          "pieceColors": {
+            "panel": [
+              0.55,
+              0.53,
+              0.5,
+              1
+            ],
+            "floor": [
+              0.42,
+              0.4,
+              0.38,
+              1
+            ],
+            "trim": [
+              0.35,
+              0.33,
+              0.3,
+              1
+            ],
+            "collar": [
+              0.3,
+              0.28,
+              0.26,
+              1
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "materials": [
+    {
+      "key": "0,0,0",
+      "file": "materials/0_0_0.mat"
     },
     {
-      "id": "bore-1",
-      "seed": "world-default:t2",
-      "a": {
-        "position": [
-          9.5,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          1,
-          0,
-          0
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "b": {
-        "position": [
-          17.5,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          -1,
-          0,
-          -1.2246467991473532e-16
-        ],
-        "width": 2,
-        "height": 2.8,
-        "kind": "door"
-      },
-      "aRef": [
-        "maze-1",
-        1
-      ],
-      "bRef": [
-        "cave-c",
-        0
-      ],
-      "kind": "collar-bore",
-      "radius": 1.6,
-      "overshoot": 1.2,
-      "extendA": 0.5
+      "key": "1,0,0",
+      "file": "materials/1_0_0.mat"
     },
     {
-      "id": "aperture-1",
-      "seed": "world-default:t3",
-      "a": {
-        "position": [
-          -1,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          -1,
-          0,
-          0
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "b": {
-        "position": [
-          -1,
-          1.5,
-          21.5
-        ],
-        "facing": [
-          1,
-          0,
-          0
-        ],
-        "width": 2,
-        "height": 3,
-        "kind": "door"
-      },
-      "aRef": [
-        "maze-1",
-        2
-      ],
-      "bRef": [
-        "hall-b",
-        0
-      ],
-      "kind": "aperture"
+      "key": "0,0,1",
+      "file": "materials/0_0_1.mat"
+    },
+    {
+      "key": "1,0,1",
+      "file": "materials/1_0_1.mat"
+    },
+    {
+      "key": "0,0,2",
+      "file": "materials/0_0_2.mat"
+    },
+    {
+      "key": "1,0,2",
+      "file": "materials/1_0_2.mat"
     }
   ],
-  "provenance": {
-    "generatorVersion": 2
-  }
+  "kit": [
+    {
+      "key": "0,0,0",
+      "file": "kit/0_0_0.json"
+    },
+    {
+      "key": "1,0,0",
+      "file": "kit/1_0_0.json"
+    },
+    {
+      "key": "0,0,1",
+      "file": "kit/0_0_1.json"
+    },
+    {
+      "key": "1,0,1",
+      "file": "kit/1_0_1.json"
+    }
+  ]
 }

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bake:default": "bun scripts/bake-default-world.ts",
     "dev": "bun --hot serve.ts",
     "build:web": "bun build src/index.html --outdir ../../dist/dungeon --minify --sourcemap=external",
     "test": "bun test",
