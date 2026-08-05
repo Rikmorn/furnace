@@ -131,6 +131,7 @@ import {
   pickAxis,
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
+import { type CaptureHandle, createInputRouter } from "./input-router.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 import { createViewChannel } from "./view-channel.ts";
 import {
@@ -783,21 +784,28 @@ export type FieldHost = {
    *  of a difference between two keys. */
   confirmSession(): void;
   /** Discards the session + its ghost. No-op without a session. The panel's Cancel
-   *  button; Esc goes through {@link escape}, which reaches this as one rung of a
-   *  ladder rather than unconditionally. */
+   *  button; Esc goes through {@link escape}, which reaches this only when the
+   *  session is the most recent thing standing rather than unconditionally. */
   cancelStamp(): void;
-  /** The Esc LADDER (D-12): cancels exactly ONE thing, most recent intent first —
-   *  a half-drawn box/segment anchor, then the live session (a move included),
-   *  then the selected entity ({@link selectEntity}), then the cell selection
+  /** The Esc CANCEL (D-12): cancels exactly ONE thing, the most recent thing the
+   *  user started. Six states can be standing — a half-drawn box anchor, a
+   *  half-drawn segment anchor, a pending stamp arm, the live session (a move
+   *  included), the selected entity ({@link selectEntity}) and the cell selection
    *  ({@link clearSelection}'s parking behaviour, so Reselect is still the way
-   *  back). With nothing to cancel it is a silent no-op.
+   *  back) — and each one is cancellable for exactly as long as it is live. With
+   *  nothing standing it is a silent no-op.
+   *
+   *  RECENCY, not a fixed priority: the order is the order the states were
+   *  acquired in, so a selection drawn after an entity was picked is cancelled
+   *  before that entity. A state that is REPLACED (one selection displacing
+   *  another) keeps the position it first took — replacing is not restarting.
    *
    *  Public because the CANVAS binding is not enough: it fires only while the
    *  canvas has focus, and clicking any palette control takes focus away — the
    *  standing F2b finding that a viewport binding dies the moment the user
-   *  touches a panel ({@link undo}'s rationale). Both entry points run the same
-   *  ladder function, so they cannot disagree about which rung comes first, and
-   *  the canvas branch stops the event when it acts so one press runs one rung. */
+   *  touches a panel ({@link undo}'s rationale). Both entry points cancel off the
+   *  same stack, so they cannot disagree about what is most recent, and the canvas
+   *  branch stops the event when it acts so one press cancels one thing. */
   escape(): void;
   /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
    *  seam any panel affordance for them must call.
@@ -1732,6 +1740,44 @@ export function createFieldHost(deps?: {
   // drag, so sharing the stroke's re-arm point would silence every segment
   // after the first.
   let maskDropReported = false;
+
+  // --- the Esc capture stack (D-12, was the Esc ladder) --------------------
+  // ONE key, ONE rung per press, most recent intent first — except that "most
+  // recent" is now the stack's own shape rather than an order spelled out in a
+  // chain of ifs. Five states here plus the segment anchor (which `field-segment.ts`
+  // captures itself) acquire an entry when they go live and release it when they
+  // clear, so what Esc can cancel is exactly what is standing.
+  const router = createInputRouter();
+
+  // One rung, wired to the state it speaks for. Returns the RECONCILE — the call
+  // every canonical setter makes after writing its slot, and the only thing any
+  // path that writes the slot itself has to remember.
+  //
+  // The whole discipline is the handle slot: acquire on the first live read,
+  // release on the first dead one, and do NOTHING while it stays live. That last
+  // clause is what makes a REPLACE (a selection displacing another, an entity
+  // pick displacing another) keep the position its first acquisition took —
+  // acquisition order, not last-touch order, is what reproduces the old ladder's
+  // behaviour on the flows that had one.
+  //
+  // Shared rather than five copies of the same six lines, and not for brevity:
+  // the rungs drifting apart on when they acquire IS the bug this replaces.
+  const escRung = (
+    label: string,
+    isLive: () => boolean,
+    cancel: () => void,
+  ): (() => void) => {
+    let handle: CaptureHandle | null = null;
+    return () => {
+      if (isLive()) {
+        if (handle === null) handle = router.capture(label, cancel);
+        return;
+      }
+      if (handle === null) return;
+      router.release(handle);
+      handle = null;
+    };
+  };
 
   // --- gesture + selection state (armed slot, current + Reselect, overlay) --
   // What LMB does: one slot for `pointer`, the three cell-selection gestures
@@ -2972,31 +3018,54 @@ export function createFieldHost(deps?: {
     selectionCells = { im, g };
   };
 
+  // A half-drawn box: the anchor the next click would close. Its own Esc entry,
+  // and the segment anchor's is its own too — the old rung 1 cleared BOTH in one
+  // press, but the arming rules make the pair unreachable (`setGesture` drops
+  // both on any switch, a stamp arm drops both), so the dual clear was guarding a
+  // state that cannot happen and one entry each says the same thing honestly.
+  const syncBoxAnchorCapture = escRung(
+    "box anchor",
+    () => boxAnchor !== null,
+    () => setBoxAnchor(null),
+  );
+
   const setBoxAnchor = (p: Vec3T | null): void => {
     boxAnchor = p;
     if (p === null) {
       anchorBatch = null;
       boxPreviewBatch = null; // the pending-region preview dies with its anchor
-      return;
+    } else {
+      anchorBatch = segmentsToBatch(
+        crossSegments(p, ANCHOR_CROSS_HALF_M),
+        SELECTION_COLOR,
+      );
     }
-    anchorBatch = segmentsToBatch(
-      crossSegments(p, ANCHOR_CROSS_HALF_M),
-      SELECTION_COLOR,
-    );
+    syncBoxAnchorCapture();
   };
+
+  // The pending stamp ARM's Esc entry (old rung 1b). It sat AFTER the anchors in
+  // the ladder because the two are one gesture in two steps and the most recent
+  // step goes first — an Esc with a corner down re-draws the region, a second one
+  // leaves region-draw altogether. The stack gets that for free: the arm is
+  // acquired at `startStamp`, the corner at the click after it.
+  const syncPendingStampCapture = escRung(
+    "pending stamp",
+    () => pendingStamp !== null,
+    () => setPendingStamp(null),
+  );
 
   // The pending stamp arm (null = none). Pushes on CHANGE only: the clear runs
   // from several paths that are usually no-ops (every gesture arm), and a
   // subscriber re-rendering on each of those would pay for nothing.
   //
   // DISARMING TAKES THE CORNER WITH IT, and it happens HERE rather than at each
-  // caller because five paths clear the arm and only one of them (the Esc
-  // ladder, whose earlier rung owns the anchors) was clearing the corner: a
+  // caller because five paths clear the arm and only one of them (Esc, whose
+  // corner capture sits above this one) was clearing the corner: a
   // `setGesture` re-arming what is already armed, `openEntitySession` — reached
   // by the Entities palette's Open AND by every `G` grab through
   // `beginMoveSession` — and a selection-first `startStamp`, reachable with no
   // click at all through Reselect. Each left an amber cross drawing with nothing
-  // armed to close it, and each ate an Esc rung on the way out.
+  // armed to close it, and each ate an Esc press on the way out.
   //
   // Safe by construction rather than by care: while an arm stands, ANY box
   // anchor belongs to it. `startStamp` clears both anchors before arming, and
@@ -3008,6 +3077,7 @@ export function createFieldHost(deps?: {
     if ((pendingStamp?.id ?? null) === (next?.id ?? null)) return;
     const disarming = pendingStamp !== null && next === null;
     pendingStamp = next;
+    syncPendingStampCapture();
     if (disarming) setBoxAnchor(null);
     pendingStampChannel.publish(next === null ? null : { ...next });
   };
@@ -3029,9 +3099,25 @@ export function createFieldHost(deps?: {
     rebuildSelectionCells();
   };
 
+  // The cell selection's Esc entry (old rung 4). Its cancel is the SETTER's null,
+  // not a bespoke clear, so Esc parks the selection in the Reselect slot exactly
+  // as the panel's Clear does — an Esc that went one rung too far has the same way
+  // back a Clear has.
+  //
+  // TWO paths write `selection` without this setter (`resetWorld`'s teardown and
+  // `reselect`'s swap, each for its own documented reason), and both call this
+  // reconcile in the same breath. A REPLACE keeps the entry's position by
+  // construction — the slot is still full, so nothing is pushed.
+  const syncSelectionCapture = escRung(
+    "cell selection",
+    () => selection !== null,
+    () => setSelection(null),
+  );
+
   const setSelection = (next: SelectionState | null): void => {
     if (selection !== null) lastSelection = selection;
     selection = next;
+    syncSelectionCapture();
     refreshSelectionDisplay();
     notifySelection();
   };
@@ -3205,6 +3291,7 @@ export function createFieldHost(deps?: {
     armMaskDropReport: () => {
       maskDropReported = false;
     },
+    router,
   });
 
   // The ONE funnel for a radius change — the panel's slider, the wheel and
@@ -3950,6 +4037,13 @@ export function createFieldHost(deps?: {
     applyOrbit();
   };
 
+  // The selected stamp's Esc entry (old rung 3).
+  const syncSelectedEntityCapture = escRung(
+    "selected entity",
+    () => selectedEntityId !== null,
+    () => setSelectedEntity(null),
+  );
+
   // Select one entity, or NOTHING — the single mutator of the entity selection,
   // whoever is asking: a pointer click, the public verb, an entity leaving the
   // log, a world reset. There is deliberately no second "clear" entry point;
@@ -3974,6 +4068,7 @@ export function createFieldHost(deps?: {
       entityId === null || entityRecord(entityId) === null ? null : entityId;
     if (next === selectedEntityId) return;
     selectedEntityId = next;
+    syncSelectedEntityCapture();
     rebuildEntitySelectionBatch();
     entitySelectionChannel.publish(next);
   };
@@ -4948,13 +5043,38 @@ export function createFieldHost(deps?: {
     previewStamp();
   };
 
+  // The live session's Esc entry (old rung 2) — `stamp` and `moveDrag` share ONE,
+  // because `cancelStampSession` ends the move first (its own first line, before
+  // the null guard), so one press has always taken both. Hence the OR: the entry
+  // stands while either does.
+  //
+  // Reconciled from the writes that CROSS null↔non-null and from those only. The
+  // dozen other `stamp = …` writes are TRANSFORMS of a session that stays live
+  // (`toPreviewing`, `withRegion`, `withParams`, `demoteStalledMove`) and a
+  // reconcile there would be a no-op with a cost — worse, it would invite the
+  // reading that a slider drag re-acquires, which would move the session's
+  // position in the stack every time a param changed.
+  //
+  // The crossing writes are: the two OPENS (`openStampSession`,
+  // `openEntitySession`), the three CLOSES (here, `commitStampSession`,
+  // `applyReconfigureSession`), plus `endMove`'s clear and `beginMoveSession`'s
+  // arm for the `moveDrag` half.
+  const syncSessionCapture = escRung(
+    "live session",
+    () => stamp !== null || moveDrag !== null,
+    () => cancelStampSession(),
+  );
+
   const cancelStampSession = (): void => {
     // BEFORE the null guard, so a stray move mapping can never survive a session
     // that is already gone — this is the ONE teardown every discard path runs
-    // (Esc, a world reset, a table swap, freeze/bake/delete, a re-open).
+    // (Esc, a world reset, a table swap, freeze/bake/delete, a re-open). It
+    // reconciles the capture on its way out, which is what makes the early return
+    // below safe: a move with no session releases the entry there.
     endMove();
     if (stamp === null) return;
     stamp = null;
+    syncSessionCapture();
     destroyStampGhosts();
     notifyStamp();
   };
@@ -5039,6 +5159,7 @@ export function createFieldHost(deps?: {
       randomStampSeed(),
       truncated,
     );
+    syncSessionCapture();
     previewStamp();
   };
 
@@ -5138,6 +5259,7 @@ export function createFieldHost(deps?: {
       return;
     }
     stamp = null;
+    syncSessionCapture();
     destroyStampGhosts();
     // The commit's placement ops (a scatter's props) are new prop-layer content.
     rebuildProps();
@@ -5200,6 +5322,7 @@ export function createFieldHost(deps?: {
     // flagging it afterwards would publish one frame of "reconfigure" ahead of
     // the move, and the strip would flicker the wrong word.
     stamp = moving ? { ...opened, moving: true } : opened;
+    syncSessionCapture();
     previewStamp();
     return true;
   };
@@ -5211,6 +5334,7 @@ export function createFieldHost(deps?: {
     moveDrag = null;
     pendingMove = null;
     moveCommitPending = false;
+    syncSessionCapture();
   };
 
   // Start a move on a committed entity: the reconfigure session, plus the cursor
@@ -5230,6 +5354,10 @@ export function createFieldHost(deps?: {
     const box = entityFootprints().get(entityId) ?? stamp?.region;
     if (box === undefined) return false; // unreachable: the open proved the record
     moveDrag = startMove({ box, axis, grabbed, press });
+    // Already captured in practice — the open above set the session — but this is
+    // a null→non-null write to a slot the entry's liveness reads, and the rule
+    // that every such write reconciles is what keeps the pair honest.
+    syncSessionCapture();
     // The gizmo's arms narrow to the constrained one the moment a drag owns them.
     rebuildEntitySelectionBatch();
     return true;
@@ -5396,6 +5524,7 @@ export function createFieldHost(deps?: {
     // stale findings to the edit the user just made.
     drift = result.drift.length === 0 ? null : result.drift;
     stamp = null;
+    syncSessionCapture();
     // The session this move rode has landed, so the mapping goes with it — the
     // cancel path's rule, from the other side.
     endMove();
@@ -6176,54 +6305,6 @@ export function createFieldHost(deps?: {
     e.preventDefault(); // RMB drives look — suppress the browser menu
   };
 
-  // The Esc ladder (D-12): ONE key, ONE rung per press, most recent intent
-  // first. Two entry points share this function and therefore cannot disagree —
-  // the canvas's own Esc below, and the app-level registry's `escape()`, which
-  // is what keeps Esc working after a click into a palette has taken the
-  // canvas's focus away.
-  //
-  // Returns whether it ACTED, which is how the canvas branch knows whether it
-  // has claimed the event (see `stopPropagation` there).
-  const escapeLadder = (): boolean => {
-    // 1. A half-drawn gesture — the anchor the next click would close. Both
-    //    anchors are cleared rather than only the armed gesture's: arming a
-    //    gesture already drops both, so "whichever is pending" is this same set,
-    //    and asking which one is live would be a second spelling of that rule.
-    if (boxAnchor !== null || segment.anchor() !== null) {
-      setBoxAnchor(null);
-      segment.setAnchor(null);
-      return true;
-    }
-    // 1b. The pending stamp ARM — after its own corner, because the two are one
-    //     gesture in two steps and the ladder takes the most recent step first:
-    //     an Esc with a corner down re-draws the region, a second one leaves
-    //     region-draw altogether. Before the session, because an arm is by
-    //     definition more recent than any session still standing beside it.
-    if (pendingStamp !== null) {
-      setPendingStamp(null);
-      return true;
-    }
-    // 2. The live session — a move included, since `cancelStampSession` ends the
-    //    move first (its own first line, before the null guard).
-    if (stamp !== null || moveDrag !== null) {
-      cancelStampSession();
-      return true;
-    }
-    // 3. The selected stamp.
-    if (selectedEntityId !== null) {
-      setSelectedEntity(null);
-      return true;
-    }
-    // 4. The cell selection, PARKED in the Reselect slot exactly as the panel's
-    //    Clear parks it — so an Esc that went one rung too far has the same way
-    //    back a Clear does.
-    if (selection !== null) {
-      setSelection(null);
-      return true;
-    }
-    return false;
-  };
-
   const onKeyDown = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
     // ⌘Z/⇧⌘Z (and ctrl+z) guard FIRST — the shortcut branches below must
@@ -6259,17 +6340,17 @@ export function createFieldHost(deps?: {
       return;
     }
     // ⏎ commits the READY ghost (or applies a reconfigure — same key, the
-    // session's mode decides, and a live MOVE is dropped instead); Esc runs the
-    // cancel LADDER. Neither is a fly key, so returning here never starves the
-    // keys set.
+    // session's mode decides, and a live MOVE is dropped instead); Esc cancels the
+    // most recent CAPTURE. Neither is a fly key, so returning here never starves
+    // the keys set.
     //
     // Both are ALSO app-level actions (`frontend/lib/actions.ts`), which is what
     // makes them work after a click into a palette. The rule where two listeners
     // bind one key: the branch that ACTS claims the event with `stopPropagation`
     // so the window listener cannot run the same verb a second time, and a
     // branch that does NOT act lets the event through — with no session ⏎ is the
-    // registry's to swallow, and an Esc with nothing left on the ladder is a
-    // no-op wherever it lands.
+    // registry's to swallow, and an Esc with nothing captured is a no-op wherever
+    // it lands.
     if (k === "enter") {
       if (stamp === null) return;
       e.preventDefault();
@@ -6278,7 +6359,9 @@ export function createFieldHost(deps?: {
       return;
     }
     if (k === "escape") {
-      if (!escapeLadder()) return;
+      // The stack's boolean IS the claim: it cancelled the top capture, or there
+      // was nothing captured and the event travels on to whatever else wants it.
+      if (!router.escape()) return;
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -6462,8 +6545,14 @@ export function createFieldHost(deps?: {
     // reading the seam would go on saying "drag a region" across a world swap.
     // (Its own clear takes the box anchor again — harmless, already null.)
     setPendingStamp(null);
+    // Not `setSelection(null)`: that PARKS the outgoing selection in the Reselect
+    // slot, and a Reselect across a world swap would restore cells that describe
+    // the field that just went away — so this path clears both slots itself. The
+    // reconcile is what the bare write owes the Esc stack; without it the capture
+    // outlives the selection and the next Esc is spent cancelling nothing.
     selection = null;
     lastSelection = null;
+    syncSelectionCapture();
     // Both display halves through the shared refresh, so the outline and the cell
     // layer cannot survive a world swap independently of each other.
     refreshSelectionDisplay();
@@ -6790,6 +6879,12 @@ export function createFieldHost(deps?: {
       const restored = lastSelection;
       lastSelection = selection; // may be null: the swap keeps toggle symmetry
       selection = restored;
+      // The bypass is about `lastSelection`, NOT about the Esc stack: this is a
+      // selection going live, so it captures like any other. Restoring one that
+      // Esc had cleared pushes a fresh entry at the top, which is right — the
+      // Reselect IS the most recent intent; a swap while one already stands keeps
+      // the position it had, which is the plain REPLACE rule.
+      syncSelectionCapture();
       refreshSelectionDisplay();
       notifySelection();
     },
@@ -6970,7 +7065,7 @@ export function createFieldHost(deps?: {
       cancelStampSession();
     },
     escape() {
-      escapeLadder();
+      router.escape();
     },
     undo() {
       stepHistory(false);
