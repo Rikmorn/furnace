@@ -6,8 +6,9 @@
 // taken ⌘S with it.
 //
 // It sits UNDER `FieldHostStateProvider` because the dirty bit is derived from the
-// stats that provider already owns. `subscribeStats` is a single slot — a second
-// subscription here would silently steal the status bar's.
+// stats that provider already owns — and nothing under that provider may re-subscribe to
+// a seam it holds (see its header: the seams are multicast, so a duplicate is a silent
+// second mirror rather than a stolen callback).
 //
 // Split into STATE and ACTIONS contexts, the useWorkspace pattern. Be precise about what
 // that buys, because the obvious claim is wrong: the verbs close over `name` and `dirty`,

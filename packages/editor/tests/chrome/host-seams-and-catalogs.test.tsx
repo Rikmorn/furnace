@@ -10,10 +10,12 @@ import "../inspector/_register.ts";
 // world-panel.test.tsx precedent). The GPU never initializes here — nothing in this file
 // calls host.init.
 //
-// (1) THE SINGLE-SLOT RULE, quantified over every seam. Each `FieldHost.subscribeX` stores
-//     ONE callback, so a second claimant silently steals the first's. The claim is that
-//     `FieldHostStateProvider` holds all of them and no rendered surface holds any — a
-//     claim about the SET, which is why it cannot live in a per-surface test file.
+// (1) THE ONE-OWNER RULE, quantified over every seam. The claim is that
+//     `FieldHostStateProvider` holds all thirteen and no rendered surface holds any — a
+//     claim about the SET, which is why it cannot live in a per-surface test file. Since
+//     the seams went multicast (T3a) a second claimant no longer STEALS the first's
+//     callback, which is precisely why this file matters more, not less: the failure it
+//     used to catch as a dead surface now has no symptom at all except the counts here.
 // (2) THE CATALOG PASS: `CatalogProvider`'s run-once GETs for materials, entities and
 //     agents, what each one installs on the host, and what the pass says to the toast
 //     stack and the message log.
@@ -190,10 +192,11 @@ async function renderProviders(stub: ReturnType<typeof makeStubHost>) {
 const toastText = (text: string | RegExp): HTMLElement =>
 	within(screen.getByRole("list", { name: "notifications" })).getByText(text);
 
-// The single-slot rule, pinned from the side that would break it. Every FieldHost
-// subscribe seam stores ONE callback (`toolCb = cb`), so a panel that subscribed to one
-// would silently steal the shell's — no throw, no warning, the shell surface just stops
-// updating. ALL THIRTEEN belong to the provider now: stats to the status bar's chips, tool
+// The one-owner rule, pinned from the side that would break it. A panel that subscribed
+// to a seam the shell owns used to STEAL it — no throw, no warning, the shell surface just
+// stopped updating. Multicast retires that failure and replaces it with a quieter one: two
+// mirrors of the same state, doing the same work twice, and a leak if either forgets to
+// release. ALL THIRTEEN belong to the provider now: stats to the status bar's chips, tool
 // errors to the toast stack, entities + drift + the entity selection to the entities
 // palette, the camera pose to the axis triad, the named history to the Undo/Redo labels
 // and the History palette (F4.5b Task 12), the pending segment to the status bar's keymap
@@ -201,9 +204,9 @@ const toastText = (text: string | RegExp): HTMLElement =>
 // control stack, read out of context. This is the guard a re-added meter, a re-added
 // status line, or a mirror that crept back into a section has to trip.
 //
-// Every seam, with the push that proves the slot is live. Quantified rather than spelled
-// out case by case: the point is that the set is CLOSED, and a fourteenth seam claimed by
-// a palette body is exactly what this must catch.
+// Every seam, with the push that reports how many subscribers it reaches. Quantified
+// rather than spelled out case by case: the point is that the set is CLOSED, and a
+// fourteenth seam claimed by a palette body is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
 	materialId: 0,
@@ -267,16 +270,17 @@ const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 	] as const;
 
 // The stub's own contract, asserted rather than asserted-in-a-comment. Every one of its
-// thirteen unsubscribes is identity-guarded (`if (cbs.x === cb)`) exactly as all thirteen
-// of the production host's are, and four of them were NOT until F4.5b Task 14 while the
-// stub's header already claimed otherwise.
+// thirteen unsubscribes removes ONLY its own subscriber, exactly as all thirteen of the
+// production host's do — they are the same `createViewChannel` release on both sides.
 //
 // The React shape it defends: on a dep change the effect BODY runs before the previous
-// cleanup, so the new subscriber takes the slot and the OLD cleanup then runs. Unguarded,
-// that release frees the slot the new subscriber just took and the seam goes silent with
-// nothing thrown. The ownership case below cannot see it — it swaps the CHILD under a
-// provider that stays, so the provider's cleanups never run at all.
-test("every stub unsubscribe is identity-guarded, like all thirteen of the host's", () => {
+// cleanup, so the new subscriber is added and the OLD cleanup then runs. A release keyed
+// to anything but the callback identity takes the new subscriber with it and the seam
+// goes silent with nothing thrown; that is what the single-slot era got wrong four times
+// over (toolError, drift, entities, stats, unguarded until F4.5b Task 14). The ownership
+// case below cannot see it — it swaps the CHILD under a provider that stays, so the
+// provider's cleanups never run at all.
+test("every stub release frees only its own subscriber, like all thirteen of the host's", () => {
 	const stub = makeStubHost();
 	/** A FRESH do-nothing subscriber per call. Sharing one closure across the two
 	 *  subscribes would make `cbs.x === cb` true for the stale cleanup and the guard would
@@ -284,6 +288,9 @@ test("every stub unsubscribe is identity-guarded, like all thirteen of the host'
 	 *  cut hoisted a single `noop` and the case failed for that reason, not for the
 	 *  seam's.) This case is about the SLOT, never the payload. */
 	const noop = (): (() => void) => (): void => undefined;
+	/** How many subscribers the seam should have after the sequence below: the stale one
+	 *  is gone, the fresh one stands. */
+	const SURVIVOR = 1;
 	const seams = [
 		[
 			"toolError",
@@ -315,13 +322,16 @@ test("every stub unsubscribe is identity-guarded, like all thirteen of the host'
 	] as const;
 	for (const [name, subscribe, push] of seams) {
 		const stale = subscribe();
-		subscribe(); // the new subscriber takes the slot…
+		subscribe(); // the new subscriber joins…
 		stale(); // …and the OLD cleanup runs after it
-		expect([name, push()]).toEqual([name, true]);
+		// One survivor, not zero and not two: the stale release took its own subscriber
+		// and nothing else. A release keyed to the slot rather than the callback reads
+		// as 0 here; one that did nothing at all reads as 2.
+		expect([name, push()]).toEqual([name, SURVIVOR]);
 	}
 });
 
-test("every host seam is the PROVIDER's — thirteen slots, one claimant each", async () => {
+test("every host seam is the PROVIDER's — thirteen seams, one claimant each", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	const { rerender } = await renderProviders(stub);
@@ -331,21 +341,25 @@ test("every host seam is the PROVIDER's — thirteen slots, one claimant each", 
 	for (const [name, claim] of seamsOf(stub))
 		expect([name, claim.mock.calls.length]).toEqual([name, 1]);
 
-	// (2) …and that one claim is the PROVIDER's. Counting alone cannot tell a provider
-	// claim from a child's — one claim is one claim whoever made it — so the CHILD is
-	// swapped out from under a provider that stays, and every seam is pushed again. A seam
-	// a child owned releases here and goes dead; a seam the provider owns keeps
-	// delivering. This half is what inverted in Task 2: with the four mirrors still in
-	// FieldPanel it failed four times over. The child is a `<div />` rather than the
-	// `<span />` above so the swap is a real unmount, not a re-render of the same element
-	// type.
+	// (2) …and that one claim is the PROVIDER's. Counting claims alone cannot tell a
+	// provider claim from a child's — one claim is one claim whoever made it — so the
+	// CHILD is swapped out from under a provider that stays, and every seam is pushed
+	// again. A seam a child owned drops to zero subscribers here; a seam the provider
+	// owns still delivers to exactly one. This half is what inverted in Task 2: with the
+	// four mirrors still in FieldPanel it failed four times over. The child is a `<div />`
+	// rather than the `<span />` above so the swap is a real unmount, not a re-render of
+	// the same element type.
+	//
+	// EXACTLY one, not "at least one": the count is also the leak assertion now. A child
+	// that subscribed and did not release would read as 2 here, and on a multicast seam
+	// that is the only place it shows.
 	rerender(withEditor(<div />, stub));
 	for (const [name, , push] of seamsOf(stub)) {
-		let delivered = false;
+		let delivered = 0;
 		act(() => {
 			delivered = push();
 		});
-		expect([name, delivered]).toEqual([name, true]);
+		expect([name, delivered]).toEqual([name, 1]);
 	}
 });
 

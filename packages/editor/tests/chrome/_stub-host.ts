@@ -1,30 +1,27 @@
 // The shared stub FieldHost for the chrome tests.
 //
-// Every mutator is a recording mock; each subscribe seam LATCHES its callback so a
-// test can fire host-initiated pushes manually (wrap them in `act`).
-// subscribeSelection/subscribeStamp/subscribeDrift/subscribeFlags/subscribeEntities
-// push the current (empty) state on subscribe, like the real host does.
+// Every mutator is a recording mock; each subscribe seam is a REAL `createViewChannel`,
+// so a test can fire host-initiated pushes manually (wrap them in `act`). Ten of the
+// thirteen push the current (empty) state on subscribe — every one except tool, toolError
+// and stats — which is the production host's own split, seam for seam.
 //
-// Every unsubscribe is REAL (frees the slot) and IDENTITY-GUARDED (`if (cbs.x === cb)`),
-// exactly as all thirteen of the production host's are, and every `fire.*` reports whether
-// the push was DELIVERED. That pair is what lets a test tell a subscriber that leaks from
-// one that cleans up — and, on a single-slot seam, WHICH mount is holding it.
+// MULTICAST, exactly as all thirteen of the production host's are since T3a: N
+// subscribers each get every push, an unsubscribe removes only its own callback and is
+// idempotent, and a subscriber that throws is logged rather than severing its siblings.
+// Every `fire.*` returns the DELIVERED COUNT at publish time, which is what lets a test
+// tell a subscriber that leaks from one that cleans up: `0` is a seam nobody holds, `1`
+// is the provider holding it alone, and anything above the expectation is a cleanup that
+// did not run. It replaced a boolean that could only say "somebody is there" — and, when
+// the seams were single slots, WHICH mount that was.
 //
-// The guard is what makes a RE-SUBSCRIBE survivable, and it is not decoration: React
-// re-runs an effect body BEFORE running the previous cleanup on a dep change, so an
-// unguarded release would hand back the slot the new subscriber had just taken and the
-// seam would go silent with nothing thrown. Four of these were unguarded until F4.5b
-// Task 14 (toolError, drift, entities, stats) while this paragraph already claimed
-// otherwise — no test could see it, because the chrome suite's ownership case swaps the
-// CHILD under a stable provider, so the provider's cleanups never run.
+// The REAL helper rather than a hand-rolled imitation, deliberately: the stub then goes
+// stale exactly when the production host would. Tests are not part of the chrome bundle,
+// so a value import of the viewport host is allowed here.
 //
 // Shared because three suites now mount chrome that talks to a host: the field panel's
 // own tests, the entities palette's, and the shell's (which renders both inside the
 // shell layout). A second copy would go stale against the real FieldHost independently
 // of this one.
-// Tests are NOT part of the chrome bundle, so a value import of the viewport host is
-// allowed here — and using the REAL helper is the point: the stub then goes stale
-// exactly when the production host would.
 import { mock } from "bun:test";
 import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
@@ -45,6 +42,7 @@ import type {
   StampSession,
   ToolErrorSeverity,
 } from "../../src/viewport-host/index.ts";
+import { createViewChannel } from "../../src/viewport-host/view-channel.ts";
 
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
  *  (its exact numbers are the host's business; what matters is that one arrives). */
@@ -95,9 +93,9 @@ export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
 }
 
 /** A minimal FieldHost stub: every mutator is a recording mock; the subscribe
- *  seams latch their callback so a test can fire host-initiated pushes
- *  manually (wrap in act). subscribeSelection/subscribeStamp push the current
- *  (empty) state on subscribe, like the real host. */
+ *  seams are real multicast channels so a test can fire host-initiated pushes
+ *  manually (wrap in act) and read the delivered count back. Ten of the thirteen
+ *  push the current (empty) state on subscribe, like the real host. */
 export function makeStubHost(
   opts: {
     generators?: FieldGeneratorInfo[];
@@ -129,34 +127,55 @@ export function makeStubHost(
    *  able to put the right button down between two presses, which is exactly the
    *  thing a snapshot could not express. */
   let looking = false;
-  const cbs: {
-    tool: ((p: FieldToolPush) => void) | null;
-    cameraPose: ((p: CameraPose) => void) | null;
-    stamp: ((s: StampSession | null) => void) | null;
-    stats: ((s: FieldStats) => void) | null;
-    selection: ((i: SelectionInfo | null) => void) | null;
-    toolError: ((msg: string, severity: ToolErrorSeverity) => void) | null;
-    entities: (() => void) | null;
-    drift: ((r: FieldDriftReport | null) => void) | null;
-    flags: ((s: FlagsSummary) => void) | null;
-    entitySelection: ((entityId: number | null) => void) | null;
-    pendingStamp: ((p: PendingStamp | null) => void) | null;
-    history: ((h: FieldHistory) => void) | null;
-    segmentHud: ((h: SegmentHud | null) => void) | null;
-  } = {
-    tool: null,
-    cameraPose: null,
-    stamp: null,
-    stats: null,
-    selection: null,
-    toolError: null,
-    entities: null,
-    drift: null,
-    flags: null,
-    entitySelection: null,
-    pendingStamp: null,
-    history: null,
-    segmentHud: null,
+  /** The thirteen seams, one real {@link createViewChannel} each — the SAME helper
+   *  the production host's are built from, so a change to delivery, isolation or
+   *  push-on-subscribe reaches the chrome suite without anyone remembering to
+   *  mirror it here.
+   *
+   *  Which ones carry a `snapshot` is the production host's split, seam for seam:
+   *  the ten state MIRRORS push their current (empty) value to each arriving
+   *  subscriber, and the three EVENT seams (tool, toolError, stats) push nothing
+   *  until a `fire.*`. A stub that pushed on all thirteen would let a consumer
+   *  depending on an initial tool push go green against a host that never sends
+   *  one. */
+  const seams = {
+    tool: createViewChannel<[FieldToolPush]>(),
+    toolError: createViewChannel<[string, ToolErrorSeverity]>(),
+    stats: createViewChannel<[FieldStats]>(),
+    cameraPose: createViewChannel<[CameraPose]>({
+      // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
+      // a stub that pushed nothing would let a consumer depending on that go green.
+      snapshot: () => [START_POSE],
+    }),
+    stamp: createViewChannel<[StampSession | null]>({ snapshot: () => [null] }),
+    selection: createViewChannel<[SelectionInfo | null]>({
+      snapshot: () => [null],
+    }),
+    // The real host's initial catch-up tick — no payload, the subscriber re-reads
+    // `listEntities` itself.
+    entities: createViewChannel<[]>({ snapshot: () => [] }),
+    drift: createViewChannel<[FieldDriftReport | null]>({
+      snapshot: () => [null],
+    }),
+    flags: createViewChannel<[FlagsSummary]>({
+      snapshot: () => [
+        { total: 0, byKindSeverity: [], visible: [], selected: null },
+      ],
+    }),
+    entitySelection: createViewChannel<[number | null]>({
+      snapshot: () => [null],
+    }),
+    pendingStamp: createViewChannel<[PendingStamp | null]>({
+      snapshot: () => [null],
+    }),
+    history: createViewChannel<[FieldHistory]>({
+      snapshot: () => [NO_HISTORY],
+    }),
+    // `null` on a fresh host, which is what a status bar mounting with no gesture
+    // in flight must read rather than nothing at all.
+    segmentHud: createViewChannel<[SegmentHud | null]>({
+      snapshot: () => [null],
+    }),
   };
   // What `occupiedTopY` answers. Mutable so a case can put content in the world
   // without a GPU: the seed decision is chrome-side arithmetic over this one number,
@@ -210,9 +229,11 @@ export function makeStubHost(
     setFlagFilters: mock(),
     verifyFlag: mock(),
     selectFlag: mock(),
-    // Every subscribe seam records its call, so a test can assert the slot was claimed
-    // EXACTLY ONCE across a whole mounted arrangement — the single-slot rule's only
-    // machine-checkable form. ALL THIRTEEN belong to the shell's host-state provider —
+    // Every subscribe seam records its call, so a test can assert the seam was claimed
+    // EXACTLY ONCE across a whole mounted arrangement — the one-owner rule's only
+    // machine-checkable form, and since the seams went multicast the only form full
+    // stop: a second claimant no longer announces itself by breaking the first.
+    // ALL THIRTEEN belong to the shell's host-state provider —
     // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4,
     // `subscribePendingStamp` arrived owned in Task 9, `subscribeHistory` in Task 12 and
     // `subscribeSegmentHud` in F4.5c Task 14 — which is why the ownership cases
@@ -258,38 +279,24 @@ export function makeStubHost(
     setDigRadius: calls.setDigRadius,
     setShading: calls.setShading,
     setTool: calls.setTool,
+    // Every seam below has the SAME two lines: record the claim, then hand back the
+    // channel's own unsubscribe. Real, per-subscriber and idempotent, because an inert
+    // release could not tell a subscriber that leaks from one that cleans up — and the
+    // delivered count `fire.*` returns is what a test reads that from.
     subscribeTool: (cb) => {
       calls.subscribeTool(cb);
-      cbs.tool = cb;
-      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot the
-      // shell's provider owns now, and an inert release could not tell a subscriber
-      // that leaks from one that cleans up.
-      return () => {
-        if (cbs.tool === cb) cbs.tool = null;
-      };
+      return seams.tool.subscribe(cb);
     },
     subscribeToolError: (cb) => {
       calls.subscribeToolError(cb);
-      cbs.toolError = cb;
-      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot too
-      // (the shell's provider owns it now), and an inert release could not tell a
-      // subscriber that leaks from one that cleans up.
-      return () => {
-        if (cbs.toolError === cb) cbs.toolError = null;
-      };
+      return seams.toolError.subscribe(cb);
     },
     setGesture: calls.setGesture,
     clearSelection: calls.clearSelection,
     reselect: calls.reselect,
     subscribeSelection: (cb) => {
       calls.subscribeSelection(cb);
-      cbs.selection = cb;
-      cb(null);
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.selection === cb) cbs.selection = null;
-      };
+      return seams.selection.subscribe(cb);
     },
     setLayers: calls.setLayers,
     setSlice: calls.setSlice,
@@ -326,23 +333,11 @@ export function makeStubHost(
     redo: calls.redo,
     subscribeStamp: (cb) => {
       calls.subscribeStamp(cb);
-      cbs.stamp = cb;
-      cb(null);
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.stamp === cb) cbs.stamp = null;
-      };
+      return seams.stamp.subscribe(cb);
     },
     subscribePendingStamp: (cb) => {
       calls.subscribePendingStamp(cb);
-      cbs.pendingStamp = cb;
-      cb(null); // the real host pushes the CURRENT arm on subscribe
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.pendingStamp === cb) cbs.pendingStamp = null;
-      };
+      return seams.pendingStamp.subscribe(cb);
     },
     openEntity: calls.openEntity,
     beginMove: calls.beginMove,
@@ -353,14 +348,7 @@ export function makeStubHost(
     duplicateEntity: calls.duplicateEntity,
     subscribeDrift: (cb) => {
       calls.subscribeDrift(cb);
-      cbs.drift = cb;
-      cb(null);
-      // A REAL unsubscribe, for the subscribeStats reason: this is a single slot the
-      // shell's provider owns now, and an inert release could not tell a subscriber
-      // that leaks from one that cleans up.
-      return () => {
-        if (cbs.drift === cb) cbs.drift = null;
-      };
+      return seams.drift.subscribe(cb);
     },
     dismissDrift: calls.dismissDrift,
     frameChunks: calls.frameChunks,
@@ -372,52 +360,28 @@ export function makeStubHost(
     snapView: calls.snapView,
     subscribeEntities: (cb) => {
       calls.subscribeEntities(cb);
-      cbs.entities = cb;
-      cb(); // the real host's initial catch-up tick
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.entities === cb) cbs.entities = null;
-      };
+      return seams.entities.subscribe(cb);
     },
     subscribeHistory: (cb) => {
       calls.subscribeHistory(cb);
-      cbs.history = cb;
-      cb(NO_HISTORY); // the real host pushes the CURRENT history on subscribe
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.history === cb) cbs.history = null;
-      };
+      return seams.history.subscribe(cb);
     },
     listEntities: () => entities.map((e) => structuredClone(e)),
     selectEntity: calls.selectEntity,
     subscribeEntitySelection: (cb) => {
       calls.subscribeEntitySelection(cb);
-      cbs.entitySelection = cb;
-      cb(null); // the real host pushes the CURRENT id on subscribe
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.entitySelection === cb) cbs.entitySelection = null;
-      };
+      return seams.entitySelection.subscribe(cb);
     },
     setAgentProfile: calls.setAgentProfile,
     subscribeFlags: (cb) => {
       calls.subscribeFlags(cb);
-      cbs.flags = cb;
-      cb({ total: 0, byKindSeverity: [], visible: [], selected: null });
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.flags === cb) cbs.flags = null;
-      };
+      return seams.flags.subscribe(cb);
     },
     setFlagFilters: calls.setFlagFilters,
     verifyFlag: (key) => {
       calls.verifyFlag(key);
       if (opts.verifyRefusal !== undefined)
-        cbs.toolError?.(opts.verifyRefusal, "error");
+        seams.toolError.publish(opts.verifyRefusal, "error");
     },
     selectFlag: (key) => {
       calls.selectFlag(key);
@@ -427,7 +391,7 @@ export function makeStubHost(
       // `verifyRefusal` is: the chrome path that reacts to it is otherwise
       // untestable from a stub that always succeeds.
       if (key !== null && opts.selectFlagRefusal !== undefined)
-        cbs.toolError?.(opts.selectFlagRefusal, "error");
+        seams.toolError.publish(opts.selectFlagRefusal, "error");
     },
     flagMarkerCount: () => 0,
     selectionCellCount: () => 0,
@@ -437,36 +401,15 @@ export function makeStubHost(
     exportArtifact: () => [],
     subscribeCameraPose: (cb) => {
       calls.subscribeCameraPose(cb);
-      cbs.cameraPose = cb;
-      // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
-      // a stub that pushed nothing would let a consumer depending on that go green.
-      cb(START_POSE);
-      return () => {
-        if (cbs.cameraPose === cb) cbs.cameraPose = null;
-      };
+      return seams.cameraPose.subscribe(cb);
     },
     subscribeSegmentHud: (cb) => {
       calls.subscribeSegmentHud(cb);
-      cbs.segmentHud = cb;
-      // The real host pushes the CURRENT pending segment on subscribe — `null` on a
-      // fresh host, which is what a status bar mounting with no gesture in flight must
-      // read rather than nothing at all.
-      cb(null);
-      // A REAL unsubscribe (the subscribeStats reason — single slot, and a leak has to
-      // be distinguishable from a clean release).
-      return () => {
-        if (cbs.segmentHud === cb) cbs.segmentHud = null;
-      };
+      return seams.segmentHud.subscribe(cb);
     },
     subscribeStats: (cb) => {
       calls.subscribeStats(cb);
-      cbs.stats = cb;
-      // A REAL unsubscribe: the production host nulls `statsCb`, and the slot being
-      // freed is the whole point of a single-slot seam. An inert unsubscribe here
-      // could not tell a subscriber that leaks from one that cleans up.
-      return () => {
-        if (cbs.stats === cb) cbs.stats = null;
-      };
+      return seams.stats.subscribe(cb);
     },
   };
   return {
@@ -484,54 +427,48 @@ export function makeStubHost(
     setCameraAimed: (aimed: boolean): void => {
       cameraAimed = aimed;
     },
-    /** Fire a latched host→chrome push (callers wrap in act). EVERY fire reports whether
-     *  the push was DELIVERED — false once the slot is free again, which is how a test
-     *  tells a real unsubscribe from an inert one, and how it tells which MOUNT is
-     *  holding a single-slot seam. */
+    /** Fire a host→chrome push (callers wrap in act). EVERY fire returns the DELIVERED
+     *  COUNT — how many live subscribers the seam had at publish time. `0` is a seam
+     *  nobody holds (the release was real), `1` is the provider holding it alone, and
+     *  a count above what a case expects is a cleanup that did not run. It is the
+     *  leak detector a single slot used to give for free by failing loudly. */
     fire: {
       /** The tool seam carries the RADIUS too (F4.5 gate, W-2). Radius defaults to the
        *  host's own initial 1.25 so the three existing callers that only care about the
        *  tool (`shell.test.tsx`, `tool-strip.test.tsx`, `host-seams-and-catalogs.test.tsx`)
        *  keep working unchanged and do not assert a radius they never chose. */
-      tool: (t: FieldTool, radius = 1.25): boolean => {
-        if (cbs.tool === null) return false;
-        cbs.tool({ tool: t, radius });
-        return true;
+      tool: (t: FieldTool, radius = 1.25): number => {
+        seams.tool.publish({ tool: t, radius });
+        return seams.tool.size();
       },
-      stamp: (s: StampSession | null): boolean => {
-        if (cbs.stamp === null) return false;
-        cbs.stamp(s);
-        return true;
+      stamp: (s: StampSession | null): number => {
+        seams.stamp.publish(s);
+        return seams.stamp.size();
       },
-      stats: (s: FieldStats): boolean => {
-        if (cbs.stats === null) return false;
-        cbs.stats(s);
-        return true;
+      stats: (s: FieldStats): number => {
+        seams.stats.publish(s);
+        return seams.stats.size();
       },
-      selection: (i: SelectionInfo | null): boolean => {
-        if (cbs.selection === null) return false;
-        cbs.selection(i);
-        return true;
+      selection: (i: SelectionInfo | null): number => {
+        seams.selection.publish(i);
+        return seams.selection.size();
       },
       /** A camera move, as the host publishes one from `applyOrbit`. */
-      cameraPose: (p: CameraPose): boolean => {
-        if (cbs.cameraPose === null) return false;
-        cbs.cameraPose(p);
-        return true;
+      cameraPose: (p: CameraPose): number => {
+        seams.cameraPose.publish(p);
+        return seams.cameraPose.size();
       },
       /** The entity-list change TICK (the real host's only entity signal). */
-      entities: (): boolean => {
-        if (cbs.entities === null) return false;
-        cbs.entities();
-        return true;
+      entities: (): number => {
+        seams.entities.publish();
+        return seams.entities.size();
       },
       /** A drift report push. The host derives `entityIds` (which rows wear a
        *  badge) at push time from the footprints, so a test states it directly —
        *  the intersection itself is the HOST's and is pinned host-side. */
-      drift: (r: FieldDriftReport | null): boolean => {
-        if (cbs.drift === null) return false;
-        cbs.drift(r);
-        return true;
+      drift: (r: FieldDriftReport | null): number => {
+        seams.drift.publish(r);
+        return seams.drift.size();
       },
       /** A tool-seam message at the severity the host would send it with. `error` by
        *  default because every refusal is one — `warn` is the advisor-idle report,
@@ -539,42 +476,36 @@ export function makeStubHost(
       toolError: (
         msg: string,
         severity: ToolErrorSeverity = "error",
-      ): boolean => {
-        if (cbs.toolError === null) return false;
-        cbs.toolError(msg, severity);
-        return true;
+      ): number => {
+        seams.toolError.publish(msg, severity);
+        return seams.toolError.size();
       },
-      flags: (s: FlagsSummary): boolean => {
-        if (cbs.flags === null) return false;
-        cbs.flags(s);
-        return true;
+      flags: (s: FlagsSummary): number => {
+        seams.flags.publish(s);
+        return seams.flags.size();
       },
       /** A pending stamp ARM (or its clearing), as `startStamp` with no selection
        *  publishes one (D-F4.5-7). */
-      pendingStamp: (p: PendingStamp | null): boolean => {
-        if (cbs.pendingStamp === null) return false;
-        cbs.pendingStamp(p);
-        return true;
+      pendingStamp: (p: PendingStamp | null): number => {
+        seams.pendingStamp.publish(p);
+        return seams.pendingStamp.size();
       },
       /** A named-history push, as any log mutation publishes one (F4.5b Task 12). */
-      history: (h: FieldHistory): boolean => {
-        if (cbs.history === null) return false;
-        cbs.history(h);
-        return true;
+      history: (h: FieldHistory): number => {
+        seams.history.publish(h);
+        return seams.history.size();
       },
       /** The pending segment's length against its cap, as the host publishes one from
        *  both anchor edges and (throttled) from the moves between them — `null` for no
        *  point down (D-25). */
-      segmentHud: (h: SegmentHud | null): boolean => {
-        if (cbs.segmentHud === null) return false;
-        cbs.segmentHud(h);
-        return true;
+      segmentHud: (h: SegmentHud | null): number => {
+        seams.segmentHud.publish(h);
+        return seams.segmentHud.size();
       },
       /** An entity-selection change, as a pointer click or `selectEntity` publishes one. */
-      entitySelection: (entityId: number | null): boolean => {
-        if (cbs.entitySelection === null) return false;
-        cbs.entitySelection(entityId);
-        return true;
+      entitySelection: (entityId: number | null): number => {
+        seams.entitySelection.publish(entityId);
+        return seams.entitySelection.size();
       },
     },
     setEntities: (next: FieldEntityInfo[]) => {

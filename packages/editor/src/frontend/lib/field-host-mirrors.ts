@@ -4,10 +4,10 @@
 // functions are value→value and the rest are literals, which is what makes each one
 // directly testable, where a mounted provider was the only way to reach them before.
 //
-// The SUBSCRIPTIONS deliberately did not come along. Every FieldHost seam is a single
-// slot (a second subscriber silently steals the first's callback), so they stay
-// centralized in `../hooks/useFieldHostState.tsx` — that one-file rule is what makes
-// a stolen callback checkable, and splitting them is what it forbids.
+// The SUBSCRIPTIONS deliberately did not come along. They stay centralized in
+// `../hooks/useFieldHostState.tsx` — one owner per seam — and that one-file rule is what
+// makes a duplicate subscription checkable at all, since the seams went multicast and a
+// second subscriber stopped announcing itself by breaking the first.
 import type {
   FieldEntityInfo,
   FieldHistory,

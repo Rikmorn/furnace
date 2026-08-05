@@ -132,6 +132,7 @@ import {
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
+import { createViewChannel } from "./view-channel.ts";
 import {
   cursorAffordance,
   type ViewportCursor,
@@ -204,8 +205,8 @@ export type FieldTool = {
  *  ALONGSIDE.
  *
  *  It rides this seam rather than {@link FieldStats} or a seam of its own for the
- *  reason `FieldStats.voidCastPending` gives from the other side: the seams are
- *  single-slot, so a new one is a new thing to claim exactly once — and unlike that
+ *  reason `FieldStats.voidCastPending` gives from the other side: a new seam is one
+ *  more thing the chrome's provider has to own and release — and unlike that
  *  flag, radius is USER-paced (a slider drag, a wheel notch, `[` / `]`), which is
  *  this seam's cadence and emphatically not the frame-paced stats push. Folding a
  *  user-paced value into the frame-paced one is the thing `useFieldHostState`'s
@@ -398,9 +399,9 @@ export type FieldStats = {
    *  A BOOLEAN rather than a count: `requestVoidCast` refuses a second one while the
    *  first stands, so there is never more than one.
    *
-   *  It rides the stats push rather than a subscription of its own for two reasons. The
-   *  seams are single-slot, so a fourteenth would be a fourteenth thing to claim exactly
-   *  once — and this fact has no consumer that does not already read stats. What it
+   *  It rides the stats push rather than a subscription of its own for two reasons. A
+   *  fourteenth seam is a fourteenth thing the chrome's provider has to own and
+   *  release — and this fact has no consumer that does not already read stats. What it
    *  BUYS is legibility for a refusal that already ships: "a void cast is still building
    *  — re-tick the void layer once it lands" names a state nothing on screen showed,
    *  and toggling off-and-on is exactly the sequence a user with no in-flight signal
@@ -457,6 +458,19 @@ export type FieldLayers = {
  *  translation table in between. */
 export type ToolErrorSeverity = "warn" | "error";
 
+/** The editor's dig-loop surface: verbs the chrome calls, and the thirteen
+ *  `subscribe*` seams it reads back.
+ *
+ *  EVERY SEAM IS MULTICAST (`view-channel.ts`). N subscribers each get every push,
+ *  an unsubscribe removes only its own callback and is idempotent, and one
+ *  subscriber that throws is logged and does not cost its siblings their push. The
+ *  "Single subscriber (…)" note on each seam below is therefore a fact about the
+ *  CHROME — all thirteen belong to the shell's host-state provider, and nothing
+ *  under it may re-subscribe — rather than a limit of the seam: a second subscriber
+ *  is a duplicate mirror and a leak nobody would see, not a stolen callback.
+ *
+ *  A pushed value is CLONED once per publish and SHARED by every subscriber:
+ *  treat it as immutable. */
 export type FieldHost = {
   /** Acquires the GPU context on `canvas`, builds the materials and starts the render
    *  loop. Throws if a context already exists — one host, one live canvas.
@@ -1303,7 +1317,7 @@ export type FieldHost = {
    *  under way draws the pose the user is actually at rather than the default one.
    *
    *  Pushed at pointer/frame rate while the camera is moving, which is why the
-   *  subscriber is the shell's provider (one slot, one guard) rather than the
+   *  subscriber is the shell's provider (one owner, one guard) rather than the
    *  overlay. Single subscriber (that provider, which publishes it at
    *  `useCameraPose`); returns an unsubscribe. */
   subscribeCameraPose(cb: (pose: CameraPose) => void): () => void;
@@ -1319,7 +1333,7 @@ export type FieldHost = {
    *  chrome cannot value-import the cap, so `capM` rides in the payload.
    *
    *  Pointer-rate while a point is down, which is why the subscriber is the
-   *  shell's provider (one slot, one guard) rather than the status bar. Single
+   *  shell's provider (one owner, one guard) rather than the status bar. Single
    *  subscriber (that provider, which publishes it at `useFieldSegmentHud`);
    *  returns an unsubscribe. */
   subscribeSegmentHud(cb: (hud: SegmentHud | null) => void): () => void;
@@ -1703,11 +1717,14 @@ export function createFieldHost(deps?: {
   let momentarySaved: FieldTool | null = null;
   let momentaryShift = false;
   let momentaryCtrl = false;
-  // Panel mirror for host-initiated tool changes (eyedropper, momentary).
-  let toolCb: ((p: FieldToolPush) => void) | null = null;
+  // Panel mirror for host-initiated tool changes (eyedropper, momentary). No
+  // snapshot: the mirror is an EVENT (a change the chrome did not make), and a
+  // subscriber that wants the current tool has `setTool`'s own funnel.
+  const toolChannel = createViewChannel<[FieldToolPush]>();
   // The user-facing message channel (the chrome's toast stack + message log).
-  let toolErrorCb: ((msg: string, severity: ToolErrorSeverity) => void) | null =
-    null;
+  // No snapshot either — a message is an event, and re-pushing the last refusal
+  // to a remounting toast stack would resurrect one the user dismissed.
+  const toolErrorChannel = createViewChannel<[string, ToolErrorSeverity]>();
   // Once-per-GESTURE guard for the "selection mask but no selection" report.
   // The gesture whose repeats need suppressing is the drag: a stroke re-arms
   // this at pointer-down, so one 40ms-throttled drag reports once. The segment
@@ -1734,7 +1751,13 @@ export function createFieldHost(deps?: {
   let selection: SelectionState | null = null;
   // The Reselect slot: the one previous selection (clear/replace park it here).
   let lastSelection: SelectionState | null = null;
-  let selectionCb: ((info: SelectionInfo | null) => void) | null = null;
+  // The snapshot is the (re)mount rule: a surface arriving while a selection
+  // exists must not render "no selection" next to a visible amber overlay. It
+  // spells out the same expression `notifySelection` publishes — one clone per
+  // arrival, exactly as the single-slot subscribe body did.
+  const selectionChannel = createViewChannel<[SelectionInfo | null]>({
+    snapshot: () => [selection === null ? null : selectionInfo(selection)],
+  });
   // Overlay line batches, rebuilt on selection/anchor CHANGE — never per frame
   // (materializeSelection cost lives on the click; the overlay is stored). The
   // box preview below is the one exception to "on change": it rebuilds on
@@ -1752,7 +1775,12 @@ export function createFieldHost(deps?: {
   // a `gesture` member — it SHADOWS the armed gesture rather than replacing it,
   // so ending it restores what LMB did with nothing to put back.
   let pendingStamp: PendingStamp | null = null;
-  let pendingStampCb: ((p: PendingStamp | null) => void) | null = null;
+  // Snapshot for the subscribeStamp reason: a rail arriving while a stamp is
+  // armed must not read as idle beside a viewport asking for a region. Copied
+  // at the boundary — the chrome never holds host state.
+  const pendingStampChannel = createViewChannel<[PendingStamp | null]>({
+    snapshot: () => [pendingStamp === null ? null : { ...pendingStamp }],
+  });
   // Once-per-SESSION guard for the brush-suspension report (`suspendedByStamp`).
   // Re-armed where a session opens rather than where one ends, so the unit is
   // the session the user is looking at: one sentence per session, however many
@@ -1827,18 +1855,29 @@ export function createFieldHost(deps?: {
   // about THIS conversation: an edit made to the stamp before last says nothing about
   // the one on screen now. Its one reader is the archetype re-seed below.
   let stampTouched: ReadonlySet<string> = new Set();
-  // Panel mirror for stamp-session changes (Task 15).
-  let stampCb: ((s: StampSession | null) => void) | null = null;
+  // Panel mirror for stamp-session changes (Task 15). Snapshot for the
+  // remount rule: a surface arriving mid-session must not render "no stamp"
+  // beside a visible ghost. CLONED, like every push on this seam.
+  const stampChannel = createViewChannel<[StampSession | null]>({
+    snapshot: () => [stamp === null ? null : structuredClone(stamp)],
+  });
   // The last reconfigure's drift report (null = the last apply was clean, or
-  // none has run) + its panel subscriber.
+  // none has run) + its panel seam. Snapshot for the same remount rule: a
+  // subscriber arriving after a reconfigure must not drop its report.
   let drift: field.DriftFinding[] | null = null;
-  let driftCb: ((report: FieldDriftReport | null) => void) | null = null;
+  const driftChannel = createViewChannel<[FieldDriftReport | null]>({
+    snapshot: () => [driftPayload()],
+  });
   // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
-  // cannot carry them — see subscribeEntities).
-  let entitiesCb: (() => void) | null = null;
-  // The named-history subscriber, plus the signature that decides whether a
+  // cannot carry them — see subscribeEntities). A ZERO-ARG channel: the tick
+  // carries no value, and its snapshot is the initial catch-up (the world may
+  // already hold entities) rather than a payload.
+  const entitiesChannel = createViewChannel<[]>({ snapshot: () => [] });
+  // The named-history seam, plus the signature that decides whether a
   // republish would say anything new (see notifyHistory).
-  let historyCb: ((history: FieldHistory) => void) | null = null;
+  const historyChannel = createViewChannel<[FieldHistory]>({
+    snapshot: () => [fieldHistory(log.undoStack, log.redoStack)],
+  });
   let historySig: {
     undoLen: number;
     redoLen: number;
@@ -1869,7 +1908,12 @@ export function createFieldHost(deps?: {
   // stale, which is why the id was not kept.
   let selectedEntityId: number | null = null;
   let entitySelectionBatch: LineBatch | null = null;
-  let entitySelectionCb: ((entityId: number | null) => void) | null = null;
+  // Snapshot (the selection seam's remount rationale): a palette arriving while
+  // an entity is selected must not render every row unselected next to a
+  // visible box in the viewport.
+  const entitySelectionChannel = createViewChannel<[number | null]>({
+    snapshot: () => [selectedEntityId],
+  });
   // The translate gizmo's span, rebuilt with the selection box it hangs on (same
   // footprint, same invalidation), and the line batch drawn from it. The SPAN is
   // kept beside the batch because the pick needs its numbers and re-deriving
@@ -1944,8 +1988,16 @@ export function createFieldHost(deps?: {
   // remesh completion so the panel's entity refresh has an event-driven
   // trigger that Safari's ~1 ms performance.now() clamp can't alias.
   let remeshVersion = 0;
-  let statsCb: ((s: FieldStats) => void) | null = null;
-  let cameraPoseCb: ((pose: CameraPose) => void) | null = null;
+  // No snapshot: the readout is pushed every rAF, so the longest a subscriber
+  // waits for its first one is a frame — and building an idle one at subscribe
+  // would be the only place this payload is assembled off the tick.
+  const statsChannel = createViewChannel<[FieldStats]>();
+  // Snapshot (the selection seam's remount rationale): the camera does not move
+  // on its own, so a triad that waited for the first WASD step would draw the
+  // wrong orientation for as long as the user sat still.
+  const cameraPoseChannel = createViewChannel<[CameraPose]>({
+    snapshot: () => [{ yaw: orbitState.yaw, pitch: orbitState.pitch }],
+  });
   // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
   let lastReconfigureMs = 0;
   // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
@@ -2050,7 +2102,7 @@ export function createFieldHost(deps?: {
   // flight, which is every call before F4.5b's move sessions existed.
   const applyOrbit = (): void => {
     reaimMove();
-    cameraPoseCb?.({ yaw: orbitState.yaw, pitch: orbitState.pitch });
+    cameraPoseChannel.publish({ yaw: orbitState.yaw, pitch: orbitState.pitch });
     if (!cam) return;
     const { eye, target, up } = toEyeTarget(orbitState);
     camera.setPosition(cam, new Float32Array(eye));
@@ -2511,7 +2563,7 @@ export function createFieldHost(deps?: {
     severity: ToolErrorSeverity = "error",
   ): void => {
     console.warn(`field-host: ${msg}`);
-    toolErrorCb?.(msg, severity);
+    toolErrorChannel.publish(msg, severity);
   };
 
   // The host's current selection spec for a selection-mask op (null = no
@@ -2831,8 +2883,13 @@ export function createFieldHost(deps?: {
     };
   };
 
+  // ONE payload per publish, shared by every subscriber: the clone is at the
+  // PUBLISH boundary, not per delivery, so a pushed value is shared across
+  // subscribers and must be treated as immutable by all of them.
   const notifySelection = (): void => {
-    selectionCb?.(selection === null ? null : selectionInfo(selection));
+    selectionChannel.publish(
+      selection === null ? null : selectionInfo(selection),
+    );
   };
 
   // The 12-edge line batch of a metre AABB — the cell-selection overlay and the
@@ -2952,7 +3009,7 @@ export function createFieldHost(deps?: {
     const disarming = pendingStamp !== null && next === null;
     pendingStamp = next;
     if (disarming) setBoxAnchor(null);
-    pendingStampCb?.(next === null ? null : { ...next });
+    pendingStampChannel.publish(next === null ? null : { ...next });
   };
 
   // Install a new current selection (null = clear): park the displaced one in
@@ -3424,9 +3481,10 @@ export function createFieldHost(deps?: {
   };
 
   // Panel mirror: sessions are CLONED so the panel never holds references
-  // into host state (params/region are mutable records).
+  // into host state (params/region are mutable records). ONE clone per publish,
+  // shared by every subscriber — pushed values are immutable by contract.
   const notifyStamp = (): void => {
-    stampCb?.(stamp === null ? null : structuredClone(stamp));
+    stampChannel.publish(stamp === null ? null : structuredClone(stamp));
   };
 
   // The NAMED history push (D-F4.5-11), and the guard that decides whether
@@ -3458,15 +3516,21 @@ export function createFieldHost(deps?: {
   // agree; this reads ONLY the two stacks, and `resetWorld` empties both — so a
   // load that leaves them empty when they were already empty publishes nothing
   // because there is genuinely nothing new to publish.
+  const historySignature = (): NonNullable<typeof historySig> => ({
+    undoLen: log.undoStack.length,
+    redoLen: log.redoStack.length,
+    undoTop: log.undoStack.at(-1),
+    redoTop: log.redoStack.at(-1),
+  });
+
   const notifyHistory = (): void => {
-    if (historyCb === null) return;
+    // "Nobody is listening" is still the first question, and the answer still
+    // leaves the signature alone: a mutation made with the palette unmounted
+    // must not be recorded as published, or the next mount's own arrival would
+    // be the only thing that ever said so.
+    if (historyChannel.size() === 0) return;
     const prev = historySig;
-    const sig = {
-      undoLen: log.undoStack.length,
-      redoLen: log.redoStack.length,
-      undoTop: log.undoStack.at(-1),
-      redoTop: log.redoStack.at(-1),
-    };
+    const sig = historySignature();
     if (
       prev !== null &&
       prev.undoLen === sig.undoLen &&
@@ -3476,7 +3540,7 @@ export function createFieldHost(deps?: {
     )
       return;
     historySig = sig;
-    historyCb(fieldHistory(log.undoStack, log.redoStack));
+    historyChannel.publish(fieldHistory(log.undoStack, log.redoStack));
   };
 
   // The entity-list tick. Fired by every path that can add, remove or rewrite
@@ -3491,7 +3555,7 @@ export function createFieldHost(deps?: {
   // `commitToolOp` calls `notifyHistory` itself, and those two are the ONLY
   // sites. Spelling it out at all ten would be ten chances to forget.
   const notifyEntities = (): void => {
-    entitiesCb?.();
+    entitiesChannel.publish();
     notifyHistory();
   };
 
@@ -3545,7 +3609,7 @@ export function createFieldHost(deps?: {
       : { findings: structuredClone(drift), entityIds: driftedEntities(drift) };
 
   const notifyDrift = (): void => {
-    driftCb?.(driftPayload());
+    driftChannel.publish(driftPayload());
   };
 
   // The LIVE entity record for an id (not a clone — callers that hand it on
@@ -3911,7 +3975,7 @@ export function createFieldHost(deps?: {
     if (next === selectedEntityId) return;
     selectedEntityId = next;
     rebuildEntitySelectionBatch();
-    entitySelectionCb?.(next);
+    entitySelectionChannel.publish(next);
   };
 
   const revalidateEntitySelection = (): void => {
@@ -4213,7 +4277,11 @@ export function createFieldHost(deps?: {
 
   const analyzer = new AnalyzerWorkerClient(deps?.spawnAnalyzer);
   const flagStore = createFlagStore();
-  let flagsCb: ((summary: FlagsSummary) => void) | null = null;
+  // Snapshot (the selection seam's remount rationale): a subscriber arriving
+  // while markers are on screen must not render an empty list.
+  const flagsChannel = createViewChannel<[FlagsSummary]>({
+    snapshot: () => [flagStore.summary()],
+  });
   // The project's capsule (setAgentProfile). NOTHING is posted without one: the
   // analyzer is parameterized on the agent, and a guessed capsule would be the
   // advisor inventing its own premise.
@@ -4410,7 +4478,7 @@ export function createFieldHost(deps?: {
     const summary = flagStore.summary();
     rebuildFlagMarkers(summary);
     rebuildFlagSelection(summary);
-    flagsCb?.(summary);
+    flagsChannel.publish(summary);
   };
 
   // Adopt a selected finding and republish. The RAW write, with no validation and
@@ -4766,7 +4834,8 @@ export function createFieldHost(deps?: {
         },
       )
       // A HANDLER can throw — applyStampGhost against a context torn down
-      // mid-flight, or a subscriber inside notifyStamp. Two-argument `then`
+      // mid-flight (a subscriber inside notifyStamp was the other way in until
+      // the seams went multicast; the channel isolates that one). Two-argument `then`
       // sends that to an unhandled rejection, skipping the settle() the old
       // shape put at the end of each handler and latching the coalescer shut
       // for the rest of the session (every later preview silently queued and
@@ -5286,10 +5355,11 @@ export function createFieldHost(deps?: {
     // store and the log are untouched) is true of `reconfigureGenerator`
     // validating before its first write, and of nothing below it. Anything
     // further inside would report "reconfigure failed" for a reconfigure that
-    // LANDED, and skip the session teardown on the way out. That matters most
-    // for notifyDrift: it invokes a SUBSCRIBER, and a subscriber that throws is
-    // an ordinary React failure mode, not a hypothetical. Same shape as
-    // commitStampSession's try, deliberately.
+    // LANDED, and skip the session teardown on the way out. The three notifies
+    // below can no longer be the ones that provoke it — the channels isolate a
+    // throwing subscriber, which is what made notifyDrift the sharpest case for
+    // this narrowing before F-T3a — but everything between here and them still
+    // can. Same shape as commitStampSession's try, deliberately.
     let result: ReturnType<typeof field.reconfigureGenerator>;
     // Bracket JUST the core call for the op-cost meter's `last reconfigure` —
     // the same narrowing the try keeps (start read before, duration read after,
@@ -5338,12 +5408,15 @@ export function createFieldHost(deps?: {
     // inside any of them (the chrome does — subscribeEntities' callback calls
     // listEntities), so none may observe a half-applied session.
     //
-    // Drift goes last of the three because a throwing subscriber aborts the
-    // rest: session-ended and list-changed keep the UI CONSISTENT with a store
-    // that has already been written, while a dropped drift report only costs
-    // the report. None of them is wrapped — a subscriber that throws is the
-    // subscriber's bug, and swallowing it here would hide it — so the order is
-    // what decides how much a buggy one can break.
+    // The ORDER is about that read-back and nothing else now. It used to be
+    // about blast radius too — the seams held one callback each and nothing
+    // wrapped the call, so a subscriber that threw aborted the notifications
+    // after it, and drift went last because a dropped report costs least. The
+    // channels isolate delivery per subscriber (`view-channel.ts`), so a throw
+    // is logged and the pass continues: what bounds a buggy subscriber is the
+    // isolation, not this ordering. The order stands because the three describe
+    // one settled state and a subscriber reading the host back mid-sequence
+    // must not see a half-applied session.
     notifyStamp();
     notifyEntities();
     notifyDrift();
@@ -5429,7 +5502,7 @@ export function createFieldHost(deps?: {
   // Mirror a host-initiated tool change to the chrome (cloned — the chrome must
   // never hold a reference into host state).
   const notifyTool = (): void => {
-    toolCb?.({ tool: cloneTool(tool), radius: digRadius });
+    toolChannel.publish({ tool: cloneTool(tool), radius: digRadius });
   };
 
   // Recompute the effective tool from (saved base, held modifiers). DERIVED,
@@ -5851,19 +5924,26 @@ export function createFieldHost(deps?: {
       applyFlyMove(dt);
       drainDirty();
       const ls = currentLogStats();
-      statsCb?.({
-        chunks: store.chunks.size,
-        lastRemeshMs,
-        remeshVersion,
-        totalOps: ls.totalOps,
-        liveGenerators: ls.liveGenerators,
-        compactableOps: ls.compactableOps,
-        undoDepth: ls.undoDepth,
-        redoDepth: ls.redoDepth,
-        lastReconfigureMs,
-        analyzerPending: analyzerPendingCount(),
-        voidCastPending: voidCastJobGen !== null,
-      });
+      // Guarded on the count rather than published unconditionally: this is the
+      // ONE per-frame publish, and `statsCb?.({…})` never built the payload
+      // with the slot empty (an optional call does not evaluate its arguments).
+      // A bare `publish` would allocate an eleven-field record and poll the
+      // analyzer once per rAF on every host nobody is watching — which is every
+      // headless test that runs the loop.
+      if (statsChannel.size() > 0)
+        statsChannel.publish({
+          chunks: store.chunks.size,
+          lastRemeshMs,
+          remeshVersion,
+          totalOps: ls.totalOps,
+          liveGenerators: ls.liveGenerators,
+          compactableOps: ls.compactableOps,
+          undoDepth: ls.undoDepth,
+          redoDepth: ls.redoDepth,
+          lastReconfigureMs,
+          analyzerPending: analyzerPendingCount(),
+          voidCastPending: voidCastJobGen !== null,
+        });
       renderScene(c, cam);
     }
     raf = requestAnimationFrame(tick);
@@ -6674,18 +6754,10 @@ export function createFieldHost(deps?: {
       tool = clamped;
     },
     subscribeTool(cb) {
-      toolCb = cb;
-      return () => {
-        // Guard: a STALE unsubscribe (kept past a later subscribe) must not
-        // null the successor's callback.
-        if (toolCb === cb) toolCb = null;
-      };
+      return toolChannel.subscribe(cb);
     },
     subscribeToolError(cb) {
-      toolErrorCb = cb;
-      return () => {
-        if (toolErrorCb === cb) toolErrorCb = null;
-      };
+      return toolErrorChannel.subscribe(cb);
     },
     setGesture(next) {
       // ABOVE the early return, deliberately: arming any tool cancels a pending
@@ -6722,13 +6794,7 @@ export function createFieldHost(deps?: {
       notifySelection();
     },
     subscribeSelection(cb) {
-      selectionCb = cb;
-      // Initial push: a subscriber (re)mounting while a selection exists must
-      // not render "no selection" next to a visible amber overlay.
-      cb(selection === null ? null : selectionInfo(selection));
-      return () => {
-        if (selectionCb === cb) selectionCb = null;
-      };
+      return selectionChannel.subscribe(cb);
     },
     setLayers(next) {
       const wasVoidCast = layers.voidCast;
@@ -6913,23 +6979,10 @@ export function createFieldHost(deps?: {
       stepHistory(true);
     },
     subscribeStamp(cb) {
-      stampCb = cb;
-      // Initial push: a subscriber (re)mounting mid-session must not render
-      // "no stamp" beside a visible ghost (the subscribeSelection rationale).
-      cb(stamp === null ? null : structuredClone(stamp));
-      return () => {
-        if (stampCb === cb) stampCb = null;
-      };
+      return stampChannel.subscribe(cb);
     },
     subscribePendingStamp(cb) {
-      pendingStampCb = cb;
-      // Initial push, for the subscribeStamp reason: a rail (re)mounting while a
-      // stamp is armed must not read as idle beside a viewport asking for a
-      // region. Copied at the boundary — the chrome never holds host state.
-      cb(pendingStamp === null ? null : { ...pendingStamp });
-      return () => {
-        if (pendingStampCb === cb) pendingStampCb = null;
-      };
+      return pendingStampChannel.subscribe(cb);
     },
     openEntity(entityId) {
       openEntitySession(entityId, false);
@@ -7092,13 +7145,7 @@ export function createFieldHost(deps?: {
       notifyEntities();
     },
     subscribeDrift(cb) {
-      driftCb = cb;
-      // Initial push (the subscribeStamp/subscribeSelection remount rationale):
-      // a subscriber remounting after a reconfigure must not drop its report.
-      cb(driftPayload());
-      return () => {
-        if (driftCb === cb) driftCb = null;
-      };
+      return driftChannel.subscribe(cb);
     },
     dismissDrift() {
       drift = null;
@@ -7121,24 +7168,21 @@ export function createFieldHost(deps?: {
     cameraAimedByHand: () => cameraAimed,
     snapView,
     subscribeEntities(cb) {
-      entitiesCb = cb;
-      cb(); // initial catch-up: the world may already hold entities
-      return () => {
-        if (entitiesCb === cb) entitiesCb = null;
-      };
+      return entitiesChannel.subscribe(cb);
     },
     subscribeHistory(cb) {
-      historyCb = cb;
-      // Clearing the signature is what makes the initial push unconditional: a
-      // subscriber arriving over a world with a live undo stack must be told
-      // about it, and the previous subscriber's signature says nothing about
-      // what THIS one has seen. (The push itself is notifyHistory's, so a
-      // subscribe and a mutation hand out the same shape by construction.)
-      historySig = null;
-      notifyHistory();
-      return () => {
-        if (historyCb === cb) historyCb = null;
-      };
+      // The channel's own snapshot is the initial push, and it goes to the
+      // ARRIVING subscriber alone — which is what this body has to record here
+      // rather than CLEAR. Clearing the signature was how a single slot forced
+      // an unconditional push for its one subscriber; with N of them it would
+      // re-broadcast the current history to everybody on the next notify that
+      // moved nothing. Recording it says something true of every live
+      // subscriber instead: the arrival was just handed this history, and the
+      // ones already here were pushed it (or an equal-signature one) when it
+      // landed. Written BEFORE the subscribe so a callback that reads the host
+      // back synchronously cannot provoke a duplicate of its own first push.
+      historySig = historySignature();
+      return historyChannel.subscribe(cb);
     },
     listEntities() {
       // One attribution pass for the whole list, not one scan per row: the
@@ -7164,14 +7208,7 @@ export function createFieldHost(deps?: {
       setSelectedEntity(entityId);
     },
     subscribeEntitySelection(cb) {
-      entitySelectionCb = cb;
-      // Initial push (the subscribeSelection remount rationale): a palette
-      // remounting while an entity is selected must not render every row
-      // unselected next to a visible box in the viewport.
-      cb(selectedEntityId);
-      return () => {
-        if (entitySelectionCb === cb) entitySelectionCb = null;
-      };
+      return entitySelectionChannel.subscribe(cb);
     },
     setAgentProfile(profile) {
       agentProfileAnswered = true;
@@ -7192,13 +7229,7 @@ export function createFieldHost(deps?: {
       analyzePump.request();
     },
     subscribeFlags(cb) {
-      flagsCb = cb;
-      // Initial push (the subscribeSelection remount rationale): a subscriber
-      // remounting while markers are on screen must not render an empty list.
-      cb(flagStore.summary());
-      return () => {
-        if (flagsCb === cb) flagsCb = null;
-      };
+      return flagsChannel.subscribe(cb);
     },
     setFlagFilters(filters) {
       flagStore.setFilters(filters);
@@ -7220,26 +7251,13 @@ export function createFieldHost(deps?: {
       });
     },
     subscribeStats(cb) {
-      statsCb = cb;
-      return () => {
-        // Guard: a STALE unsubscribe (kept past a later subscribe) must not
-        // null the successor's callback — the subscribeTool rule, which every
-        // other seam here already follows.
-        if (statsCb === cb) statsCb = null;
-      };
+      return statsChannel.subscribe(cb);
     },
     isLooking() {
       return look !== null;
     },
     subscribeCameraPose(cb) {
-      cameraPoseCb = cb;
-      // Initial push (the subscribeSelection remount rationale): the camera does not
-      // move on its own, so a triad that waited for the first WASD step would draw
-      // the wrong orientation for as long as the user sat still.
-      cb({ yaw: orbitState.yaw, pitch: orbitState.pitch });
-      return () => {
-        if (cameraPoseCb === cb) cameraPoseCb = null;
-      };
+      return cameraPoseChannel.subscribe(cb);
     },
     subscribeSegmentHud(cb) {
       return segment.subscribeHud(cb);

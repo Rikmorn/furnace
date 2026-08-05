@@ -10,8 +10,8 @@
 // touch?" at push time and the provider hands the answer down as a set. This file
 // reads it; it does not compute it.
 //
-// It reads its three seams out of the shell's host-state provider (single-slot
-// discipline: no surface below that provider may re-subscribe to anything it owns,
+// It reads its three seams out of the shell's host-state provider (one-owner discipline:
+// no surface below that provider may re-subscribe to anything it owns,
 // which since F4.5c Task 14 is all thirteen seams the chrome reads) and reaches the host for its
 // VERBS the way every other shell surface does — `fieldHostRef` off EditorContext,
 // exactly as ShellChrome's ⌘Z does. The verbs are fire-and-forget; nothing here holds

@@ -1,12 +1,18 @@
 // The ONE subscription point for the host seams the chrome reads.
 //
-// Every FieldHost subscribe seam is a SINGLE SLOT: the host stores one callback per
-// seam (`statsCb = cb`), so a second subscriber silently steals the first's — the
-// earlier consumer just stops updating, with nothing thrown and nothing logged. The
+// Every FieldHost subscribe seam is MULTICAST (T3a: `viewport-host/view-channel.ts`), so
+// a second subscriber no longer steals the first's callback — it is simply a second
+// mirror of the same state, paying for the same pushes, the same comparisons and the same
+// re-renders twice, and leaking a live subscriber if its cleanup ever fails to run. The
 // shell has several consumers that want the same readout, and the dissolving control
-// stack is about to become several more, so the subscriptions live here, once, and the
-// consumers read them out of context. Nothing below this provider may subscribe to
-// anything it owns.
+// stack became several more, so the subscriptions live here, once, and the consumers read
+// them out of context. Nothing below this provider may subscribe to anything it owns.
+//
+// That rule used to enforce itself, loudly and by accident (the displaced surface went
+// dead). It does not any more: a duplicate subscription is now invisible at runtime, and
+// the only thing that catches one is the ownership case in
+// `tests/chrome/host-seams-and-catalogs.test.tsx`, which counts claims and delivered
+// subscribers across the whole mounted shell.
 //
 // ALL THIRTEEN seams are here: `subscribeStats` (the status bar's chips),
 // `subscribeToolError` (a toast, plus the verify release below), `subscribeCameraPose` (the

@@ -4,10 +4,12 @@
 // live at its bottom), not a panel one — the canvas is the whole window now, so there
 // is no panel corner left to put it in.
 //
-// It reads the pose out of context rather than subscribing: `subscribeCameraPose` is a
-// single slot the shell's provider claims, and a second subscriber would silently steal
-// it (the seam stores ONE callback). The snap goes the other way — straight to the host
-// through `fieldHostRef`, like every other chrome→host verb.
+// It reads the pose out of context rather than subscribing: the shell's provider owns
+// `subscribeCameraPose`, and nothing below it may claim a seam that provider holds. The
+// seam is multicast, so a second subscription here would not break anything visibly —
+// it would be a duplicate pose mirror re-rendering on the same pointer-rate push, plus a
+// leak if this overlay ever forgot its cleanup. The snap goes the other way — straight to
+// the host through `fieldHostRef`, like every other chrome→host verb.
 //
 // `pointer-events-none` on the BOX is what keeps the overlay from eating orbit drags in
 // the corner it sits in; the tips re-enable it for their own caps (see AxisTriad).

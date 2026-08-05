@@ -1,9 +1,9 @@
 // FieldHost surfaces that need NO GPU init (a field-host-load.test.ts
 // sibling): startStamp's no-selection ARM and the pending-stamp seam,
 // subscribeStamp's initial push, nudgeStamp's no-session no-op, the
-// entity-selection seam's validation and single-slot discipline, the void
+// entity-selection seam's validation and release discipline, the void
 // cast's pre-context refusals, the camera-pose seam, the segment HUD seam's
-// single-slot discipline, and the options `init` builds before it ever touches
+// release discipline, and the options `init` builds before it ever touches
 // a device.
 // Verified against the host source: none of these paths touch the GPU context,
 // the render loop, or the lazily-spawned remesh worker — a selection-less
@@ -129,7 +129,7 @@ test("a world reset clears the pending stamp arm", () => {
   expect(pending).toEqual([null, { id: "hall", name: "Hall" }, null]);
 });
 
-test("subscribePendingStamp is a single slot with a real unsubscribe", () => {
+test("subscribePendingStamp has a real, idempotent unsubscribe", () => {
   const host = createFieldHost();
   const seen: unknown[] = [];
   const unsubscribe = host.subscribePendingStamp((p) => seen.push(p));
@@ -137,8 +137,8 @@ test("subscribePendingStamp is a single slot with a real unsubscribe", () => {
   unsubscribe();
   const after: unknown[] = [];
   host.subscribePendingStamp((p) => after.push(p));
-  // A STALE unsubscribe must not null the successor's callback (every seam here
-  // carries the same identity guard).
+  // A STALE unsubscribe must not take the successor with it — releases are keyed to
+  // the callback and calling one twice is a no-op (every seam here is the same channel).
   unsubscribe();
   host.startStamp("cave");
   expect(seen).toEqual([null]);
@@ -178,15 +178,15 @@ test("selectEntity is runtime-quiet on unknown ids, and never pushes a phantom i
   expect(pushes).toEqual([null]);
 });
 
-test("subscribeEntitySelection is a single slot with a real unsubscribe", () => {
+test("subscribeEntitySelection has a real, idempotent unsubscribe", () => {
   const host = createFieldHost();
   const seen: (number | null)[] = [];
   const unsubscribe = host.subscribeEntitySelection((id) => seen.push(id));
   expect(seen).toEqual([null]);
   unsubscribe();
-  // A stale unsubscribe must not null a SUCCESSOR's callback (the subscribeTool
-  // rule every seam here follows) — so re-subscribing after the release still
-  // lands, and the released one is really gone.
+  // A stale unsubscribe must not take a SUCCESSOR with it (the subscribeTool rule
+  // every seam here follows) — so re-subscribing after the release still lands, and
+  // the released one is really gone.
   const after: (number | null)[] = [];
   host.subscribeEntitySelection((id) => after.push(id));
   unsubscribe();
@@ -198,7 +198,7 @@ test("subscribeEntitySelection is a single slot with a real unsubscribe", () => 
   expect(after).toEqual([null]);
 });
 
-test("subscribeSegmentHud is a single slot with a real, identity-guarded unsubscribe", () => {
+test("subscribeSegmentHud has a real, identity-keyed, idempotent unsubscribe", () => {
   const host = createFieldHost();
   const seen: (SegmentHud | null)[] = [];
   // `null` on subscribe: no point is down on a fresh host, and a seam that said
@@ -208,11 +208,11 @@ test("subscribeSegmentHud is a single slot with a real, identity-guarded unsubsc
   expect(seen).toEqual([null]);
   unsubscribe();
 
-  // The GUARD, from the side that breaks it: React re-runs an effect BODY before the
-  // previous cleanup, so the successor takes the slot and the stale release runs after
-  // it. Unguarded, that release frees the slot the successor just claimed and the seam
-  // goes silent with nothing thrown — which is why the second `unsubscribe()` here is
-  // the whole case rather than a tidy-up.
+  // The KEYING, from the side that breaks it: React re-runs an effect BODY before the
+  // previous cleanup, so the successor subscribes and the stale release runs after it.
+  // A release keyed to anything but its own callback takes the successor with it and
+  // the seam goes silent with nothing thrown — which is why the second `unsubscribe()`
+  // here is the whole case rather than a tidy-up.
   const after: (SegmentHud | null)[] = [];
   host.subscribeSegmentHud((h) => after.push(h));
   unsubscribe();

@@ -3,9 +3,10 @@
 //
 // It carries five things: the viewport keymap (left), the engine/error report, the ⚠
 // chip that summons the message log, the long-job readout, and the live host chips
-// (right). The chips come from `useFieldHostState`, NOT from an own subscription —
-// subscribeStats is a single slot and a second subscriber would silently steal the
-// first's callback.
+// (right). The chips come from `useFieldHostState`, NOT from an own subscription — the
+// provider owns subscribeStats, and a second subscriber here would be a second mirror of
+// a seam that pushes every rAF, without the value-equality guard that keeps an idle field
+// from re-rendering the chrome 60×/s.
 //
 // What the keymap line SAYS — and whether it is warning about something — is decided next
 // door in `status-keymap.ts`: pure, React-free, and tested directly. What is left here is

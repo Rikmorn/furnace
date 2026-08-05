@@ -2,7 +2,7 @@
 // preview→commit determinism round: the SAME evaluate runs on the worker's
 // scratch store (ghost) and in commitGenerator (commit), so the committed
 // chunks must mesh byte-identically to the previewed ghost buckets.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { nudgeRegion, spanCells } from "../src/frontend/lib/field-brush.ts";
 import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
@@ -1064,12 +1064,19 @@ describe("preview coalescer", () => {
   });
 });
 
-// The try in applyReconfigureSession wraps the core call and nothing else, so a
-// failure in the post-success work — most plausibly a SUBSCRIBER, which Task 9
-// wires to subscribeDrift — cannot be reported as a reconfigure failure. This
-// bites: widening the try back over notifyDrift makes it fail.
-test("a throwing drift subscriber cannot make a landed apply report as failed", async () => {
+// Two claims about a subscriber that blows up during an apply, and they used to be
+// one. The try in applyReconfigureSession still wraps the core call and nothing
+// else, so a failure in the post-success work cannot be reported as a reconfigure
+// failure — and since the seams went multicast (T3a), a throwing subscriber is no
+// longer even one of the ways in: delivery is ISOLATED, so the throw is logged and
+// the rest of the pass runs. Pinned together because the second is what the first
+// was tested WITH, and a regression in either reads as the same red here.
+test("a throwing drift subscriber is isolated, and the apply still lands", async () => {
   const uninstall = installFakeWorker();
+  // Silenced, not just observed: isolation LOGS, and a suite that prints a real
+  // stack trace per green run teaches its reader to scroll past the output that
+  // matters when something actually breaks (the view-channel suite's rule).
+  const logged = spyOn(console, "error").mockImplementation(() => undefined);
   try {
     const host = createFieldHost();
     const { entityId, params } = loadCommittedHall(host);
@@ -1080,6 +1087,10 @@ test("a throwing drift subscriber cannot make a landed apply report as failed", 
       // Not on the initial subscribe push — only on the apply's.
       if (pushes++ > 0) throw new Error("subscriber blew up");
     });
+    // BEHIND the thrower in subscribe order, which is the position the single-slot
+    // seam could not even express — and the position isolation is about.
+    const sibling: (FieldDriftReport | null)[] = [];
+    host.subscribeDrift((r) => sibling.push(r));
     host.openEntity(entityId);
     await settle();
     host.updateStamp({ ...params, width: 12 }, 7, "replace");
@@ -1087,16 +1098,21 @@ test("a throwing drift subscriber cannot make a landed apply report as failed", 
     const sessions: (StampSession | null)[] = [];
     host.subscribeStamp((x) => sessions.push(x));
 
-    // The subscriber's throw propagates — it is the subscriber's bug and the
-    // host does not swallow it…
-    expect(() => host.applyReconfigure()).toThrow("subscriber blew up");
-    // …but the apply LANDED, and was not reported as a failure.
+    // The throw does NOT propagate: a chrome surface's bug cannot become the
+    // host's refusal (it used to escape the apply entirely).
+    expect(() => host.applyReconfigure()).not.toThrow();
+    expect(logged).toHaveBeenCalledTimes(1);
+    // The sibling behind it still got the apply's report (its arrival push plus
+    // this one) — the severing this change retires.
+    expect(sibling.length).toBe(2);
+    // …the apply LANDED, and was not reported as a failure.
     expect(host.listEntities()[0]?.params).toEqual({ ...params, width: 12 });
     expect(errors).toEqual([]);
-    // …and the session teardown reached the panel BEFORE drift did, so the
+    // …and the session teardown still reaches the panel before drift does, so the
     // chrome is never left showing a card for a session that already applied.
     expect(sessions.at(-1)).toBeNull();
   } finally {
+    logged.mockRestore();
     uninstall();
   }
 });

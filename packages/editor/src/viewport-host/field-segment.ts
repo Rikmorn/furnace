@@ -39,6 +39,7 @@ import {
 // directory would be a link this side could not resolve.
 import type { SegmentHud } from "./field-host.ts";
 import { segmentsToBatch } from "./reference-grid.ts";
+import { createViewChannel } from "./view-channel.ts";
 
 type Vec3T = [number, number, number];
 
@@ -121,8 +122,9 @@ export type SegmentBrush = {
   updatePreview(clientX: number, clientY: number): void;
   /** One LMB click while the segment brush is armed. */
   click(clientX: number, clientY: number): void;
-  /** The HUD seam behind `FieldHost.subscribeSegmentHud` — single slot, initial
-   *  push, identity-guarded unsubscribe. */
+  /** The HUD seam behind `FieldHost.subscribeSegmentHud` — multicast, with the
+   *  current readout pushed to each arriving subscriber and an unsubscribe that
+   *  removes only its own. */
   subscribeHud(cb: (hud: SegmentHud | null) => void): () => void;
 };
 
@@ -146,7 +148,12 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
   // what makes updateSegmentPreview a pointer-MOVE job; the batch itself is
   // cheap). Cleared with the anchor.
   let segmentPreviewEnd: Vec3T | null = null;
-  let segmentHudCb: ((hud: SegmentHud | null) => void) | null = null;
+  // The HUD's multicast seam. The snapshot is the (re)mount rule this seam has
+  // always carried: a status bar arriving mid-gesture must not read blank
+  // beside a capsule the viewport is plainly drawing.
+  const segmentHudChannel = createViewChannel<[SegmentHud | null]>({
+    snapshot: () => [segmentHudPayload()],
+  });
   // The segment HUD's own throttle clock, NOT `lastStroke`'s (D-25). Both admit one
   // event per STROKE_MIN_MS and that CONSTANT is shared deliberately — a readout that
   // refreshed on a different cadence from the brush it describes would be a second
@@ -172,16 +179,19 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
   // meaningful. Two ways to be in that state, and 0 is right for both: the cursor has
   // not moved since the click, or it has moved and resolved no surface (`if (!p) return`
   // in `updateSegmentPreview`, which deliberately leaves the last preview standing).
-  const publishSegmentHud = (): void => {
-    if (segmentAnchor === null) {
-      segmentHudCb?.(null);
-      return;
-    }
+  const segmentHudPayload = (): SegmentHud | null => {
+    if (segmentAnchor === null) return null;
     const lenM =
       segmentPreviewEnd === null
         ? 0
         : segmentLength(segmentAnchor, segmentPreviewEnd);
-    segmentHudCb?.({ lenM, capM: deps.maxSegmentM });
+    return { lenM, capM: deps.maxSegmentM };
+  };
+
+  // ONE readout per publish, shared by every subscriber — a pushed value is
+  // immutable by contract, which this one is by construction (two numbers).
+  const publishSegmentHud = (): void => {
+    segmentHudChannel.publish(segmentHudPayload());
   };
 
   // The HUD's pointer-rate half, on the stroke cadence. Throttled because it crosses
@@ -308,16 +318,11 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
     rebuildPreview: rebuildSegmentPreview,
     updatePreview: updateSegmentPreview,
     click: segmentClick,
-    subscribeHud(cb) {
-      segmentHudCb = cb;
-      // Initial push (the subscribeSelection remount rationale), and here it is the
-      // SAME argument as subscribeCameraPose's: nothing moves this value on its own, so
-      // a subscriber that waited for the next pointermove would read blank for as long
-      // as the user held still over a segment they had already started.
-      publishSegmentHud();
-      return () => {
-        if (segmentHudCb === cb) segmentHudCb = null;
-      };
-    },
+    // The initial push is the channel's snapshot (the subscribeSelection remount
+    // rationale, and here the SAME argument as subscribeCameraPose's: nothing
+    // moves this value on its own, so a subscriber that waited for the next
+    // pointermove would read blank for as long as the user held still over a
+    // segment they had already started).
+    subscribeHud: (cb) => segmentHudChannel.subscribe(cb),
   };
 }

@@ -10,8 +10,8 @@ import "../inspector/_register.ts";
 // Every assertion below came from tests/chrome/field-panel.test.tsx unchanged — only
 // the MOUNT moved. What that mount now proves in passing is the seam relocation itself:
 // the palette holds no subscription at all, and the rows it renders arrive through the
-// shell's host-state provider (which owns `subscribeEntities` + `subscribeDrift` as
-// single slots). The matching NEGATIVE assertion stayed behind in field-panel.test.tsx,
+// shell's host-state provider (the sole owner of `subscribeEntities` +
+// `subscribeDrift`). The matching NEGATIVE assertion stayed behind in field-panel.test.tsx,
 // where F4.5b Task 2 widened it to every seam there is.
 
 import { afterEach, expect, test } from "bun:test";
@@ -174,9 +174,9 @@ const ROW_VERBS = [
 test("the palette subscribes to nothing — the provider owns all three entity seams", () => {
 	const stub = makeStubHost();
 	renderPalette(stub);
-	// Exactly ONE subscriber each. All three are single slots (`entitiesCb = cb`), so a
-	// second claim anywhere would silently steal this one: no throw, no warning, the
-	// list simply stops updating.
+	// Exactly ONE subscriber each. The seams are multicast, so a second claim anywhere
+	// no longer STEALS this one — it is a duplicate mirror and a leak nobody would see,
+	// which is why the claim count is the only thing that can still catch it.
 	expect(stub.calls.subscribeEntities.mock.calls.length).toBe(1);
 	expect(stub.calls.subscribeDrift.mock.calls.length).toBe(1);
 	expect(stub.calls.subscribeEntitySelection.mock.calls.length).toBe(1);
@@ -227,27 +227,32 @@ test("the provider releases both entity slots on unmount", () => {
 			<span />
 		</FieldHostStateProvider>,
 	);
-	const pushTick = (): boolean => {
-		let delivered = false;
+	/** How many live subscribers the tick seam delivered to. */
+	const pushTick = (): number => {
+		let delivered = 0;
 		act(() => {
 			delivered = stub.fire.entities();
 		});
 		return delivered;
 	};
-	const pushDrift = (): boolean => {
-		let delivered = false;
+	/** How many live subscribers the drift seam delivered to. */
+	const pushDrift = (): number => {
+		let delivered = 0;
 		act(() => {
 			delivered = stub.fire.drift(null);
 		});
 		return delivered;
 	};
-	expect(pushTick()).toBe(true);
-	expect(pushDrift()).toBe(true);
+	// The provider, and only the provider — a second delivery here would be a surface
+	// below it that re-subscribed.
+	expect(pushTick()).toBe(1);
+	expect(pushDrift()).toBe(1);
 	unmount();
-	// Single slots: an unsubscribe that does not FREE them leaves the next mount unable
-	// to claim one — the list would be dead with nothing thrown and nothing logged.
-	expect(pushTick()).toBe(false);
-	expect(pushDrift()).toBe(false);
+	// Back to nobody. A release that did not really remove the callback leaves the
+	// unmounted provider's effect wired to a live seam — the leak the count is here to
+	// catch, and one a multicast seam gives no other symptom for.
+	expect(pushTick()).toBe(0);
+	expect(pushDrift()).toBe(0);
 });
 
 // --- the entity tick is the ONLY refresh trigger ----------------------------

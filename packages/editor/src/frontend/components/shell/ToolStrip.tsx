@@ -222,7 +222,7 @@ function BrushStrip({ gesture }: { gesture: ViewportGesture | null }) {
 }
 
 /** Core's smooth ceilings, read off the host at engine-ready. NOT a subscribe seam — a
- *  plain getter over two constants — so reading it here claims no single-slot callback
+ *  plain getter over two constants — so reading it here claims no seam the provider owns
  *  (the rule `useFieldHostState` exists to hold). */
 function useSmoothLimits(): { maxStrength: number; maxIterations: number } {
 	const { state, fieldHostRef } = useEditor();

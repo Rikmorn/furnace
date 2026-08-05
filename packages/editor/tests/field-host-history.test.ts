@@ -117,23 +117,50 @@ test("subscribe pushes the CURRENT history immediately", () => {
   expect(w.last()).toEqual({ undo: [], redo: [], undoDepth: 0, redoDepth: 0 });
 });
 
-test("the seam is a SINGLE SLOT with a real, identity-guarded release", () => {
+test("the seam is MULTICAST, and each release frees only its own subscriber", () => {
   const host = createFieldHost();
   const id = loadHallWorld(host);
   const first = watch(host);
   const second = watch(host);
   host.setEntityFrozen(id, true);
-  // The second subscriber stole the slot — the single-slot rule this whole provider
-  // exists to make survivable.
+  // BOTH hear it. The second subscriber used to steal the slot and leave the first
+  // silently dead; since T3a the seam is a channel and every subscriber gets every
+  // push (each already had the arrival push, so two apiece).
+  expect(first.pushes.length).toBe(2);
   expect(second.pushes.length).toBe(2);
-  expect(first.pushes.length).toBe(1);
-  // The FIRST subscriber's release must not free the SECOND's slot (identity guard).
+  // Arriving second does not mean seeing something different: one payload is built
+  // per publish and shared, so the two agree by construction.
+  expect(first.last()).toEqual(second.last());
+  // A release frees ONLY its own subscriber — the count is now the leak detector
+  // the empty slot used to be. A `first` that kept receiving here is a cleanup that
+  // did not run.
   first.off();
   host.setEntityFrozen(id, false);
+  expect(first.pushes.length).toBe(2);
   expect(second.pushes.length).toBe(3);
+  // …and the seam goes quiet when the LAST one leaves, which is also where the echo
+  // signature stops advancing (notifyHistory's `size() === 0` guard).
   second.off();
   host.setEntityFrozen(id, true);
   expect(second.pushes.length).toBe(3);
+});
+
+test("a subscriber that arrives mid-world is pushed the history the others hold", () => {
+  const host = createFieldHost();
+  const id = loadHallWorld(host);
+  const first = watch(host);
+  host.setEntityFrozen(id, true);
+  // The late arrival gets the CURRENT history on the way in — not the empty one the
+  // first subscriber saw, and not a re-broadcast to `first`, whose count must not move.
+  const late = watch(host);
+  expect(late.pushes.length).toBe(1);
+  expect(late.last()).toEqual(first.last());
+  expect(first.pushes.length).toBe(2);
+  // And the arrival did not re-arm the shared echo guard: a tick that moves no
+  // history still publishes nothing to anybody.
+  host.setEntityFrozen(id, true);
+  expect(first.pushes.length).toBe(2);
+  expect(late.pushes.length).toBe(1);
 });
 
 // --- every log-mutating host verb publishes ---------------------------------

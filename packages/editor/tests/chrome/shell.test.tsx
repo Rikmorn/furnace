@@ -372,7 +372,7 @@ test("an init rejection lands in the status bar, NOT the global engine-error bra
 	expect(live?.className).toContain("sr-only");
 });
 
-// --- the provider owns the single-slot seams ---------------------------------
+// --- the provider owns the host seams ----------------------------------------
 
 test("an identical stats push does not re-render the readout", () => {
 	let renders = 0;
@@ -413,20 +413,23 @@ test("the provider releases the stats slot on unmount", () => {
 			<span />
 		</FieldHostStateProvider>,
 	);
-	/** Push through the seam and report whether the slot took it (act-wrapped: while
-	 *  mounted, delivery is a state update). */
-	const push = (): boolean => {
-		let delivered = false;
+	/** Push through the seam and report how many live subscribers took it (act-wrapped:
+	 *  while mounted, delivery is a state update). */
+	const push = (): number => {
+		let delivered = 0;
 		act(() => {
 			delivered = stub.fire.stats(makeStats());
 		});
 		return delivered;
 	};
-	expect(push()).toBe(true);
+	// The provider, and nobody else — a second delivery is a surface below it that
+	// re-subscribed to a seam the provider owns.
+	expect(push()).toBe(1);
 	unmount();
-	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable to
-	// claim one — the readout would be dead with nothing thrown and nothing logged.
-	expect(push()).toBe(false);
+	// Back to nobody. On a multicast seam a release that does not really remove the
+	// callback has NO other symptom: the readout keeps working and an unmounted tree
+	// keeps being pushed at. The count is the whole detector.
+	expect(push()).toBe(0);
 });
 
 /** A dig brush, the host's own default tool — the value shape `fire.tool` carries. */
@@ -444,7 +447,7 @@ const DIG_TOOL: FieldTool = {
  *  differs. */
 const LIFTED_SEAMS: readonly (readonly [
 	string,
-	(stub: ReturnType<typeof makeStubHost>) => boolean,
+	(stub: ReturnType<typeof makeStubHost>) => number,
 ])[] = [
 	["tool", (s) => s.fire.tool(DIG_TOOL)],
 	["selection", (s) => s.fire.selection(null)],
@@ -506,8 +509,8 @@ test("the provider claims — and releases — the four seams lifted off the pan
 				<span />
 			</FieldHostStateProvider>,
 		);
-		const deliver = (): boolean => {
-			let delivered = false;
+		const deliver = (): number => {
+			let delivered = 0;
 			act(() => {
 				delivered = push(stub);
 			});
@@ -515,12 +518,14 @@ test("the provider claims — and releases — the four seams lifted off the pan
 		};
 		// Claimed with no consumer mounted at all: the provider subscribes because it is
 		// the OWNER, not because something below it happens to be reading. A seam nobody
-		// claims is a control that goes dead with nothing thrown.
-		expect([name, deliver()]).toEqual([name, true]);
+		// claims is a control that goes dead with nothing thrown. Exactly one claimant,
+		// which is also the assertion a duplicate mirror below the provider would trip.
+		expect([name, deliver()]).toEqual([name, 1]);
 		unmount();
-		// …and freed on the way out, the stats-slot rule above: an unsubscribe that leaves
-		// the slot occupied makes the NEXT mount's claim the silent loser.
-		expect([name, deliver()]).toEqual([name, false]);
+		// …and freed on the way out, the stats-seam rule above: an unmounted provider that
+		// is still subscribed keeps being delivered to, and the count is the only thing
+		// that says so.
+		expect([name, deliver()]).toEqual([name, 0]);
 	}
 });
 
@@ -709,8 +714,9 @@ test("the status chips render what the host pushes, and idle quiet", async () =>
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
-	// Exactly ONE subscriber to the single-slot stats seam (the provider). A second
-	// one anywhere in the shell would silently steal this callback.
+	// Exactly ONE subscriber to the stats seam (the provider). The seam is multicast, so
+	// a second one anywhere in the shell would be a duplicate mirror of a per-rAF push
+	// rather than a stolen callback — invisible except here.
 	expect(stub.calls.subscribeStats.mock.calls.length).toBe(1);
 
 	act(() => {
@@ -820,8 +826,9 @@ test("a host refusal becomes a persistent, toned toast over the canvas", async (
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
-	// Exactly ONE subscriber to the single-slot tool-error seam (the provider). The
-	// panel used to hold it; a second claim anywhere would silently steal this one.
+	// Exactly ONE subscriber to the tool-error seam (the provider). The panel used to
+	// hold it; a second claim anywhere would now double every refusal into the toast
+	// stack rather than displace this one.
 	expect(stub.calls.subscribeToolError.mock.calls.length).toBe(1);
 
 	act(() => {
@@ -1598,18 +1605,20 @@ test("the provider releases the tool-error slot on unmount", () => {
 			<span />
 		</FieldHostStateProvider>,
 	);
-	let delivered = false;
+	let delivered = 0;
 	act(() => {
 		delivered = stub.fire.toolError("selection found no matching cells");
 	});
-	expect(delivered).toBe(true);
+	// The provider alone holds it.
+	expect(delivered).toBe(1);
 	unmount();
-	// Single slot: an unsubscribe that does not FREE it leaves the next mount unable
-	// to claim one — refusals would stop reaching the toast stack with nothing thrown.
+	// Back to nobody: an unsubscribe that does not really remove the callback leaves an
+	// unmounted tree being pushed refusals, with nothing thrown and the toast stack
+	// still apparently fine. The count is the only witness.
 	act(() => {
 		delivered = stub.fire.toolError("selection found no matching cells");
 	});
-	expect(delivered).toBe(false);
+	expect(delivered).toBe(0);
 });
 
 // --- (c3) the View popover: what the viewport SHOWS --------------------------
@@ -2493,9 +2502,9 @@ test("the axis triad rides the camera pose, over the canvas and out of its way",
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
-	// Exactly ONE subscriber to the single-slot camera-pose seam (the provider, at
-	// useFieldHostState). A second one anywhere in the shell would silently steal this
-	// callback — the same claim the stats and tool-error seams pin above.
+	// Exactly ONE subscriber to the camera-pose seam (the provider, at useFieldHostState).
+	// A second one anywhere in the shell would mirror a pointer-rate push twice — the same
+	// claim the stats and tool-error seams pin above.
 	expect(stub.calls.subscribeCameraPose.mock.calls.length).toBe(1);
 	const triad = screen.getByRole("img", { name: "camera orientation axes" });
 	const canvas = screen.getByLabelText("field viewport");

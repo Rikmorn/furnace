@@ -67,8 +67,9 @@ const row = (verb: "Undo" | "Redo", steps: number, label: string) =>
 test("the palette subscribes to nothing — the provider owns the history seam", () => {
 	const stub = makeStubHost();
 	renderPalette(stub);
-	// Single slot: a second subscriber here would silently steal the provider's, and the
-	// Undo/Redo menu labels would stop moving with nothing thrown.
+	// One owner. The seam is multicast, so a second subscriber here would not break the
+	// Undo/Redo labels — it would mirror the same history twice and leak on a missed
+	// cleanup, which nothing but this count would ever show.
 	expect(stub.calls.subscribeHistory.mock.calls.length).toBe(1);
 });
 
