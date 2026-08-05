@@ -26,6 +26,46 @@ import {
   type Pool,
 } from "./pool.ts";
 
+// Below: the resources module's engine-private door. Sibling core modules reach
+// the handle sentinel, the manager constructor, the refcounted pipeline caches,
+// and the cascade's slot contract through this file rather than deep-importing
+// handle.ts / manager.ts / dispose.ts. None of it is consumer surface — that is
+// index.ts.
+
+/**
+ * The `_teardown` contract every consumer-facing slot carries so the dispose
+ * cascade can free the GPU resources it owns. Engine-internal: resource modules
+ * spread it into their own slot types.
+ */
+export type { CascadeTeardownSlot } from "./dispose.ts";
+/**
+ * The invalid-handle sentinel (ctxId 0, slot 0, generation 0). Engine-internal:
+ * resource modules initialise not-yet-allocated handle fields with it, and
+ * `isInvalidHandle` recognises it.
+ */
+export { INVALID_HANDLE } from "./handle.ts";
+/**
+ * Construct a Context's resource manager — empty pools for every resource kind
+ * plus empty pipeline caches — and the shape it returns. Engine-internal:
+ * `gpu.createInternalState` and `gpu.requestContext` are the only callers.
+ */
+/**
+ * The two refcounted, ctx-scoped GPU-pipeline caches. `acquire*` builds on a
+ * miss and bumps the refcount on a hit; `release*` evicts at zero and no-ops on
+ * an unknown key. The `Sync` variant exists for `frame.render`'s synchronous
+ * hot path. Engine-internal: `material.pipeline` and `post.pipeline-cache` own
+ * the keys.
+ */
+export {
+  acquireMaterialPipeline,
+  acquirePostPipeline,
+  acquirePostPipelineSync,
+  createResourceManager,
+  type ResourceManager,
+  releaseMaterialPipeline,
+  releasePostPipeline,
+} from "./manager.ts";
+
 /** The kinds the resource manager tracks today. */
 export type ResourceKind =
   | "mesh"

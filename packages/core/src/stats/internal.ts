@@ -5,6 +5,14 @@ import { pushFrameMs } from "./frame-window.ts";
 import { type ResourceKind, recordAlloc, recordDestroy } from "./resources.ts";
 import { buildSnapshot } from "./snapshot.ts";
 
+/**
+ * Construct a Context's stats state — frame window, FPS counter, resource
+ * registry, empty subscriber set — and the shape it returns. Engine-internal:
+ * `gpu.createInternalState` and `gpu.requestContext` are the only callers,
+ * which is also why `StatsState` appears in gpu's own internal shape.
+ */
+export { createStatsState, type StatsState } from "./state.ts";
+
 export function _frameStart(ctx: Context): void {
   if (ctx._internal.disposed) return;
   const s = ctx._internal.stats;

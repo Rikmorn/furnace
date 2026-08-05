@@ -10,9 +10,14 @@ export type {
   BindingHandle,
   EffectHandle,
   GeometryHandle,
+  InstancedMeshHandle,
   MaterialHandle,
   MeshHandle,
+  PhysicsBodyHandle,
+  PhysicsWorldHandle,
+  RigidMeshHandle,
   ShaderHandle,
+  TextureHandle,
 } from "./handle.ts";
 
 /** Discriminator string for resource kinds. */

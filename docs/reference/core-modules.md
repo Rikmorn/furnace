@@ -635,7 +635,7 @@ later without taking the codec with it.
 
 `import * as resources from "@furnace/core/resources";`
 
-Cross-cutting cleanup over the per-ctx resource pools (meshes, materials, geometries, effects, shaders, bindings), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`, `binding.*`); this module is the cross-kind surface.
+Cross-cutting cleanup over the per-ctx resource pools (meshes, instanced meshes, materials, geometries, effects, shaders, bindings, physics worlds, physics bodies, rigid meshes, textures), plus the branded handle types and kind discriminator. The per-kind `create` / `destroy` functions live in their owning modules (`mesh.*`, `material.*`, `post.*`, `binding.*`); this module is the cross-kind surface.
 
 Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `stats.snapshot(ctx).memory.*`.
 
@@ -646,7 +646,8 @@ Count / memory introspection lives on `stats.snapshot(ctx).resources.*` and `sta
 | `disposeAll` | `(ctx: Context) => void` | Manually trigger the resource-manager cascade — same teardown that `gpu.dispose` runs internally, but without disposing the `GPUDevice` itself. Used for explicit cleanup before context disposal (e.g. free memory during a level transition without dropping the device). Idempotent. |
 | `ResourceKind` | `"mesh" \| "material" \| "geometry" \| "effect" \| "shader" \| "binding" \| "physics-world" \| "physics-body" \| "rigid-mesh" \| "texture-resource"` | Discriminator string for resource kinds. The two `physics-*` kinds back the `@furnace/core/physics` handles (`World` / `Body`); the `rigid-mesh` kind backs the `@furnace/core/rigid-mesh` composite (`RigidMesh`); `"texture-resource"` backs `Texture` handles. Note: `"buffer"` and `"texture"` are internal-only byte-tracking kinds (they drive `memory.bufferBytes` / `memory.textureBytes`) and are not included in this public union. |
 | `MeshHandle` / `MaterialHandle` / `GeometryHandle` / `EffectHandle` / `ShaderHandle` / `BindingHandle` | Branded uint48 handles | Re-exported from `resources/handle.ts` so consumers can type variables (e.g. a `Map<MeshHandle, …>`) without reaching into engine-internal modules. Each is also aliased by its owning module (`mesh.Mesh`, `material.Material`, `shader.Shader`, `binding.Binding`, …) — same underlying type. |
-| `AnyResourceHandle` | `MeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle \| BindingHandle` | Cross-kind union. Useful when storing handles of mixed kinds in a single collection. |
+| `InstancedMeshHandle` / `PhysicsWorldHandle` / `PhysicsBodyHandle` / `RigidMeshHandle` / `TextureHandle` | Branded uint48 handles | The kinds added after the block above. Same contract; aliased by `mesh.InstancedMesh`, `physics.World`, `physics.Body`, `rigidMesh.RigidMesh`, and `texture.Texture` respectively. |
+| `AnyResourceHandle` | `MeshHandle \| InstancedMeshHandle \| MaterialHandle \| GeometryHandle \| EffectHandle \| ShaderHandle \| BindingHandle \| PhysicsWorldHandle \| PhysicsBodyHandle \| RigidMeshHandle \| TextureHandle` | Cross-kind union over every branded kind. Useful when storing handles of mixed kinds in a single collection. |
 
 ### Demoed in cookbook
 

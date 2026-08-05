@@ -1,11 +1,22 @@
-// Engine-private state carried inside Context._internal.
-// Only the gpu module's own internals construct or read these fields.
+// The gpu module's engine-private door, and the state carried inside
+// Context._internal. Only the gpu module's own internals construct or read
+// those fields; sibling core modules reach the dispose-cascade registration
+// through this file rather than deep-importing dispose-cascade.ts. None of it
+// is consumer surface — that is index.ts.
 
 import {
   createResourceManager,
   type ResourceManager,
 } from "../resources/manager.ts";
 import { createStatsState, type StatsState } from "../stats/state.ts";
+
+/**
+ * Register a teardown callback on the ctx's dispose cascade; returns an
+ * unsubscribe. Engine-internal: the frame and post subsystems hold ctx-bound
+ * lazy GPU state (depth textures, shadow maps, the post target pool, the
+ * fullscreen VS) and self-register their cleanup on first allocation.
+ */
+export { _onDispose } from "./dispose-cascade.ts";
 
 export type InternalState = {
   disposed: boolean;

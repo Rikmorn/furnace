@@ -155,7 +155,6 @@ const RATCHETED_EDGES: readonly string[] = [
   "frame/shadow-projection.ts -> transform/vec3.ts",
   "geometry/bounds.ts -> transform/vec3.ts",
   "geometry/types.ts -> resources/handle.ts",
-  "gpu/context.ts -> resources/dispose.ts",
   "gpu/context.ts -> resources/manager.ts",
   "gpu/context.ts -> stats/state.ts",
   "gpu/device-lost.ts -> events/emitter.ts",
