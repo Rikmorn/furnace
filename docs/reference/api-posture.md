@@ -91,7 +91,7 @@ When adding or changing public surface, apply these.
   - **R8 enforcement (2026-08-04, foundations T1a):** the tier boundary is now
     mechanical, not aspirational. `@furnace/core` names two tiers — the
     **engine substrate** (every module except the two below) and the **world
-    tier** (`field`, `scene` while it lasts, `registry` when it lands) — and
+    tier** (`field` and `registry`) — and
     `packages/core/tests/architecture.test.ts` fails any engine-tier import of
     a world-tier module, any `@furnace/core` self-import, any `_`-prefixed
     export in a public index, and any unpinned module-global mutable state.
@@ -100,8 +100,9 @@ When adding or changing public surface, apply these.
     `@furnace/world`, mechanically, because the import direction was enforced
     all along.
 
-  - **The door rule + its ratchet (2026-08-05, foundations T2):** the fifth
-    clause deferred at T1a now ships. A module's **doors** are four files —
+  - **The door rule as first shipped (2026-08-05, foundations T2 — superseded
+    by the refinement below):** the fifth clause deferred at T1a now ships. A
+    module's **doors** are four files —
     `index.ts` (consumer surface), `internal.ts` (the engine-private seam
     siblings reach through), and the type leaves `types.ts` /
     `context-types.ts`. Every cross-module import must land on one of them; an
@@ -112,30 +113,32 @@ When adding or changing public surface, apply these.
     had one (`gpu`, `input`, `log`, `material`, `mesh`, `physics`, `resources`,
     `stats`).
 
-  - **The principle behind the door rule (2026-08-05 refinement):** the path was
-    always a proxy — **the real rule is surface membership**. Importing a name a
-    module *declared* (its `index.ts` = public surface, its `internal.ts` =
-    package-private seam) is legitimate through any file path; importing an
-    UNDECLARED name is the violation, because it makes publicness an accident of
-    file layout instead of a decision someone made. Deep imports of public names
-    are therefore fine, and plumbing added purely to satisfy a path shape is
-    churn without ownership value. The mechanical clause is being rewritten from
-    path-checking to name-checking against the declared surfaces (the pinned
-    `RATCHETED_EDGES` list shrinks to the genuine ownership gaps, each resolved
-    explicitly: promote-to-public / declare-internal / fix-the-importer). Status
-    + the per-edge audit live in
-    `docs/backlog/engine-architecture/cross-module-import-doors.md`.
+  - **The principle behind the door rule (2026-08-05 refinement, shipped):** the
+    path was always a proxy — **the real rule is surface membership**. Importing
+    a name a module *declared* (its `index.ts` = public surface, its
+    `internal.ts` = package-private seam) is legitimate through any file path;
+    importing an UNDECLARED name is the violation, because it makes publicness an
+    accident of file layout instead of a decision someone made. Deep imports of
+    public names are therefore fine, and plumbing added purely to satisfy a path
+    shape is churn without ownership value.
 
-    The clause lands as a **ratchet**, not a clean rule: 68 of 256 cross-module
-    edges pre-date it and are pinned in `RATCHETED_EDGES`
-    (`packages/core/tests/architecture.test.ts`). The test fails in **both**
-    directions — a new deep import is a violation, and a pin whose edge no
-    longer exists is a stale pin that would silently re-authorize that exact
-    import if it came back. So the list only ever shrinks. The residual is
-    dominated by shared **value** leaves (`resources/handle.ts`,
-    `gpu/errors.ts`, `gpu/dispose-cascade.ts`, `transform/vec3.ts`/`mat4.ts`),
-    which no type-door can absorb; what should replace them is the open
-    question in `docs/backlog/engine-architecture/cross-module-import-doors.md`.
+    The clause in `packages/core/tests/architecture.test.ts` checks exactly
+    that: every cross-module edge's imported **names** must belong to
+    `surfaceOf(target)` = the target's `index.ts` names ∪ its `internal.ts`
+    names. A namespace import (`import * as m`) fails outright — it takes the
+    module wholesale and declares nothing; a type-only import of `types.ts` /
+    `context-types.ts` stays exempt. There is no pin list. The 34 genuine
+    ownership gaps behind the retired `RATCHETED_EDGES` were each resolved
+    explicitly (promote-to-public / declare-internal / fix-the-importer), which
+    is what earned `post/` and `texture/` their `internal.ts` seams; the other
+    34 pins were names already public and became legal by rule.
+
+    When it fires, **a name's absence from both surfaces is the question** — the
+    `_` prefix only answers it for plumbing that was already labelled. Note also
+    that seams do not reach past seams: `gpu/internal.ts` deep-importing
+    `resources/manager.ts` was one of the resolved edges, legal now that
+    `resources/internal.ts` declares those names, but new seam code should import
+    a sibling's declared surface rather than repeat the shape.
 
 - **R9 — Failure-policy composition.** Each kind has a default failure-policy stance: Factory → cold-path-validate (throw on bad input); per-frame Core-mutator (pose setters) → hot-path-trust (no validation, sentinel on degenerate); config Core-mutator (`setAspect`, `setFitPolicy`) → cold-path-validate; Command (`render*`) → warm-path-validate (throw with positional context); Lifecycle setup → cold-path; observability cross-cuts (no-op + warn on writes, zero defaults on reads). **`engine-conventions.md §Failure policy` is the authority** — this rule maps kind→default stance; it never overrides the stance definitions.
 
