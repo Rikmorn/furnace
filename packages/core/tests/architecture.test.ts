@@ -4,7 +4,7 @@ import { Glob } from "bun";
 
 // The two tiers of @furnace/core (spec: foundations program §2 D2, §4 T1a).
 // World-tier modules may import engine-tier modules; NEVER the reverse.
-const WORLD_TIER = new Set(["field", "registry", "scene"]);
+const WORLD_TIER = new Set(["field", "registry"]);
 
 const SRC = resolve(import.meta.dir, "../src");
 
@@ -112,9 +112,6 @@ const PINNED_GLOBALS = [
   "field/registry.ts::generators",
   "physics/internal.ts::initPromise",
   "registry/registry.ts::services",
-  "scene/registry.ts::components",
-  "scene/registry.ts::resources",
-  "scene/registry.ts::settingsSchema",
 ];
 
 test("module-global mutable state matches the pinned inventory", async () => {

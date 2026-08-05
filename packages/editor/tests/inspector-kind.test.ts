@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-// Importing @furnace/core/scene auto-registers the builtins (index.ts side effect).
-import { introspect } from "@furnace/core/scene";
+import { toJsonSchema, z } from "@furnace/core/registry";
 import { resolveKind } from "../src/frontend/inspector/kind.ts";
 import type { JsonSchemaNode } from "../src/frontend/inspector/types.ts";
 
@@ -44,28 +43,59 @@ test("unknown shapes fall back", () => {
   expect(resolveKind({ type: "array" })).toBe("unknown");
 });
 
-// Regression: resolveKind must dispatch off the REAL introspect() wire shape, not
-// a hand-written fixture. z.toJSONSchema hoists furnace meta to the node root; an
-// earlier `schema.meta?.furnace` read silently rendered vec/quat/color/resource
+// Regression: resolveKind must dispatch off the REAL `toJsonSchema` wire shape,
+// not a hand-written fixture. zod hoists `.meta({ furnace })` to the node root;
+// an earlier `schema.meta?.furnace` read silently rendered vec/quat/color/resource
 // fields as the read-only DefaultField (the M5A holistic-review CRITICAL).
-test("resolves real introspect() nodes (root-level furnace key)", () => {
-  const reflection = introspect();
+//
+// The wrappers are load-bearing, not decoration: hoisting has to survive
+// `.default().optional()` (how a schema authors an omittable field with a display
+// seed) and bare `.optional()`, as well as a required field. `io: "input"` is the
+// reflection side of the registry contract.
+const REFLECTED = toJsonSchema(
+  z.object({
+    position: z
+      .tuple([z.number(), z.number(), z.number()])
+      .meta({ furnace: { kind: "vec3" } })
+      .default([0, 0, 0])
+      .optional(),
+    rotation: z
+      .tuple([z.number(), z.number(), z.number(), z.number()])
+      .meta({ furnace: { kind: "quat" } })
+      .default([0, 0, 0, 1])
+      .optional(),
+    scale: z
+      .tuple([z.number(), z.number(), z.number()])
+      .meta({ furnace: { kind: "vec3" } })
+      .default([1, 1, 1])
+      .optional(),
+    geometry: z
+      .string()
+      .meta({ furnace: { kind: "resource", table: "geometries" } }),
+    clearColor: z
+      .tuple([z.number(), z.number(), z.number(), z.number()])
+      .meta({ furnace: { kind: "color" } })
+      .optional(),
+  }),
+  { io: "input" },
+);
+
+test("resolves real reflected nodes (root-level furnace key)", () => {
   const prop = (schema: unknown, key: string): JsonSchemaNode => {
     const props = (schema as { properties: Record<string, JsonSchemaNode> })
       .properties;
     const node = props[key];
-    if (!node) throw new Error(`introspect node missing property "${key}"`);
+    if (!node) throw new Error(`reflected node missing property "${key}"`);
     return node;
   };
 
-  const transform = reflection.components["transform"];
-  expect(resolveKind(prop(transform, "position"))).toBe("vec3");
-  expect(resolveKind(prop(transform, "rotation"))).toBe("quat");
-  expect(resolveKind(prop(transform, "scale"))).toBe("vec3");
+  expect(resolveKind(prop(REFLECTED, "position"))).toBe("vec3");
+  expect(resolveKind(prop(REFLECTED, "rotation"))).toBe("quat");
+  expect(resolveKind(prop(REFLECTED, "scale"))).toBe("vec3");
 
-  const geometry = prop(reflection.components["meshRenderer"], "geometry");
+  const geometry = prop(REFLECTED, "geometry");
   expect(resolveKind(geometry)).toBe("resource");
   expect(geometry.furnace?.table).toBe("geometries");
 
-  expect(resolveKind(prop(reflection.settings, "clearColor"))).toBe("color");
+  expect(resolveKind(prop(REFLECTED, "clearColor"))).toBe("color");
 });

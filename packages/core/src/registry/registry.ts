@@ -9,7 +9,9 @@ export type RegistryOptions = { prefix: string; noun: string };
 
 /**
  * A named-entry store with setup-loud duplicate registration. `entries()` is
- * registration order — load-bearing for the scene loader's two-pass build.
+ * registration order — a guarantee a registry owner may build an ordered pass
+ * on. No owner reads it today; `registry.test.ts` pins the order regardless,
+ * so the guarantee cannot silently lapse before the next one needs it.
  */
 export type Registry<R> = {
   register(name: string, entry: R): void;
@@ -42,10 +44,13 @@ export function createRegistry<R>(opts: RegistryOptions): Registry<R> {
 
 /**
  * Reflect a zod object as JSON Schema. `io` is a PER-REGISTRY choice:
- * scene uses "input" (its introspect.test pins `transform.required === []`);
- * generators use "output" (defaulted fields stay required, `.optional()`
- * fields drop — reproducing the hand-written `required` semantics).
- * The root `$schema` key is stripped: dialect metadata, not shape.
+ * `"output"` keeps defaulted fields required and drops `.optional()` ones —
+ * what the field generators want, since a defaulted param is always present in
+ * the params object the evaluator receives. `"input"` is the authoring view: a
+ * defaulted field is omittable, so it leaves `required`. Either way `.meta({
+ * furnace })` is hoisted to the NODE ROOT, which is where the editor's kind
+ * resolver reads it from. The root `$schema` key is stripped: dialect metadata,
+ * not shape.
  */
 export function toJsonSchema(
   schema: z.ZodObject<z.ZodRawShape>,
@@ -82,8 +87,11 @@ export function parseOrThrow<T extends z.ZodType>(
 /**
  * Read the `furnace` meta payload off a shape field, unwrapping `.optional()`.
  * Returns `undefined` for plain zod fields. The payload's shape is the
- * registry owner's contract (scene narrows to its `FurnaceMeta`; generators
- * attach `{ unit }`) — zod metas are untyped bags, so the owner names `M`.
+ * registry owner's contract (the field generators attach `{ unit }`) — zod
+ * metas are untyped bags, so the owner names `M`.
+ *
+ * No caller today: the pre-reflection reader for owners that need the meta off
+ * the zod schema rather than off `toJsonSchema`'s output.
  */
 export function fieldFurnaceMeta<M = Record<string, unknown>>(
   field: z.ZodType,
@@ -97,10 +105,11 @@ export function fieldFurnaceMeta<M = Record<string, unknown>>(
 
 /**
  * Unwrap `.optional()` and return the inner `z.ZodObject` if the field is one
- * (directly or optional-wrapped); `undefined` for any other zod type. Used to
- * decide whether `resolveParams` (resolution) and `checkResourceRefs`
- * (validation) should recurse into a nested object shape — kept in sync so a
- * nested resource ref is validated at the boundary exactly where it resolves.
+ * (directly or optional-wrapped); `undefined` for any other zod type. The test
+ * a registry owner walking a shape asks before recursing into a nested object.
+ *
+ * No caller today: its user was the scene loader's paired resolution/validation
+ * walk, which needed both halves to agree on where they recursed.
  */
 export function asNestedObject(field: z.ZodType): z.ZodObject | undefined {
   let s = field;

@@ -16,9 +16,5 @@
   "dev": {
     "serveCmd": "bun --hot serve.ts",
     "port": 8765
-  },
-  "editor": {
-    "scenes": "scenes/**/*.scene.json",
-    "extensions": "src/editor-extensions.ts"
   }
 }

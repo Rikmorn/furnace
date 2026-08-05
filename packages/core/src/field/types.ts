@@ -247,8 +247,9 @@ export type GeneratorResult = {
  *    enforces. Without it a bounded control has to invent its own granularity
  *    and emits fractional values the generator then rejects setup-loud, from
  *    inside the preview worker, one round trip after the gesture.
- *  - `furnace.unit` — the display suffix, alongside the `furnace.kind` field
- *    semantics `scene/t.ts` emits. A DISPLAY string, never parsed and never
+ *  - `furnace.unit` — the display suffix, carried in the same node-root `furnace`
+ *    bag (`registry/registry.ts`'s `toJsonSchema` hoists it there) that the
+ *    editor's kind resolver reads `kind` from. A DISPLAY string, never parsed and never
  *    converted, so it must name the unit the evaluator actually reads: the
  *    cave's `chamberRadius` is compared against a region extent in metres
  *    (`"m"`), while a hall's `width` counts 0.5 m COARSE CELLS (`"cells"`) and

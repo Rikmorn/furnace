@@ -55,7 +55,7 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // path in this realm calls it. The lever is one VALUE import, not the module graph of
 // `@furnace/core/field` generally. Historically (measured 2026-07-26) that one import
 // dragged the whole engine in: `packages/core/src/field/artifact.ts` imported
-// `encodeMeshBlob` through `@furnace/core/scene`, whose graph pulled
+// `encodeMeshBlob` through core's since-deleted scene module, whose graph pulled
 // gpu/mesh/material/physics/post behind it — a throwaway entry importing only
 // `@furnace/core/field` bundled to 208 modules with `rapier` in it (~2.9 MB, against
 // ~15 KB with scene marked external). Resolved 2026-08-04 (foundations T1a): the

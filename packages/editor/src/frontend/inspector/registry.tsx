@@ -31,8 +31,8 @@ export const registry: Partial<Record<FieldKind, FieldRenderer>> = {
 	// context that has had NO provider anywhere in `src/` since the scene-editing surface
 	// was deleted, so they always offered an EMPTY list. A control that can never offer a
 	// choice is worse than a legible value. The KINDS stay in the union because a schema
-	// can still name them (`scene/builtins.ts` does, on four fields); what changed is that
-	// nothing the field editor renders resolves to one.
+	// may still name them, but since the scene module was deleted (T2) NO schema in the
+	// repo does — the `t.resource`/`t.ref` helpers that emitted them went with it.
 	resource: DefaultField,
 	ref: DefaultField,
 	object: ObjectField,
