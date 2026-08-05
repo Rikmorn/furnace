@@ -3,11 +3,22 @@
 The editor epic's M4 was renamed from "MCP command layer" to "command layer" after a design
 session concluded that for an FS-capable agent (Claude Code in the repo) **direct file editing is
 the superior mutation interface** — faster, less context, bulk-capable, git-composable, and it
-reaches extension *code*, which scene commands never can. M4 therefore ships the AI-agnostic
-substrate (document session, mutation commands, transactional `validateDocument` validation,
-undo, SSE change feed, scene-file watching with conflict semantics, `scene.validate` +
-`scene.introspect` over HTTP) and proves the seam with Claude Code over plain HTTP + disk edits.
-The AI-specific *bindings* were descoped here, to be designed together, end-to-end.
+reaches extension *code*, which scene commands never can. M4 therefore shipped the AI-agnostic
+substrate (a zod-validated command registry behind one `dispatch()` choke point, a closed
+error-code union, an SSE change feed) and proved the seam with Claude Code over plain HTTP +
+disk edits. The AI-specific *bindings* were descoped here, to be designed together, end-to-end.
+
+> **Re-anchored 2026-08-05 (foundations T2).** M4's substrate ALSO included a mutable document
+> session, a scene mutation command set, transactional `validateDocument` validation, undo, and
+> scene-file watching with conflict semantics. All of it is deleted, along with
+> `@furnace/core/scene`. **What this milestone would mount over is now 8 commands** —
+> `project.get`, `field.load`, `generation.bake` and the five `world.*` verbs
+> (`docs/reference/editor-architecture.md` §4) — and the "direct file editing beats mutation
+> tools" premise points at a different file: an agent authoring a world edits `oplog.json` and
+> re-bakes, or drives `generation.bake`, rather than editing a scene JSON. The three binding
+> shapes below are unaffected — they are about TRANSPORT, and the transport-agnostic substrate
+> is exactly what survived. `viewport.capture` is if anything MORE valuable now: the field is
+> harder to read off disk than a scene document was.
 
 **The design space (bidirectional — all three converge on M4's command registry):**
 
@@ -36,8 +47,8 @@ The AI-specific *bindings* were descoped here, to be designed together, end-to-e
 
 **Boundary:** AI *generation* of assets (textures, meshes, audio) is the fenced-out Rust
 asset-pipeline backend (epic spec §4.1), not this milestone. This milestone is AI authoring of
-scenes/materials with existing engine capability. Runtime AI (NPC planning, TTS) is separate
-again: `docs/backlog/ai-agents/llm-as-planner-experiments.md`.
+WORLDS with existing engine capability — dig, stamp, scatter, paint, bake. Runtime AI (NPC
+planning, TTS) is separate again: `docs/backlog/ai-agents/llm-as-planner-experiments.md`.
 
 **Trigger to revisit:** appetite after M5 lands — outbound UX needs chrome to live in and capture
 wants a stable viewport; slot into the epic execution order at that point. Also reopens early if

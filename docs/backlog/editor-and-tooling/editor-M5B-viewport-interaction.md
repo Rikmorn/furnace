@@ -15,23 +15,31 @@ The following items were explicitly fenced out of M5B scope and remain deferred.
 
 ---
 
-## Remaining fenced items
+## Remaining fenced items — BOTH CLOSED BY DELETION (foundations T2, 2026-08-05)
 
-**6. `rebuildResource` + resource live-preview cascade** — M5A/M5B resources commit without
-live preview (the `onPreview` callback in `ResourcesInspector` is a no-op; the SSE echo drives
-a full `loadScene` reload). A `rebuildResource` on `LoadedScene` (analogous to `rebuildEntity`)
-could be called from a `viewport-host.previewResource` method, with `ResourcesInspector.onPreview`
-wired to it. The cascade implication: an entity that references the previewed resource must also
-be rebuilt (its bound material/shader/geometry changes). This is a non-trivial dependency-graph
-traversal.
+Two items were fenced out of M5B and carried here:
 
-**8. Hierarchy tree** — a tree view of entities (parent→children) in the entities panel. M5B's
-`EntitiesPanel` is a flat list. The scene document's entity model is also flat today (no parent
-field); the hierarchy view may require either an entity-parenting field in the scene format or
-a local editor-only grouping layer. Requires a scene-format parent decision before the view
-can be implemented.
+- **6. `rebuildResource` + resource live-preview cascade** — a `rebuildResource` on
+  `LoadedScene`, analogous to `rebuildEntity`, so a resource edit could live-preview instead
+  of driving a full `loadScene` reload.
+- **8. Hierarchy tree** — a parent→children tree in the entities panel, gated on the scene
+  format gaining an entity-parenting field.
 
----
+**Neither has a subject any more.** `@furnace/core/scene` is deleted, so `LoadedScene`,
+`rebuildEntity` and `loadScene` do not exist and there is no scene format to add a parent field
+to; the `EntitiesPanel` those items were measured against went at F4.5a. They are recorded here
+as closed-by-deletion rather than removed, because "we deliberately never built these" is the
+useful fact for anyone reading this M5B record.
+
+The live descendants, if either want returns: live preview against the FIELD is the
+`FieldHost` reconfigure session (`editor-architecture.md` §13, §17.3), and a hierarchy over
+generator entities — a different object model — would start from the entities palette
+(§17.2/§17.7). The general transform-hierarchy question stays open as
+`engine-architecture/transform-hierarchy-helpers.md`.
+
+(Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel
+speed-trim; `viewport-host/camera-control.ts` `flyLook`/`flyMove`.)
+
 
 ## New deferred items surfaced during M5B
 
@@ -166,13 +174,11 @@ tranche (a future editor-redesign pass). Worth doing before more field types are
 
 ## Trigger to revisit (remaining fenced items)
 
-Items 6 and 8 become actionable when the next editor milestone targets them:
-- Item 6 (`rebuildResource`) — when resource live-preview is prioritized (a future editor-redesign pass or later).
-- Item 8 (hierarchy tree) — when entity-parenting is added to the scene format.
+None — see above; both are closed by deletion. The items in "New deferred items surfaced
+during M5B" keep their own triggers.
 
-(Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel speed-trim; `viewport-host/camera-control.ts` `flyLook`/`flyMove`.)
 
 ## Reference
 
-- As-built M5A/M5B architecture: `docs/reference/editor-architecture.md` §10–§11
+- As-built M5A/M5B architecture: the sections describing it were deleted from `docs/reference/editor-architecture.md` when the surface was (F4.5a chrome, T2 daemon + core); git history is the record. What stands today: §9 (the inspector module, which survived intact) and §16–§18 (the overlay cockpit that replaced the rest).
 - SOTA research (picking, gizmo math, form-engine): `docs/research/2026-06-11-editor-m5-inspector-sota.md`

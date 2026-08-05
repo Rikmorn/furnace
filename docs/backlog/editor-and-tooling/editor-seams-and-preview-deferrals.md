@@ -99,19 +99,45 @@ visibility swap + the zero-size init comment), `packages/editor/src/frontend/com
 (dockview panel registration, `previewHostRef`), `packages/editor/src/frontend/lib/panels.ts`
 (`PANELS` registry) — all three deleted at F4.5a with the dock and the preview host.
 
-## Editor viewport HDR context + post-chain preview
+## The editor viewport is non-HDR and draws no post chain
 
-> Epic 3 disposition (2026-07-06, corrected at the 3.1 seal): **NOT** subsumed — this entry stays OPEN. Slice 3.1 added a **separate** generation-session-only HDR preview host (`packages/editor/src/viewport-host/preview-host.ts`; editor-architecture.md §13.1) for the cockpit. That host does **not** change the main scene-editing viewport host (`renderLoaded` in `index.ts`), which is still non-HDR and still passes `effects: []`. This entry's gap — the scene's post chain in the *normal editing viewport* — is unchanged by 3.1.
+> **Re-anchored 2026-08-05 (foundations T2).** This entry was written against the SCENE-editing
+> viewport host (`viewport-host/index.ts` `renderLoaded`, which passed `effects: []` and could
+> not render a scene document's authored post chain). That host, the Slice 3.1 preview host
+> beside it, and the scene format's `effects` table are all deleted. **The gap itself is
+> unchanged and now belongs to the field host**, which is the editor's only viewport — so the
+> entry is restated rather than closed. The old parenthetical about `scene.setResource`'s
+> `tableEnum` not covering `textures`/`effects` is dropped outright: that command no longer
+> exists.
 
-The editor viewport-host (`packages/editor/src/viewport-host/index.ts`, `renderLoaded`) now renders the scene's **lights** and **ambient** — the lit-viewport payoff — but passes `effects: []` to `frame.render`: the scene's **post chain is deferred**. The host's GPU context is **non-HDR** (`init()` requests the default `hdr: false`).
+`createFieldHost` requests a **non-HDR** context — `requestContext(canvas, { sampleCount: 4 })`,
+taking `hdr`'s `false` default — and its `frame.render` call passes **`effects: []`**
+(`packages/editor/src/viewport-host/field-host.ts`). So the editor viewport shows lights +
+ambient + studio/normals shading and nothing else: no bloom, no tonemap, no fog-through-post.
 
-This is a **fidelity** deferral, not a crash workaround. A scene's post chain (e.g. `bloom → tonemap`) is authored for the *consumer's* HDR pipeline, where the renderer draws the scene into an `rgba16float` intermediate and the tonemap pass maps that HDR target down to the LDR swap chain. The `frame.render` HDR↔effects contract is (verified in `packages/core/src/frame/render.ts`): it throws **only on the inverse** — `hdr === true` **and** an empty effect chain (an `rgba16float` scene target with no pass to reach the LDR swap chain). A **non-HDR** context with effects does **not** throw. So the editor *could* pass `l.effects` against its LDR target without crashing — but the HDR-authored chain would run against an LDR scene target and produce **wrong output**, not the real preview. Hence `effects: []`.
+The game does not look like that. `packages/dungeon/src/main.ts` requests
+`{ sampleCount: 4, hdr: true }` and renders through `bloom → tonemap` with exponential fog.
+**The editor is therefore a deliberately different look from the thing being authored** — which
+is fine for sculpting geometry (arguably better: an unfiltered view of the surface) and wrong
+for judging mood, emissive materials, or anything a bloom threshold decides.
 
-**Trigger to revisit:** when the editor viewport gains an **HDR context** (host `init()` requests `hdr: true`, scene target becomes `rgba16float`). At that point pass `l.effects` instead of `[]` in `renderLoaded`. Note: under HDR, `frame.render` *requires* a non-empty effect chain — a post-chain scene satisfies that, but an HDR editor context viewing a scene with **no** post chain would need a default final pass (e.g. `post.tonemap`) to avoid the throw.
+The `frame.render` HDR↔effects contract is (verified in `packages/core/src/frame/render.ts`) that
+it throws **only on the inverse** — `hdr === true` **and** an empty effect chain (an
+`rgba16float` scene target with no pass to reach the LDR swap chain). A non-HDR context with
+effects does not throw. So an HDR editor viewport is not a one-line change: going `hdr: true`
+REQUIRES supplying at least a final tonemap pass, and switching context flags disposes and
+re-inits the host (the same path the AA switch already takes — `editor-architecture.md` §16.5),
+so the field, op log, tool and camera have to survive it exactly as they do there.
 
-(Separately: the editor's `scene.setResource` command currently only authors `geometries | shaders | materials` — `src/daemon/handlers.ts` `tableEnum`. The core format now also has `textures` + `effects` tables, but the editor cannot yet mutate them via command. Extending the command surface to author textures/effects is adjacent to this entry but distinct — it is the authoring path, not the render path.)
+**Trigger to revisit:** a gate finding about the editor's look diverging from the game's
+(mood, emissives, fog), OR any work that gives the editor a "preview as the game sees it" mode.
+The AA switch's dispose-and-re-init path is the precedent to build on, not a new mechanism.
 
-**Reference:** `docs/reference/editor-architecture.md` (§1, §11 — editor-host render path), `packages/editor/src/viewport-host/index.ts` (`renderLoaded`, the `effects: []` comment block), `packages/core/src/frame/render.ts` (the HDR↔effects throw contract).
+**Reference:** `packages/editor/src/viewport-host/field-host.ts` (the `requestContext` call and
+the `effects: []` render), `packages/dungeon/src/main.ts` (what the game actually requests),
+`packages/core/src/frame/render.ts` (the HDR↔effects throw contract),
+`docs/reference/editor-architecture.md` §16.5 (the context-property re-init precedent).
+
 
 ## The stamp-preview worker evaluates generators OUTSIDE core's guard seam
 
@@ -185,13 +211,3 @@ still a design decision. Nothing about `usesSeed` is outstanding.
 `packages/editor/src/frontend/lib/field-protocol.ts` (`handleStampPreview`),
 `packages/core/src/field/types.ts` (`GeneratorDef.emits` TSDoc, which states the guard is the
 committer's and that direct `evaluate` calls skip it).
-
-## LoadedScene → frame.render clearColor: tuple↔Vec4 ergonomics seam
-
-`LoadedScene.settings.clearColor` resolves to a hand-authored RGBA tuple `[number, number, number, number]` (via `t.vec4()` = a zod tuple — the INPUT-side vec type), but `frame.render`'s `RenderOptions.clearColor` is `Vec4` = `Float32Array` (the STORAGE-side vec type). So any consumer driving `frame.render` directly from a loaded scene's settings must convert tuple→Float32Array. The M3 editor's `ViewportHost` is the **first** such consumer and absorbs this with a module-private `toVec4()` helper (`packages/editor/src/viewport-host/index.ts`) using the public `vec4.fromValues`; a grep this session found no prior precedent in core/hello-world/cookbook.
-
-This is consistent with the engine's deliberate storage-vs-input vec distinction (tuple for bounded hand-authored input, Float32Array for storage/compute), so it is **not** a bug — but it is a recurring conversion every `LoadedScene`-driven render site will hand-roll. Options if it proliferates: (a) have `loadScene` resolve `settings.clearColor` to a `Vec4` on the `LoadedScene` (engine-internal resolved data is storage-side), keeping the document/input tuple as-is; (b) export a tiny `clearColorToVec4` helper from core; (c) leave per-consumer conversion as the documented recipe. Option (a) is the cleanest single-source-of-truth move but is an engine change with its own review.
-
-**Trigger to revisit:** A second `LoadedScene.settings`-driven `frame.render` site appears (e.g. Plan B's React chrome wiring, or a cookbook scene-render demo), OR an engine session is already touching `loadScene`/`SceneSettings` resolution.
-
-**Reference:** `packages/editor/src/viewport-host/index.ts` (`toVec4` boundary helper), `packages/core/src/scene/builtins.ts` (`SceneSettings.clearColor = t.vec4().optional()`), `packages/core/src/frame/render.ts` (`RenderOptions.clearColor: Vec4`). Surfaced by the M3 Plan A Task 6 implementer + holistic review. See the storage-vs-input vec convention.

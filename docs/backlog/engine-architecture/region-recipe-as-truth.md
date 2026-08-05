@@ -31,12 +31,31 @@ point, the bake script is throwaway (as in Slice 2.1) and the canonical model do
 need to be formalised.
 
 **Reference:** Slice 2.1 spec + design (field-as-geometry north star), memory
-`project_dungeon_epic2_procgen.md` (the 2.1 brainstorm + slice ladder). The
-`settings.region` provenance block in `@furnace/core/scene` (`SceneSettings`) is the
-partial materialisation of this model in the scene format.
+`project_dungeon_epic2_procgen.md` (the 2.1 brainstorm + slice ladder).
 
 **Disposition note (2026-07-23, F3a seal):** the One Field era realizes this idea for
 the FIELD (the op log + generator provenance IS recipe-as-truth — `@furnace/core/field`
 serializeOps/parseOps + GeneratorEntity). The old `.fmesh`/`RegionData` model this entry
 targets retires at F6's clean cut — review there: either this entry dies with it, or a
 residual (non-field regions, if any survive) gets restated against the field model.
+
+**RESOLVED BY THE FIELD, 2026-08-05 (foundations T2) — kept only until its residual is
+judged.** The cut this entry was waiting for came early and from the side: the region world,
+its `.fmesh`/`RegionData` model and `@furnace/core/scene`'s `settings.region` provenance block
+(the partial materialisation this entry pointed at) are **all deleted**. Every bullet above is
+now shipped, for the field:
+
+- The canonical model IS `{ provenance, params, ordered edit-ops }` — `oplog.json` is the
+  ordered op log, `GeneratorEntity` carries `{ generatorId, params, seed, region, opSpan }`,
+  and the density store is its evaluated state. The editor authors ops; the bake reruns nothing
+  at runtime (the game loads the derived artifact, per the charter's no-replay-at-runtime rule).
+- The **merge story** landed exactly as designed: stable ids + provenance-tagged ops, no merge
+  engine. `reconfigureGenerator` splices one entity's span and replays downstream ops.
+
+What remains genuinely open is the **content-hash cache invalidation** rule — a baked mesh is
+only valid when the hash of (ops + mesher version) matches a hash stored in the artifact, and
+neither the manifest nor the `.fmesh` header carries one today. Nothing has needed it: the bake
+is written whole by one process, and the default world's determinism is proven by re-baking
+rather than by a hash. **Delete this entry** and open a narrow one for the hash if a stale-bake
+class ever shows up (a hand-edited chunk file, a partial upload, a mesher change with no
+re-bake).

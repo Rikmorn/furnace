@@ -15,8 +15,10 @@ Two members of the charter's backlog column are NOT here, deliberately:
   dig-heavy terrain"). P5 **passed** at the F4.5 holistic gate, so its stop condition never
   fired and the entry was never filed. **Its trigger still stands:** if studio shading ever
   reads flat on dig-heavy terrain, this is the answer to reach for.
-- **scene-chrome-as-consumer-surface** already has its own entry
-  (`scene-chrome-returns-as-consumer-surface.md`) and is a bigger question than a capability.
+- **scene-chrome-as-consumer-surface** had its own entry and was a bigger question than a
+  capability. **It is now closed by deletion (2026-08-05, foundations T2):** the daemon's
+  `scene.*` half and `@furnace/core/scene` were deleted, so there is no parked capability and
+  no scene document to author. See `docs/reference/editor-architecture.md` §19.
 
 ---
 

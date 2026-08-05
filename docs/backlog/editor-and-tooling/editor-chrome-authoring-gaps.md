@@ -8,92 +8,24 @@ check whenever you touch `packages/editor/src/frontend/components/` or
 `src/frontend/inspector/`**. Sections keep their original content.
 
 > **State of this file after F4.5b (2026-08-01).** The refresh-guard section this file's
-> preamble names ("An entity row's expanded params can show the PREVIOUS world's values
+> preamble named ("An entity row's expanded params can show the PREVIOUS world's values
 > after a load") was RESOLVED and removed at F4.5b Task 4 — verified: `sameParams` in
 > `frontend/lib/field-host-mirrors.ts` compares the RENDERED projection of each param
 > (`formatParam`, the same function the row's `<dl>` uses) and `sameEntities` calls it, so
 > the class is closed rather than merely deleted. The EnumField section is resolved
-> editor-side (F4.5b Task 11) and keeps its note for the CORE half. Three sections —
-> entity add/delete/duplicate, textures+effects authoring, light-edit preview — are STALE
-> rather than resolved: their daemon/core facts still hold, but the chrome they were
-> measured against was deleted at F4.5a. Each says so in place; retiring them is a seal
-> decision, not a doc-pass one.
+> editor-side (F4.5b Task 11) and keeps its note for the CORE half.
 
-## Entity add / delete / duplicate UI in the editor chrome
-
-The daemon exposes `scene.addEntity` / `scene.removeEntity` (editor-architecture §4 command
-table) with full validation + undo, but the **chrome has no UI for them**: the Entities panel
-is select-only, `Del`/`⌫` on a selection does nothing, and there is no "add entity"
-affordance. You can mutate components/resources/settings of EXISTING entities, but you cannot
-create or remove entities without hand-editing the scene JSON.
-
-Surfaced at the Slice 3.2 `/impeccable` gate (Alex persona: "Del on selection → nothing;
-entity add/delete doesn't exist in the chrome"). Deferred there as out of scope for the
-foundation pass, whose goal was chrome finish, not new authoring verbs.
-
-**Scope when picked up:**
-- Add affordance (a "+" in the Entities-panel header / a context action) → `scene.addEntity`
-  (id optional/generated), then select the new entity.
-- Delete via `Del`/`⌫` on the selection + a context action → `scene.removeEntity`, guarded by
-  the in-chrome confirm; multi-select = one undo entry (matching the gizmo/batch precedent).
-- Duplicate (add + copy components) is the natural third verb.
-- Reference integrity: removing an entity other entities reference — the loader's
-  resolve-or-throw validates at load, but the UI should warn before a dangling ref commits.
-
-**Couples to** the Entities-panel IA (the 3.2 gate's top P2 — a filter/search box + a
-scene/room `role="tree"` across 200+ cryptic IDs):
-add/delete and findability are the same panel and likely one pass.
-
-**Trigger to revisit:** when in-editor scene authoring (not just tuning existing entities) is
-needed — the procedural-authoring editor pass (Slice 3.2.5 / the interaction-model redesign).
-
-**Reference:** `packages/editor/src/daemon/handlers.ts` (`scene.addEntity`/`removeEntity`),
-`packages/editor/src/frontend/components/EntitiesPanel.tsx`,
-`docs/reference/editor-architecture.md` §4.2, sibling `scene-chrome-returns-as-consumer-surface.md`.
-
-**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon half is
-intact and still registered: `scene.addEntity` and `scene.removeEntity` are in
-`daemon/handlers.ts`. The CHROME half named above is not — `components/EntitiesPanel.tsx`
-was deleted with the whole scene-editing surface at F4.5a, and the editor is field-only
-today, so the Reference line above points at a file that no longer exists. Nothing here was
-fixed; the surface the gap was measured against went away. Note also that the FIELD editor
-now has its own entity verbs (`FieldHost.deleteEntity` / `duplicateEntity`, F4.5b Task 4,
-D-14), which is a different object model — generator entities, not scene entities — so it
-does not discharge this. Whether this entry retires or re-targets is a call for the F4.5
-seal, not for a doc pass.
-
-## Editor authoring of the `textures` + `effects` resource tables
-
-The core scene format now has five resource tables — `geometries, textures, shaders, materials, effects` (`packages/core/src/scene/t.ts` `TABLE_ORDER`). The editor can **load, validate, render, and reflect** all five: a scene using textures/effects opens fine, renders in the viewport (lights/ambient; post deferred — see the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`), and the inspector's resources panel lists texture/effect resources with their fields.
-
-But the editor's **command layer cannot mutate** the two new tables. `scene.setResource` and `scene.removeResource` (`packages/editor/src/daemon/handlers.ts:154`, `:175`) gate their `table` arg on:
-
-```ts
-// handlers.ts:23
-const tableEnum = z.enum(["geometries", "shaders", "materials"]);
-```
-
-So a command targeting `table: "textures"` or `table: "effects"` is rejected before it reaches `mutations.setResource`. Consequence: you can author a textured/post scene by **hand-editing the JSON**, but you cannot **add, edit, or remove** a texture or effect resource through the editor (the inspector reflects them, but committing a change to one would be rejected by the command registry). This is the *authoring* path; the *render* path is covered separately by the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`.
-
-This was an accepted, documented scope boundary of the M1-slices batch (the batch's goal was "core loader reproduces the bowling setup from data + headless render + lit editor viewport", not full editor authoring of the expanded set). Noted in `docs/reference/editor-architecture.md §12`.
-
-**Context to weigh when picking this up:**
-- Extend `tableEnum` to all five `TABLE_ORDER` tables (or derive it from `TABLE_ORDER` so it can't drift again — single source of truth).
-- Verify `mutations.setResource` + the registry-validated mutation path handle a `textures`/`effects` entry correctly (kind params, build/destroy on live preview, leak-clean reconcile) the same way they do for materials.
-- The M5A inspector's resource-edit → command dispatch for the new tables (does editing a checkerboard's `cells` or a bloom's `intensity` round-trip through `scene.setResource`?).
-- Adding/removing a texture/effect resource and the reference integrity it implies (a material referencing a deleted texture; `settings.post` referencing a deleted effect — the loader's resolve-or-throw + the now-recursive `checkResourceRefs` already validate refs at the boundary).
-
-**Trigger to revisit:** when in-editor authoring of textured / post-processed scenes is needed (likely alongside `scene-chrome-returns-as-consumer-surface.md`), i.e. when "open + render a hand-authored lit/textured scene" is no longer enough and users need to *create* texture/effect resources in the editor.
-
-**Reference:** `packages/editor/src/daemon/handlers.ts` (`tableEnum`, `scene.setResource`, `scene.removeResource`), `packages/core/src/scene/t.ts` (`TABLE_ORDER`), `docs/reference/editor-architecture.md §10`, sibling entry: the *Editor viewport HDR context + post-chain preview* section of `editor-seams-and-preview-deferrals.md`.
-
-**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved.** The daemon-side fact is
-verbatim true and unchanged: `tableEnum` in `daemon/handlers.ts` is still
-`z.enum(["geometries", "shaders", "materials"])` and both resource verbs still gate on it.
-What is gone is the other end — the M5A inspector's resources panel and every scene surface
-that would have edited a texture or effect were deleted at F4.5a (field-only editor). So the
-command-layer gap is real and the surface that would use it is absent; same
-retire-or-re-target call as the section above, at the F4.5 seal.
+> **Three sections REMOVED at foundations T2 (2026-08-05).** Entity add/delete/duplicate UI,
+> `textures`+`effects` authoring, and the light-edit preview matrix were each marked "STALE,
+> not resolved" at F4.5b: the CHROME they were measured against had been deleted, but their
+> daemon/core facts still held, so the retire-or-re-target call was deferred. T2 deleted the
+> other end — the `scene.*` command family, the mutation set and `@furnace/core/scene`
+> itself — so `scene.addEntity` / `scene.removeEntity` / `scene.setResource` / `tableEnum` /
+> `TABLE_ORDER` / `builtins.ts buildLight` no longer exist and the reproduction matrix names
+> a "SCENE editor" that exists nowhere. A gap between two deleted things is not a gap. The
+> field editor's own entity verbs (`FieldHost.deleteEntity` / `duplicateEntity`, F4.5b Task
+> 4) are a different object model — generator entities — and any want there gets its own
+> entry measured against that surface.
 
 ## EnumField stringifies enum members and never coerces back — numeric enums are dead on arrival
 
@@ -122,8 +54,9 @@ but it is a workaround living in core for an editor-side gap.
 
 The fix is in `EnumField`: carry the schema's original member alongside its string label
 and commit the member, not the label. That is a small change but it needs its own test, and
-it touches a shared inspector primitive used by every enum in the editor (today: the hall's
-`pillars`, plus scene-format enums), so it wants a deliberate pass rather than a drive-by.
+it touches a shared inspector primitive used by every enum in the editor (the hall's
+`pillars`, the cave's `theme`, the stamp `rotation` below), so it wants a deliberate pass
+rather than a drive-by.
 Once it lands, `rotation` can become a numeric enum and the coercion note in the
 `ROTATIONS` TSDoc can go.
 
@@ -159,58 +92,6 @@ the next schema that wants a numeric enum in CORE (the editor no longer blocks o
 `fields/EnumField.tsx` + `fields/SegmentedField.tsx` (both commit the member),
 `packages/editor/tests/inspector/enum-field.test.tsx`, `packages/core/src/field/generators.ts`
 (`ROTATIONS` TSDoc — the remaining half).
-
-## Light-edit preview: transform-direction bug FIXED; Safari per-property verification pending
-
-**Investigation (Slice 3.2.2 Task 13).** The bug report ("light component edits
-don't stick in Safari"; M1 Chrome gate saw intensity work) resolved into TWO
-separate questions, answered by a source trace of the host preview path:
-
-- **Transform-derived DIRECTION — was broken UNIVERSALLY, now FIXED.**
-  `previewEntity`'s `transform` fast-path (`setEntityTransform`) pokes only mesh
-  transforms; a light's direction is transform-derived and refreshed only by
-  `rebuildEntity`. So editing a light entity's rotation never previewed its
-  direction — in Chrome OR Safari. Fixed by gating the fast-path: light/camera
-  entities route through clone+rebuild. Regression-pinned (`transformEditNeedsRebuild`
-  predicate test + a host GPU test).
-
-- **INTENSITY / COLOR / TYPE — have a working host preview path (code-verified).**
-  These go through clone+rebuild → `rebuildEntity` → `result.lights` refreshed.
-  So the seal did NOT fully over-generalize: these DO preview at the host level
-  (Chrome-confirmed for intensity).
-
-**Residual Safari-specific unknown (needs the user's Safari gate — not
-reproducible without Safari in this session).** If light intensity/color still
-"don't stick" in Safari despite the working host path, the failure is in the
-inspector→preview/commit event path, most likely the ColorField change-vs-blur
-class for light COLOR (the prior `4e22f4f`/`9f8bb41` saga). The Task-1 harness
-now pins ColorField's commit-on-native-change / blur-never-commits behavior, so
-that class is guarded — but Safari's native `<input type="color">` event timing
-is only verifiable in Safari.
-
-**Reproduction matrix to run at the Safari gate (Chrome verify after):** for a
-directional light entity, edit each of {intensity (NumberField), color
-(ColorField), type (enum Select), rotation (transform → direction)} and record
-preview-updates? / commits-and-sticks? in BOTH browsers. Direction should now
-preview in both (this fix). If intensity/color fail in Safari only, the fix is
-in the inspector event path (ColorField), not the host — file a follow-up.
-
-**Trigger to revisit:** the next user Safari gate that touches the SCENE editor
-(run the reproduction matrix above then), or the UX/polish stage's editor pass —
-whichever comes first. (Line added 2026-07-25: the hygiene prune found this
-section had no trigger and would never surface from a trigger grep.)
-
-**Reference:** `packages/editor/src/viewport-host/index.ts` `previewEntity` +
-`packages/editor/src/viewport-host/preview-gate.ts` `transformEditNeedsRebuild`;
-`packages/core/src/scene/loader.ts` `setEntityTransform`/`rebuildEntity`;
-`packages/core/src/scene/builtins.ts` `buildLight`.
-
-**Surface check 2026-08-01 (F4.5b Task 14) — STALE, not resolved; the editor half of the
-Reference above is dead.** `preview-gate.ts` no longer exists and `previewEntity` returns no
-hits anywhere in `packages/editor/src` — the scene host went with the scene-editing surface
-at F4.5a. The core-side references still resolve. The reproduction matrix this section exists
-for names "the SCENE editor", which the editor no longer has, so its trigger can never fire
-as written. Retire-or-re-target at the F4.5 seal.
 
 ## The entities palette has no roving focus, and D-14 just made that expensive
 

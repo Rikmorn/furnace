@@ -12,21 +12,29 @@ have been stable since M3/M4 and that no chrome rewrite touches. §9–§18 are 
 authoring tool: the inspector module, the field host and its workers, and the three F4.5
 slices that made the chrome what it is. §19 lists what is deferred.
 
-**What was cut at this seal, and where it went.** The editor once had a dockview chrome, a
+**What was cut, and where it went.** The editor once had a dockview chrome, a
 scene-document surface (entities panel / inspector panel / GPU-id picking / translate gizmo
 over a `ViewportHost`), a preview host, a World panel and a generation worker. F4.5a deleted
-all of it. Sections describing that deleted code are **gone from this doc** rather than kept
+all of it. **Foundations T2 (2026-08-05) then deleted the daemon half too** — the `scene.*`
+command family, the mutable document session, the pure mutation set, the Node-side registry
+bundle and the scene-file watcher — in the same tranche that deleted `@furnace/core/scene`
+itself. There is no scene document anywhere in furnace now: the field artifact IS the
+content model. Sections describing deleted code are **gone from this doc** rather than kept
 as marked-stale history — the surviving mechanisms were folded into the sections that own
-them now (the inspector module into §9, `generation.bake` into §4.3, the core-side loader
-coverage into §10, the promoted pure-math modules into §14 and §17.3). The daemon still
-implements the whole `scene.*` command family (§4.2) and nothing in the chrome calls it; the
-case for a scene surface returning as a CONSUMER-facing extension is
-`docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`.
+them now (the inspector module into §9, `generation.bake` into §4, the promoted pure-math
+modules into §14 and §17.3). The session's transactional `apply` design outlived its code as
+a donor pattern: `docs/learnings/2026-08-05-session-apply-transactional-pattern.md`.
+
+**Section numbers are stable and are never renumbered** — seals and backlog entries cite
+them. T2 left two vacancies rather than shifting everything after them: §4 lost its
+subsections (§4.1–§4.3 collapsed into one flat section) and **§10 (scene-loader coverage) is
+retired**, since the built-in registry it tabled no longer exists.
 
 **Lineage**, for anyone reading a commit or a seal entry and looking for its landing
 place here: M3 (shell) + M4 (command layer) + M5A/M5B (the retired scene surface) built
-§1–§8; the M1-slices batch built the core-side loader coverage (§10); Epic 3's 3.0/3.1/3.2
-slices opened the procedural-authoring axis; the **One Field** phase built the field tool —
+§1–§8; the M1-slices batch built the core-side loader coverage (retired §10); Epic 3's
+3.0/3.1/3.2 slices opened the procedural-authoring axis; the **One Field** phase built the
+field tool —
 F1+F2a (§11), F2b (§12), F3a (§13), F3b (§14), F4 (§15) — and the **F4.5 stage** rebuilt the
 chrome over it in three slices: F4.5a the shell (§16), F4.5b the hands (§17), F4.5c the
 finish (§18).
@@ -49,7 +57,7 @@ It prebuilds the chrome (§7), then starts the daemon with the consumer's direct
 
 A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — enforced by the static scan in `packages/editor/tests/no-bun-leakage.test.ts` (regex-scans `src/` for Bun-API usage). It builds on `node:http`, `node:fs`, `node:path`, `node:crypto`, `node:os`, `node:url`; it runs under plain Node ≥20 and under Bun.
 
-**Binding & lifecycle.** `startServer(opts)` (`src/daemon/server.ts`) creates a `node:http` server and listens on **`127.0.0.1`** only — one local single-user session. Port defaults to `4500` (`main.ts`), overridable with `--port`; tests pass `port: 0` to let the OS pick. `close()` tears down the server, the document session, the SSE hub, and the esbuild bundler context.
+**Binding & lifecycle.** `startServer(opts)` (`src/daemon/server.ts`) creates a `node:http` server and listens on **`127.0.0.1`** only — one local single-user session. Port defaults to `4500` (`main.ts`), overridable with `--port`; tests pass `port: 0` to let the OS pick. `close()` tears down the server, the SSE hub, the extensions-directory watch, and the esbuild bundler context.
 
 **Routes** (matched in this order in `server.ts`'s `route`):
 
@@ -58,20 +66,21 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 | `GET /engine.js` | Builds and returns the browser engine bundle (§3) as `text/javascript`. esbuild build failure → `500` with the diagnostics as plain text. |
 | `GET /api/events` | Subscribes the response to the SSE change feed (§5). Stays open. |
 | `POST /api/<command>` | Reads the request body, JSON-parses it (`{}` if empty body; invalid JSON → `400 invalid-json`), and `dispatch()`es the command (§4). Always `200` with the handler result, or the error envelope on an `EditorError`. |
-| `GET <anything else>` | Chrome first: serves a static file from the prebuilt chrome dir (§7), with a path-traversal guard. On a chrome miss, falls back to **project asset serving**: the path is mapped onto the project root (root-contained; dotfile segments and `node_modules` refused) so root-absolute sidecar URLs in scene documents — e.g. the dungeon's `/regions/*.fmesh`, fetched same-origin by the browser-side `loadScene` — resolve exactly as on the consumer's own dev server (added at the 3.0 gate, where region-cavern's `.fmesh` 404'd). Neither hit: missing chrome dir → `503` with a "run build:frontend" hint; otherwise `404`. |
+| `GET <anything else>` | Chrome first: serves a static file from the prebuilt chrome dir (§7), with a path-traversal guard. On a chrome miss, falls back to **project asset serving**: the path is mapped onto the project root (root-contained; dotfile segments and `node_modules` refused) so a project's root-absolute asset URLs resolve exactly as on the consumer's own dev server. This is how the chrome reaches the three project→editor catalogs (`/catalog/materials.json`, `/catalog/entities.json`, `/catalog/agent.json` — §11, §14, §15) and the archetype `/catalog/*.fmesh` meshes. Neither hit: missing chrome dir → `503` with a "run build:frontend" hint; otherwise `404`. |
 | any other method | `404 not-found`. |
 
 **Error handling.** The `route` body is wrapped in a try/catch: a thrown `EditorError` becomes `{ error: { code, message } }` at the code's HTTP status (`httpStatus`, §6); any other thrown value becomes `500 internal` with the error's message. There is **no request body-size cap** — by design, since the daemon binds localhost and serves a single user (`readBody` documents this; revisit if it ever accepts non-localhost connections).
 
-## 3. Project-first bundling — two targets
+## 3. Project-first bundling — one target
 
-The daemon builds the consumer's engine code in **two** esbuild bundles, both resolving every import from the project root's `node_modules` so there is exactly **one** core / registry / zod instance (Branch A's instance-identity requirement).
+The daemon builds the consumer's engine code in **one** esbuild bundle, resolving every import from the project root's `node_modules` so there is exactly **one** core / registry / zod instance (Branch A's instance-identity requirement). It was two until foundations T2: a second, node-platform *registry bundle* existed only to give the daemon `@furnace/core/scene`'s `validateDocument` for server-side mutation validation, and it went with the scene surface (below).
 
-**(a) Browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects), re-exports the **one** engine host, and re-exports the consumer's extension module as a **namespace**:
+**The browser engine bundle** — `src/daemon/bundle.ts`, served at `GET /engine.js`. A virtual stdin entry imports the consumer's extensions (for their registration side-effects), re-exports the **one** engine host, and re-exports the consumer's extension module as a **namespace**:
 
 ```
 import "<root>/<extensionsEntry>";                          // registration side-effects, when configured
 export { createFieldHost } from "@furnace/editor/viewport-host";
+export { getService } from "@furnace/core/registry";        // the consumer's service seam (T1b)
 export * as extensions from "<root>/<extensionsEntry>";     // the consumer's public surface, when configured
 ```
 
@@ -79,24 +88,13 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 `createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and `viewport-host/index.ts`'s own header records that the directory name is what is left of them. The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
 
-**The analyzer no longer reads the namespace** (T1b): the virtual entry additionally re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `lib/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
+**The analyzer no longer reads the namespace** (T1b): the virtual entry re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `lib/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
 
-**(b) Node-platform registry bundle** — `src/daemon/registry-bundle.ts`. The daemon needs the *same* registry the engine bundle has, but on the Node side for validation. Its virtual entry imports the consumer's extensions then re-exports exactly three names from the consumer's `@furnace/core/scene`:
+**The daemon holds no schema knowledge.** The second bundle (`src/daemon/registry-bundle.ts`) existed for exactly one job: import the consumer's extensions on the *Node* side so `session.apply` could run `validateDocument` against the project's own registry before committing a scene mutation. With the mutations gone there is nothing server-side to validate — every schema decision now happens in the browser, inside the field host and the generator registry it drives. The daemon writes bytes (`generation.bake`) and reads them back (`field.load`); it does not know what a generator is. Deleted with it: the `extension-build-failed` error code, whose only throwers were that bundle's build and import paths.
 
-```
-import "<root>/<extensionsEntry>";          // when configured
-export { validateDocument, introspect, CURRENT_SCENE_VERSION } from "@furnace/core/scene";
-```
+**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 closed that (§5, "Directory watching"): `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend hard-reloads on it (unless a world write is in flight — §16.8), so `GET /engine.js` picks up the change automatically. Slice 3.1's second half of this — invalidating the daemon-side registry cache on the same watch — went with the registry bundle; the watch itself is unchanged and still the whole mechanism.
 
-esbuild builds this `platform: "node"` to a **uniquely-named** temp `.mjs` (`furnace-editor-registry-<uuid>.mjs` in `os.tmpdir()`), which is then dynamically `import()`ed and immediately `rm`'d. The unique filename **is** the cache invalidation — Node caches module specifiers forever, so a fresh name forces a fresh import. (The temp path is canonicalized via `realpathSync` first: on macOS `os.tmpdir()` is a symlink and Bun's loader rejects a second `import()` of a fresh-UUID symlink path.) This is "the registry's third reader" — the editor reflects it, core's loader reads it at runtime, and now the daemon validates against it. Build or import failure throws `EditorError("extension-build-failed", …)`.
-
-The registry loader exposes `reload()` (fresh build + import, used by `scene.open`), `current()` (cached, building on first use — used by `scene.validate` / `scene.introspect` before any open), and `invalidate()` (drops the cached module so the next `current()` rebuilds — fired by the extensions-dir watch, §5).
-
-**Staleness model.** The browser bundle rebuilds on every browser refresh (each `GET /engine.js`); the registry rebuilds per `scene.open` (`reload()`), and on demand (`invalidate()`, below). Historically the browser had no way to *know* an extension's TypeScript had changed, so a refresh had to be manual. Slice 3.0 closed that half (§5, "Directory watching"): `server.ts` watches the extensions entry's directory and emits `bundle-outdated` over SSE, and the frontend reloads the page when the session isn't dirty — so `GET /engine.js` picks up the change automatically instead of waiting for a manual refresh. **Slice 3.1 closed the registry half**: the same extensions-dir watch now also calls `registry.invalidate()` (drops the cached module) *before* emitting `bundle-outdated`, so the next `current()` rebuilds. Editing an extension's TypeScript under the watched directory is therefore reflected in `scene.validate` / `scene.introspect` and in a running mutation's validation (`session.apply`) without waiting for an explicit `scene.open`.
-
-## 4. Commands + the document session
-
-### 4.1 Command registry
+## 4. Commands
 
 `src/daemon/handlers.ts` builds a `Map<string, Handler>` where each `Handler` is `{ input: ZodType, run(input): Promise<unknown> }`. `dispatch(handlers, command, input)`:
 
@@ -104,52 +102,9 @@ The registry loader exposes `reload()` (fresh build + import, used by `scene.ope
 2. `handler.input.safeParse(input)` fails → `EditorError("invalid-input", …)` naming the first failing path;
 3. otherwise runs the handler with the parsed input.
 
-Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). There are **25 commands in four families**, and the chrome speaks only three of them.
+Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected).
 
-### 4.2 The `scene.*` family + the document session — implemented, and no longer called
-
-The scene family is the M3/M4 document surface: a single open `SceneDocument`, mutated transactionally, undoable, watched on disk. **It is fully implemented and fully tested, and nothing in the chrome calls it** — F4.5a deleted the scene surface (see the header). It is documented here because it is live code on the daemon's public HTTP surface, an FS-capable agent can drive it today, and it is the substrate any returning scene chrome would build on.
-
-| Command | Input schema | Returns |
-| --- | --- | --- |
-| `scene.list` | `{}` | `{ scenes: string[] }` — project-relative scene paths matching the config pattern, sorted. |
-| `scene.read` | `{ path: string }` | `{ document }` — stateless read+parse (no session). |
-| `scene.open` | `{ path: string, force?: boolean }` | `SessionView` — opens into the session. Dirty unsaved session + no `force` → `unsaved-changes`. |
-| `scene.get` | `{}` | `SessionView` of the open document (`no-session` if none open). |
-| `scene.save` | `{}` | `{ revision, dirty }` — writes the canonical document to disk. |
-| `scene.validate` | exactly one of `{ path }` or `{ document }` | `{ valid: boolean, message? }` — registry validation, non-throwing result. |
-| `scene.introspect` | `{}` | the registry's `introspect()` reflection (what is authorable). |
-| `scene.addEntity` | `{ id?: string, components?: Record<string,unknown> }` | `{ id, revision, dirty }` — `id` may be generated. |
-| `scene.removeEntity` | `{ id: string }` | `{ revision, dirty }` |
-| `scene.setComponent` | `{ entity: string, component: string, params: Record<string,unknown> }` | `{ revision, dirty }` — add-or-replace the whole component value. |
-| `scene.removeComponent` | `{ entity: string, component: string }` | `{ revision, dirty }` |
-| `scene.setResource` | `{ table: "geometries"\|"shaders"\|"materials", id: string, entry: Record<string,unknown> }` | `{ revision, dirty }` |
-| `scene.removeResource` | `{ table: …, id: string }` | `{ revision, dirty }` |
-| `scene.setSettings` | `{ settings: unknown }` | `{ revision, dirty }` — whole-object settings replace. |
-| `scene.batch` | `{ edits: [{ entity, component, params }]+ }` (at least one) | `{ revision, dirty }` — N component edits, ONE snapshot, ONE undo entry, ONE `document-changed`. Rejected whole if any single edit fails validation. |
-| `scene.undo` | `{}` | `{ revision, dirty }` |
-| `scene.redo` | `{}` | `{ revision, dirty }` |
-
-`SessionView` = `{ document, path, revision, dirty, conflict, canUndo, canRedo }`. `scene.validate` additionally `.refine`s that **exactly one** of `path`/`document` is provided.
-
-#### Document session
-
-`src/daemon/session.ts` owns the single mutable open document. The mutation commands never edit the document directly; they go through the transactional core, `session.apply(command, edit)`:
-
-1. **clone** — `structuredClone(s.document)` (the live document is never mutated in place);
-2. **edit** — run the pure structural edit (`src/daemon/mutations.ts`) on the clone; missing targets throw `EditorError("validation-failed")`;
-3. **validate** — `registry.validateDocument(next)` (whole-document, against the daemon-side registry); failure throws `validation-failed` and the live document is untouched;
-4. **commit** — swap the document reference, push undo, clear redo, bump `revision`, emit `document-changed`.
-
-The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setComponent`, `removeComponent`, `setResource`, `removeResource`, `setSettings`) are **pure structural edits** that mutate the clone they are handed and enforce only target-existence preconditions; whole-document schema validation is the registry's job in step 3.
-
-**Concurrent-open await guards.** Both `session.apply` (across step 3's `registry.current()` await) and the watch-driven `onFileChanged` reload (across its `readFile` and `registry.current()` awaits) capture the open `state` into a local `s` and re-check `s !== state` after each await — a concurrent `scene.open` / `dispose` may have swapped the open document while the promise was pending. They diverge on what they owe the caller: `onFileChanged` **silently drops** the reload on a swap (file-reload events are notification-only dirty-bits — nothing is owed), while `apply` **throws `no-session`** ("session was replaced while the edit was validating") because it owes its caller an answer — the reroll-era client refetches via `scene.get` and retries if still relevant. Covered by `tests/session-race.test.ts`.
-
-**Snapshot undo/redo.** The committed document object itself is the snapshot — because commits *swap* the reference and never mutate in place, no extra clone is needed for the undo stack. `undoStack` is capped at `UNDO_CAP = 100` (oldest dropped via `shift()`). A new mutation clears the redo stack. `undo`/`redo` swap between the stacks and bump `revision`, emitting `document-changed`. Empty stacks throw `nothing-to-undo` / `nothing-to-redo`.
-
-**Dirty semantics — canonical `savedText`.** Dirtiness is defined as `serialize(document) !== savedText`, where `serialize` is the canonical form (`JSON.stringify(doc, null, 2)` + trailing newline) — *exactly the bytes `scene.save` writes*. `savedText` is reset on open, save, and clean reload. This single canonical-form comparison is what makes save-echo suppression (§5) and dirty detection share one definition; `scene.save` deliberately sets `savedText` **before** the write so a fast watcher echo already matches.
-
-### 4.3 What the chrome actually calls — `project.get`, `field.load`, `generation.bake`, `world.*`
+There are **8 commands in four families**, and **the chrome speaks all 8** (`frontend/lib/api.ts` has one method per command). It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
 | Command | Input schema | Returns |
 | --- | --- | --- |
@@ -168,51 +123,36 @@ The mutation functions in `mutations.ts` (`addEntity`, `removeEntity`, `setCompo
 
 **`generation.bake` — the browser produces the payload; the daemon only writes it.** A Pr-2 determinism probe found that regenerating the same seed under a *different JS engine* than the one that previewed it produces a different world placement: bun/JSC and node/V8 diverge on the transcendental `Math` used to place pieces (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). So "the daemon regenerates from the seed" would bake a world that does not match what the user saw. The browser bakes in its own engine and uploads the produced file set; **the daemon holds zero generator knowledge.** `run`:
 
-1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the same hidden-existence rationale as scene paths, §6);
+1. resolves every `path` against the project root and rejects the **whole batch before any write** if any escapes the root or contains a dotfile segment (`outside-root`, 404 — the hidden-existence rationale in §6);
 2. when `cleanDir` is given, validates it (root-contained, never the root itself, no dotfile segment, and **every** payload file resolves under it) and `rm -rf`s it BEFORE any write — clean-previous-bake, so a smaller re-bake leaves no orphans from a larger earlier one; a mismatched payload throws and leaves the FS untouched;
 3. writes each file — `mkdir -p` the parent, base64-decode when `encoding === "base64"` (binary `.fmesh` sidecars ride as base64 in the JSON POST);
 4. emits `generation-baked` (`{ files: <count> }`) over SSE and returns `{ files: <count> }`.
 
-The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar cannot blow the `String.fromCharCode` argument stack). This is the **first handler that emits an SSE event**, so `HandlerContext` carries an `emit(event: DaemonEvent)` field that `server.ts` fills with `hub.emit` for both the session and the handlers. The command is destination-agnostic (root-contained + `cleanDir`), which is why the world verbs needed tests rather than changes when `worlds/<name>/` became the destination.
+The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root dir and would hit `writeFileSync(rootDir, …)` → `EISDIR` mid-batch (a partial write). The browser marshals binary sidecars via `toWireFiles` (`frontend/lib/generation.ts`, chunked base64 so a large sidecar cannot blow the `String.fromCharCode` argument stack). It was the **first handler that emitted an SSE event**, which is why `HandlerContext` carries an `emit(event: DaemonEvent)` field that `server.ts` fills with `hub.emit`; the `world.*` verbs use the same field. The command is destination-agnostic (root-contained + `cleanDir`), which is why the world verbs needed tests rather than changes when `worlds/<name>/` became the destination.
 
-## 5. Change feed + file watching
+## 5. Change feed + directory watching
 
 ### SSE change feed
 
-`src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; consumers refetch `scene.get`, so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
+`src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; a consumer refetches whichever command owns the changed state (`world.list` on `worlds-changed`), so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
 
-The feed carries `DaemonEvent = SessionEvent | { type: "bundle-outdated" } | { type: "generation-baked"; files: number } | { type: "worlds-changed" }` (`src/daemon/events.ts`, verified against the source) — daemon-level events ride the same feed as the document-session's own `SessionEvent` union (`session.ts`):
+The feed carries **three** events — `DaemonEvent = { type: "bundle-outdated" } | { type: "generation-baked"; files: number } | { type: "worlds-changed" }` (`src/daemon/events.ts`, verified against the source). It carried five more until foundations T2: the document session's own `SessionEvent` union (`scene-opened`, `document-changed`, `saved`, `file-conflict`, `file-invalid`) died with the session.
 
 | Event `type` | Payload fields | Emitted when |
 | --- | --- | --- |
-| `scene-opened` | `path`, `revision` | `scene.open` succeeds. |
-| `document-changed` | `revision`, `command` | any commit — a mutation, `scene.undo` (`command: "scene.undo"`), `scene.redo`, or a clean disk reload (`command: "file-reload"`). |
-| `saved` | `revision` | `scene.save` writes the file. |
-| `file-conflict` | `path` | a disk change arrived while the session was dirty, or the watched file was deleted/became unreadable. |
-| `file-invalid` | `path`, `message` | a disk change left the file as invalid JSON or failed registry validation. |
-| `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed (§5, "Directory watching") — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
-| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§4.3). |
+| `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed ("Directory watching", below) — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
+| `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§4). |
 | `worlds-changed` | none beyond `type` | the worlds directory or its index changed — `world.delete` / `rename` / `duplicate` / `makeDefault` each raise it AFTER their FS mutation succeeds. Consumers refetch `world.list` (§16.4). |
 
-The SSE wire frame is `event: <type>\ndata: <json>\n\n` — the three daemon-level events ride it generically, same as every other event. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
+The SSE wire frame is `event: <type>\ndata: <json>\n\n` — every event rides it generically. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
 
-### File watching
-
-`src/daemon/watch.ts` defines the `WatchFile` capability — `(path, onChange) => unwatch` — and its production adapter `chokidarWatchFile`, built on **chokidar v4** (pure JS over `node:fs`; v4 dropped the optional `fsevents` native dep). It watches one file with `ignoreInitial: true` and `awaitWriteFinish` (stability threshold 100 ms) so atomic-rename / burst saves settle before firing. Both `change` and `unlink` call `onChange`; the session re-reads and distinguishes by the read result. `WatchFile` is **injected** into the session as a capability so tests drive file-change semantics deterministically with a fake (the real chokidar is wired in only by `server.ts`).
+**There is no file watching any more.** `WatchFile` / `chokidarWatchFile` — the single-file watcher with the scene session's conflict matrix behind it (echo suppression by canonical form, dirty-conflict, clean-reload-as-undoable-mutation) — was deleted with the session in foundations T2. The daemon watches exactly one thing now, a directory:
 
 ### Directory watching
 
 `src/daemon/watch.ts` also defines the `WatchDir` capability — `(dir, onChange) => unwatch` — and its production adapter `chokidarWatchDir`: a **chokidar v4 recursive watch** over `dir` (`node_modules` and `dist` paths ignored), firing `onChange` on any `add`/`change`/`unlink` beneath the tree (chokidar's `"all"` event, debounced by the same `awaitWriteFinish` settling as `WatchFile`). Like `WatchFile`, it is **injected** — `server.ts` takes an optional `watchDir` in `ServerOptions` for tests to fake, defaulting to the real `chokidarWatchDir` in production.
 
 `server.ts` wires this to close the inner-loop staleness gap (§3): when `config.extensions` is set, it watches `dirname(resolve(root, config.extensions))` — the consumer's extensions-entry directory — and on any change calls `registry.invalidate()` (Slice 3.1 — so the daemon-side registry rebuilds on the next command; §3, Staleness model) *then* emits `hub.emit({ type: "bundle-outdated" })`. The frontend (`App.tsx`) reloads the page on that event when the session isn't dirty; if dirty, it leaves the reload to the user rather than risk losing unsaved edits.
-
-`session.onFileChanged` is the reload logic, and it encodes the conflict matrix:
-
-- **Echo suppression** — the on-disk content is parsed and compared by **canonical form** to `savedText`; if equal, nothing happened (covers both the daemon's own save echoing back through the watcher and genuine no-op rewrites) → no event.
-- **Deleted / unreadable** — the read failed → `conflict = true`, emit `file-conflict`.
-- **Invalid** — content is not JSON, or fails `registry.validateDocument` → emit `file-invalid` (with the message). The session keeps the in-memory document.
-- **Dirty conflict** — the file genuinely changed *and* the session has unsaved edits → `conflict = true`, emit `file-conflict` (the user decides; no silent clobber).
-- **Clean reload as an undoable mutation** — the file changed, the session was clean, and the new content validates → the reload is pushed onto the undo stack like any mutation, the document swaps, `revision` bumps, and `document-changed` (`command: "file-reload"`) is emitted. A disk edit by an external tool is thus a first-class, undoable session change.
 
 ## 6. Error contract
 
@@ -221,21 +161,16 @@ The SSE wire frame is `event: <type>\ndata: <json>\n\n` — the three daemon-lev
 | `EditorErrorCode` | HTTP status | Meaning |
 | --- | --- | --- |
 | `invalid-input` | 400 | zod validation of a command's input failed. |
-| `invalid-json` | 400 | request body or a scene file is not valid JSON. |
-| `validation-failed` | 400 | a mutation's edit or post-edit `validateDocument` failed (missing target, schema violation). |
+| `invalid-json` | 400 | the request body is not valid JSON (`server.ts`, at the route boundary). |
 | `unknown-command` | 404 | no handler for the command name. |
-| `not-found` | 404 | scene file does not exist (`ENOENT`). |
-| `outside-root` | 404 | the resolved scene path escapes the project root. *(404, not 400 — don't reveal what exists outside root.)* |
-| `no-session` | 409 | a session command ran with no scene open. |
-| `unsaved-changes` | 409 | `scene.open` would discard unsaved edits without `force`. |
-| `nothing-to-undo` | 409 | undo stack empty. |
-| `nothing-to-redo` | 409 | redo stack empty. |
-| `already-exists` | 409 | the write would clobber something that is already there (`world.duplicate` onto a taken name). |
-| `unreadable` | 500 | scene file exists but could not be read (EISDIR/EACCES/…). |
-| `extension-build-failed` | 500 | the registry bundle failed to build or import. |
+| `not-found` | 404 | the named world does not exist or has no manifest; also `server.ts`'s no-route fallback for an unsupported method/path. |
+| `outside-root` | 404 | a resolved path escapes the project root. *(404, not 400 — don't reveal what exists outside root.)* |
+| `already-exists` | 409 | the write would clobber something that is already there (`world.duplicate` / `world.rename` onto a taken name). |
 | `internal` | 500 | any other uncaught error at the route boundary. |
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
+
+**Seven codes went with the scene half in foundations T2** — `validation-failed`, `no-session`, `unsaved-changes`, `nothing-to-undo`, `nothing-to-redo` and `unreadable` (all thrown only by the session, the mutations or the scene reader), plus `extension-build-failed`, whose only throwers were in the deleted registry bundle (§3). `invalid-json` survives on its own merit: `server.ts` still throws it for an unparseable request body. Deleting a code is a wire-contract change, which is why they went in the same commit as their throwers rather than being left as unreachable rows.
 
 ## 7. Serving the chrome — the build, and the zero-engine rule
 
@@ -252,27 +187,29 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 `src/daemon/config.ts` reads the consumer's `furnace.config.json` from the project root. The file is **shared with the `furnace` CLI** (Rust), so namespacing is explicit:
 
 - **Top level** belongs to the CLI (`identity`, `source`, `window`, …) — parsed **loosely** (`z.object`, unknown keys ignored). Not the editor's to validate.
-- **The `"editor"` block** is the editor's namespace — parsed **strictly** (`z.strictObject`), so a typo'd key inside it fails loud (setup-loud policy). Fields: `scenes` (glob, default `"**/*.scene.json"`) and `extensions` (optional path to the consumer's extension entry, relative to root).
+- **The `"editor"` block** is the editor's namespace — parsed **strictly** (`z.strictObject`), so a typo'd key inside it fails loud (setup-loud policy). It has exactly **one** field: `extensions` (optional path to the consumer's extension entry, relative to root). The `scenes` glob went with the `scene.*` family in foundations T2 — and because the block is strict, a project that still declares `scenes` now fails setup-loud on `bun run edit` rather than silently ignoring it (hello-world's whole `editor` block was removed for exactly that reason).
 
 If the file is absent, all editor settings fall back to defaults. Malformed JSON throws loud, naming the file.
 
 ## 9. The inspector module — `frontend/inspector/`
 
-The inspector was built at M5A as an editable, reflection-driven form over `scene.introspect()`. The scene surface it served is deleted; **the module survived it intact** and is now the form the session card renders a generator's `paramSchema` into (§17.5). It has exactly ONE consumer, and the whole point of the boundary is that it could have another.
+The inspector was built at M5A as an editable, reflection-driven form over `scene.introspect()`. The scene surface it served is deleted, and so is the core module behind it; **the inspector survived both intact** and is now the form the session card renders a generator's `paramSchema` into (§17.5). It has exactly ONE consumer, and the whole point of the boundary is that it could have another.
 
-### 9.1 `t.color()` kind
+### 9.1 Where a schema's field semantics come from
 
-`packages/core/src/scene/t.ts` exports `color()`: a `z.tuple([number × 4])` with `meta({ furnace: { kind: "color" } })` — same wire shape as `vec4()` but a distinct `furnace.kind` so the editor inspector renders a color picker instead of four raw number inputs. The load boundary treats it exactly as a vec4. Channels are in the engine's working color space (linear RGBA — see `docs/reference/engine-conventions.md §color`). Scene settings `clearColor` uses this kind.
+The inspector reads one optional annotation off a schema node: a `furnace` bag carrying `kind` (which control) and/or `unit` (the display suffix). It is written with zod's `.meta({ furnace: … })` and hoisted to the node ROOT by `toJsonSchema` in `@furnace/core/registry` (§9.3) — which is the whole contract, and deliberately so: the annotation is a *registry* convention, not a scene one.
+
+The scene module's `t.color()` (a 4-tuple carrying `kind: "color"`) used to be the canonical emitter; it went with `@furnace/core/scene` in foundations T2. Today **nothing in the repo emits a `furnace.kind`** — core's generator schemas carry only `furnace.unit`, and every control the one consumer renders is chosen by the schema's SHAPE (§9.3). The `kind` half of the contract is live code with no current writer, which is a fact worth stating plainly rather than leaving a reader to discover.
 
 ### 9.2 The boundary
 
-The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with a root-level `furnace` field-semantics key) plus N target values plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
+The inspector is a **self-contained, swappable boundary**: the chrome consumes it only through `<SchemaForm>` and the types in `index.tsx`. Input is standard JSON Schema (with a root-level `furnace` field-semantics key) plus the target's value plus change callbacks; output is rendered controls. Swapping the inspector library touches only this directory.
 
 **JSON Schema contract (`types.ts`).** The inspector's `JsonSchemaNode` is a plain frontend-local type — deliberately NOT core's, because the module must not value-import `@furnace/core` (§7). There is exactly ONE boundary cast, in `SessionCard.tsx`, where a generator's `paramSchema` (typed `Record<string, unknown>` in core for that same reason) becomes a `JsonSchemaNode`. The cast that used to sit beside it, over `scene.introspect()`'s return, died with the scene surface.
 
 ### 9.3 Kind resolution and the shape rules
 
-**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` (by CARDINALITY) → numeric SHAPE → JSON type string → `"unknown"`. The furnace kinds handled: `vec2`, `vec3`, `vec4`, `quat`, `color`, `resource`, `ref`. **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.) Every member of `furnace` is optional, `kind` included, so a node can carry only a `unit`.
+**Kind resolution (`kind.ts`).** `resolveKind(schema)` maps a schema node to a `FieldKind` in priority order: `schema.furnace.kind` (for furnace-specific kinds) → `enum` (by CARDINALITY) → numeric SHAPE → JSON type string → `"unknown"`. The furnace kinds handled are the five in `FURNACE_KINDS`: `vec2`, `vec3`, `vec4`, `quat`, `color`. (`resource` and `ref` left the union in foundations T2 with the scene resource tables that were the only thing that ever named them.) **Note:** `furnace` sits at the schema-node ROOT, not nested under `meta` — `z.toJSONSchema` hoists zod's `.meta({ furnace })` to the node root. (Reading it from `meta` was the M5A holistic-review CRITICAL bug.) Every member of `furnace` is optional, `kind` included, so a node can carry only a `unit`.
 
 **Shape rules (D-25, F4.5b Task 11).** Two kinds are chosen from the schema's SHAPE rather than from a `furnace.kind`, and both decisions live in `resolveKind` so the registry keeps its single lookup:
 
@@ -297,16 +234,17 @@ The bounded control's STEP comes from `multipleOf` when the schema declares one,
 | `vec2` / `vec3` / `vec4` | `makeVecField(n)` — N-component number row |
 | `color` | `ColorField` — RGBA color picker |
 | `quat` | `QuatField` — Euler XYZ degree inputs (converted via `lib/euler.ts`) |
-| `resource` / `ref` | `DefaultField` — READ-ONLY JSON. The pickers were deleted in F4.5b Task 11: their option lists came from an `InspectorOptions` context that had had no provider since the scene surface was removed, so they always offered an empty list. The kinds stay in the union because a schema can still name them. |
 | `object` | `ObjectField` — nested properties |
 
 `fallbackRenderer` is `DefaultField` — displays the value as JSON read-only.
 
+**Four of these rows have no live emitter** (§9.1): no schema in the repo sets `furnace.kind` at all, so `vec2`/`vec3`/`vec4`/`quat`/`color` are unreached today and every field the one consumer renders resolves by SHAPE or by JSON type. They are kept because they are the inspector's own vocabulary, not a scene concept — the `resource` / `ref` pair that went in T2 *was* the scene concept, and its renderers had already collapsed to read-only JSON at F4.5b Task 11 when the `InspectorOptions` provider that fed their pickers disappeared.
+
 ### 9.5 `<SchemaForm>` — drafts, validation, the echo guard
 
-**`SchemaForm.tsx`** iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. It manages N working drafts (`useState`) and re-seeds them when the committed `values` reference changes (the `seed` ref guard). Props: `{ schema, values: unknown[], onPreview, onCommit, onCancel, onInvalid? }` — a pure callback contract, no internal fetch and no mutation of its own.
+**`SchemaForm.tsx`** iterates `schema.properties`, resolves each field's kind, looks up (or falls back to) the renderer, and renders it wrapped in a **`RowErrorBoundary`** — a React class error boundary that catches per-row render errors and displays them inline without crashing the whole form. It manages the working draft (`useState`) and re-seeds it when the committed `value` reference changes (the `seed` ref guard). Props: `{ schema, value: unknown, onPreview, onCommit, onCancel, onInvalid? }` — a pure callback contract, no internal fetch and no mutation of its own.
 
-**Field-level validation (D-25).** Before fanning a draft, the form runs `validateNumber(fieldSchema, value)` (`lib/validate.ts`: bounds + `multipleOf`) over all N targets. A refused draft is **not written and not previewed** — the worker never evaluates a ghost the generator would throw on — and the reason renders in that row with `role="alert"`. Refusals are held per-path (an unrelated row's edit must not clear one whose bad text is still on screen), but only the FIRST offending field in schema order leaves the component, through `onInvalid`. One slot, not a bag: a consumer holding a list is one render away from printing a bottom-of-form dump, which is the pattern D-25 exists to retire. `SessionCard` turns that slot into the commit verb's disabled reason (`"Chamber Radius must be at most 8"`) and retracts it on unmount.
+**Field-level validation (D-25).** Before writing a draft, the form runs `validateNumber(fieldSchema, value)` (`lib/validate.ts`: bounds + `multipleOf`). A refused draft is **not written and not previewed** — the worker never evaluates a ghost the generator would throw on — and the reason renders in that row with `role="alert"`. Refusals are held per-path (an unrelated row's edit must not clear one whose bad text is still on screen), but only the FIRST offending field in schema order leaves the component, through `onInvalid`. One slot, not a bag: a consumer holding a list is one render away from printing a bottom-of-form dump, which is the pattern D-25 exists to retire. `SessionCard` turns that slot into the commit verb's disabled reason (`"Chamber Radius must be at most 8"`) and retracts it on unmount.
 
 **Row wrappers (`fields/common.tsx`).** `FieldRow` wraps its control in a `<label>`; `FieldGroupRow` uses a `<div>` and is what a row with SEVERAL controls (stepper, segmented) uses. A `<label>` labels exactly one control, so wrapping a group makes every member answer to the row caption instead of its own name, and a `<label>` with no `for` activates its first labelable descendant — clicking the "Chambers" caption steps the value down. (A third symptom, one press dispatching two commits, is a happy-dom artifact rather than a browser defect — WHATWG says a label does nothing for events targeted at interactive content descendants — but it is what made the wrapper visible, through a call-count assertion.)
 
@@ -314,7 +252,7 @@ The bounded control's STEP comes from `multipleOf` when the schema declares one,
 
 **The drag-scrub** (`lib/scrub.ts`) is `scrubValue(start, dxPixels, sensitivity, fine)`. `NumberField` and `SliderField`'s label capture the pointer, record the start value, call `scrubValue` with the accumulated `dx` on each move and `onCommit` on release. ⇧ during the drag applies `FINE_FACTOR = 0.1`. Pointer Events rather than mouse events and no pointer-lock — Safari-safe by construction, and the capture matters more here than it did in the dock era: this form floats over a canvas that orbits on pointermove, and the two are DOM siblings (§17.5).
 
-**Three multi-target rules survive from the M5A/M5B inspector**, because a form over N targets is still what the module is written for even though today's one consumer passes N = 1: omitted fields seed from the schema's `default` rather than showing `0`; `lib/vec-fan.ts`'s `fanComponent(targets, index, value, n)` fans ONE component of a vector across all targets and preserves each target's own other components; and `lib/mixed.ts`'s `isMixed` is what a renderer asks before showing a single value for a set that disagrees. `ColorField` commits on the input's native **`change`** event rather than on blur — Safari only blurs `<input type=color>` when focus moves to a focusable element, so a blur commit landed only if the user's next click happened to be one.
+**The form serves ONE target** (foundations T2). M5A's inspector could select N entities and edit them together; the field chrome that replaced it edits one thing, so `values: unknown[]` had become an array of length 1 and every renderer still carried a branch for a disagreement it could no longer be handed. `value` is singular now, `lib/mixed.ts`'s `isMixed` is deleted, `lib/vec-fan.ts`'s `fanComponent` is `lib/vec-component.ts`'s `setComponent` (there is no fan left), and `commit-guard.ts` dropped the NaN-baseline arm that encoded "mixed, so always commit". What survives from the multi-target era on its own merit: omitted fields seed from the schema's `default` rather than showing `0`; and two "no member matches" branches, kept because a value matching no enum member is also what a STALE param looks like — `EnumField`'s placeholder and `SegmentedField`'s `null`. (The `Checkbox` primitive keeps its indeterminate glyph regardless: Radix's `CheckedState` is tri-state whatever the caller passes.) `ColorField` commits on the input's native **`change`** event rather than on blur — Safari only blurs `<input type=color>` when focus moves to a focusable element, so a blur commit landed only if the user's next click happened to be one.
 
 ### 9.6 Labels, numbers, and the label column
 
@@ -326,22 +264,14 @@ Every row's caption sits in ONE app-wide label column — `--spacing-label-col` 
 
 **Swap escape hatch.** The `frontend/inspector/` boundary is the swap seam: replacing the rendering library means rewriting only `SchemaForm.tsx` + the field renderers in `fields/`, keeping the module's CONSUMER untouched. The `JsonSchemaNode` type and the `onPreview` / `onCommit` / `onCancel` / `onInvalid` callback contract are the stable interface.
 
-## 10. Scene-loader coverage — what the daemon validates against
+## 10. *(retired — scene-loader coverage)*
 
-This section is about `@furnace/core/scene`, not about the editor's own rendering: the chrome draws a FIELD (§11), never a scene document. It matters here because the daemon's registry bundle (§3b) validates `scene.*` mutations against exactly this built-in set, and because it is the contract any returning scene surface would author into. The M1-slices batch brought the core loader up to reproducing a full demo **setup** from a data document. The built-in registry (`packages/core/src/scene/builtins.ts`, verified in source) covers:
-
-- **Geometry kinds** — `cube`, `sphere`, `cylinder`, `plane`.
-- **Shader kinds** — `unlit`, `lit`, `texturedLit`, `textured`, `normalColor`.
-- **Texture kinds** — `checkerboard` (procedural) and `load` (decode bytes).
-- **Material** — `standard`, now with optional `texture` + `sampler` slots (the loader resolves nested resource refs).
-- **Effect kinds** — `bloom`, `tonemap` (the consumer's HDR post chain).
-- **Components** — `transform`, `meshRenderer`, `light` (`directional` / `point` / `spot`, optional `shadow`), `rigidBody` (static / dynamic).
-- **Settings** — full schema: `clearColor`, `ambient`, `post`, `gravity`, `lengthUnit`, `sim`, `msaa`, `hdr`.
-
-**Physics-from-data.** A `rigidBody` component instantiates against a lazily-created physics world; when an entity has both `rigidBody` and `meshRenderer`, the `meshRenderer` **defers** (returns no mesh) and the `rigidBody` builds a **rigidMesh composite** that owns the mesh and binds its transform to the body. The world and bodies are fully **instantiated but NOT stepped** — there is no fixed-step loop in the loader. **Driving the simulation is the consumer's game-loop concern** (the loader instantiates the world + bodies; a consumer fixed-step loop would call `world.step`). So a loaded physics scene shows the bodies at their authored rest pose; it does not simulate.
-
-**Not command-mutable, though loadable.** `scene.setResource`'s `tableEnum` still covers only `geometries | shaders | materials` (§4.2) — the `textures` and `effects` tables load and validate but cannot be authored through a command
-(`docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md`).
+This section tabled the built-in registry of `@furnace/core/scene` — the geometry / shader /
+texture / material / effect kinds, the five components, the settings schema and the
+physics-from-data rule — because the daemon's registry bundle (§3) validated `scene.*`
+mutations against exactly that set. **The module, the bundle and the commands were all
+deleted in foundations T2** (2026-08-05), so there is nothing left to table. The number is
+kept vacant rather than renumbered; git history is the record of what it said.
 
 ## 11. One Field F1+F2a — the FieldHost, the tools, and the remesh worker (2026-07-16)
 
@@ -570,10 +500,12 @@ F2b stamp-session machinery end to end.
   `floor((extentCells − 1) / MAZE_PITCH_CELLS)`, the pitch now a public core
   constant); quarter-turn `rotation` + per-wall door offsets ride the generator
   schemas (core F3a) straight into the SchemaForm.
-- **Field undo/redo as host API** — `FieldHost.undo()/redo()` (the field log is a
-  SEPARATE history from the scene document's); the canvas ⌘Z handler now
-  `stopPropagation()` (it was ALSO stepping the scene undo — pre-existing, fixed;
-  F/Delete still leak by design pending a semantics decision, noted at the fix site).
+- **Field undo/redo as host API** — `FieldHost.undo()/redo()`, at the time a SECOND
+  history beside the scene document's; the canvas ⌘Z handler was made to
+  `stopPropagation()` because it was ALSO stepping the scene undo (pre-existing, fixed
+  here; F/Delete still leak by design pending a semantics decision, noted at the fix
+  site). *(T2: the scene history is gone, so the field log is now the editor's ONLY
+  history — §17.6.)*
 - **Deferred UX set** — mouse-driven region move, an in-viewport pointer/select tool, and
   box/wand selection feel. All three were taken by the F4.5 stage: the pointer tool and the
   committed-entity move shipped (§17.1, §17.3), and what is still owed is two entries —
@@ -1149,8 +1081,10 @@ the one before it, and says so at the point where it does.
 
 F4.5a rebuilt the chrome as an *overlay cockpit*: one full-window canvas with everything
 else floating over it. The dock, the field toolbar, the World panel and the entire
-scene-document surface were deleted. The editor became **field-only** — the daemon still
-implements the `scene.*` family (§4.2), and nothing in the chrome speaks it.
+scene-document surface were deleted. The editor became **field-only**, with the daemon's
+`scene.*` family left standing behind it — a parked capability nothing called. Foundations
+T2 finished the cut and deleted that half too (§4), so field-only is now true on both
+sides of the wire.
 
 `grep -rn "MIGRATION (until" packages/editor/src` is the live list of anything still marked
 provisional. **At the F4.5 seal it is empty**: F4.5b worked the `MIGRATION (until F4.5b)`
@@ -1304,7 +1238,7 @@ panel has no status line, and nothing else does either.**
 ### 16.4 The world — `world.*`, `useWorld`, and the drawer
 
 F4.5a gave the daemon its **`world.*` namespace** beside the existing `field.load` and
-`generation.bake` — the five verbs and their refusals are tabled once, at §4.3. `world.list`'s
+`generation.bake` — the five verbs and their refusals are tabled once, at §4. `world.list`'s
 `tracked` tri-state is the one worth restating here because the chrome renders it: `true` /
 `false` come from `git check-ignore`, and **`null` means git could not tell** (no repo, or an
 ambiguous answer). A `null` earns no badge rather than a wrong one.
@@ -1538,6 +1472,11 @@ missed field would silently *weaken* the guard.
   world write is in flight** — the subscription re-binds only when the engine becomes
   ready, so it reads `bakeBusyRef` (a ref, not state) to see the current value without
   re-subscribing. A reload mid-upload would kill the write.
+
+Those two reductions now cover the feed **exhaustively**: since foundations T2 the daemon's
+whole `DaemonEvent` union is the three events these two branches consume (§5), so there is
+no feed member the chrome quietly ignores. It was a subset when this hook was written — the
+five `SessionEvent` members rode the same feed and the chrome dropped every one of them.
 
 It is a hook rather than App-local state for Shell's reason: a feed wired inside App is a
 feed no test can drive, because App owns the WebGPU probe and the `/engine.js` import.
@@ -2483,15 +2422,20 @@ allowed to stand:
 
 - **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM
   were descoped from M4 into a dedicated milestone,
-  `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. The rationale still
-  holds: for an FS-capable agent, direct file editing beats mutation tools, so M4 made disk
-  edits first-class (watch + reload + validate + introspect over plain HTTP) and shipped the
-  transport-agnostic substrate. The error contract's closed code union (§6) and the
-  `MCP/agent bindings` notes in `errors.ts` / `handlers.ts` are the forward-looking seam.
-- **A scene-authoring surface, as a CONSUMER extension** —
-  `docs/backlog/editor-and-tooling/scene-chrome-returns-as-consumer-surface.md`. The daemon
-  half exists and is tested (§4.2); what was deleted is the chrome half, and the case for
-  its return is that a consumer's game view is not the field editor's business.
+  `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. The transport-agnostic
+  substrate the milestone mounts over is still here: one zod-validated `dispatch()` choke
+  point (§4), a closed error-code union (§6), and the `MCP/agent bindings` notes in
+  `errors.ts` / `handlers.ts`. What T2 changed is the *verb set* an agent would be handed —
+  8 field/world commands rather than 17 document mutations, and the "disk edits beat mutation
+  tools" rationale now points at the field artifact rather than at a scene JSON.
+- **A scene-authoring surface is NOT deferred — it is gone.** The chrome half went at F4.5a,
+  the daemon half and `@furnace/core/scene` at foundations T2, and the backlog entry that
+  parked the capability was resolved by that deletion rather than by building it. There is no
+  scene document to author. `packages/hello-world` is the named casualty and accepts the
+  loss: it remains the reference CONSUMER of the engine and simply has no editing surface —
+  `bun run edit` there now opens a field editor on a project with no field. Anything that
+  wants document-shaped authoring back is new work against the field artifact (or a new
+  format), not a revival.
 - **Everything else** lives in `docs/backlog/editor-and-tooling/`, one file per entry, each
   with the trigger that would make it actionable. The F4.5 seal filed the charter's whole
   capability-sweep backlog column there.

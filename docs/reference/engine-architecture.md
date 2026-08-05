@@ -388,10 +388,17 @@ program, 2026-08-04). `@furnace/core` is one package but names two tiers:
   `binding`, `shader`, `mesh`, `mesh-blob`, `post`, `physics`, `rigid-mesh`,
   `resources`, `rng`, plus the shared root leaves (`errors.ts`). Knows nothing about
   documents, registries, or worlds.
-- **World tier** — the modules that model *content* on top of the substrate: `field`,
-  `registry` (the neutral definer machinery, landed T1b 2026-08-04), and `scene`.
-  World-tier modules may import the substrate freely; the substrate must NEVER
-  import upward.
+- **World tier** — the modules that model *content* on top of the substrate: **`field`** and
+  **`registry`** (the neutral definer machinery, landed T1b 2026-08-04). World-tier modules
+  may import the substrate freely; the substrate must NEVER import upward.
+
+It was three modules for one day. **`scene` — the text-JSON document format with its
+consumer-extensible registry and `loadScene` — was deleted in foundations T2 (2026-08-05)**,
+having lost its last runtime consumer when the dungeon's region world retired and its last
+tooling consumer when the editor daemon shed its document session. What survives of it is
+what the tier split had already pulled out: the definer machinery as `registry`, and the
+`.fmesh` codec as the engine-tier `mesh-blob` leaf. **The field is the content model now,
+and it is the only one.**
 
 The direction is enforced by `packages/core/tests/architecture.test.ts` (tier
 direction, `@furnace/core` self-import ban, no `_`-prefixed exports in public
@@ -400,7 +407,31 @@ the day a consumer wants the renderer without the world model (or the world mode
 another renderer), the world tier promotes to its own `@furnace/world` package
 mechanically, because the import direction was never allowed to blur. The first
 dividend was immediate: relocating the mesh-blob codec out of `scene` (2026-08-04)
-took a field-only bundle from ~2.9 MB with Rapier inside to ~15 KB without it.
+took a field-only bundle from ~2.9 MB with Rapier inside to ~15 KB without it — and it
+is what let `scene` be deleted a day later without taking the codec with it.
+
+### Dual-mode, restated on the field artifact
+
+The oldest editor decision (2026-06-06, `docs/backlog/editor-and-tooling/editor-backend-architecture.md`
+decisions 5–6) is **dual-mode**: furnace is *both* a code-first library — a consumer imports
+`@furnace/core` and builds a world in TypeScript, the one-off / website-embed path — *and* an
+editor-authored engine — author in the editor, ship an artifact, the full-game path. The two
+coexist because they converge on ONE runtime representation, and the discipline that keeps
+that honest is that **the loader lives in core** and the editor may add workflow and
+opinionated defaults but never runtime semantics core cannot reconstruct.
+
+That principle is unchanged. Its *instance* changed: the interchange used to be the
+serialized scene document, and since foundations T2 it is **the field artifact plus its op
+log** — `chunks/` (the density store, the authoring truth), `oplog.json` (the recipe that
+produced it, replayable and reconfigurable), and the derived bake (`meshes/`, `kit/`,
+`materials/`, `placements.json`) the runtime actually loads. `field.bakeFieldWorld` is pure
+and lives in core, so the editor's export, a consumer's own bake script, and a headless test
+all produce byte-identical artifacts from the same ops. Code-first authoring is
+`createFieldStore` + `logApply` / `commitGenerator` in a script (`packages/dungeon/scripts/bake-default-world.ts`
+is the worked example); editor authoring is the same calls behind a cockpit; and a consumer
+with only core installed loads the result. The engine precedents the original decision cited
+(Godot `.tscn`, Unity prefabs, three.js `ObjectLoader`) still describe the shape — the
+artifact is just voxels-and-ops rather than a node tree.
 
 ---
 

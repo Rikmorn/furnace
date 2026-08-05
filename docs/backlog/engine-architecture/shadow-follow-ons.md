@@ -69,8 +69,8 @@ both want a world-bounds layer first.
 
 **Reference:** `packages/core/src/frame/shadow-projection.ts` (the
 consumer-specified `orthoHalfExtent` + `target`); the *Advanced shadows* section above
-(CSM, which also needs the fitted/split frustum); `scene-graph-helpers.md` (the
-absent retained-scene/world-bounds infrastructure auto-fit would require).
+(CSM, which also needs the fitted/split frustum); `transform-hierarchy-helpers.md` (the
+absent retained-hierarchy/world-bounds infrastructure auto-fit would require).
 
 ## Shadow-map resolution + PCF kernel — make them configurable
 

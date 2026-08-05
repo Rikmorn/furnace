@@ -579,10 +579,12 @@ module-level mutable-state exception.
 (types: `import type { MeshBlob, RenderBlock, CollisionBlock } from "@furnace/core/mesh-blob";`)
 
 The `.fmesh` binary codec — an engine-tier leaf module (imports only the shared
-`errors.ts`; no GPU context, no scene coupling). Moved out of `./scene`
-2026-08-04 (foundations T1a) so that `field` and bake tooling can encode/decode
-mesh regions without dragging the scene graph (and Rapier) into their bundles;
-the wire format is unchanged.
+`errors.ts`; no GPU context, no module coupling of any kind). Moved out of the
+since-deleted `./scene` 2026-08-04 (foundations T1a) so that `field` and bake
+tooling could encode/decode mesh regions without dragging the scene graph (and
+Rapier) into their bundles — a field-only entry went from ~2.9 MB to ~15 KB. The
+wire format is unchanged, and the extraction is what let `scene` be deleted a day
+later without taking the codec with it.
 
 ### Public
 
@@ -596,8 +598,9 @@ the wire format is unchanged.
 
 ### Reference-only (no demo, by design)
 
-- The whole module — used by region bake tooling and the scene loader's `"mesh"`
-  resource kind, not a general cookbook topic.
+- The whole module — used by `field`'s bake (`bakeFieldWorld` encodes each chunk's
+  mesh buckets) and by the dungeon's world loader on the read side, not a general
+  cookbook topic.
 
 ---
 
@@ -759,55 +762,6 @@ Deterministic, seeded pseudo-random number generators — replay-safe randomness
 
 ---
 
-## `@furnace/core/scene`
-
-`import { loadScene, defineComponent, defineResource } from "@furnace/core/scene";`
-(types: `import type { SceneDocument, LoadedScene, LoadSceneOptions, SceneSettings, EntityDoc } from "@furnace/core/scene";`)
-
-The scene format: a text-JSON document (`SceneDocument`) with typed resource tables and entity component lists, validated by a consumer-extensible registry, loaded by `loadScene` into live engine objects. Built-in resource kinds and components register automatically at module import. The registry store/parse machinery (`createRegistry`, `parseOrThrow`, `toJsonSchema`, the furnace-meta readers) lives in `@furnace/core/registry` since T1b — scene instantiates its stores from that factory; its public surface and error messages are unchanged.
-
-### Public
-
-| Export | Signature | Notes |
-|---|---|---|
-| `loadScene` | `(ctx: Context, doc: SceneDocument, opts?: LoadSceneOptions) => Promise<LoadedScene>` | Validate the document against the registry, build resources in fixed table order (`geometries → textures → shaders → materials → effects`), instantiate entity components in registration order with pre-resolved resource refs, and return the scene's render inputs + a `destroy` that frees everything this call created. A failed load tears down everything it already built (no leaks). Throws `FurnaceError` on validation failure, unknown resource kind, or (unless `opts.fragment` is set) a document with no camera entity. With `opts.world`, builds rigid bodies into an existing world (the world is NOT destroyed by the returned `destroy`); without it, a physics world is lazily created and owned by the loaded scene. With `opts.fragment`, suppresses the missing-camera error — the caller owns the camera (used for region fragments: mesh + bodies, no camera). |
-| `LoadSceneOptions` | `{ world?: World; fragment?: boolean }` | Options for `loadScene`. `world` injects an existing `World` so the loader builds rigid bodies into it without creating a new one. `fragment` suppresses the missing-camera guard (for documents that contain geometry + bodies but no camera entity). |
-| `SceneDocument` | `{ version: number; settings?: SceneSettings; resources?: { geometries?, textures?, shaders?, materials?, effects? }; entities: EntityDoc[] }` | Text-JSON shape of a serialized scene. Resource entries and component entries are open (`unknown`) — the registry is the authority on what is valid; `validateDocument` proves every entry at the load boundary. |
-| `SceneSettings` | `{ clearColor?, ambient?, post?, gravity?, lengthUnit?, sim?, msaa?, hdr?, region? }` | Scene-level render/world globals. `region` (added in Slice 2.1) carries optional provenance + theme + origin metadata for baked region documents: `{ provenance?: { generatorId, generatorVersion, seed, kind }; theme?: string; origin?: [x,y,z] }`. Loaded into `LoadedScene.settings`; the loader validates and carries all fields but does not act on `region` (it is metadata for the consumer and for bake tooling). |
-| `validateDocument` | `(doc: SceneDocument) => void` | Validate a document against the registry without loading it (throws `FurnaceError` on any invalid entry). Side-effect-free — does not build any resources. |
-| `defineComponent` | `(name: string, def: ComponentDefinition) => void` | Register a custom component type with the scene loader. See `registry.ts` for the `ComponentDefinition` shape. |
-| `defineResource` | `(table: TableName, kind: string, def: ResourceDefinition) => void` | Register a custom resource kind in one of the five resource tables. |
-| `introspect` | `() => SceneSchemaReflection` | Reflect the full registry (built-in + consumer-registered components and resource kinds) as JSON-Schema. Used by the editor inspector. |
-| `EntityDoc` | `{ id: string; components: Record<string, unknown> }` | A scene entity: stable string `id` + a map of typed components. |
-| `LoadedScene` | includes `meshes, camera, lights, ambient?, effects, world?, settings, destroy, rebuildEntity, setSettings, entityBoxCorners, setEntityTransform, pick` | The live result of `loadScene`. `destroy()` frees everything the call created (reverse build order). `rebuildEntity(id, doc)` is the editor live-preview seam — transactional swap of one entity's components. `pick(ctx, cam, ndcX, ndcY)` is GPU id-buffer viewport picking. See `types.ts` for full shape. |
-
-#### Built-in geometry resource kinds
-
-| Kind | Params | Notes |
-|---|---|---|
-| `"cube"` | `{}` | Axis-aligned unit cube. |
-| `"sphere"` | `{ radius? }` | UV sphere, radius defaults `0.5`. |
-| `"cylinder"` | `{ radius?, height? }` | Y-axis cylinder, radius `0.5`, height `1`. |
-| `"plane"` | `{ size? }` | `+Z`-facing quad, size defaults `1`. |
-| `"mesh"` | `{ src: string }` | Fetches a `.fmesh` binary from `src` (URL or relative path), decodes it via `decodeMeshBlob`, and creates a geometry with `{ retainForCollision: true }` — so a sibling `rigidBody.shape.trimesh` can pull the collision arrays directly. Throws `FurnaceError` on a non-OK HTTP response or bad magic. |
-
-#### Built-in entity components
-
-| Component | Shape | Notes |
-|---|---|---|
-| `transform` | `{ position?, rotation?, scale? }` | Local TRS. `rotation` is `[x,y,z,w]` quaternion; omitted fields keep identity defaults. |
-| `meshRenderer` | `{ geometry: ref, material: ref }` | Renders the entity. Deferred to a sibling `rigidBody` when one is present (the `rigidBody` builder owns the mesh in that case). |
-| `camera` | `{ kind: "perspective", aspect, fovYRad?, near?, far? }` | One camera per scene (a second throws at load). Pose from sibling `transform`. |
-| `light` | `{ type: "directional" \| "point" \| "spot", ... }` | See `frame.Light` for per-type fields. Pose from sibling `transform`. |
-| `rigidBody` | `{ type: "static" \| "dynamic", shape: { cuboid?, ball?, cylinder?, trimesh? }, friction?, ... }` | Builds a `rigidMesh` composite (owns the mesh) and adds the body to the scene world. `shape.trimesh: true` (boolean flag) — when set, reads the collision arrays from `geometry.getCollisionData` on the sibling `meshRenderer`'s geometry (requires the geometry to have been built with `{ retainForCollision: true }`, i.e. from a `"mesh"` resource). Throws `FurnaceError` if `trimesh: true` but the geometry has no retained collision data. |
-
-### Reference-only (no demo, by design)
-
-- `defineComponent` / `defineResource` / `introspect` — extension and reflection surface; used by the editor.
-- `validateDocument` — load-boundary guard; consumers call `loadScene` which runs it internally.
-
----
-
 ## `@furnace/core/registry`
 
 `import { createRegistry, defineService, getService, toJsonSchema, parseOrThrow, z } from "@furnace/core/registry";`
@@ -815,22 +769,28 @@ The scene format: a text-JSON document (`SceneDocument`) with typed resource tab
 
 The neutral definer machinery (foundations T1b) — a world-tier leaf module importing
 **zod + the shared `errors.ts` only**. A FACTORY, not a store: each vocabulary owner
-instantiates its own registry (scene's components/resource kinds, field's generators)
-and keeps its own error prefix. Also carries the validated consumer→editor service
-seam (`defineService`/`getService`) that replaced the analyzer worker's blind
-structural cast.
+instantiates its own registry and keeps its own error prefix. It was extracted from
+`scene` so that `scene` and `field` could share one definer; foundations T2 then deleted
+`scene`, leaving **`@furnace/core/field` as the sole external owner** — `field`'s generator
+registry is the only `createRegistry` instance outside this module, and `field` is the only
+caller of `toJsonSchema` and `parseOrThrow` (verified: `packages/core/src/field/registry.ts`
+is the sole call site of both). The module stays generic and stays its own leaf: it is what a
+second vocabulary owner would build on, and the tier test (`tests/architecture.test.ts`) pins
+it in `WORLD_TIER` alongside `field`. It also **eats its own dog food** — the validated
+consumer→editor service seam (`defineService`/`getService`, which replaced the analyzer
+worker's blind structural cast) is itself a `createRegistry` instance declared here, and that
+half has no `field` involvement at all: the dungeon's `editor-extensions.ts` registers, the
+editor's analyzer worker looks up.
 
 ### Public
 
 | Export | Signature | Notes |
 |---|---|---|
-| `createRegistry` | `<R>(opts: RegistryOptions) => Registry<R>` | A named-entry store with setup-loud duplicate registration — throws `FurnaceError` `` `${prefix}: ${noun} "name" is already registered` ``. `entries()` returns registration order (load-bearing for the scene loader's two-pass build). Module-scope instances are process-global mutable state and MUST be pinned in `packages/core/tests/architecture.test.ts`. |
-| `Registry` | `{ register(name, entry); get(name); entries(); reset() }` | The instance shape. `reset()` is tests-only (suites re-register after). |
+| `createRegistry` | `<R>(opts: RegistryOptions) => Registry<R>` | A named-entry store with setup-loud duplicate registration — throws `FurnaceError` `` `${prefix}: ${noun} "name" is already registered` ``. Core has exactly **two** instances, and both are pinned in `packages/core/tests/architecture.test.ts` because module-scope instances are process-global mutable state: `field/registry.ts::generators` (`prefix: "field"`, `noun: "generator"`) and this module's own `registry/registry.ts::services` (`prefix: "registry"`, `noun: "service"`) behind `defineService`. |
+| `Registry` | `{ register(name, entry); get(name); reset() }` | The instance shape. `reset()` is tests-only (suites re-register after). The `entries()` accessor was removed in foundations T2 — its only reader was the scene loader's two-pass build, and a registration-order guarantee with no consumer is surface to re-add when an ordered pass actually needs it. |
 | `RegistryOptions` | `{ prefix: string; noun: string }` | Naming for the registry's setup-loud errors. |
-| `toJsonSchema` | `(schema: z.ZodObject, opts: { io: "input" \| "output" }) => JsonSchema` | Reflect a zod object as JSON Schema. `io` is a PER-REGISTRY choice: scene uses `"input"`, field generators use `"output"` (defaulted fields stay required, `.optional()` drops). The root `$schema` key is stripped — dialect metadata, not shape. |
-| `parseOrThrow` | `<T>(schema: T, value, where: string, prefix: string) => z.infer<T>` | Parse `value` against `schema`, translating the first zod issue into a `FurnaceError`: `` `<prefix>: <where> invalid at "<path>": <message>` ``. Moved from `scene/schema.ts` with the prefix parameterized (scene shims it back with `"scene"`). |
-| `fieldFurnaceMeta` | `<M>(field: z.ZodType) => M \| undefined` | Read the `furnace` meta payload off a shape field, unwrapping `.optional()`. The payload's shape is the registry owner's contract (scene narrows to `FurnaceMeta`; generators attach `{ unit }`). |
-| `asNestedObject` | `(field: z.ZodType) => z.ZodObject \| undefined` | Unwrap `.optional()` and return the inner object schema if the field is one; `undefined` otherwise. Drives scene's nested-ref recursion. |
+| `toJsonSchema` | `(schema: z.ZodObject, opts: { io: "input" \| "output" }) => JsonSchema` | Reflect a zod object as JSON Schema. `io` is a PER-REGISTRY choice; the one live caller, `field`'s generator registry, passes `"output"` — a defaulted param is always present in the params object the evaluator receives, so it stays `required` and `.optional()` fields drop. `"input"` is the authoring view (a defaulted field is omittable) and has no caller since `scene` went. Either way `.meta({ furnace })` is hoisted to the NODE ROOT, which is where the editor's kind resolver reads it. The root `$schema` key is stripped — dialect metadata, not shape. |
+| `parseOrThrow` | `<T>(schema: T, value, where: string, prefix: string) => z.infer<T>` | Parse `value` against `schema`, translating the first zod issue into a `FurnaceError`: `` `<prefix>: <where> invalid at "<path>": <message>` ``. The `prefix` parameter is why it is here rather than inside `field`: it belongs to whichever vocabulary owner calls it. |
 | `defineService` | `(name: string, def: ServiceDefinition) => void` | Register a named service a consumer project exposes to the editor — called at import time from the project's editor-extensions module (Branch A). Throws `FurnaceError` on duplicate (setup-loud). |
 | `getService` | `(name: string) => ServiceDefinition["fn"]` | Validated lookup: throws a `FurnaceError` NAMING the missing service (`registry: service "x" is not registered — is the project's editor-extensions module imported before use?`) instead of a downstream `TypeError`. The registry proves EXISTENCE; the contract TYPE stays structural at the consuming edge (the wire-twin rule). |
 | `ServiceDefinition` | `{ fn: (...args: never[]) => unknown }` | The registered shape — deliberately untyped beyond "a function". |
@@ -840,7 +800,7 @@ structural cast.
 
 ### Reference-only (no demo, by design)
 
-- The whole module — definer machinery consumed by `scene`/`field` internals and by
+- The whole module — definer machinery consumed by `field` internals and by
   project editor-extensions modules (`defineService`), not a standalone cookbook topic.
 
 ---
@@ -1064,7 +1024,7 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   editor's form and by nothing in core:** `multipleOf: 1` on every param `intParam`
   narrows — the schema saying what that validator already enforces, so a bounded control
   cannot invent a granularity the generator then refuses; and `furnace.unit`, a DISPLAY
-  suffix beside the `furnace.kind` semantics `scene/t.ts` emits (`"m"` on
+  suffix riding the same node-root `furnace` bag `registry`'s `toJsonSchema` hoists (`"m"` on
   `cave.chamberRadius` and `scatter.minSpacing`, both verifiably world metres; `"cells"`
   on the hall's `width`/`height`/`depth`/`pillarSpacing`, which count 0.5 m COARSE cells
   and would be a lie at `"m"`). The `multipleOf` half is asserted behaviourally in
