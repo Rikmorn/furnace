@@ -7,35 +7,21 @@
 export type EditorErrorCode =
   | "invalid-input"
   | "invalid-json"
-  | "validation-failed"
   | "unknown-command"
   | "not-found"
   | "outside-root"
-  | "no-session"
-  | "unsaved-changes"
-  | "nothing-to-undo"
-  | "nothing-to-redo"
   | "already-exists"
-  | "unreadable"
-  | "extension-build-failed"
   | "internal";
 
 const HTTP_STATUS: Record<EditorErrorCode, number> = {
   "invalid-input": 400,
   "invalid-json": 400,
-  "validation-failed": 400,
   "unknown-command": 404,
   "not-found": 404,
   // Traversal reports 404, not 400: don't reveal whether anything exists
   // outside the project root.
   "outside-root": 404,
-  "no-session": 409,
-  "unsaved-changes": 409,
-  "nothing-to-undo": 409,
-  "nothing-to-redo": 409,
   "already-exists": 409,
-  unreadable: 500,
-  "extension-build-failed": 500,
   internal: 500,
 };
 

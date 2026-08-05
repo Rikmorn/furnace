@@ -10,9 +10,6 @@ import { dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { EditorError } from "./errors.ts";
 import type { DaemonEvent } from "./events.ts";
-import * as mutations from "./mutations.ts";
-import { listScenes, readScene } from "./scenes.ts";
-import type { Session } from "./session.ts";
 import {
   deleteWorld,
   duplicateWorldDir,
@@ -34,8 +31,6 @@ export type Handlers = Map<string, Handler>;
 
 export type HandlerContext = {
   root: string;
-  scenesPattern: string;
-  session: Session;
   emit(event: DaemonEvent): void;
   /** Injected capability (same pattern as watchDir): for a project-relative
    *  path, reports true (not gitignored per `git check-ignore`), false
@@ -45,15 +40,12 @@ export type HandlerContext = {
   isTracked?: (rel: string) => boolean | null;
 };
 
-const componentsRecord = z.record(z.string(), z.unknown());
-const tableEnum = z.enum(["geometries", "shaders", "materials"]);
 // Shared by field.load and every world.* verb below — the ONE handlers.ts
 // copy of WORLD_NAME_RE (worlds.ts's top comment tracks the other copies).
 const worldName = z.string().regex(WORLD_NAME_RE);
 
-/** Build the M4 command set: stateless reads + the document-session commands. */
+/** Build the command set: the project read, the bake transport, and the field/world verbs. */
 export function createHandlers(ctx: HandlerContext): Handlers {
-  const { session } = ctx;
   const handlers: Handlers = new Map();
 
   // Each run() opens with a boundary cast: the homogeneous Handler.run(input:
@@ -65,215 +57,6 @@ export function createHandlers(ctx: HandlerContext): Handlers {
   handlers.set("project.get", {
     input: z.strictObject({}),
     run: () => Promise.resolve({ root: ctx.root }),
-  });
-
-  handlers.set("scene.list", {
-    input: z.strictObject({}),
-    run: async () => ({
-      scenes: await listScenes(ctx.root, ctx.scenesPattern),
-    }),
-  });
-
-  handlers.set("scene.read", {
-    input: z.strictObject({ path: z.string() }),
-    run: async (input) => {
-      const { path } = input as { path: string };
-      return { document: await readScene(ctx.root, path) };
-    },
-  });
-
-  handlers.set("scene.open", {
-    input: z.strictObject({ path: z.string(), force: z.boolean().optional() }),
-    run: (input) => {
-      const { path, force } = input as { path: string; force?: boolean };
-      return session.open(path, force ?? false);
-    },
-  });
-
-  handlers.set("scene.get", {
-    input: z.strictObject({}),
-    run: () => Promise.resolve(session.get()),
-  });
-
-  handlers.set("scene.save", {
-    input: z.strictObject({}),
-    run: async () => {
-      const { revision, dirty } = await session.save();
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.validate", {
-    input: z
-      .strictObject({
-        path: z.string().optional(),
-        document: z.unknown().optional(),
-      })
-      .refine((v) => (v.path === undefined) !== (v.document === undefined), {
-        message: "provide exactly one of path or document",
-      }),
-    run: (input) =>
-      session.validate(input as { path?: string; document?: unknown }),
-  });
-
-  handlers.set("scene.introspect", {
-    input: z.strictObject({}),
-    run: () => session.introspect(),
-  });
-
-  handlers.set("scene.addEntity", {
-    input: z.strictObject({
-      id: z.string().optional(),
-      components: componentsRecord.optional(),
-    }),
-    run: async (input) => {
-      const args = input as {
-        id?: string;
-        components?: Record<string, unknown>;
-      };
-      let id = "";
-      const { revision, dirty } = await session.apply(
-        "scene.addEntity",
-        (doc) => {
-          id = mutations.addEntity(doc, args);
-        },
-      );
-      return { id, revision, dirty };
-    },
-  });
-
-  handlers.set("scene.removeEntity", {
-    input: z.strictObject({ id: z.string() }),
-    run: async (input) => {
-      const { id } = input as { id: string };
-      const { revision, dirty } = await session.apply(
-        "scene.removeEntity",
-        (doc) => mutations.removeEntity(doc, id),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.setComponent", {
-    input: z.strictObject({
-      entity: z.string(),
-      component: z.string(),
-      params: componentsRecord,
-    }),
-    run: async (input) => {
-      const args = input as {
-        entity: string;
-        component: string;
-        params: Record<string, unknown>;
-      };
-      const { revision, dirty } = await session.apply(
-        "scene.setComponent",
-        (doc) =>
-          mutations.setComponent(doc, args.entity, args.component, args.params),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.removeComponent", {
-    input: z.strictObject({ entity: z.string(), component: z.string() }),
-    run: async (input) => {
-      const args = input as { entity: string; component: string };
-      const { revision, dirty } = await session.apply(
-        "scene.removeComponent",
-        (doc) => mutations.removeComponent(doc, args.entity, args.component),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.setResource", {
-    input: z.strictObject({
-      table: tableEnum,
-      id: z.string(),
-      entry: componentsRecord,
-    }),
-    run: async (input) => {
-      const args = input as {
-        table: mutations.ResourceTable;
-        id: string;
-        entry: Record<string, unknown>;
-      };
-      const { revision, dirty } = await session.apply(
-        "scene.setResource",
-        (doc) => mutations.setResource(doc, args.table, args.id, args.entry),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.removeResource", {
-    input: z.strictObject({ table: tableEnum, id: z.string() }),
-    run: async (input) => {
-      const args = input as { table: mutations.ResourceTable; id: string };
-      const { revision, dirty } = await session.apply(
-        "scene.removeResource",
-        (doc) => mutations.removeResource(doc, args.table, args.id),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.setSettings", {
-    input: z.strictObject({ settings: z.unknown() }),
-    run: async (input) => {
-      const { settings } = input as { settings: unknown };
-      const { revision, dirty } = await session.apply(
-        "scene.setSettings",
-        (doc) => mutations.setSettings(doc, settings),
-      );
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.batch", {
-    input: z.strictObject({
-      edits: z
-        .array(
-          z.strictObject({
-            entity: z.string(),
-            component: z.string(),
-            params: componentsRecord,
-          }),
-        )
-        .min(1),
-    }),
-    run: async (input) => {
-      const { edits } = input as {
-        edits: {
-          entity: string;
-          component: string;
-          params: Record<string, unknown>;
-        }[];
-      };
-      const { revision, dirty } = await session.apply("scene.batch", (doc) => {
-        for (const e of edits) {
-          mutations.setComponent(doc, e.entity, e.component, e.params);
-        }
-      });
-      return { revision, dirty };
-    },
-  });
-
-  handlers.set("scene.undo", {
-    input: z.strictObject({}),
-    run: () => {
-      const { revision, dirty } = session.undo();
-      return Promise.resolve({ revision, dirty });
-    },
-  });
-
-  handlers.set("scene.redo", {
-    input: z.strictObject({}),
-    run: () => {
-      const { revision, dirty } = session.redo();
-      return Promise.resolve({ revision, dirty });
-    },
   });
 
   const wireFile = z.strictObject({

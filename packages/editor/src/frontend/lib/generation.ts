@@ -1,7 +1,7 @@
 // The bake-upload marshalling world-actions.ts (and useWorld) drives: pure helpers that turn
 // a browser-produced file set into the daemon's `generation.bake` wire shape and decide the
-// call sequence. NO document-session contact — the ONLY daemon crossing is the api call the
-// caller makes with what these return. Everything here is pure and unit-tested without a DOM.
+// call sequence. The ONLY daemon crossing is the api call the caller makes with what these
+// return. Everything here is pure and unit-tested without a DOM.
 
 /** UI-boundary mirror of bake.ts's WORLD_NAME_RE — refuse before burning a bake. The
  *  frontend's ONLY copy: every name field validates through this one call. */

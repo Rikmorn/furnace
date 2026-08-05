@@ -1,12 +1,6 @@
 import { defineService } from "@furnace/core/registry";
-import { defineComponent, z } from "@furnace/core/scene";
 
-// Fixture extension: a pure-data custom component. Its presence in
-// introspect() + its acceptance by loadScene IS the Branch-A proof.
-defineComponent("fixtureGlow", {
-  params: { intensity: z.number() },
-});
-
-// Fixture service: registration at import time is the Branch-A proof for the
-// service seam, mirroring the component above.
+// Fixture service: registration at import time IS the Branch-A proof — the
+// consumer's own module runs inside the bundle the daemon builds from the
+// project root (asserted by bundle.test.ts + bundle.gpu.test.ts).
 defineService("fixtureService", { fn: () => "ok" });

@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
@@ -62,27 +69,26 @@ test("missing static dir → 503 with a build hint", async () => {
   bare.close();
 });
 
-test("POST /api/scene.list returns the fixture's scenes", async () => {
-  const res = await fetch(url("/api/scene.list"), {
+test("POST /api/project.get returns the served root", async () => {
+  const res = await fetch(url("/api/project.get"), {
     method: "POST",
     body: "{}",
   });
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ scenes: ["scenes/cube.scene.json"] });
+  expect(await res.json()).toEqual({ root: FIXTURE });
 });
 
-test("POST /api/scene.read returns the parsed document", async () => {
-  const res = await fetch(url("/api/scene.read"), {
+test("POST /api/world.list returns the fixture's (empty) worlds index", async () => {
+  const res = await fetch(url("/api/world.list"), {
     method: "POST",
-    body: JSON.stringify({ path: "scenes/cube.scene.json" }),
+    body: "{}",
   });
   expect(res.status).toBe(200);
-  const body = (await res.json()) as { document: { version: number } };
-  expect(body.document.version).toBe(1);
+  expect(await res.json()).toEqual({ defaultName: null, worlds: [] });
 });
 
 test("unknown command → 404 JSON error", async () => {
-  const res = await fetch(url("/api/scene.zap"), {
+  const res = await fetch(url("/api/nope.zap"), {
     method: "POST",
     body: "{}",
   });
@@ -91,15 +97,25 @@ test("unknown command → 404 JSON error", async () => {
     error: { code: string; message: string };
   };
   expect(body.error.code).toBe("unknown-command");
-  expect(body.error.message).toContain("scene.zap");
+  expect(body.error.message).toContain("nope.zap");
 });
 
 test("bad input → 400 JSON error", async () => {
-  const res = await fetch(url("/api/scene.read"), {
+  const res = await fetch(url("/api/field.load"), {
     method: "POST",
-    body: JSON.stringify({ path: 7 }),
+    body: JSON.stringify({ name: 7 }),
   });
   expect(res.status).toBe(400);
+});
+
+test("a body that is not JSON → 400 invalid-json", async () => {
+  const res = await fetch(url("/api/project.get"), {
+    method: "POST",
+    body: "{ not json",
+  });
+  expect(res.status).toBe(400);
+  const body = (await res.json()) as { error: { code: string } };
+  expect(body.error.code).toBe("invalid-json");
 });
 
 test("GET /engine.js serves the ESM bundle", async () => {
@@ -173,65 +189,50 @@ async function readSse(
 }
 
 test("structured error bodies carry code + message", async () => {
-  const res = await fetch(url("/api/scene.read"), {
+  const res = await fetch(url("/api/field.load"), {
     method: "POST",
-    body: JSON.stringify({ path: "ghost.scene.json" }),
+    body: JSON.stringify({ name: "ghost" }),
   });
   expect(res.status).toBe(404);
   expect(await res.json()).toEqual({
-    error: {
-      code: "not-found",
-      message: 'scene file "ghost.scene.json" not found',
-    },
+    error: { code: "not-found", message: 'world "ghost" has no manifest' },
   });
 });
 
-test("session lifecycle over HTTP with a live SSE feed + watcher reload", async () => {
-  // Dedicated server over an in-workspace COPY of mini-project: this test
-  // mutates scene files (save + on-disk edit), so it must not touch FIXTURE.
+test("a command's emission reaches a live SSE subscriber over HTTP", async () => {
+  // Dedicated server over an in-workspace COPY of mini-project: this test WRITES
+  // into the project root (generation.bake), so it must not touch FIXTURE.
+  //
+  // The event asserted here is same-process: the handler emits synchronously inside
+  // the request it serves, so the frame is already queued when the POST resolves.
+  // (The scene-era version of this test also waited on a chokidar FILE event, which
+  // could be missed outright — see the sse-watcher-reload-missed-event-flake backlog
+  // entry. That half went with the watcher; nothing in the surviving feed races.)
   const root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-sse-"));
   let live: RunningServer | undefined;
   try {
     cpSync(FIXTURE, root, { recursive: true });
     live = await startServer({ root, port: 0, staticDir: staticFixture() });
     const port = live.port;
-    const liveUrl = (p: string) => `http://127.0.0.1:${port}${p}`;
-    const sseRes = await fetch(liveUrl("/api/events"));
+    const sseRes = await fetch(`http://127.0.0.1:${port}/api/events`);
     expect(sseRes.headers.get("content-type")).toContain("text/event-stream");
     const sseState = openSseReader(sseRes);
 
-    const post = (cmd: string, body: unknown) =>
-      fetch(liveUrl(`/api/${cmd}`), {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+    const baked = await fetch(`http://127.0.0.1:${port}/api/generation.bake`, {
+      method: "POST",
+      body: JSON.stringify({
+        files: [
+          { path: "worlds/w/manifest.json", encoding: "utf8", contents: "{}" },
+        ],
+      }),
+    });
+    expect(await baked.json()).toEqual({ files: 1 });
+    expect(existsSync(join(root, "worlds", "w", "manifest.json"))).toBe(true);
 
-    const opened = await post("scene.open", { path: "scenes/cube.scene.json" });
-    expect(opened.status).toBe(200);
-    await readSse(sseState, (b) => b.includes("event: scene-opened"));
-
-    const added = await post("scene.addEntity", {});
-    expect(((await added.json()) as { id: string }).id).toBe("entity-1");
-    await readSse(
-      sseState,
-      (b) =>
-        b.includes("event: document-changed") && b.includes("scene.addEntity"),
+    const buffer = await readSse(sseState, (b) =>
+      b.includes("event: generation-baked"),
     );
-
-    // Disk edit on the CLEAN session → watcher reload event.
-    await post("scene.undo", {}); // back to clean
-    writeFileSync(
-      join(root, "scenes", "cube.scene.json"),
-      JSON.stringify({ version: 1, entities: [] }),
-    );
-    await readSse(sseState, (b) => b.includes("file-reload"));
-
-    const view = (await (await post("scene.get", {})).json()) as {
-      document: { entities: unknown[] };
-      dirty: boolean;
-    };
-    expect(view.document.entities).toHaveLength(0);
-    expect(view.dirty).toBe(false);
+    expect(buffer).toContain('data: {"type":"generation-baked","files":1}');
   } finally {
     live?.close();
     rmSync(root, { recursive: true, force: true });

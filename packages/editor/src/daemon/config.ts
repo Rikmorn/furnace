@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { z } from "zod";
 
 const editorSchema = z.strictObject({
-  scenes: z.string().default("**/*.scene.json"),
   extensions: z.string().optional(),
 });
 

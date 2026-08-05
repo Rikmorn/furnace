@@ -68,10 +68,10 @@ test("subscribe sends SSE headers; emit broadcasts a typed event frame", () => {
   hub.subscribe(a.res);
   hub.subscribe(b.res);
   expect(a.headers?.["content-type"]).toBe("text/event-stream");
-  hub.emit({ type: "saved", revision: 3 });
+  hub.emit({ type: "generation-baked", files: 3 });
   const frame = a.chunks.at(-1);
-  expect(frame).toContain("event: saved\n");
-  expect(frame).toContain('data: {"type":"saved","revision":3}');
+  expect(frame).toContain("event: generation-baked\n");
+  expect(frame).toContain('data: {"type":"generation-baked","files":3}');
   expect(b.chunks.at(-1)).toBe(frame);
   hub.close();
 });
@@ -82,7 +82,7 @@ test("a closed subscriber stops receiving", () => {
   hub.subscribe(a.res);
   for (const h of a.closeHandlers) h();
   const before = a.chunks.length;
-  hub.emit({ type: "saved", revision: 1 });
+  hub.emit({ type: "worlds-changed" });
   expect(a.chunks.length).toBe(before);
   hub.close();
 });

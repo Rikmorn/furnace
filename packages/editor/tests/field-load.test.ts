@@ -4,19 +4,13 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DaemonEvent } from "../src/daemon/events.ts";
 import { createHandlers, dispatch } from "../src/daemon/handlers.ts";
-import { createRegistryLoader } from "../src/daemon/registry-bundle.ts";
-import { createSession, type Session } from "../src/daemon/session.ts";
 
-// Real session + real registry over an IN-WORKSPACE copy of mini-project (esbuild
-// resolves @furnace/core through the workspace node_modules; an os.tmpdir() copy could
-// not — the same constraint generation-bake.test.ts documents).
+// An IN-WORKSPACE copy of mini-project: the fixture carries the extensions entry the
+// engine bundler resolves through the workspace node_modules, which an os.tmpdir() copy
+// could not — the same constraint generation-bake.test.ts documents.
 const MINI = join(import.meta.dir, "fixtures", "mini-project");
 
-// biome-ignore lint/suspicious/noEmptyBlockStatements: intentional no-op stub — file-change semantics are session.test.ts's job
-const noopUnwatch = (): void => {};
-
 let root: string;
-let session: Session;
 let handlers: ReturnType<typeof createHandlers>;
 let events: DaemonEvent[];
 
@@ -24,22 +18,10 @@ beforeEach(() => {
   root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-field-load-"));
   cpSync(MINI, root, { recursive: true });
   events = [];
-  session = createSession({
-    root,
-    watchFile: () => noopUnwatch, // file-change semantics are session.test.ts's job
-    registry: createRegistryLoader(root, "src/editor-extensions.ts"),
-    emit: (e) => events.push(e),
-  });
-  handlers = createHandlers({
-    root,
-    scenesPattern: "**/*.scene.json",
-    session,
-    emit: (e) => events.push(e),
-  });
+  handlers = createHandlers({ root, emit: (e) => events.push(e) });
 });
 
 afterEach(() => {
-  session.dispose();
   rmSync(root, { recursive: true, force: true });
 });
 

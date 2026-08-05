@@ -21,7 +21,7 @@ test("bundles the fixture project's extensions + field host into one ESM string"
   );
   const result = await bundler.build();
   if (!result.ok) throw new Error(result.error);
-  expect(result.code).toContain("fixtureGlow"); // extension registration made it in
+  expect(result.code).toContain("fixtureService"); // extension registration made it in
   expect(result.code).toContain("createFieldHost"); // host export made it in
   expect(result.code).toContain("extensions"); // consumer extensions namespace re-exported
   expect(result.code).toContain("getService"); // registry lookup re-exported for the worker seam
@@ -54,6 +54,6 @@ test("no extensions entry: bundle still exports the host (built-ins only)", asyn
   expect(result.code).toContain("createFieldHost");
   // No extensions entry → the bundle still exports an (empty) `extensions` const.
   expect(result.code).toContain("extensions");
-  expect(result.code).not.toContain("fixtureGlow");
+  expect(result.code).not.toContain("fixtureService");
   await bundler.dispose();
 });

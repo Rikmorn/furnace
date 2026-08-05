@@ -317,20 +317,6 @@ test("a bake that wrote a world re-lists the same way", async () => {
 	expect(daemon.lists()).toBe(2);
 });
 
-test("a session event on the same feed changes nothing", async () => {
-	const daemon = stubDaemon(["cavern"]);
-	await renderFeed();
-	await openDrawer("cavern");
-	expect(daemon.lists()).toBe(1);
-
-	// The scene-session events still ride this feed (the daemon serves the scene layer
-	// for a future consumer surface). Refetching the world list on one would put a
-	// daemon round trip behind every keystroke in a surface that has nothing to do
-	// with worlds.
-	emit({ type: "saved", revision: 3 });
-	expect(daemon.lists()).toBe(1);
-});
-
 // --- (c) the reload guard -----------------------------------------------------
 
 test("bundle-outdated reloads the page — but NEVER over a world write in flight", async () => {

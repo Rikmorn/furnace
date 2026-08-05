@@ -1,9 +1,8 @@
 import type { ServerResponse } from "node:http";
-import type { SessionEvent } from "./session.ts";
 
 const HEARTBEAT_MS = 15_000;
 
-/** Daemon-level events ride the same SSE feed as session events. `bundle-outdated`
+/** Everything the daemon broadcasts on its SSE feed. `bundle-outdated`
  *  = a source file under the extensions entry's directory changed; /engine.js will
  *  serve the fresh bundle on next fetch (it rebuilds per GET) — the browser just
  *  needs to know to reload. `generation-baked` = the browser uploaded a freshly
@@ -13,15 +12,15 @@ const HEARTBEAT_MS = 15_000;
  *  each raise it after their FS mutation succeeds); consumers should refetch
  *  world.list. */
 export type DaemonEvent =
-  | SessionEvent
   | { type: "bundle-outdated" }
   | { type: "generation-baked"; files: number }
   | { type: "worlds-changed" };
 
 /**
- * SSE broadcaster for session events. Events are notification-only dirty-bits:
- * consumers refetch scene.get, so a slow consumer naturally coalesces N
- * changes into one refetch. No payload protocol beyond the event itself.
+ * SSE broadcaster for daemon events. Events are notification-only dirty-bits:
+ * consumers refetch the command that owns the changed state (e.g. world.list on
+ * `worlds-changed`), so a slow consumer naturally coalesces N changes into one
+ * refetch. No payload protocol beyond the event itself.
  */
 export type EventHub = {
   emit(event: DaemonEvent): void;

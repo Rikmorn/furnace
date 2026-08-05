@@ -2,21 +2,11 @@
 
 /** The daemon's SSE feed events (mirror of the daemon's DaemonEvent union). */
 export type ServerEvent =
-  | { type: "scene-opened"; path: string; revision: number }
-  | { type: "document-changed"; revision: number; command: string }
-  | { type: "saved"; revision: number }
-  | { type: "file-conflict"; path: string }
-  | { type: "file-invalid"; path: string; message: string }
   | { type: "bundle-outdated" }
   | { type: "generation-baked"; files: number }
   | { type: "worlds-changed" };
 
 const EVENT_TYPES = [
-  "scene-opened",
-  "document-changed",
-  "saved",
-  "file-conflict",
-  "file-invalid",
   "bundle-outdated",
   "generation-baked",
   "worlds-changed",

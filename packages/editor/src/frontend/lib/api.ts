@@ -54,10 +54,6 @@ export type WorldRow = {
   manifestMtimeMs: number;
 };
 
-// The daemon still serves the whole scene.* command family (daemon/scenes.ts +
-// daemon/session.ts) — this client just no longer speaks it: the editor is field-only,
-// and the scene chrome that drove those commands is gone. The daemon layer stays for a
-// future consumer surface.
 export const api = {
   // The project root the daemon serves — used to key per-project UI persistence.
   projectGet: () => call<{ root: string }>("project.get", {}),
