@@ -4,7 +4,7 @@ Two entries about the `world.*` family's edges, consolidated at the F4.5 seal (2
 Both are about the same class of thing: a world verb that WORKS and whose failure or
 confirmation path says less than it could. The verbs themselves (list, make-default, delete,
 rename, duplicate) and the drawer that drives them are as-built at
-`docs/reference/editor-architecture.md` §4.3 and §16.4.
+`docs/reference/editor-architecture.md` §4 and §16.4.
 
 Each section keeps its own trigger.
 

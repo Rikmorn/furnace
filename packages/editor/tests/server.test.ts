@@ -206,8 +206,8 @@ test("a command's emission reaches a live SSE subscriber over HTTP", async () =>
   // The event asserted here is same-process: the handler emits synchronously inside
   // the request it serves, so the frame is already queued when the POST resolves.
   // (The scene-era version of this test also waited on a chokidar FILE event, which
-  // could be missed outright — see the sse-watcher-reload-missed-event-flake backlog
-  // entry. That half went with the watcher; nothing in the surviving feed races.)
+  // could be missed outright. That half went with the watcher; nothing in the surviving
+  // feed races.)
   const root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-sse-"));
   let live: RunningServer | undefined;
   try {
