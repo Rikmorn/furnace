@@ -351,6 +351,69 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "an entity picked DURING a live session is cancelled first — the second divergence row",
+  async () => {
+    // §20.2's session-then-entity row, same decision as the pin above. The ladder
+    // took the session (rung 2 sat above rung 3); the stack takes the pick, the
+    // more recent intent. The reverse order — pick first, then open on it — is
+    // the flow where the two AGREED, pinned at "the session goes before the
+    // entity it was opened on".
+    const f = await escapeFixture();
+    try {
+      f.host.startStamp("hall");
+      f.click(20, 20);
+      f.click(44, 44); // the region-draw pair opens the session
+      f.host.selectEntity(HALL_ENTITY_ID);
+      expect(f.sessions.at(-1)).not.toBeNull();
+      expect(f.entitySelections.at(-1)).toBe(HALL_ENTITY_ID);
+
+      f.esc();
+      expect(f.claimed).toEqual(ACTED);
+      expect(f.entitySelections.at(-1)).toBeNull();
+      expect(f.sessions.at(-1)).not.toBeNull();
+
+      f.esc();
+      expect(f.sessions.at(-1)).toBeNull();
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a selection drawn DURING a live session is cancelled first — the third divergence row",
+  async () => {
+    // §20.2's session-then-selection row, closing the divergence table: all three
+    // rows are pinned decisions now. A live session does not own LMB — the armed
+    // gesture does — so the box pair can land while the ghost stands, and Esc
+    // takes the selection (most recent) where the ladder took the session. The
+    // box corners land AWAY from the session's region so the presses cannot read
+    // as a ghost hit.
+    const f = await escapeFixture();
+    try {
+      f.host.startStamp("hall");
+      f.click(20, 20);
+      f.click(44, 44); // the region-draw pair opens the session
+      f.host.setGesture("box");
+      f.click(120, 120);
+      f.click(150, 150); // the box pair lands the selection
+      expect(f.sessions.at(-1)).not.toBeNull();
+      expect(f.selections.at(-1)).not.toBeNull();
+
+      f.esc();
+      expect(f.claimed).toEqual(ACTED);
+      expect(f.selections.at(-1)).toBeNull();
+      expect(f.sessions.at(-1)).not.toBeNull();
+
+      f.esc();
+      expect(f.sessions.at(-1)).toBeNull();
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "a world swap releases the selection capture the bare clear leaves behind",
   async () => {
     // `resetWorld` writes `selection` directly (it must: `setSelection` would park

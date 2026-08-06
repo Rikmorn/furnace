@@ -2598,11 +2598,12 @@ acquired in either order:
 
 The common flow is unchanged: draw a region, then pick something in it, and Esc still takes
 the pick first — in that order recency and the ladder agree. In all three rows above the
-stack is the one obeying the ladder's own stated principle. It is pinned by
-`tests/field-host-escape.gpu.test.ts` ("a selection drawn AFTER an entity pick is cancelled
-first — recency, not a fixed order"), which is the equivalence record for the swap as a
-whole: the router's unit tests pin the stack, that suite pins that the HOST still wires every
-state to it, with the scenarios the old rung comments argued from.
+stack is the one obeying the ladder's own stated principle. All three rows are pinned by
+`tests/field-host-escape.gpu.test.ts` (the "recency, not a fixed order" pin plus the two
+"divergence row" cases beside it — accepted at the T3a merge review, 2026-08-06), which is
+the equivalence record for the swap as a whole: the router's unit tests pin the stack, that
+suite pins that the HOST still wires every state to it, with the scenarios the old rung
+comments argued from.
 
 **The segment brush is the pilot** and owns its own anchor capture — the router is passed
 into `SegmentDeps` whole rather than the host reconciling on the extracted module's behalf,
