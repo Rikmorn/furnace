@@ -3,7 +3,7 @@
 **Context.** The editor's analyzer worker re-runs stage 1 over a set derived from the
 edited chunks: the 26-neighbour halo, plus every allocated chunk BELOW the dirty one in
 its own XZ column and the 4 cardinal ones (`reanalysisKeys` in
-`packages/editor/src/frontend/lib/analyzer-protocol.ts`). The column term exists because
+`packages/editor/src/viewport-host/analyzer-protocol.ts`). The column term exists because
 two reads in `packages/core/src/field/analyze.ts` are unbounded in Y — `ceilingAbove`
 (own column) and `scanRise`'s `isSolid` (the 4 cardinal columns, bounded only by that
 ceiling). Everything else the column pass reads is BOUNDED, and the halo is what covers
@@ -49,6 +49,6 @@ past 16 cells. Recompute the table above whenever `catalog/agent.json` or
 **Reference:** `packages/core/src/field/analyze.ts` (`metricsFor` — `clearCells`,
 `pinchCells`, `wallCellsXZ`, `wallProbeUp`, `stepCells`; `airRun`, `wallBeyondLip`,
 `faceDistance`, `scanRise`); `packages/core/src/field/solidity.ts` (`ceilingAbove`, the
-uncapped scan the column term answers); `packages/editor/src/frontend/lib/analyzer-protocol.ts`
+uncapped scan the column term answers); `packages/editor/src/viewport-host/analyzer-protocol.ts`
 (`READ_COLUMNS`, `reanalysisKeys` — the halo term is the 27-cube loop);
 `packages/core/src/field/chunks.ts` (`CHUNK_DIM`, `DEFAULT_CELL_SIZE`).

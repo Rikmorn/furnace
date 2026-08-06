@@ -54,10 +54,10 @@ import type {
 } from "../../../viewport-host/index.ts"; // type-only: erased
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
-import { ActionTip } from "../tips.tsx";
 import { Checkbox } from "../ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Segmented, type SegmentedOption } from "../ui/segmented.tsx";
+import { ActionTip } from "../ui/tips.tsx";
 
 const VOID_CAST_HINT =
 	"X-ray: meshes the air as a solid, so a cave network reads from outside. Built when you tick it; the next edit clears it — re-tick to refresh";

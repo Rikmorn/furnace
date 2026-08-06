@@ -1,6 +1,6 @@
 import type { SessionVerbs } from "../../../lib/field-session.ts";
-import { ReasonTip } from "../../tips.tsx";
 import { Button } from "../../ui/button.tsx";
+import { ReasonTip } from "../../ui/tips.tsx";
 
 /**
  * The two verbs that end a session, and the one reason either of them can be refused.

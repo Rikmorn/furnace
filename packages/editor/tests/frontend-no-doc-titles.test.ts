@@ -7,7 +7,7 @@ import { join, relative } from "node:path";
 // obvious — it is mouse-only (a Tab-focus gets nothing, on every browser), it cannot
 // render a keycap (so a documented shortcut is hardcoded in prose, which is D-12's
 // duplication problem in a second spelling), and its ~1 s delay and placement are the OS's
-// rather than ours. `ActionTip` (components/tips.tsx) is where a sentence goes.
+// rather than ours. `ActionTip` (components/ui/tips.tsx) is where a sentence goes.
 //
 // WHAT THIS SCAN CAN SEE, stated plainly because the boundary is the whole design: it
 // reads AUTHORED TEXT — a string literal (`title="…"`), a braced string literal

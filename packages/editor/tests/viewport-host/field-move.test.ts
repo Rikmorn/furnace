@@ -5,7 +5,7 @@
 // the step counts are exact, so "anchored, not incremental" is an assertion
 // rather than an inference from a round trip.
 import { expect, test } from "bun:test";
-import { LATTICE } from "../../src/frontend/lib/field-brush.ts";
+import { LATTICE } from "../../src/shared/field-brush.ts";
 import {
   advanceMove,
   type MoveDrag,

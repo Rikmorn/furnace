@@ -14,7 +14,7 @@ import type {
   FlagKind,
   FlagSeverity,
 } from "@furnace/core/field";
-import type { VerifyVerdictWire } from "../frontend/lib/analyzer-protocol.ts";
+import type { VerifyVerdictWire } from "./analyzer-protocol.ts";
 
 /** Which triage bands the viewport and the palette show. `candidates`/`info` are
  *  the severity bands; `unreachable` admits the flags the reachability pass

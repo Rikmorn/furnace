@@ -33,9 +33,9 @@ import { FlagsPalette } from "../../src/frontend/components/shell/FlagsPalette.t
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
 import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import { createUiStore, type UiStore } from "../../src/frontend/lib/persist.ts";
+import type { VerifyVerdictWire } from "../../src/viewport-host/analyzer-protocol.ts";
 import type { FlagRow, FlagsSummary } from "../../src/viewport-host/index.ts";
 import {
 	act,

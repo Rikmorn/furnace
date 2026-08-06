@@ -3,6 +3,16 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
+// `src/shared/` is the neutral layer both arrows point at (`frontend/ → viewport-host/ →
+// shared/`, editor-architecture §7). It is scanned by the SAME rules and with NO
+// exemptions, and that is not decoration: its three modules (`catalog.ts`,
+// `field-brush.ts`, `field-entity.ts`) are VALUE-imported by chrome components, so a core
+// value-import added to one of them lands in the main bundle exactly like a direct one —
+// and the chrome's own import (`../../shared/catalog.ts`) matches none of the three
+// specifier rules below, so nothing else would catch it. This scan is what keeps the
+// "engine-free" half of the `shared/` rule a fact rather than a comment. (Its React-free
+// half is not machine-enforced here; that belongs with the host's own directional test.)
+const SHARED = join(import.meta.dir, "..", "src", "shared");
 
 // Value-level references to engine code in the chrome would create a SECOND core
 // instance next to the engine bundle's — the exact bug the project-first
@@ -13,7 +23,7 @@ const ENGINE = String.raw`["']@furnace\/core`;
 // rule) into a chrome-graph file would pull core into the main bundle just as
 // surely — so they are forbidden from non-exempt files too. Any specifier ending
 // in `field-protocol` or `analyzer-protocol` (`./field-protocol.ts`,
-// `./lib/analyzer-protocol.ts`).
+// `../viewport-host/analyzer-protocol.ts`).
 const PROTOCOL = `["'][^"']*(field|analyzer)-protocol`;
 // viewport-host/index.ts is the ENGINE BARREL — it value-imports @furnace/core/*
 // (it re-exports the hosts). A value-import of it into any chrome file would
@@ -66,25 +76,38 @@ const VIEWPORT_HOST = `["'][^"']*viewport-host`;
 // worker's memory, which is accepted.
 //
 // Exempt files may (1) value-import @furnace/core AND (2) value-import a core-carrying
-// protocol module — they ARE those bundles (field-worker.ts value-imports
-// createFieldWorkerHandler; field-protocol.ts value-imports the mesher; the analyzer
-// pair does the same with the advisor passes).
-// The viewport-host rule is a no-op for them: the worker files don't import the barrel
-// at all, so exempting them changes nothing while the rule catches any CHROME file that
-// value-imports it. Every non-exempt chrome file may do NONE of the three: it may import
-// @furnace/core, the protocols, AND viewport-host only TYPE-ONLY (erased). The
-// main-thread clients (field-client.ts, analyzer-client.ts) import their protocol
-// TYPE-ONLY, and the
-// host (FieldHost) reaches the chrome ONLY via the /engine.js
-// runtime channel — never a static value import — which the viewport-host rule now
-// machine-enforces; without it core could re-enter the chrome via the barrel with no
-// test failing.
-const ENGINE_DIRECT_WORKER = new Set([
-  "field-worker.ts",
-  join("lib", "field-protocol.ts"),
-  "analyzer-worker.ts",
-  join("lib", "analyzer-protocol.ts"),
-]);
+// protocol module — they ARE those bundles. The two worker ENTRIES are all that is left
+// here: `field-worker.ts` value-imports `createFieldWorkerHandler` and `analyzer-worker.ts`
+// value-imports `createAnalyzerWorkerHandler`, each now reaching across to
+// `../viewport-host/`, and both of those protocol modules still value-import core
+// themselves (the mesher; the advisor passes).
+//
+// THE PROTOCOL PAIR LEFT THIS SCAN, deliberately, and the coverage arithmetic is exactly
+// zero (foundations T3b1): `field-protocol.ts` and `analyzer-protocol.ts` moved from
+// `frontend/lib/` into `src/viewport-host/`, where they sit beside their main-thread
+// clients. They were EXEMPT here — the walk skipped them whole — so a scan that never
+// asserted anything about them loses nothing by no longer reaching them. What the move
+// BUYS is a second rule over them: a chrome value-import of either now trips the
+// viewport-host rule as well as the protocol rule.
+//
+// The viewport-host rule is a no-op for the two exempt entries in the other direction:
+// they don't import the barrel (`viewport-host/index.ts`), only single modules inside that
+// directory, and the specifier rule cannot tell those apart — hence they must be exempt
+// from it too. Every non-exempt chrome file may do NONE of the three: it may import
+// @furnace/core, the protocols, AND anything under viewport-host only TYPE-ONLY (erased).
+// The main-thread clients (`viewport-host/field-client.ts`,
+// `viewport-host/analyzer-client.ts`) import their protocol TYPE-ONLY, and the host
+// (FieldHost) reaches the chrome ONLY via the /engine.js runtime channel — never a static
+// value import — which the viewport-host rule machine-enforces; without it core could
+// re-enter the chrome via the barrel with no test failing.
+//
+// Those two clients, and `field-size.ts` beside them, also left this scan in the same
+// move, and that one IS a narrowing worth naming: they were non-exempt chrome files, so
+// the walk really did assert they carried no core. It no longer needs to. They are HOST
+// files now, where a core value-import is legitimate — and the invariant that mattered is
+// enforced at the BOUNDARY instead: any chrome file value-importing one of them writes a
+// specifier under `viewport-host`, which the third rule catches.
+const ENGINE_DIRECT_WORKER = new Set(["field-worker.ts", "analyzer-worker.ts"]);
 
 /** The three ways a value dependency (non-erased) enters a module's bundle, for
  *  a given quoted-specifier pattern. `import type` / `export type` are erased,
@@ -115,5 +138,12 @@ test("frontend has no value imports of @furnace/core (project-first invariant)",
     const text = readFileSync(f, "utf8");
     return FORBIDDEN.some((re) => re.test(text));
   });
+  expect(offenders).toEqual([]);
+});
+
+test("shared/ carries no engine — the neutral layer stays neutral", () => {
+  const offenders = walk(SHARED).filter((f) =>
+    FORBIDDEN.some((re) => re.test(readFileSync(f, "utf8"))),
+  );
   expect(offenders).toEqual([]);
 });

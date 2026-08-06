@@ -58,7 +58,7 @@
 //     including markup nobody thought of as a row. That is why {@link useRowGrid} reports
 //     the row it moved to by NAME and never by index; see `onRowChange`.
 //   - RAISING THE TRAVEL FLAG BROADCASTS A `preventDefault`. {@link isRovingTravel} is
-//     consumed by `components/tips.tsx`, which vetoes Radix's focus-open with
+//     consumed by `components/ui/tips.tsx`, which vetoes Radix's focus-open with
 //     `e.preventDefault()`. Radix composes EVERY primitive's handlers through
 //     `composeEventHandlers`, which skips its own when the event came back prevented — so
 //     a Radix component other than a tooltip wrapped around a stop would have its focus
@@ -84,7 +84,7 @@ import {
  *  Raised around {@link RovingList.focusAt}'s `.focus()` call, which dispatches its focus
  *  events synchronously — so any handler that runs because of a keyboard traversal sees
  *  `true`, and one that runs because of a Tab or a click sees `false`. Its one reader is
- *  the tooltip trigger (`components/tips.tsx`): a Radix tooltip opens on FOCUS with no
+ *  the tooltip trigger (`components/ui/tips.tsx`): a Radix tooltip opens on FOCUS with no
  *  delay, so without this every arrow press would pop a box the user is travelling past.
  *  See that file for the whole argument.
  *
@@ -98,7 +98,7 @@ import {
  *  belongs to, and costs one DOM write per keypress. Do not build it for one reader. */
 let travelling = false;
 
-/** @see {@link travelling} — the reader half, for `components/tips.tsx`. */
+/** @see {@link travelling} — the reader half, for `components/ui/tips.tsx`. */
 export function isRovingTravel(): boolean {
 	return travelling;
 }

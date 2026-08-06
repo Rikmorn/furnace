@@ -21,7 +21,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useEditor } from "../components/editor-context.ts";
 // catalog.ts type-imports core only (erased), so value-importing it here does NOT pull
 // core into the chrome bundle — the project-first invariant holds.
 import {
@@ -29,7 +28,8 @@ import {
 	parseAgentCatalog,
 	parseEntityCatalog,
 	parseMaterialsCatalog,
-} from "../lib/catalog.ts";
+} from "../../shared/catalog.ts";
+import { useEditor } from "../components/editor-context.ts";
 import { errorMessage } from "../lib/humanize.ts";
 import { notify } from "../lib/notify-store.ts";
 

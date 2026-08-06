@@ -6,9 +6,12 @@
 // agreement with the card". This is the second reader arriving, so the two moved out
 // rather than being copied.
 //
-// Pure and DOM-free, in `frontend/lib/` beside `field-entity.ts` for the same reason: it
-// type-imports the host (erased) and value-imports nothing, so the chrome may use it
-// without pulling the engine barrel into its bundle.
+// Pure and DOM-free, and it stays in `frontend/lib/` rather than following
+// `shared/field-entity.ts` down a layer: the host has no use for it (both readers are
+// chrome), and it type-imports the host barrel, which `src/shared/` — the layer BELOW
+// viewport-host — must not name at all. The property it shares with field-entity.ts is
+// the one that matters here: it value-imports nothing, so the chrome may use it without
+// pulling the engine barrel into its bundle.
 import type { StampSession } from "../../viewport-host/index.ts"; // type-only: erased
 
 /** What a session is ABOUT, in the entity rows' vocabulary: `hall #3` once it owns a

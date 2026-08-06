@@ -44,7 +44,7 @@ import * as field from "@furnace/core/field";
 import * as geometry from "@furnace/core/geometry";
 import type * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
-import type { WireBucket } from "../frontend/lib/field-protocol.ts";
+import type { WireBucket } from "./field-protocol.ts";
 import type { HostSubstrate } from "./substrate.ts";
 
 // Enabling the cast snapshots + meshes EVERY allocated chunk in ONE worker job,

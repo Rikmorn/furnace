@@ -2,9 +2,11 @@
 // generator's size params to a selection's extent (measured in coarse cells),
 // each value clamped to the generator's own schema bounds. No engine imports —
 // the schema bounds and the maze pitch are PASSED IN (the host reads them from
-// @furnace/core/field and threads them here), so this unit-tests without a GPU
-// and never value-imports core (the project-first / frontend-no-engine-leakage
-// invariant, the same reason field-entity.ts stays type-only).
+// @furnace/core/field and threads them here), so this unit-tests without a GPU.
+// It sits in `viewport-host/` because the host is its only consumer; the
+// no-core-values property above is now a testability choice rather than the
+// project-first invariant, which binds `src/frontend/` and `src/shared/` (where
+// field-entity.ts stays type-only for exactly that reason).
 
 /** Coarse cells the hall's masonry shell adds around its interior per axis: the
  *  generator's footprint is `interior + HALL_SHELL_CELLS` (a 1-cell wall each

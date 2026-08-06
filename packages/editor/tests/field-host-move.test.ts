@@ -34,10 +34,10 @@ import {
   parseOps,
   serializeOps,
 } from "@furnace/core/field";
-import { LATTICE } from "../src/frontend/lib/field-brush.ts";
-import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
+import { LATTICE } from "../src/shared/field-brush.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
 import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 
 const MANIFEST: FieldManifest = {

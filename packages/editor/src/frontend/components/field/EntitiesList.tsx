@@ -109,14 +109,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
-import {
-	Grid,
-	GridCell,
-	GridRow,
-	useRowGrid,
-} from "../../hooks/useRovingList.tsx";
-import { cn } from "../../lib/cn.ts";
 // The committed-entity policy vocabulary: one blocked-reason rule per row verb,
 // plus the param renderer the provider's push guard also compares through. A
 // chrome-side lib module on purpose (see its header): the host imports it, never
@@ -127,10 +119,18 @@ import {
 	formatParam,
 	freezeBlockedReason,
 	openBlockedReason,
-} from "../../lib/field-entity.ts";
+} from "../../../shared/field-entity.ts";
+import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
+import {
+	Grid,
+	GridCell,
+	GridRow,
+	useRowGrid,
+} from "../../hooks/useRovingList.tsx";
+import { cn } from "../../lib/cn.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
-import { ActionTip, ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
+import { ActionTip, ReasonTip } from "../ui/tips.tsx";
 
 /** `opSpan` is [firstOpId, lastOpId] inclusive (commitGenerator). */
 const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;

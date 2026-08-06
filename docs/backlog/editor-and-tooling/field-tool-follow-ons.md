@@ -55,7 +55,7 @@ e.g. props read as well-spaced in the editor and visibly interpenetrate in the g
 **Reference:** `packages/editor/src/viewport-host/field-placements.ts` (the proxy
 mapping + the shading constraint); `packages/editor/src/viewport-host/field-props.ts`
 (`rebuildProps`, `proxyGeometry` — both were in `field-host.ts` until foundations T3b1,
-2026-08-06); `packages/editor/src/frontend/lib/catalog.ts`
+2026-08-06); `packages/editor/src/shared/catalog.ts`
 (`parseEntityCatalog` — deliberately does not carry the catalog's `meshes` paths);
 `packages/dungeon/src/field-world.ts` (`buildArchetypeGroups` — the mesh-accurate loader
 this would converge on); `docs/reference/dungeon-architecture.md` (the placement artifact).
@@ -188,7 +188,7 @@ committed layer disagree with each other). The void cast rides along on whicheve
 
 **Reference:** `packages/editor/src/viewport-host/field-host.ts` (`renderScene`'s `props`
 gate; `setSlice`; `applyStampGhost`'s existing full-height note);
-`packages/editor/src/frontend/lib/field-protocol.ts` (`sliceAprons` — how the field is
+`packages/editor/src/viewport-host/field-protocol.ts` (`sliceAprons` — how the field is
 actually clipped); `docs/reference/editor-architecture.md` §16 (Layers + slice) and §18
 (the prop layer).
 
@@ -331,7 +331,7 @@ wants a priority or a second worker.
 in-flight refusal and the `VOID_CAST_CHUNK_BUDGET` comment carrying the measurement — both
 were in `field-host.ts` until foundations T3b1, 2026-08-06);
 `packages/editor/src/viewport-host/field-stamp.ts` (`createPreviewCoalescer`, the shape that
-already exists); `packages/editor/src/frontend/lib/field-client.ts` (one worker, no cancel —
+already exists); `packages/editor/src/viewport-host/field-client.ts` (one worker, no cancel —
 the class TSDoc states the contract).
 
 ## An entity delete leaves the previous reconfigure's drift report standing
@@ -400,7 +400,7 @@ looks like in the palette row and the session card.
 
 **Reference.** `packages/editor/src/viewport-host/field-host.ts` —
 `gizmoVisible`, `beginMoveSession`;
-`packages/editor/src/frontend/lib/field-entity.ts` — `openBlockedReason`.
+`packages/editor/src/shared/field-entity.ts` — `openBlockedReason`.
 
 ---
 

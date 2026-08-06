@@ -14,7 +14,7 @@ import {
   parseAgentCatalog,
   parseEntityCatalog,
   parseMaterialsCatalog,
-} from "../src/frontend/lib/catalog.ts";
+} from "../src/shared/catalog.ts";
 
 // The exact catalog data the dungeon ships (packages/dungeon/catalog/materials.json).
 // A separate test reads the real file and asserts it parses+validates, guarding

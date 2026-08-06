@@ -50,9 +50,9 @@ import type {
   AnalyzerRequest,
   AnalyzerResponse,
   VerifyVerdictWire,
-} from "../src/frontend/lib/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
+} from "../src/viewport-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../src/viewport-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/viewport-host/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type {
   FieldStats,

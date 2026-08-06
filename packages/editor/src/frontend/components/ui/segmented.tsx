@@ -19,7 +19,7 @@
 // tool rail already retired on this shell.
 
 import { cn } from "../../lib/cn.ts";
-import { ActionTip } from "../tips.tsx";
+import { ActionTip } from "./tips.tsx";
 
 /** One member of a segmented control.
  *

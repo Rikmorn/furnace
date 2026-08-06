@@ -5,7 +5,7 @@ import type * as geometry from "@furnace/core/geometry";
 import type * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import { FieldWorkerClient } from "../../src/frontend/lib/field-client";
+import { FieldWorkerClient } from "../../src/viewport-host/field-client";
 import { createFlagStore } from "../../src/viewport-host/field-flags";
 import { createHistoryFeed } from "../../src/viewport-host/field-history-feed";
 import {

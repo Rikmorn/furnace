@@ -24,7 +24,6 @@ import { cn } from "../../lib/cn.ts";
 import { isValidWorldName, WORLD_NAME_RULE } from "../../lib/generation.ts";
 import { errorMessage, relTime } from "../../lib/humanize.ts";
 import { useEditor } from "../editor-context.ts";
-import { ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 import {
 	Dialog,
@@ -40,6 +39,7 @@ import {
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu.tsx";
 import { Input } from "../ui/input.tsx";
+import { ReasonTip } from "../ui/tips.tsx";
 
 const LEGACY_REASON =
 	"a v1 world: no oplog, so field.load can't read it into the editor";

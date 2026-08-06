@@ -15,7 +15,7 @@
 //
 // The host keeps only what needs the world: the two `cursorRay` calls, the
 // session, and `nudgeStampRegion`.
-import { LATTICE } from "../frontend/lib/field-brush.ts";
+import { LATTICE } from "../shared/field-brush.ts";
 import { boxCentre } from "./box-edges.ts";
 import {
   AXIS_DIR,

@@ -12,7 +12,7 @@ import {
   snappedKitBox,
   snapSpan,
   spanCells,
-} from "../src/frontend/lib/field-brush.ts";
+} from "../src/shared/field-brush.ts";
 
 test("surface hit bites INTO the rock along the ray", () => {
   const c = computeBrushCenter(

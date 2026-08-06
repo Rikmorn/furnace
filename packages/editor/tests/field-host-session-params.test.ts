@@ -33,10 +33,10 @@ import {
   generatorById,
   serializeOps,
 } from "@furnace/core/field";
-import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
-import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
+import type { EntityCatalog } from "../src/shared/catalog.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
 import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 
 const MANIFEST: FieldManifest = {

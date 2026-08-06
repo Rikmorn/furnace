@@ -23,7 +23,7 @@
 // shell layout). A second copy would go stale against the real FieldHost independently
 // of this one.
 import { mock } from "bun:test";
-import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
+import type { EntityCatalog } from "../../src/shared/catalog.ts";
 import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
 import type {
   CameraPose,

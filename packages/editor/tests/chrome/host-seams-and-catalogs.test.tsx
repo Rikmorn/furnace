@@ -35,8 +35,8 @@ import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import type { EntityCatalog } from "../../src/frontend/lib/catalog.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
+import type { EntityCatalog } from "../../src/shared/catalog.ts";
 import type { FieldTool, FlagsSummary } from "../../src/viewport-host/index.ts";
 import {
 	act,

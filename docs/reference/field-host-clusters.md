@@ -41,10 +41,10 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,181 lines** (re-measured 2026-08-06 after `view` left; was 7,165 after the `history` feed, 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **+16** this time — the file GREW — against **214** lines now standing in `field-view.ts`. That is not an anomaly, it is what a supply-side cluster costs: what left is two `let`s, an 8-line literal, a 2-line arrow and two short facade bodies; what arrived is a 20-line assembly note, a 6-line note on a forced local, and the formatter's re-wrap of the read sites, each of which grew by 10–18 characters. See the `view` row in §6. |
-| Code / comment / blank | **3,400 / 3,545 / 236** (re-measured 2026-08-06 after `view`; was 3,400 / 3,529 / 236 after the `history` feed, 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **Zero** code and **+16** comment — the first extraction in the tranche that removed no code from the host at all. The threading is why: the bodies that left are small, and the 26 longer read expressions the move put in their place cost the formatter enough wraps to swallow the difference. The whole of this move shows up in the file as prose. |
-| `export function createFieldHost` | **line 1653** → end of file (**5,529 lines**) *(re-measured 2026-08-06 after `view`; the +1 on the start line is the `field-view.ts` import)* |
-| `return { … }` object literal | **line 6447** *(re-measured 2026-08-06 after `view`)* |
+| File total | **7,175 lines** (re-measured 2026-08-06 after the T3b1 layering move; was 7,181 after `view` left, 7,165 after the `history` feed, 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−6**, and it is pure import geometry: no cluster left, no statement changed. Seven of this file's imports were re-pointed from `../frontend/lib/…` to `./…` or `../shared/…`, and four of them became short enough for the formatter to collapse a multi-line specifier list onto one line. |
+| Code / comment / blank | **3,394 / 3,545 / 236** (re-measured 2026-08-06 after the layering move; was 3,400 / 3,545 / 236 after `view`, 3,400 / 3,529 / 236 after the `history` feed, 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **−6** code, zero comment, zero blank — the whole delta is the collapsed import lines. |
+| `export function createFieldHost` | **line 1647** → end of file (**5,529 lines**) *(re-measured 2026-08-06 after the layering move; the span is unchanged — only the start line moved up 6, by the imports above it)* |
+| `return { … }` object literal | **line 6441** *(re-measured 2026-08-06 after the layering move)* |
 | Closure-level bindings | **270** (re-measured 2026-08-06 after `view` by §2's rule; was 272 after the `history` feed, 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. `view` took two `let`s and one function out and put `viewState` back: −2. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived, and §6's per-cluster counts must not be summed to stand in for it: those rows are mixed-epoch, so the two figures are only comparable at the epoch each was taken. §6's `history` row works the example) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
@@ -56,10 +56,10 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines still OUTNUMBER code lines — 3,545 to 3,400, i.e. **51.0%** of every non-blank
+Comment lines still OUTNUMBER code lines — 3,545 to 3,394, i.e. **51.1%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
-code alone is 3,400 lines, still ~8.5× the ~400-line file guideline in
+code alone is 3,394 lines, still ~8.5× the ~400-line file guideline in
 `.claude/rules/clean-code.md`, and `createFieldHost` alone is ~110× the ~50-line function
 guideline.
 

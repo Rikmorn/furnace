@@ -8,7 +8,7 @@ viewport host, and the field worker protocol's un-guarded generator evaluate. Me
 there is **one place to check whenever you touch the project-first bundle boundary
 (`packages/dungeon/src/editor-extensions.ts`, `packages/editor/src/daemon/bundle.ts`), the
 viewport host's render path (`packages/editor/src/viewport-host/index.ts`), or the field
-worker protocol (`packages/editor/src/frontend/lib/field-protocol.ts`)**. Sections keep
+worker protocol (`packages/editor/src/viewport-host/field-protocol.ts`)**. Sections keep
 their original content.
 
 ## `editor-extensions.ts` re-exports more than the editor consumes
@@ -50,7 +50,7 @@ the contract side).
 **Reference:** `packages/dungeon/src/editor-extensions.ts` (the seam),
 `packages/editor/src/frontend/components/WorldPanel.tsx` (main-thread cast — three members),
 `packages/editor/src/frontend/lib/generation-protocol.ts` (`WorkerEngine` — two members),
-`packages/editor/src/frontend/lib/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
+`packages/editor/src/viewport-host/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
 `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation session as a generic editor facility
@@ -61,7 +61,7 @@ Promoting this to a facility means: (1) declaring the generator-consumer contrac
 
 **Trigger to revisit.** A second project wants cockpit generation (forcing the contract to be explicit rather than dungeon-shaped), OR the Slice 3.3 generator-entity / socket work formalizes the generation contract (at which point the panel↔generator protocol should be defined alongside it, not left as an ad-hoc cast). The field charter's brush editor re-shapes this contract — fold into that brainstorm if it lands first.
 
-**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/frontend/lib/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
+**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/viewport-host/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation preview should be its own dockview panel, not a viewport takeover
 
@@ -149,7 +149,7 @@ declaration forbids). `commitGenerator` and `reconfigureGenerator` both go throu
 every path that puts a result into the op log is covered.
 
 The editor's stamp preview does not. `handleStampPreview`
-(`packages/editor/src/frontend/lib/field-protocol.ts` ~:297) calls `def.evaluate(...)`
+(`packages/editor/src/viewport-host/field-protocol.ts` ~:297) calls `def.evaluate(...)`
 **directly** and hand-rolls the ctx pairing inline (`def.contextFree ? undefined : { store }`),
 so it skips both guards. It cannot use the seam today: `evaluateGenerator` is deliberately
 **not** on the public field index — it is in-core surface, reached from core's own tests only
@@ -208,6 +208,6 @@ still a design decision. Nothing about `usesSeed` is outstanding.
 
 **Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
 `packages/core/src/field/index.ts` (what the field module does and does not export),
-`packages/editor/src/frontend/lib/field-protocol.ts` (`handleStampPreview`),
+`packages/editor/src/viewport-host/field-protocol.ts` (`handleStampPreview`),
 `packages/core/src/field/types.ts` (`GeneratorDef.emits` TSDoc, which states the guard is the
 committer's and that direct `evaluate` calls skip it).

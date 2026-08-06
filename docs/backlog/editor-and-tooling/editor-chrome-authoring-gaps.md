@@ -149,7 +149,7 @@ Two rulings that go beyond what was asked, both stated where they live:
   the user must arrow through. What it actually lacked — a keyboard route to its own
   scrollbar, WCAG 2.1.1 — is fixed with one tab stop on the scroller.
 - **Tooltips are vetoed on the ROW axis and only there** (`vetoTipDuringTravel` in
-  `components/tips.tsx`). Radix opens a tooltip on FOCUS with no delay, so D-25's conversion
+  `components/ui/tips.tsx`). Radix opens a tooltip on FOCUS with no delay, so D-25's conversion
   would have popped a box on every arrow press; the veto rides Radix's own
   `composeEventHandlers` seam rather than a controlled `open`. Stepping a row's VERBS still
   opens each one — that axis is inspection, not travel.
@@ -351,7 +351,7 @@ progress is AVAILABLE — it was costed and declined, not overlooked.
 Both halves already exist, and `requestVoidCast`'s own comment says so:
 
 - **The worker can post mid-handler**, and posting does not block — the void-cast handler in
-  `frontend/lib/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
+  `viewport-host/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
   per-chunk progress message has an obvious home.
 - **The total is `store.chunks.size`**, which `requestVoidCast` reads a few lines below the
   comment declining the feature — past the in-flight guard, where the chunk count is
@@ -390,7 +390,7 @@ different design than two.
 
 ### Reference
 
-- `packages/editor/src/frontend/lib/field-protocol.ts` — the void-cast handler's per-chunk
+- `packages/editor/src/viewport-host/field-protocol.ts` — the void-cast handler's per-chunk
   loop, where a progress post would go.
 - `packages/editor/src/viewport-host/field-voidcast.ts` — `requestVoidCast` and the comment
   above it declining this, plus `VOID_CAST_CHUNK_BUDGET` and its measurement. (Both were in

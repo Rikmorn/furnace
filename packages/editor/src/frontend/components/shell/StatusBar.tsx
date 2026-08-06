@@ -32,9 +32,9 @@ import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
 import { useEditor } from "../editor-context.ts";
-import { ActionTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
+import { ActionTip } from "../ui/tips.tsx";
 import { armedKeymap } from "./status-keymap.ts";
 
 function engineLabel(state: EditorState): string {

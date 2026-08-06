@@ -69,7 +69,7 @@ import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
-import type { EntityCollision } from "../frontend/lib/catalog.ts";
+import type { EntityCollision } from "../shared/catalog.ts";
 import {
   FALLBACK_COLLISION,
   FALLBACK_TINT,

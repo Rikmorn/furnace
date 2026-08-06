@@ -15,14 +15,14 @@ import {
 import {
   AnalyzerWorkerClient,
   createAnalyzePump,
-} from "../src/frontend/lib/analyzer-client.ts";
+} from "../src/viewport-host/analyzer-client.ts";
 import type {
   AnalyzerEngine,
   AnalyzerRequest,
   AnalyzerResponse,
   VerifyVerdictWire,
-} from "../src/frontend/lib/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../src/frontend/lib/analyzer-protocol.ts";
+} from "../src/viewport-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../src/viewport-host/analyzer-protocol.ts";
 
 const CELL = 0.25;
 

@@ -29,13 +29,13 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
+import type { WorkerLike } from "../src/viewport-host/field-client.ts";
+import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type {
   FieldWorkerRequest,
   FieldWorkerResponse,
-} from "../src/frontend/lib/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+} from "../src/viewport-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
 import type { FieldLayers, FieldStats } from "../src/viewport-host/index.ts";
 import { makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";

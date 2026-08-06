@@ -1,5 +1,5 @@
 // The native-<select> class string, and nothing else since F4.5c Task 8 moved the tooltip
-// trio to `components/tips.tsx`. Two consumers (the session card's advanced section and
+// trio to `components/ui/tips.tsx`. Two consumers (the session card's advanced section and
 // the tool strip's params row). Stateless.
 //
 // The `field/` address is historical rather than descriptive: the panel's own pieces that
@@ -25,7 +25,7 @@
 // The mechanism is not Radix's bug and not ours alone. `DismissableLayer` claims Escape on
 // a CAPTURE-phase `document` listener and calls `preventDefault()` without
 // `stopPropagation()` (@radix-ui/react-dismissable-layer 1.1.15), and `useGlobalKeybindings`
-// never consults `defaultPrevented` — the same pairing `components/tips.tsx` documents for
+// never consults `defaultPrevented` — the same pairing `components/ui/tips.tsx` documents for
 // an open tooltip. What keeps Esc off the ladder for these four is `isTextInputTarget`
 // (`lib/keybindings.ts`), which recognises an `HTMLSelectElement` and cannot recognise the
 // `<button>` a Radix trigger is.

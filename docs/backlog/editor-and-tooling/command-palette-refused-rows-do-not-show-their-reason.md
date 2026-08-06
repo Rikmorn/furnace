@@ -24,7 +24,7 @@ change to the row, and there are at least three shapes with different costs:
 - **a hover/focus tip on the row** — matches the rest of the chrome, but a `disabled` cmdk
   item takes no pointer events, so it needs the same wrapper-span trick `ReasonTip` uses and
   the palette's own keyboard traversal already suppresses tips on row travel (the veto in
-  `components/tips.tsx`).
+  `components/ui/tips.tsx`).
 
 None is obviously right, which is why it is a design decision rather than a fix. Worth noting
 the palette is deliberately a VIEW over the registry — every label, keycap and verdict comes
@@ -41,7 +41,7 @@ items, which have the identical asymmetry.
 
 - `packages/editor/src/frontend/components/shell/CommandPalette.tsx` — `PaletteRow`, `rowName`,
   and the header's list of what the mock has that this does not.
-- `packages/editor/src/frontend/components/tips.tsx` — `ReasonTip`, the wrapper-span mechanism,
+- `packages/editor/src/frontend/components/ui/tips.tsx` — `ReasonTip`, the wrapper-span mechanism,
   and `vetoTipDuringTravel`.
 - `packages/editor/src/frontend/lib/actions.ts` — `controlVerdict`, the one place a refusal's
   sentence is decided.

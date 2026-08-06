@@ -13,7 +13,7 @@ import { packPlacementMatrices } from "@furnace/core/field";
 import type {
   EntityArchetype,
   EntityCollision,
-} from "../src/frontend/lib/catalog.ts";
+} from "../src/shared/catalog.ts";
 import {
   FALLBACK_COLLISION,
   groupPlacements,

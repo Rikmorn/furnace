@@ -49,8 +49,8 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import type { AnalyzerRequest } from "../src/frontend/lib/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/frontend/lib/field-client.ts";
+import type { AnalyzerRequest } from "../src/viewport-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/viewport-host/field-client.ts";
 import { createFieldHost } from "../src/viewport-host/field-host.ts";
 import type { FlagsSummary } from "../src/viewport-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";

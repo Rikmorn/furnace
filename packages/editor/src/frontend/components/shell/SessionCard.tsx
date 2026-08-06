@@ -64,6 +64,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { openBlockedReason } from "../../../shared/field-entity.ts";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
@@ -82,7 +83,6 @@ import type { FieldRefusal } from "../../inspector/index.tsx";
 import { SchemaForm } from "../../inspector/index.tsx";
 import type { JsonSchemaNode } from "../../inspector/types.ts";
 import { entityName } from "../../lib/actions.ts";
-import { openBlockedReason } from "../../lib/field-entity.ts";
 import {
 	SESSION_VERBS,
 	sessionName,

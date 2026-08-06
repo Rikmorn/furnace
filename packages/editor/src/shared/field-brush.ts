@@ -4,6 +4,17 @@
 // turns those inputs into a brush centre, snaps a kit-fill box to the lattice,
 // and owns the shared 0.5 m region snap (box-select spans, stamp regions), the
 // lattice-step region nudge, and the region sample count.
+//
+// "For the field host" names the main consumer, not the only one: the CHROME
+// value-imports `brushArming` (`hooks/useActionContext.tsx`), which is why this
+// sits in `src/shared/` — the neutral layer both arrows point at — rather than
+// in `viewport-host/`. That placement carries a rule, and it is machine-enforced:
+// `src/shared/` is React-free and engine-free, where engine-free means no VALUE
+// import of `@furnace/core` (type-only is erased and fine), and
+// `tests/frontend-no-engine-leakage.test.ts` scans this directory with no
+// exemptions. Today the file imports NOTHING at all; the first import added here
+// has to keep that rule, because a core value import in this file would land in
+// the chrome bundle exactly like a direct one.
 
 /** The four effects a brush stroke can apply. Named here rather than inline on
  *  `FieldTool` because the arming rule below is parameterized on it and lives here —

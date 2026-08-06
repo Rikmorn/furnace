@@ -1,12 +1,14 @@
-// packages/editor/src/frontend/lib/catalog.ts — the project catalog parsers:
-// `catalog/materials.json` (the resolved material table), `catalog/entities.json`
-// (the placement archetypes scatter draws from) and `catalog/agent.json` (the
-// capsule the walkability advisor is parameterized on).
-// FRONTEND (chrome-bundle) code: imports from @furnace/core MUST be
+// The project catalog parsers: `catalog/materials.json` (the resolved material
+// table), `catalog/entities.json` (the placement archetypes scatter draws from)
+// and `catalog/agent.json` (the capsule the walkability advisor is parameterized
+// on).
+// `src/shared/` code, and the chrome VALUE-imports it (`hooks/useCatalogs.tsx`),
+// so it is bound by the chrome's rule: imports from @furnace/core MUST be
 // `import type` only (erased at compile). A value import would pull a second core
 // instance into the chrome bundle — frontend-no-engine-leakage.test.ts enforces
-// this. So the table invariants below are RE-IMPLEMENTED locally rather than
-// value-importing core's validateMaterialTable.
+// this, scanning `src/shared/` with the same rules it applies to the chrome and
+// with no exemptions. So the table invariants below are RE-IMPLEMENTED locally
+// rather than value-importing core's validateMaterialTable.
 import type {
   AgentProfile,
   KitStyle,

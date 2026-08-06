@@ -15,15 +15,7 @@ import * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import * as shader from "@furnace/core/shader";
 import { vec4 } from "@furnace/core/transform";
-import {
-  type AnalyzeInput,
-  AnalyzerWorkerClient,
-  createAnalyzePump,
-} from "../frontend/lib/analyzer-client.ts";
-import type {
-  EntityArchetype,
-  EntityCatalog,
-} from "../frontend/lib/catalog.ts";
+import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
 import {
   type BrushEffect,
   computeBrushCenter,
@@ -33,14 +25,13 @@ import {
   snappedKitBox,
   snapSpan,
   spanCells,
-} from "../frontend/lib/field-brush.ts";
+} from "../shared/field-brush.ts";
+import { openBlockedReason } from "../shared/field-entity.ts";
 import {
-  FieldWorkerClient,
-  type WorkerLike,
-} from "../frontend/lib/field-client.ts";
-import { openBlockedReason } from "../frontend/lib/field-entity.ts";
-import type { WireBucket } from "../frontend/lib/field-protocol.ts";
-import { deriveSizeDefaults } from "../frontend/lib/field-size.ts";
+  type AnalyzeInput,
+  AnalyzerWorkerClient,
+  createAnalyzePump,
+} from "./analyzer-client.ts";
 import { boxCentre, boxEdges } from "./box-edges.ts";
 import {
   dolly,
@@ -58,6 +49,7 @@ import {
   lookDeltas,
   readFlyMove,
 } from "./field-camera.ts";
+import { FieldWorkerClient, type WorkerLike } from "./field-client.ts";
 import {
   createFlagStore,
   type FlagFilters,
@@ -103,11 +95,13 @@ import {
   withArchetypeOptions,
 } from "./field-placements.ts";
 import { createProps } from "./field-props.ts";
+import type { WireBucket } from "./field-protocol.ts";
 import { createSegmentBrush } from "./field-segment.ts";
 import {
   SELECTION_DISPLAY_CAP,
   selectionDisplayCells,
 } from "./field-selection-cells.ts";
+import { deriveSizeDefaults } from "./field-size.ts";
 import {
   createPreviewCoalescer,
   previewIsEmpty,

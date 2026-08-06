@@ -47,10 +47,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { brushArming } from "../../shared/field-brush.ts";
 import type { FieldHost, FieldTool } from "../../viewport-host/index.ts"; // type-only: erased
 import { useEditor } from "../components/editor-context.ts";
 import type { ActionCtx } from "../lib/actions.ts";
-import { brushArming } from "../lib/field-brush.ts";
 import { useCatalog } from "./useCatalogs.tsx";
 import {
 	useFieldEntities,

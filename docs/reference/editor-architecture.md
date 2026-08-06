@@ -90,7 +90,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 `createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and `viewport-host/index.ts`'s own header records that the directory name is what is left of them. The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
 
-**The analyzer no longer reads the namespace** (T1b): the virtual entry re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `lib/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
+**The analyzer no longer reads the namespace** (T1b): the virtual entry re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `viewport-host/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
 
 **The daemon holds no schema knowledge.** The second bundle (`src/daemon/registry-bundle.ts`) existed for exactly one job: import the consumer's extensions on the *Node* side so `session.apply` could run `validateDocument` against the project's own registry before committing a scene mutation. With the mutations gone there is nothing server-side to validate — every schema decision now happens in the browser, inside the field host and the generator registry it drives. The daemon writes bytes (`generation.bake`) and reads them back (`field.load`); it does not know what a generator is. Deleted with it: the `extension-build-failed` error code, whose only throwers were that bundle's build and import paths.
 
@@ -180,7 +180,14 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Three entrypoints, because a worker is reached by URL and not by an import graph.** `src/frontend/index.html` is the chrome; `src/frontend/field-worker.ts` (§11) and `src/frontend/analyzer-worker.ts` (§15) each ship as their own module bundle, since the chrome spawns them with `new Worker("/<name>.js", { type: "module" })` and neither can ride the html entry's graph. Both run engine code (`@furnace/core/field`) **directly**, not through `/engine.js` — the analyzer worker additionally loads `/engine.js` at runtime for its stage-2 verify, which drives the project's own mover (§3a).
 
-**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`viewport-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `viewport-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
+**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`viewport-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `viewport-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
+
+**The import arrow runs one way — `frontend/ → viewport-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/viewport-host/` the engine-facing half, and `src/shared/` the neutral floor. Each layer may import DOWN the chain and never up; `shared/` imports nothing of the editor's at all. Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+
+- **Host-only** (`viewport-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
+- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `viewport-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `viewport-host` specifier — the guard is right, and it is what decided the split.
+
+The guard scans `src/shared/` with no exemptions precisely because those three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `viewport-host` specifier.
 
 **The host owns resize-rendering, and the chrome must not.** The field host subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size; a chrome-side `ResizeObserver` fires before the backing-store resize and blanks the surface. This was a real bug caught only by a manual visual gate, and the constraint is documented at the source.
 
@@ -301,7 +308,7 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   should be planned against.
 - **Tools (F2a)** — `setTool({effect, materialId})` over dig/fill/paint;
   `setMaterialTable` (re-marks all chunks dirty — a table swap re-buckets the world).
-  Targeting is the pure `lib/field-brush.ts`: surface hits bite 0.7·radius INTO rock,
+  Targeting is the pure `shared/field-brush.ts`: surface hits bite 0.7·radius INTO rock,
   an embedded eye mines radius-deep ahead, kit fills snap to the 0.5 m lattice
   (`snappedKitBox` — the host constructs only valid kit ops by design). A
   hologram-blue **ghost marker** (ring for spheres, box edges for kit fills) shows the
@@ -313,8 +320,8 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   the filled kit ghost (§12). The F2b gate's deferred remainder was consumed into the F4.5
   stage and is discharged except for one item, now its own entry:
   `docs/backlog/editor-and-tooling/box-select-is-two-clicks-not-a-drag.md`.
-- **Remesh worker** (`frontend/field-worker.ts` + `lib/field-protocol.ts` /
-  `lib/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
+- **Remesh worker** (`frontend/field-worker.ts` + `viewport-host/field-protocol.ts` /
+  `viewport-host/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
   protocol: 20³ density+material apron pair + the material table in, per-class mesh
   buckets + kit instance lists out, buffers transferable both ways; dirty-SET
@@ -322,7 +329,7 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   skinning (M1, bun/JSC; 5 ms ceiling asserted in tests).
 - **Catalog (F2a)** — the project→editor world-materials contract, DATA only: the
   panel fetches `/catalog/materials.json` off the daemon's project-root GET mapping
-  (no new command), parses it with the setup-loud `lib/catalog.ts` hand validator
+  (no new command), parses it with the setup-loud `shared/catalog.ts` hand validator
   (typed `CatalogError` naming the offending path; type-only core imports — leakage
   guard clean), and applies it via `setMaterialTable`. Absent file → builtin rock-only
   + status note. Catalog-wins semantics vs the artifact's embedded table (the
@@ -526,7 +533,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
 
 - **Entity catalog** — the second project→editor catalog contract, DATA only, exactly
   parallel to the F2a materials one: the run-once catalog effect (FieldToolbar's then,
-  `hooks/useCatalogs.tsx`'s since F4.5a) also fetches `/catalog/entities.json`, parses it with `lib/catalog.ts`'s setup-loud
+  `hooks/useCatalogs.tsx`'s since F4.5a) also fetches `/catalog/entities.json`, parses it with `shared/catalog.ts`'s setup-loud
   `parseEntityCatalog` (same `CatalogError`, path-naming, type-only core imports) and
   installs it via `FieldHost.setEntityCatalog`. Both fetches live in ONE effect so they
   cannot race onto the status line; only MATERIALS gates Load (props render from the op
@@ -747,8 +754,8 @@ finding and a reachability demotion tags one; neither deletes one. The only thin
 retires a finding is a re-analysis that no longer reports it — the analyzer changing its
 mind.
 
-- **The analyzer worker** (`frontend/analyzer-worker.ts` + `lib/analyzer-protocol.ts` /
-  `lib/analyzer-client.ts`) — a FOURTH `build-frontend.ts` entrypoint beside the chrome, the
+- **The analyzer worker** (`frontend/analyzer-worker.ts` + `viewport-host/analyzer-protocol.ts` /
+  `viewport-host/analyzer-client.ts`) — a FOURTH `build-frontend.ts` entrypoint beside the chrome, the
   generation worker and the remesher, spawned by URL as `/analyzer-worker.js`
   (`tests/build-frontend.test.ts` pins that all three worker bundles land un-hashed at the
   outdir root, or those URLs 404). It holds a MIRROR
@@ -1018,7 +1025,7 @@ mind.
   parallel to the F2a materials and F3b entities ones. The run-once catalog effect
   (`FieldToolbar`'s then, `hooks/useCatalogs.tsx`'s since F4.5a) fetches all three in ONE
   pass so they cannot race;
-  `lib/catalog.ts`'s `parseAgentCatalog` validates it setup-loud with the same `CatalogError`
+  `shared/catalog.ts`'s `parseAgentCatalog` validates it setup-loud with the same `CatalogError`
   and path naming, and the host takes it through `setAgentProfile`. It is STRUCTURAL validation
   only — every field present and finite — because the numeric CONTRACT (positivity,
   `climbCeiling > stepHeight`, `clearance` at least the capsule's height, `skin` under the
@@ -2275,10 +2282,18 @@ interchangeable and must not be mixed on one surface.
 
 ### 18.4 Tooltips, keycaps, and the refusal rule
 
-**`components/tips.tsx` is the chrome's tooltip vocabulary**, and it moved out of
+**`components/ui/tips.tsx` is the chrome's tooltip vocabulary**, and it moved out of
 `components/field/` at this stage because `field/` is the address of a panel that no longer
 exists — it is now the chrome's most widely imported UI primitive (the rail, both bars, four
-palettes, the session card's two sections and both list rows). The wrappers are a PAIR and
+palettes, the session card's two sections and both list rows). **It finished the journey into
+`components/ui/` at foundations T3b1**: `ui/segmented.tsx` needs `ActionTip` for its `hint`
+prop, and that one import was the only edge reaching out of the control library into app
+chrome — which D-24's scope claim (`components/ui/` is the one place a raw control may be
+written) depends on not existing.
+
+**What that bought, stated precisely, because it is less than "`ui/` is now a leaf".** The move relocated the trio's edges into the library rather than removing them: `ui/tips.tsx` has FOUR outward edges (`../../hooks/useRovingList.tsx`, `../../lib/actions.ts`, `../../lib/notify-store.ts`, `../../lib/cn.ts`) where every other file under `ui/` has exactly one (`cn.ts`), so `ui/`'s transitive closure is unchanged. What it removed is the edge pointing at `components/` — the one a reader follows when asking whether the control library may be depended on. No cycle exists: `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and `actions.ts`'s edges back into `components/` and `hooks/` are all `import type`. The `byId` edge is the one to watch — the only value import into `ui/` that is not `cn` — and a future VALUE import in `actions.ts` reaching anything under `ui/` is what would close the loop. One cost of the old back-edge also survives the move untouched: `Segmented`'s optional `hint` still throws outside a `TooltipProvider`, tracked in `docs/backlog/editor-and-tooling/segmented-hint-throws-outside-a-tooltip-provider.md`.
+
+The wrappers are a PAIR and
 which one a control gets is decided by ONE fact — can the user reach it?
 
 - an AVAILABLE control gets **`ActionTip`**: a real Radix tooltip that opens on focus as well

@@ -20,10 +20,7 @@ import type {
   PlacementRecord,
 } from "@furnace/core/field";
 import { collisionCenter } from "@furnace/core/field";
-import type {
-  EntityArchetype,
-  EntityCollision,
-} from "../frontend/lib/catalog.ts";
+import type { EntityArchetype, EntityCollision } from "../shared/catalog.ts";
 import { boxEdges } from "./box-edges.ts";
 
 type Vec3T = [number, number, number];

@@ -65,11 +65,11 @@ import { cn } from "../../lib/cn.ts";
 // refusals its own way (`aria-disabled`, so they stay focusable), but what a refused
 // press SAYS is not this file's to decide.
 import { notify } from "../../lib/notify-store.ts";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 // The tooltip BODY, shared with `ActionTip` (D-25) rather than spelled twice: this file
 // keeps its own trigger — a roving-tabindex button whose props cannot move to a wrapper,
 // opening to the `side` a 44 px column needs — and takes only the keycap-and-hint layout.
-import { KeyTip, vetoTipDuringTravel } from "../tips.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
+import { KeyTip, vetoTipDuringTravel } from "../ui/tips.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 /** SVG glyphs, not text ones. The entities-palette rider applies here with force: a bare

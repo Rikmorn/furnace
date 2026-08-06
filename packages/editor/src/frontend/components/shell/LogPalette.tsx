@@ -25,8 +25,8 @@ import {
 	notify,
 } from "../../lib/notify-store.ts";
 import { PALETTE_IDS } from "../../lib/palette-store.ts";
-import { ActionTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
+import { ActionTip } from "../ui/tips.tsx";
 
 /** The severity dot + its tone. Same reasoning as the toast: an ICON rather than a bare
  *  coloured dot, so the severity survives a colour-blind reader, and error text uses

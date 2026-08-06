@@ -11,19 +11,42 @@
 // discover. Nothing should ever carry both wrappers, and nothing that
 // carries either should also carry a `title` — see tests/frontend-no-doc-titles.test.ts.
 //
-// `components/` rather than `components/field/`, where these were born: `field/` is the
+// `components/ui/` rather than `components/field/`, where these were born: `field/` is the
 // address of a panel that no longer exists (its own callers, BrushInspector and
 // StampInspector, were both deleted), and after F4.5c Task 8 this trio is the chrome's
 // most widely imported UI primitive — the rail, both bars, four palettes, the session
 // card's two sections and both list rows. `SELECT_CLASS` stayed behind in
 // `field/form-bits.tsx`: it is a native-<select> Tailwind string with two consumers and
 // nothing to do with any of this.
+//
+// It finished the journey into the control library at foundations T3b1, because
+// `ui/segmented.tsx` needs `ActionTip` for its `hint` prop and D-24's scope claim
+// (`components/ui/` is the one place a raw control may be written) only means something
+// while that directory is a LEAF. The trio was the single import reaching out of it into
+// app chrome; being the chrome's most-imported UI primitive, the library is where it
+// belonged anyway.
+//
+// BE PRECISE ABOUT WHAT THAT MOVE BOUGHT, because it is less than it looks. This file has
+// FOUR outward edges — `../../hooks/useRovingList.tsx`, `../../lib/actions.ts`,
+// `../../lib/notify-store.ts`, `../../lib/cn.ts` — where every OTHER file under `ui/` has
+// exactly one (`cn.ts`). The move RELOCATED those edges into the library rather than
+// removing them, so the transitive closure of `ui/` is unchanged; what it removed is the
+// edge pointing at `components/`, which is the one a reader follows when asking "may I
+// depend on the control library?". Do not read this file as evidence that `ui/` is
+// dependency-free.
+//
+// The `byId` edge is the one to watch: it is a VALUE import out of the ~1225-line action
+// registry, the only value import into `ui/` that is not `cn`. It closes no cycle today —
+// `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and
+// `actions.ts`'s edges back into `components/` and `hooks/` are all `import type` (erased)
+// — but it is the edge that WOULD close one, so a future value import in `actions.ts`
+// reaching anything under `ui/` is the thing that breaks this.
 import type { FocusEvent, ReactElement, ReactNode } from "react";
-import { isRovingTravel } from "../hooks/useRovingList.tsx";
-import { byId } from "../lib/actions.ts";
-import { cn } from "../lib/cn.ts";
-import { notify } from "../lib/notify-store.ts";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
+import { isRovingTravel } from "../../hooks/useRovingList.tsx";
+import { byId } from "../../lib/actions.ts";
+import { cn } from "../../lib/cn.ts";
+import { notify } from "../../lib/notify-store.ts";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
 
 /** Keep a tooltip shut while a roving traversal is moving focus PAST its trigger (D-26).
  *

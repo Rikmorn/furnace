@@ -3,10 +3,10 @@
 // scratch store (ghost) and in commitGenerator (commit), so the committed
 // chunks must mesh byte-identically to the previewed ghost buckets.
 import { describe, expect, spyOn, test } from "bun:test";
-import { nudgeRegion, spanCells } from "../src/frontend/lib/field-brush.ts";
-import type { FieldWorkerResponse } from "../src/frontend/lib/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/frontend/lib/field-protocol.ts";
-import { deriveSizeDefaults } from "../src/frontend/lib/field-size.ts";
+import { nudgeRegion, spanCells } from "../src/shared/field-brush.ts";
+import type { FieldWorkerResponse } from "../src/viewport-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
+import { deriveSizeDefaults } from "../src/viewport-host/field-size.ts";
 import {
   createPreviewCoalescer,
   previewIsEmpty,
@@ -334,7 +334,7 @@ import {
   meshChunkField,
   opBounds,
 } from "@furnace/core/field";
-import { FieldWorkerClient } from "../src/frontend/lib/field-client.ts";
+import { FieldWorkerClient } from "../src/viewport-host/field-client.ts";
 
 // 3-class fixture with a kit class (stamps require one) — mirrors the
 // field-protocol test table.
@@ -650,7 +650,7 @@ import {
   parseOps,
   serializeOps,
 } from "@furnace/core/field";
-import type { FieldWorkerRequest } from "../src/frontend/lib/field-protocol.ts";
+import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
 import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 import type { FieldDriftReport } from "../src/viewport-host/index.ts";
 
@@ -1465,7 +1465,7 @@ test("a load-time compaction that throws is caught: the world still loads and th
 // seam for it is F4 cockpit-pass work, not a shortcut taken here.
 
 import type { PlacementRecord } from "@furnace/core/field";
-import type { EntityCatalog } from "../src/frontend/lib/catalog.ts";
+import type { EntityCatalog } from "../src/shared/catalog.ts";
 import { groupPlacements } from "../src/viewport-host/field-placements.ts";
 import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 

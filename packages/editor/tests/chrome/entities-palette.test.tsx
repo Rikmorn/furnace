@@ -130,7 +130,7 @@ const rowButton = (verb: string, entityId: number): HTMLButtonElement =>
  *  completeness guard below came to be vacuous on a fixture where nothing is refused.
  *
  *  Anchored on `(` and NOT on the reason's first word: the three refusal sentences are
- *  prose owned by `lib/field-entity.ts`, and a test that quotes their opening breaks when
+ *  prose owned by `shared/field-entity.ts`, and a test that quotes their opening breaks when
  *  someone rewords one. */
 const blockedRowButton = (verb: string, entityId: number): HTMLButtonElement =>
 	screen.getByLabelText(

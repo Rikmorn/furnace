@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { formatParam } from "../../../lib/field-entity.ts";
+import { formatParam } from "../../../../shared/field-entity.ts";
 
 /**
  * A frozen or baked record, as the entity row shows it.

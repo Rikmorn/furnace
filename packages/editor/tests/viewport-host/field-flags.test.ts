@@ -7,7 +7,7 @@ import type {
   FlagKind,
   FlagSeverity,
 } from "@furnace/core/field";
-import type { VerifyVerdictWire } from "../../src/frontend/lib/analyzer-protocol.ts";
+import type { VerifyVerdictWire } from "../../src/viewport-host/analyzer-protocol.ts";
 import type {
   FlagRow,
   FlagsSummary,

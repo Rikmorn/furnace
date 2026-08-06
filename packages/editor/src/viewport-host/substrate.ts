@@ -37,8 +37,8 @@ import type * as gpu from "@furnace/core/gpu";
 import type { Context } from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import type { EntityArchetype } from "../frontend/lib/catalog.ts";
-import type { FieldWorkerClient } from "../frontend/lib/field-client.ts";
+import type { EntityArchetype } from "../shared/catalog.ts";
+import type { FieldWorkerClient } from "./field-client.ts";
 import type { FlagStore } from "./field-flags.ts";
 
 // The two render-bookkeeping shapes below are declared HERE, not in the host

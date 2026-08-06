@@ -3,12 +3,15 @@
 // values, so it unit-tests without a GPU and (the load-bearing part) the CHROME
 // may value-import it.
 //
-// Direction matters: this lives under `frontend/lib/` and the HOST imports it,
-// the same way it already imports field-brush.ts. The reverse — parking it in
+// Direction matters: this lives under `src/shared/` — the neutral layer BOTH
+// arrows may point at — and the host and the chrome each import it downward, the
+// same way they both import field-brush.ts. The reverse — parking it in
 // `viewport-host/` and importing it from a component — is forbidden by the
 // project-first invariant (`tests/frontend-no-engine-leakage.test.ts` rejects
 // any chrome value-import whose specifier contains `viewport-host`, because the
 // barrel carries core), and would be caught by that test rather than by review.
+// That same test also scans `src/shared/` itself, with no exemptions, which is
+// what keeps the "no engine values" claim above a fact rather than a promise.
 import type { GeneratorEntity } from "@furnace/core/field"; // type-only: erased
 
 // ——— AUTHORITATIVE rules — the host imports these and ACTS on them ———————————

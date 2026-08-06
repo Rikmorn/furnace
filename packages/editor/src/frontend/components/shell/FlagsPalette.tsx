@@ -36,8 +36,8 @@ import {
 } from "../../hooks/useRovingList.tsx";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
-import { ActionTip, ReasonTip } from "../tips.tsx";
 import { Button } from "../ui/button.tsx";
+import { ActionTip, ReasonTip } from "../ui/tips.tsx";
 
 /** A finding joins a cluster when it is within this world distance (metres) of
  *  ANY member — single-linkage, so a run of pinches along a corridor chains into
