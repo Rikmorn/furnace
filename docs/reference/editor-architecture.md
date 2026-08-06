@@ -558,8 +558,14 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   toolbar's `onEntityCatalogInstalled` callback then, the catalog provider's
   `entityCatalogTick` since F4.5a. The signal carries NOTHING — the host is the source of
   truth, and a payload would invite reading it instead. Reading once left `archetypeId` free text
-  forever; `tests/chrome/field-panel.test.tsx` pins the ordering, which host-level tests
-  structurally cannot (they install the catalog first).
+  forever. The INSTALL half is pinned by `tests/chrome/host-seams-and-catalogs.test.tsx`
+  ("the entity catalog is fetched, parsed and installed on the host") — which host-level
+  tests structurally cannot do, because they install the catalog first. The RE-READ half
+  currently has no pin: it was `tests/chrome/field-panel.test.tsx`'s, and that file became
+  `host-seams-and-catalogs.test.tsx` at F4.5b Task 14 keeping only the two claims that
+  belonged to no single surface — the re-read case went with the panel rather than moving to
+  `session-card.test.tsx`, which is where the `entityCatalogTick` consumer now lives
+  (`shell/SessionCard.tsx`). A gap, recorded here rather than papered over.
 - **Context-threaded preview** — `stamp-preview` now passes an `EvaluateContext { store }`
   (the scratch store the snapshot was installed into) for any `contextFree: false`
   generator, which is what lets scatter's ghost read the field at all. `stamp-previewed`'s
@@ -992,7 +998,9 @@ mind.
   does) and none may observe a summary whose markers are stale.
 - **Chrome state and its honest cost.** The summary is the host's; the filter set and the
   in-flight verify key are CHROME state, and since F4.5b Task 2 they live in the shell's
-  provider (`FieldFlagsContext`) rather than in a palette. `verifying` cannot live in the host
+  provider rather than in a palette — in `FieldFlagsContext` until foundations T3b1
+  (2026-08-06), and since then in two provider-held CELLS (`chrome.filters`,
+  `chrome.verifying`) that each surface latches for itself (§21.3). `verifying` cannot live in the host
   because releasing it needs two signals no single host seam carries — a verdict arrives on
   `subscribeFlags`, and each `verifyFlag` refusal arrives on `subscribeToolError` having pushed
   no flags at all; putting both halves in one file is why the state moved there. Both releases
@@ -1272,8 +1280,11 @@ closing the palette holding it would take ⌘S with it. It sits *under*
 `FieldHostStateProvider` because the dirty bit derives from the stats that provider
 already owns. (The original reason was that `subscribeStats` was a single slot and a second
 subscription here would have silently stolen the status bar's. Foundations T3a made every
-seam multicast, so that hazard is gone — the placement stands on the rule it always also
-served: ONE subscription point per seam, §16.7.)
+seam multicast, so that hazard is gone, and foundations T3b1 then retired the rule it had
+fallen back on — §16.7's ONE-subscription-point rule — by making a second mirror the normal
+arrangement. `useWorld` now holds its OWN latch on `subscribeStats`, beside the status bar's;
+the placement stands on the remaining reason, which is that the dirty bit is derived from
+that seam and the hook must sit under the provider that supplies the shell. See §21.3.)
 
 - `name` is `null` for an untitled scratch and **never prefilled** — the W3/W4
   gate-clobber lesson: a stale default silently overwrites the game's world at the first
@@ -1465,34 +1476,46 @@ each organ WENT, which is why it stays. What left, and where it went:
 | the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
 | the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out, the layers panel since Task 4 |
 | the status line | `lib/notify-store.ts` (toasts + the log) |
-| the armed GESTURE (which of pointer / box / wand / room / segment holds LMB), F4.5b Task 7 | `hooks/useFieldHostState.tsx`'s tool context — the registry's `V`/`B`/`M` family keys arm the same slot the palette's buttons do, and a panel-local copy would disagree with them on the first keypress |
+| the armed GESTURE (which of pointer / box / wand / room / segment holds LMB), F4.5b Task 7 | `hooks/useFieldHostState.tsx`'s `useFieldTool` — the registry's `V`/`B`/`M` family keys arm the same slot the palette's buttons do, and a panel-local copy would disagree with them on the first keypress. (A React context until foundations T3b1, a provider-held cell since — §21.3.) |
 
 What **remains** is the dig loop's control stack: the tool palette, the material
 swatches, the brush inspector, the stamp inspector and the advisor's flags — rendered
-entirely from the provider's contexts, with **no host subscription of its own**.
+entirely through `useFieldHostState.tsx`'s hooks rather than by subscribing to the host
+directly. (At F4.5a that meant "from the provider's contexts, with no host subscription of
+its own"; since foundations T3b1 the hook a surface calls IS its subscription — see below.)
 
-**`hooks/useFieldHostState.tsx` is the ONE subscription point for the seams the chrome
-reads.** The reason it was written was a real failure mode: every `FieldHost.subscribe*`
-seam was a **single slot**, so a second subscriber silently stole the first's — the earlier
-consumer just stopped updating, with nothing thrown and nothing logged. **Foundations T3a
-retired that hazard** (§20): the seams are multicast now, and a second subscriber costs
-nothing but a second delivery. The rule outlived its enforcement and is kept on its own
-merits — one mirror per seam rather than N copies of the same state drifting apart, one
-place where a comparator decides whether a push re-renders anything, and one place to look
-when a surface stops updating. What changed is that the rule no longer holds itself up:
-`tests/chrome/host-seams-and-catalogs.test.tsx` is now the only thing that detects a
-violation, where before the bug reported itself as a dead surface. All
-**eleven** seams live there (stats, tool-error, camera-pose, entities, drift,
-entity-selection, tool, selection, stamp, pending-stamp, flags), published through
-**eight** contexts split by CADENCE — a
-frame-paced seam must not re-render a surface that only cares about an answer. Each
-context makes its own throw-vs-default call at its docblock; `CameraPoseContext` is the
-only defaulted one, because "no camera here" is the one default that is true outside the
-provider. **No surface below the provider may re-subscribe to anything it owns.** The
-stats push is guarded by a value-equality comparator with a
-`satisfies Record<string, never>` backstop — a new
-`FieldStats` field fails the never-check and forces the comparator to learn it, because a
-missed field would silently *weaken* the guard.
+**`hooks/useFieldHostState.tsx` WAS the ONE subscription point for the seams the chrome
+reads, and since foundations T3b1 (2026-08-06) it is the one MODULE rather than the one
+subscription.** The reason the rule was written was a real failure mode: every
+`FieldHost.subscribe*` seam was a **single slot**, so a second subscriber silently stole the
+first's — the earlier consumer just stopped updating, with nothing thrown and nothing
+logged. **Foundations T3a retired that hazard** (§20): the seams are multicast, and a second
+subscriber costs nothing but a second delivery. For one slice the rule outlived its
+enforcement and was kept on its own merits; **T3b1 Task 7 then retired the rule itself**,
+because a per-consumer latch buys the same properties more cheaply than a fan-out does
+(§21.3). What the module still owns is the part that was load-bearing: one hook per seam, so
+there is still exactly one place a comparator decides whether a push re-renders anything,
+and one place to look when a surface stops updating.
+
+At the F4.5a seal, **eleven** seams lived there (stats, tool-error, camera-pose, entities,
+drift, entity-selection, tool, selection, stamp, pending-stamp, flags), published through
+**eight** contexts split by CADENCE — a frame-paced seam must not re-render a surface that
+only cares about an answer. That split is gone: a per-consumer latch isolates cadence by
+construction, and a surface that does not call the hook does not subscribe at all. Today
+**thirteen** seams are read here, ten as per-consumer latches and three from the provider
+shell, over **one** context (`FieldShellContext`, which changes twice a session). Of the
+eight contexts' throw-vs-default calls, only the camera's survives as a default — "no camera
+here" is still the one default that is true outside the provider — and it is now
+`IDENTITY_POSE`, the latch's `empty` value, rather than `CameraPoseContext`. The stats push
+is still guarded by a value-equality comparator with a `satisfies Record<string, never>`
+backstop — a new `FieldStats` field fails the never-check and forces the comparator to learn
+it, because a missed field would silently *weaken* the guard.
+
+**What replaced "no surface below the provider may re-subscribe" is a claim about the
+SPLIT**, and `tests/chrome/host-seams-and-catalogs.test.tsx` pins that instead: which three
+seams are the shell's, that the other ten are claimed by a reader, and that every one is
+RELEASED when its reader unmounts. A duplicate mirror is the normal arrangement now; a
+mirror that outlives its surface is the bug, and it has no symptom except those counts.
 
 ### 16.8 The daemon feed
 
@@ -2147,15 +2170,20 @@ a `fixed inset-0` shell that nothing scrolls. `edgeAt` carries the matching guar
 gesture could have expressed. Without it a too-narrow cell inverted the tie-break and silently,
 permanently docked a free palette RIGHT on its next drag.
 
-`hooks/useFieldHostState.tsx` remains the ONE subscription point — **thirteen seams through
-ten contexts** at the seal (§18.6 adds the thirteenth): no surface below the provider may
-re-subscribe to anything it owns. At the seal the rule was self-enforcing — every
+`hooks/useFieldHostState.tsx` was the ONE subscription point — **thirteen seams through
+ten contexts** at the seal (§18.6 adds the thirteenth): no surface below the provider might
+re-subscribe to anything it owned. At the seal the rule was self-enforcing — every
 `FieldHost.subscribe*` seam was a single slot, so a second subscriber silently stole the
 first's — and foundations T3a made the seams multicast, which retired the hazard and left
-the rule standing on cost and single-source-of-truth instead (§16.7, §20). That rule is a
-claim about the SET rather than about any one surface, which is why its test outlived the
-panel it used to live in (`tests/chrome/host-seams-and-catalogs.test.tsx`) — and why that
-test is now the rule's only detector.
+the rule standing on cost and single-source-of-truth instead (§16.7, §20). **Foundations
+T3b1 (2026-08-06) then retired the rule** (§21.3): the ten contexts became per-consumer
+`useSyncExternalStore` latches, so a second mirror of a seam is now the normal arrangement
+and the module is the one PLACE the seams are read rather than the one subscription. The
+claim is still about the SET rather than about any one surface — which three seams stay the
+shell's, and that the other ten are released with the reader that claimed them — which is
+why its test outlived the panel it used to live in
+(`tests/chrome/host-seams-and-catalogs.test.tsx`), and why that test is still the only
+detector.
 
 ## 18. F4.5c — the finish (2026-08-03)
 
@@ -2546,11 +2574,16 @@ sequence had to land within one frame, and now has the whole unwatched span — 
 lasts.** And the blast radius is two fields: `totalOps`, `undoDepth` and `redoDepth` ARE the
 three signature lengths (core's `field/maintenance.ts`), so a matched signature makes them
 correct by construction, leaving only `liveGenerators` and `compactableOps` exposed; the other
-six payload fields never touch the cache. In production the span is empty of editing anyway —
-the chrome subscribes in a provider-level effect keyed `[engineReady, host]`
-(`frontend/hooks/useFieldHostState.tsx`), not per status-bar mount, so an unwatched production
-host exists only before `engineReady` and after chrome teardown. Published payloads are
-unchanged outside that window.
+six payload fields never touch the cache. In production the span is still effectively empty of
+editing, but **the reason changed later in the same slice and the first statement of it is
+dead**: Task 3 argued from a provider-level effect keyed `[engineReady, host]`, and Task 7's
+collapse (§21.3) deleted that effect. Stats are now latched per consumer, and three surfaces
+read them — `shell/StatusBar.tsx`, `hooks/useActionContext.tsx` and `hooks/useWorld.tsx`. The
+last two are session-lifetime providers mounted at the shell root (`shell/Shell.tsx`), so an
+unwatched production host still exists only before `engineReady` and after chrome teardown.
+That is now an EMERGENT property of two unrelated providers happening to read `stats`, not a
+designed one: if either stops reading them, the unwatched span becomes a real editing window.
+Published payloads are unchanged outside it.
 
 **Three things are observable, and only three.** Everything else about the seams is
 byte-identical from the chrome's side.
@@ -2763,3 +2796,170 @@ gets deleted as dead by someone who does not know what it is for.
   order (Map insertion order), a fresh array per call so mutating it never touches the
   registry. Re-added after T2 removed it as unused; T3b's ToolManager is the ordered
   enumeration pass that was the removal note's stated trigger.
+
+## 21. Foundations T3b1 — five clusters out, one layer down, and the chrome stops fanning out (2026-08-06)
+
+Where T3a built the primitives (§20), T3b1 is the slice that **uses** them. Five clusters
+left `createFieldHost`, eight modules found their layer, the chrome's ten contexts became
+per-consumer latches, and the directory finally took the name of the thing it hosts. Like
+T3a it changes how the editor says things rather than what it can do: **every `FieldHost`
+signature is unchanged, and the facade is still 66 members.**
+
+The honest headline first. `field-host.ts` went **7,347 → 7,175 lines (−172, −2.3%)** across
+the slice's eight commits, and its CODE column — comments and blanks stripped — went
+**3,554 → 3,394 (−160, −4.5%)**. (This documentation pass then added 13 lines to it, all
+comment, correcting the seam preamble in §21.3; the file stands at **7,188 / 3,394 code**.)
+Five clusters, and the file is still ~8.5× the ~400-line guideline. The five new modules are
+**1,265 lines** between them (1,258 as committed; the same docs pass added 7 comment lines to
+`field-stats.ts`), which is the real measure of what moved: a cluster's prose travels
+with it, and the wiring left behind earns prose of its own.
+`docs/reference/field-host-clusters.md` §1 carries the per-cluster breakdown and the one row
+that breaks the metric (`view` — the most invasive diff in the tranche, and zero lines off
+the code column).
+
+### 21.1 The five modules, and the law their deps records settle
+
+| Module | Lines | Beside `substrate`, its deps record takes |
+| --- | --- | --- |
+| `field-voidcast.ts` | 318 | `reportToolError`, `snapshotAllChunks()`, `chunkOrigin()`, `voidCastMaterial()` |
+| `field-props.ts` | 241 | `kitMat()`, `kitInstancedMat()`, `markPlacementsStale()` |
+| `field-stats.ts` | 289 | `lastRemeshMs()`, `remeshVersion()`, `voidCastJobGen()`, `analyzerPendingCount()` |
+| `field-history-feed.ts` | 203 | — nothing |
+| `field-view.ts` | 214 | `discardVoidCast()`, `requestVoidCast()` |
+
+All five take `HostSubstrate` (§20.3) and **not one of them added a member to it** — the
+record T3a declared with no consumer took five without widening. `field-voidcast.ts` was the
+first call site `createHostSubstrate` ever had.
+
+**The law, as the five of them finally state it, has three clauses and they are usually
+collapsed into one by mistake.**
+
+1. **Everything reassignable rides behind a CALL.** Not because it is mutable — eleven
+   substrate members are `const` and travel by value precisely because the binding never
+   moves. Behind a call because the host REPLACES the value, and a snapshot is a permanent
+   fork that throws nothing: a module holding the old `table` goes on meshing against a
+   project the user already changed. This is the rule §20.3 generalised from `SegmentDeps`,
+   and nothing in T3b1 bent it.
+2. **Substrate thunk or private dep turns on whether the member is ALREADY DECLARED**, not
+   on how many readers it has. `field-props.ts` reads `archetypeById()` off the substrate
+   though it is that member's only extracted reader, because T3a declared it ahead of any
+   consumer and reading a declared member costs nothing new. In the same record it takes
+   `kitMat()` privately, because that one was not declared and adding it would charge every
+   future cluster's assembly for one consumer's convenience.
+3. **The two-extracted-readers bar governs ADDING a member, never declining one that
+   exists.** Read it the other way — "one reader ⇒ private dep" — and the next extraction
+   pulls `archetypeById` back out of the substrate for no gain and one more bespoke dep.
+
+`field-history-feed.ts` is the smallest surface any consumer has taken: `substrate` alone,
+no private thunk at all, reading only `log`. `field-view.ts` is the other extreme of the
+same idea — its two deps are VERBS on another extracted module (`voidcast`'s
+`discard` / `request`) rather than host state of any kind, and its own two `let`s
+(`layers`, `sliceY`) left the closure entirely rather than joining the substrate. That is
+§20.3's third answer: **state that acquires an OWNER rides on that owner's seam**, which is
+why 25 call sites spell `viewState.layers()` and not `substrate.layers()`.
+
+Three of the five are behaviour-visible, and each is recorded where it belongs rather than
+here: the stats meter's op-cost scan moving inside the "is anyone subscribed" guard (§20.1,
+including the aliasing window it widens and why the blast radius is two payload fields); the
+history feed making all thirteen seams bare delegates (§20.1); and `stepHistory` staying
+behind in the host when the feed left — a finding, not an omission, recorded in the cluster
+map's `history` row.
+
+### 21.2 The layer chain
+
+`frontend/ → field-host/ → shared/`, machine-enforced in both directions. §7 is the
+authority on it — what moved, which five modules could not sit in `shared/` because they
+value-import core, and why the split was decided by the leakage guard rather than by taste.
+Two facts belong here: `src/field-host/` imports **nothing** out of `src/frontend/` at HEAD,
+and `src/shared/` imports nothing of the editor's at all. Both are pinned by
+`tests/no-chrome-leakage.test.ts`, which closed the React-free half of the `shared/` rule
+that had been prose since Task 6.
+
+### 21.3 The chrome collapse — ten contexts become latches
+
+`hooks/useFieldHostState.tsx` (878 → 1,075 lines) stopped being a fan-out. Each `useField*`
+hook now subscribes to the seam it reads, **in the component that reads it**, through
+`useSeam` — a `useSyncExternalStore` latch. This retires §16.7's ONE-subscription-point
+rule, which T3a had already stripped of its enforcement (§20.1's slot-steal hazard).
+
+Two consequences invert what the old arrangement claimed:
+
+- **Cadence isolation is FINER, not coarser.** The eight contexts were split by cadence so a
+  fly-around would not re-render the entities palette. A per-consumer latch does that by
+  construction and one step further: a surface that does not call the hook does not
+  subscribe at all, so an unmounted palette costs nothing.
+- **A duplicate subscription is no longer a bug.** Two mirrors of one seam is the normal
+  arrangement — the status bar and the action registry both read the tool, and `useWorld`
+  holds its own latch on `subscribeStats` beside the status bar's. What still IS a bug is a
+  mirror that never releases, and it has **no symptom at all**:
+  `tests/chrome/host-seams-and-catalogs.test.tsx` pins the counts, and its claim changed
+  shape with the collapse — from "the provider holds all thirteen and no surface holds any"
+  to the SPLIT: which three are the shell's, and that the other ten are released with the
+  reader that claimed them.
+
+**THE ONE CONTEXT.** `FieldShellContext` carries `{ host, engineReady, chrome }` and changes
+twice a session. That stability is load-bearing: every hook reads it, so a value that moved
+with the brush radius would re-render the entities palette on every slider frame — precisely
+the cost the cadence split existed to avoid.
+
+**The honest deviation: ten of thirteen, not thirteen.** Three seams stay subscribed in the
+provider shell, and **six chrome-owned values live in provider-held CELLS** (`createCell`)
+rather than in per-consumer state — still latched by the same `useSeam`, so the arrangement
+is "shared truth, per-consumer subscription" rather than a context by another name. Five of
+the six are FORCED and one is a judgement call, and the distinction matters more than the
+round number:
+
+- **`tool` + `radius`** ride `subscribeTool`, an EVENT channel with **no snapshot**, while
+  `TopBar` swaps `ToolStrip` out for a `SessionStrip` for the whole of every stamp session.
+  A latch would therefore remount reading `DEFAULT_TOOL` / `DEFAULT_RADIUS` beside a brush
+  the viewport is actively drawing, and nothing would ever correct it — an event seam has no
+  catch-up push. `tool` is forced twice over: the plain `FieldHost.setTool` publishes
+  **nothing at all**, so its three simultaneous readers would diverge permanently the first
+  time anyone picked a brush. (Both values do come back on that seam from the host's own
+  paths — the eyedrop, the momentary ⇧/⌃, the wheel, `[` / `]`. Being pushed back was never
+  the question; being pushed back TO A LATE MOUNT is.)
+- **`gesture`** has no seam in either direction, so there is nothing to reconcile copies
+  against.
+- **`filters` + `verifying`** must outlive the surface that shows them: `PaletteLayer`
+  unmounts a closed palette's body, and per-consumer state would lose the user's bands to a
+  debounce its own unmount cancelled, and drop a verify the host is still running.
+- **`flags`** is the CHOSEN one. `flagsChannel` carries a snapshot, so a latch would work; it
+  is a cell because its push and the `verifying` release are one coupling and one effect.
+
+**The echo guard, stated exactly, because it is easy to describe as symmetric and it is
+not.** The host half is a SPECIFICATION plus one value-compare. `subscribeTool`'s TSDoc
+tells the chrome it "must value-compare against its own state before re-pushing" — that is
+the specification — and `notifyTool()` itself publishes **unconditionally**; there is no
+host-side tool compare. The only host-side compare is on the RADIUS, in `applyRadius`'s
+`if (clamped === digRadius) return`, which suppresses a no-op set (and is what stops the
+clamp looping). The load-bearing half is the chrome's: `toolsEqual`
+(`frontend/lib/field-host-mirrors.ts`), which the mirror effect runs before writing the
+cell. It cannot be identity — the host publishes a fresh clone per push, so identity alone
+would re-render every reader of the tool on every momentary tap.
+
+**The one cost the collapse ADDED**, named because nothing else in the slice regressed:
+`latchEntities` is the only latch whose subscribe callback does WORK rather than adopting a
+pushed payload — it calls `host.listEntities()`, which walks the whole op log to attribute
+placements. That now runs **once per reader**. Four surfaces call `useFieldEntities` (the
+entities palette, the session card, the tool strip, the action registry) and at least two
+are mounted at any moment, so a tick can walk the log up to four times where the provider
+walked it once. Accepted rather than fixed: the tick is COMMIT-paced — a stamp, a bake, a
+⌘Z — not frame- or pointer-paced, and the fix (hoisting the read, or having the host push
+the list) is a design change that commit should not have smuggled in. **Revisit if the
+entity list gets long or the tick gets chattier.**
+
+### 21.4 The rename
+
+`src/viewport-host/` → `src/field-host/`, `tests/viewport-host/` → `tests/field-host/`. The
+directory had carried the deleted scene-editing viewport host's name since long after that
+host was gone. §7 records the move; one finding is worth stating on its own, because a
+mechanical rename would have silently disabled a guard:
+
+**`field-host` is not a name only this directory wears.** `frontend/lib/field-host-mirrors.ts`
+is a chrome-internal, engine-free helper that shares the prefix and nothing else. The
+leakage guard's specifier rule therefore needed a **directory-boundary anchor** —
+`["'][^"']*field-host(/|["'])`, where the match must end on a `/` or on the end of the
+specifier — so that `field-host/…` and `"@furnace/editor/field-host"` are caught and
+`field-host-mirrors.ts` is not. Renamed to the old spelling's pattern, the guard would have
+matched a legitimate chrome import and been loosened to make the suite pass, which is the
+shape the bug would have taken.

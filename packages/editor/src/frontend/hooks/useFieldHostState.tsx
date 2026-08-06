@@ -404,10 +404,10 @@ function onCell<T>(pick: (chrome: ChromeCells) => Cell<T>): Connect<T> {
 
 /** Latch one multicast seam into a React-readable snapshot.
  *
- *  ELEVEN of the thirteen host seams push their current state synchronously inside
+ *  TEN of the thirteen host seams push their current state synchronously inside
  *  `subscribe` (`view-channel.ts`'s `snapshot` option, and every cell above does the same),
- *  so the first `getSnapshot` AFTER the subscription effect reads real state. The two that
- *  do not — `subscribeStats` and `subscribeTool` — are EVENT seams by the host's own
+ *  so the first `getSnapshot` AFTER the subscription effect reads real state. The three that
+ *  do not — `subscribeStats`, `subscribeTool` and `subscribeToolError` — are EVENT seams by the host's own
  *  choice, and for them `empty` is what the first render shows until the first push
  *  arrives. The first render is `empty` either way: `useSyncExternalStore` reads the
  *  snapshot before React attaches the subscription, exactly as the provider's `useState`

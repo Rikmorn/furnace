@@ -7,7 +7,9 @@ are decided the same way (is the third occurrence here yet?) and because reading
 together is how you notice that two of them want the same provider stack.
 
 **Taken 2026-08-06 (foundations T3b1):** *Two layering back-edges: `ui/` reaching app chrome,
-and `field-host/` reaching `frontend/lib/`.* Its trigger — "the next task whose scope is
+and `field-host/` reaching `frontend/lib/`.* (The entry's own title said `viewport-host/` — the
+directory was renamed in T3b1's last task, and this line is quoted in the new spelling so it
+matches the tree; `git show 22cea191^` has it as written.) Its trigger — "the next task whose scope is
 already a move" — fired on the T3b1 cluster extractions. Eight modules left `frontend/lib/`
 for `src/field-host/` (host-only) or a new `src/shared/` (chrome-shared), and
 `components/tips.tsx` moved into `components/ui/`. The as-built direction chain
@@ -74,14 +76,15 @@ it inside the current file means editing gate logic in the middle of the action 
 The box brush and the segment brush each hold a pending first click — `boxAnchor` and
 `segmentAnchor` — and the two are mutually exclusive by construction: arming one clears the
 other. Every path that drops a half-drawn gesture therefore has to clear BOTH, and four
-places in `field-host/field-host.ts` do (line numbers re-checked 2026-08-05):
+places in `field-host/field-host.ts` do (line numbers re-checked 2026-08-06, after T3b1's
+five extractions shifted every one of them by ~+13 from the 2026-08-05 pass):
 
 | site | what it is |
 | --- | --- |
-| `:6525` / `:6528` | the world-swap rebuild — an anchor in the OLD field |
-| `:6855` / `:6856` | `setGesture` — a carried-over point would read as a start the user never clicked |
-| `:6982` / `:6989` | `startStamp`, the arm-first branch |
-| `:7006` / `:7007` | `startStamp`, the selection-first branch |
+| `:6389` / `:6392` | the world-swap rebuild — an anchor in the OLD field |
+| `:6720` / `:6721` | `setGesture` — a carried-over point would read as a start the user never clicked |
+| `:6834` / `:6841` | `startStamp`, the arm-first branch |
+| `:6858` / `:6859` | `startStamp`, the selection-first branch |
 
 **It was five, and the fifth was the Esc ladder's first rung.** Foundations T3a deleted
 `escapeLadder` for a capture stack, and the box anchor and segment anchor now hold **one
@@ -102,7 +105,7 @@ the round that fixed it.
 The candidate is a private `clearGestureAnchors()` beside the two setters — pure, no new
 public surface, and it makes "both, always" a thing the code says once instead of a rule four
 call sites have to remember. The shape of the failure it prevents is already on record:
-the pattern is exactly `setPendingStamp`'s (`field-host.ts:3062-3070`), where the clear
+the pattern is exactly `setPendingStamp`'s (`field-host.ts:3022-3029`), where the clear
 lives INSIDE the setter so every path that disarms drops the corner whether or not its
 author thought about anchors — the same argument, applied one level up.
 
@@ -111,8 +114,8 @@ lines was strictly the smaller change under the scope set for it. Surfaced rathe
 silently absorbed.
 
 One nuance a helper has to preserve: two of the four sites carry a per-site COMMENT between
-the two calls (`:6526-6527` explains that the segment anchor points into the old field;
-`:6983-6988` explains that `cursorAffordance` answers `null` for any anchored gesture). Those
+the two calls (`:6390-6391` explains that the segment anchor points into the old field;
+`:6835-6840` explains that `cursorAffordance` answers `null` for any anchored gesture). Those
 reasons are site-specific and would have to move to the call site of the helper, not into it —
 a helper whose adoption deletes them makes the file worse, not better.
 
@@ -125,7 +128,7 @@ commit already in that neighbourhood.
 ### Reference
 
 - `packages/editor/src/field-host/field-host.ts` — the four sites above, and
-  `setPendingStamp` at `:3062-3070` for the precedent.
+  `setPendingStamp` at `:3022-3029` for the precedent.
 - `packages/editor/tests/field-host-stamp-entry.gpu.test.ts` — the `ARM_EXITS` table,
   which walks the disarm paths and is where a fifth site would want a row.
 - `.claude/rules/clean-code.md` § Cognitive Load — "tolerate duplication until the third

@@ -41,10 +41,10 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,175 lines** (re-measured 2026-08-06 after the T3b1 layering move; was 7,181 after `view` left, 7,165 after the `history` feed, 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−6**, and it is pure import geometry: no cluster left, no statement changed. Seven of this file's imports were re-pointed from `../frontend/lib/…` to `./…` or `../shared/…`, and four of them became short enough for the formatter to collapse a multi-line specifier list onto one line. |
-| Code / comment / blank | **3,394 / 3,545 / 236** (re-measured 2026-08-06 after the layering move; was 3,400 / 3,545 / 236 after `view`, 3,400 / 3,529 / 236 after the `history` feed, 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **−6** code, zero comment, zero blank — the whole delta is the collapsed import lines. |
-| `export function createFieldHost` | **line 1647** → end of file (**5,529 lines**) *(re-measured 2026-08-06 after the layering move; the span is unchanged — only the start line moved up 6, by the imports above it)* |
-| `return { … }` object literal | **line 6441** *(re-measured 2026-08-06 after the layering move)* |
+| File total | **7,188 lines** (re-measured 2026-08-06 at the close of T3b1, after the docs pass corrected the `FieldHost` seam preamble: **+13, every one a COMMENT line**, so the code column below is untouched). Was 7,175 after the layering move, 7,181 after `view` left, 7,165 after the `history` feed, 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass. The layering move's own net was **−6** and pure import geometry: no cluster left, no statement changed — seven of this file's imports were re-pointed from `../frontend/lib/…` to `./…` or `../shared/…`, and four became short enough for the formatter to collapse a multi-line specifier list onto one line. |
+| Code / comment / blank | **3,394 / 3,558 / 236** (re-measured 2026-08-06 at the close of T3b1; the docs pass moved the COMMENT column by +13 and nothing else). Was 3,394 / 3,545 / 236 after the layering move, 3,400 / 3,545 / 236 after `view`, 3,400 / 3,529 / 236 after the `history` feed, 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally. The layering move itself was **−6** code, zero comment, zero blank — the whole delta being the collapsed import lines. |
+| `export function createFieldHost` | **line 1660** → end of file (**5,529 lines**) *(re-measured 2026-08-06 at the close of T3b1; the SPAN has not moved all slice — only the start line, down 13 by the docs pass's comment block and up 6 before that by the collapsed imports)* |
+| `return { … }` object literal | **line 6454** *(re-measured 2026-08-06 at the close of T3b1)* |
 | Closure-level bindings | **270** (re-measured 2026-08-06 after `view` by §2's rule; was 272 after the `history` feed, 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. `view` took two `let`s and one function out and put `viewState` back: −2. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived, and §6's per-cluster counts must not be summed to stand in for it: those rows are mixed-epoch, so the two figures are only comparable at the epoch each was taken. §6's `history` row works the example) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
@@ -56,7 +56,7 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines still OUTNUMBER code lines — 3,545 to 3,394, i.e. **51.1%** of every non-blank
+Comment lines still OUTNUMBER code lines — 3,558 to 3,394, i.e. **51.2%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
 code alone is 3,394 lines, still ~8.5× the ~400-line file guideline in
@@ -218,6 +218,27 @@ site no longer exists", not a re-count nobody has done.
 - **Line numbers have drifted.** The file grew from 7,248 (post-`segment`) to 7,347. Every
   `@line` in §6 is the 2026-08-03 measurement **except** the thirteen seam bindings, which
   were re-measured with their rename. Treat the rest as ±100 and grep by name.
+
+### 2.3 Changed since T3a — foundations T3b1, 2026-08-06
+
+Five clusters left the closure and one left in half; §1's opening paragraph names each and
+its new module. Three notes for anyone reading §4–§6 as current:
+
+- **Line numbers have drifted AGAIN, and further than T3a's ±100.** The file went 7,347 →
+  7,175 across the five extractions, then → 7,188 at the docs pass. Sites below the first
+  extraction point have moved by roughly **−130 to −160**; sites in the gesture/session
+  region measured on 2026-08-05 have moved by about **−145**, then **+13** at the docs pass.
+  Every `@line` in §6 is stale unless its row says otherwise. **Grep by name.**
+- **Nothing in the chrome collapse (Task 7) or the rename (Task 8) touched the closure.**
+  Task 7 is entirely inside `frontend/hooks/useFieldHostState.tsx`; Task 8 moved the
+  directory and rewrote import specifiers. No binding, no edge, no cluster boundary moved
+  for either — which is why neither appears in §1's history column except as the 6-line
+  import collapse.
+- **The bar the extractions actually settled** is recorded in
+  `docs/reference/editor-architecture.md` §21.1, not here: the substrate's two-extracted-
+  readers rule governs ADDING a member and never declining one already declared, and state
+  that acquires an owner leaves the closure rather than joining the record (`view` is the
+  first instance). §7.3's recommended shape should be read against that section now.
 
 ## 3. Where the public-surface hypothesis was wrong
 

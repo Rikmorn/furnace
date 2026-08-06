@@ -45,9 +45,16 @@ speed-trim; `field-host/camera-control.ts` `flyLook`/`flyMove`.)
 
 ### Gizmo-controller extraction
 
-**Title:** Extract translate-gizmo controller from `field-host/index.ts`
+**Title:** Extract translate-gizmo controller from the field host
 
-**Context:** `field-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
+**STALE PATH, corrected 2026-08-06.** This entry was written against
+`src/viewport-host/index.ts`, the M5B scene-editing host — a file that no longer exists. The
+directory rename (foundations T3b1) re-pointed the path to `src/field-host/index.ts`, which is
+a 57-line barrel and holds none of what is described below. Whatever survives of this want
+lives in `src/field-host/field-host.ts`; the named symbols should be re-verified against it
+before the entry is acted on.
+
+**Context (as written at M5B):** `viewport-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
 (all host wiring), but it is past the ~400-line cognitive-load guideline
 (`docs/rules/clean-code.md`). The gizmo controller — `tryStartGizmoDrag`,
 `updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `committedTransform`,

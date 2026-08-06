@@ -310,9 +310,13 @@ that CAN report, and names the one that cannot.
 ### `FieldStats` at a third boolean wants a `jobs: {}` sub-object
 
 `FieldStats` carries one job flag today (`voidCastPending`) beside eight numbers. It rides
-the stats push deliberately — a seam is public surface on `FieldHost` and a context in the
-chrome's one subscription point, and this fact has no consumer that does not already read
-stats — and that reasoning holds for a second and third flag too. (The original wording gave
+the stats push deliberately — a seam is public surface on `FieldHost`, and this fact has no
+consumer that does not already read stats — and that reasoning holds for a second and third
+flag too. (Until foundations T3b1 this sentence also said "and a context in the chrome's one
+subscription point". Task 7 retired both the single subscription point and the per-seam
+contexts, so a new seam now costs one module-level latch plus a hook, mounted only where it
+is read; the `FieldHost`-surface half of the cost is untouched, which is the half the
+argument rests on.) (The original wording gave
 the reason as "the seams are single-slot". Foundations T3a made every seam multicast, which
 retired the slot-steal hazard but not the surface cost; the argument was always the surface.)
 What
@@ -320,7 +324,7 @@ does NOT hold at three is the flat shape: `voidCastPending`, `<x>Pending`, `<y>P
 siblings of `chunks` and `undoDepth` reads as a bag.
 
 The change when it comes is `jobs: { voidCast: boolean; … }` — still ONE push, still no new
-seam, and `statsEqual` (`lib/field-host-mirrors.ts:33`) grows one level rather than one
+seam, and `statsEqual` (`lib/field-host-mirrors.ts:34`) grows one level rather than one
 comparison. **A trigger, not a change**: doing it at one flag would be inventing structure
 for a single member.
 
@@ -337,7 +341,7 @@ commit if the reconfigure answer turns out to be "post progress from somewhere".
 - `packages/editor/src/field-host/field-host.ts` — `FieldStats` (`:331`) and
   `applyReconfigure`'s TSDoc §COST (`:870-878`), which carries the measurement and names
   `captureDueSnapshots` as the lever that exists and is unwired.
-- `packages/editor/src/frontend/lib/field-host-mirrors.ts:33` — `statsEqual`, the
+- `packages/editor/src/frontend/lib/field-host-mirrors.ts:34` — `statsEqual`, the
   never-check that a regrouping has to move with.
 
 ---
@@ -370,8 +374,11 @@ source comment cannot carry.
 
 The cost is not the arithmetic. It is a new worker→host progress message on the protocol,
 plus a new `FieldHost.subscribe*` seam for the host to publish it on — and the host's seams
-are deliberately **few**: each one is public surface on the `FieldHost` type and another
-context in the chrome's single subscription point. That is real surface for a 1.3 s job.
+are deliberately **few**: each one is public surface on the `FieldHost` type. That is real
+surface for a 1.3 s job. (This sentence also said "and another context in the chrome's single
+subscription point" until foundations T3b1 Task 7, which retired both; a new seam now costs
+one module-level latch plus a hook. The `FieldHost`-surface half stands, and it is the half
+the argument rests on.)
 
 **The stated reason changed at foundations T3a, the conclusion did not.** The seams were
 "deliberately single-slot and deliberately few" when this was filed; T3a made all thirteen

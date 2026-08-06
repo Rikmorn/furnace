@@ -7,7 +7,9 @@ dockview/WebGPU lifecycle problem, and the two render-path fidelity deferrals in
 viewport host, and the field worker protocol's un-guarded generator evaluate. Merged so
 there is **one place to check whenever you touch the project-first bundle boundary
 (`packages/dungeon/src/editor-extensions.ts`, `packages/editor/src/daemon/bundle.ts`), the
-viewport host's render path (`packages/editor/src/field-host/index.ts`), or the field
+field host's render path (`packages/editor/src/field-host/field-host.ts` — this line said
+`index.ts` until 2026-08-06; that path is now a 57-line barrel and never held the render
+path, so the pointer was re-aimed rather than merely re-spelled), or the field
 worker protocol (`packages/editor/src/field-host/field-protocol.ts`)**. Sections keep
 their original content.
 

@@ -98,15 +98,22 @@
 // and can therefore be stale. The other six payload fields never touch the cache
 // and are read fresh per publish.
 //
-// In production the exposure is close to nil, for a reason worth naming rather
-// than assuming: the chrome subscribes in a PROVIDER-level effect keyed
-// `[engineReady, host]` (`frontend/hooks/useFieldHostState.tsx`), not per
-// status-bar mount — so an unwatched production host exists only before
-// `engineReady` and after chrome teardown, and neither is a span in which the
-// user mutates the log. The op-cost meter is advisory besides (a hint meter, in
-// the cache's own words), and the fix for the whole family is already filed:
-// `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` §*Log-signature
-// caches can miss a world swap*.
+// In production the exposure is close to nil — but the reason is EMERGENT, not
+// designed, and the first version of this note named a mechanism that no longer
+// exists. It said the chrome subscribes in a PROVIDER-level effect keyed
+// `[engineReady, host]`; T3b1 Task 7 replaced that fan-out with per-consumer
+// `useSyncExternalStore` latches three commits later, in this same slice. What
+// is true at HEAD: THREE surfaces read stats — `shell/StatusBar.tsx`,
+// `hooks/useActionContext.tsx` and `hooks/useWorld.tsx` — and the last two are
+// session-lifetime providers mounted at the shell root (`shell/Shell.tsx`). So
+// an unwatched production host still exists only before `engineReady` and after
+// chrome teardown, and neither is a span in which the user mutates the log.
+// BUT that now rests on two unrelated providers happening to destructure
+// `stats`: if either stops, the unwatched span becomes a real editing window and
+// nothing here would notice. The op-cost meter is advisory besides (a hint
+// meter, in the cache's own words), and the fix for the whole family is already
+// filed: `docs/backlog/editor-and-tooling/field-tool-follow-ons.md`
+// §*Log-signature caches can miss a world swap*.
 //
 // No published payload changes outside that window. `field.logStats` is a pure
 // query (core's `field/maintenance.ts` says so in its TSDoc), `currentLogStats`

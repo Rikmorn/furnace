@@ -442,12 +442,20 @@ whose signature MOVED.
 Two facts bound the whole thing, and both were missed on the first pass. Only
 `liveGenerators` and `compactableOps` can be wrong — `totalOps`, `undoDepth` and `redoDepth`
 ARE the three signature lengths, so a matched signature makes them correct by construction.
-And in production the unwatched span is empty of editing: the chrome subscribes in a
-provider-level effect keyed `[engineReady, host]`
-(`packages/editor/src/frontend/hooks/useFieldHostState.tsx`), not per status-bar mount, so an
-unwatched production host exists only before `engineReady` and after chrome teardown. None of
-this changes the fix below; it is one more reason to prefer the explicit-signal option to a
-second hand-rolled signature.
+And in production the unwatched span is still effectively empty of editing — **but the
+mechanism this entry first gave for that was falsified three commits later, inside the same
+slice.** T3b1 Task 3 wrote "the chrome subscribes in a provider-level effect keyed
+`[engineReady, host]`, not per status-bar mount"; T3b1 Task 7 then replaced that fan-out with
+per-consumer `useSyncExternalStore` latches, and no such effect exists at HEAD. What is true
+now: THREE surfaces read stats — `packages/editor/src/frontend/components/shell/StatusBar.tsx`,
+`packages/editor/src/frontend/hooks/useActionContext.tsx` and
+`packages/editor/src/frontend/hooks/useWorld.tsx` — and the last two are session-lifetime
+providers mounted at the shell root (`components/shell/Shell.tsx`), so an unwatched production
+host still exists only before `engineReady` and after chrome teardown. That conclusion now
+holds by ACCIDENT rather than by design: it rests on two unrelated providers happening to
+destructure `stats`, which is exactly the "correct-if-the-author-remembered" failure mode the
+*Worth considering instead* paragraph below argues against. None of this changes the fix; it
+is one more reason to prefer the explicit-signal option to a second hand-rolled signature.
 
 **The fix, when it is worth doing:** the same one token — put `worldEpoch` at the front of
 the `currentLogStats` signature. Cheap; not done at the time only because the task's
@@ -462,8 +470,10 @@ each inventing a signature. `resetWorld` is the ONE place a world goes away; a
 default rather than correct-if-the-author-remembered. Two hand-rolled signatures is the
 point at which that starts paying.
 
-**Trigger to revisit:** a third log-signature cache being added, or the first report of a
-stale meter reading after a world load.
+**Trigger to revisit:** a third log-signature cache being added; the first report of a
+stale meter reading after a world load; or **any of the three stats readers above dropping
+its `useFieldHostState()` call** — that is now the event that turns the widened unwatched
+window from theoretical into a real production editing span.
 
 **Reference:** `packages/editor/src/field-host/field-stats.ts` (`currentLogStats` and the
 module header's note on the widened window); `packages/editor/src/field-host/field-host.ts`
@@ -574,7 +584,9 @@ host state, which is a rule worth more than the renders.
 
 **The options**, all of which need a decision rather than an edit:
 (a) a value-equality guard in `useFieldHostState`'s stamp mirror (the `sameEntities`
-precedent — `setStamp(prev => sameSession(prev, s) ? prev : s)`), which needs a definition of
+precedent — since foundations T3b1 the mirror is `latchStamp`, whose `adopt` callback is
+literally `prev => …`, so the guard now spells `latch(prev => sameSession(prev, s) ? prev : s)`
+and `latchStats` beside it is a second in-file precedent for exactly this shape), which needs a definition of
 "same session" that is honest about `run`, `phase` and `region`;
 (b) a narrower guard on `params` alone, since that is the field whose identity drives the
 form — cheaper, and it leaves phase/region churn re-rendering the card as it should;

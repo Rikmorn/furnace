@@ -469,11 +469,24 @@ export type ToolErrorSeverity = "warn" | "error";
  *
  *  EVERY SEAM IS MULTICAST (`view-channel.ts`). N subscribers each get every push,
  *  an unsubscribe removes only its own callback and is idempotent, and one
- *  subscriber that throws is logged and does not cost its siblings their push. The
- *  "Single subscriber (…)" note on each seam below is therefore a fact about the
- *  CHROME — all thirteen belong to the shell's host-state provider, and nothing
- *  under it may re-subscribe — rather than a limit of the seam: a second subscriber
- *  is a duplicate mirror and a leak nobody would see, not a stolen callback.
+ *  subscriber that throws is logged and does not cost its siblings their push.
+ *
+ *  READ THE "Single subscriber (…)" NOTE ON EACH SEAM BELOW AS ITS ONE CLAIMANT
+ *  HOOK, NOT AS A COUNT. Until foundations T3b1 (2026-08-06) the two were the same
+ *  thing: the shell's host-state provider held all thirteen and fanned them out
+ *  through React contexts, so each seam had exactly one live subscription. T3b1
+ *  Task 7 replaced that fan-out with per-consumer `useSyncExternalStore` latches
+ *  (`frontend/hooks/useFieldHostState.tsx`), and TEN of the thirteen are now
+ *  subscribed in the surface that reads them — so a seam read by three mounted
+ *  surfaces has three live subscriptions, by design. Only `subscribeTool`,
+ *  `subscribeToolError` and `subscribeFlags` are still the provider shell's.
+ *  What survived is the part the notes are actually for: each seam has ONE hook
+ *  that claims it, so there is still one place a comparator decides whether a push
+ *  re-renders anything, and one place to look when a surface stops updating.
+ *
+ *  A duplicate subscription is therefore no longer a bug. A mirror that outlives
+ *  its surface still is, and it has no symptom at all — `size()` and the counts in
+ *  `tests/chrome/host-seams-and-catalogs.test.tsx` are what detect it.
  *
  *  A pushed value is CLONED once per publish and SHARED by every subscriber:
  *  treat it as immutable. */
