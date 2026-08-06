@@ -319,11 +319,12 @@ on, OR the first other whole-world worker job (F4's analyzer is the likely candi
 which point "one worker, first come first served" stops being a one-feature problem and
 wants a priority or a second worker.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`requestVoidCast`'s
-in-flight refusal and the `VOID_CAST_CHUNK_BUDGET` comment carrying the measurement;
-`createPreviewCoalescer` for the shape that already exists);
-`packages/editor/src/frontend/lib/field-client.ts` (one worker, no cancel — the class TSDoc
-states the contract).
+**Reference:** `packages/editor/src/viewport-host/field-voidcast.ts` (`requestVoidCast`'s
+in-flight refusal and the `VOID_CAST_CHUNK_BUDGET` comment carrying the measurement — both
+were in `field-host.ts` until foundations T3b1, 2026-08-06);
+`packages/editor/src/viewport-host/field-stamp.ts` (`createPreviewCoalescer`, the shape that
+already exists); `packages/editor/src/frontend/lib/field-client.ts` (one worker, no cancel —
+the class TSDoc states the contract).
 
 ## An entity delete leaves the previous reconfigure's drift report standing
 

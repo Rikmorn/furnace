@@ -123,6 +123,7 @@ import {
   withPreviewResult,
   withRegion,
 } from "./field-stamp.ts";
+import { createVoidCast } from "./field-voidcast.ts";
 import {
   type Axis,
   axisLines,
@@ -135,7 +136,11 @@ import { type CaptureHandle, createInputRouter } from "./input-router.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 // The render-bookkeeping shapes live with the rest of the substrate an extracted
 // cluster is handed, so the host and its clusters name them from one place.
-import type { ChunkRender, PropRender } from "./substrate.ts";
+import {
+  type ChunkRender,
+  createHostSubstrate,
+  type PropRender,
+} from "./substrate.ts";
 import { createViewChannel } from "./view-channel.ts";
 import {
   cursorAffordance,
@@ -400,8 +405,8 @@ export type FieldStats = {
   analyzerPending: number;
   /** Whether a void cast (D-F3-15) is posted and unanswered — the X-ray's whole-world
    *  worker job, which is the only edit-loop job long enough for a user to wonder about.
-   *  A BOOLEAN rather than a count: `requestVoidCast` refuses a second one while the
-   *  first stands, so there is never more than one.
+   *  A BOOLEAN rather than a count: `field-voidcast.ts`'s `requestVoidCast` refuses a
+   *  second one while the first stands, so there is never more than one.
    *
    *  It rides the stats push rather than a subscription of its own for two reasons. A
    *  fourteenth seam is a fourteenth thing the chrome's provider has to own and
@@ -411,8 +416,8 @@ export type FieldStats = {
    *  and toggling off-and-on is exactly the sequence a user with no in-flight signal
    *  performs.
    *
-   *  Stays true across a `discardVoidCast`, and truthfully: the discard strands the
-   *  RESULT, it does not call the worker off. */
+   *  Stays true across `field-voidcast.ts`'s `discardVoidCast`, and truthfully: the
+   *  discard strands the RESULT, it does not call the worker off. */
   voidCastPending: boolean;
 };
 
@@ -575,8 +580,9 @@ export type FieldHost = {
    *
    *  `voidCast` alone has an EDGE effect: false→true snapshots every allocated
    *  chunk into one worker job and builds the X-ray from what comes back
-   *  (refused, loudly, past `VOID_CAST_CHUNK_BUDGET` chunks — the cast is a
-   *  region-scale tool); true→false frees it. A call that leaves the flag true
+   *  (refused, loudly, past `field-voidcast.ts`'s `VOID_CAST_CHUNK_BUDGET`
+   *  chunks — the cast is a region-scale tool); true→false frees it. A call
+   *  that leaves the flag true
    *  rebuilds NOTHING, so a cast the field's next edit dropped stays gone until
    *  the user toggles it off and on — which is also how it comes back after a
    *  dispose/re-init or a world load, both of which free the meshes while the
@@ -1461,20 +1467,6 @@ const STAMP_GHOST_ALPHA = 0.35;
 // the whole viewport.
 const VOID_CAST_COLOR: Vec3T = [0.25, 0.85, 0.75];
 const VOID_CAST_ALPHA = 0.3;
-// Enabling the cast snapshots + meshes EVERY allocated chunk in ONE worker job,
-// so its cost is linear in the whole world, not in what the camera sees. The
-// ceiling makes that honest: past it the enable REFUSES loudly rather than
-// queueing a job that gets slower with no upper bound. 512 chunks is 2.1 MB of
-// density on the wire and, packed, a 32 m cube of field at the default 0.25 m
-// cell — a region-scale tool by design; world-scale X-ray belongs to F5's
-// streaming work.
-//
-// Measured at the ceiling (bun/JSC, 512 dug chunks, one cast): ~1.3 s of worker
-// time. That is a real wait, and it buys the tool no progress state in v0 — the
-// overlay simply appears. The number is recorded here rather than tuned because
-// the spec set the ceiling; a gate that finds the wait unacceptable should move
-// THIS constant, and browser V8 is not JSC, so re-measure there before doing so.
-const VOID_CAST_CHUNK_BUDGET = 512;
 
 // Walkability-marker cube edge (metres) — under the 0.25 m cell, so a marker
 // reads as a pin ON a floor cell rather than as a block filling it. FIXED in
@@ -1837,6 +1829,14 @@ export function createFieldHost(deps?: {
   // them; init() replays the upload from the same source.
   let propCounts = new Map<string, number>();
 
+  // The walkability advisor's findings store (what the analyzer found, what the
+  // filters admit, what stage 2 has since proved). Declared HERE, ahead of the
+  // advisor block that owns the rest of it, because it is a `HostSubstrate`
+  // member and the substrate is assembled below the last of those — a record
+  // whose value members are read eagerly cannot be built above one of them. Its
+  // partner `flagsChannel` stays with the advisor, closing over this.
+  const flagStore = createFlagStore();
+
   // The walkability advisor's marker layer: ONE instanced unit cube for every
   // VISIBLE finding, its per-instance tint the severity/verdict colour. Null
   // when nothing is visible or before GPU init. `markerCount` is its
@@ -1985,24 +1985,19 @@ export function createFieldHost(deps?: {
   // --- void cast (the X-ray) ----------------------------------------------
   // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
   // translucent void material. Built by the layer's enabling edge, dropped by
-  // the next field mutation (see invalidateVoidCast) — never rebuilt on its own.
+  // the next field mutation (`field-voidcast.ts`'s `invalidateVoidCast`) — never
+  // rebuilt on its own.
+  //
+  // The map is ALL the cast leaves in this closure, and it stays because
+  // `renderScene` draws from it: it is a `HostSubstrate` value member, so the
+  // module that fills it and the loop that draws it share one identity rather
+  // than two copies that could disagree about what is on screen.
   const voidCastMeshes = new Map<
     string,
     { m: mesh.Mesh; g: geometry.Geometry }[]
   >();
   let voidCastMat: material.Material | null = null;
   let voidCastBind: binding.Binding | null = null;
-  // Generation guard (the stampGen pattern): bumped by every discard, so a job
-  // whose field moved under it — or whose layer was switched off — lands stale
-  // and is dropped instead of showing an X-ray of a world that no longer is.
-  let voidCastGen = 0;
-  // The generation of the job the WORKER is still computing (null = none). One
-  // piece of state answering both questions, so they can never disagree: the
-  // worker is busy while it is non-null, and the user is still waiting for THIS
-  // cast while it equals `voidCastGen` — a discard bumps the generation, which
-  // is exactly what makes a stranded job stop counting as awaited without
-  // pretending the worker stopped working on it.
-  let voidCastJobGen: number | null = null;
 
   let digRadius = 1.25;
   let digging = false;
@@ -2049,6 +2044,40 @@ export function createFieldHost(deps?: {
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
+
+  // --- the shared substrate handed to every extracted cluster --------------
+  //
+  // What a module lifted out of this closure may hold, split by whether this
+  // closure can REPLACE it: the eleven `const` bindings above pass BY VALUE,
+  // because the host's writes all land through the identity it hands over
+  // (`chunkMeshes.set`, `propMeshes.length = 0`), and the five `let`s pass as
+  // CALLS, because the host replaces them wholesale and a snapshot would be a
+  // silent fork. `substrate.ts`'s doc header is the whole argument; this call is
+  // where the compiler checks it, and a `let` handed over as a value fails here
+  // rather than months later at a read site.
+  //
+  // Assembled at the TOP of the closure rather than beside its first consumer,
+  // because every later extraction gets the same record and the value members
+  // are read eagerly — so this line, not each consumer, is what decides where a
+  // substrate member has to be declared by.
+  const substrate = createHostSubstrate({
+    store,
+    log,
+    dirty,
+    worker,
+    chunkMeshes,
+    flagStore,
+    requestContext,
+    litByClass,
+    propMeshes,
+    ghostMeshes,
+    voidCastMeshes,
+    table: () => table,
+    archetypeById: () => archetypeById,
+    ctx: () => ctx,
+    disposed: () => disposed,
+    canvasEl: () => canvasEl,
+  });
 
   // Fly camera: start a few metres up looking down at the grid origin, so the
   // blank-canvas bootstrap digs the first hole at the ground-grid centre.
@@ -2345,7 +2374,7 @@ export function createFieldHost(deps?: {
     // stale. The paths that bypass it change no density: setSlice and
     // setMaterialTable re-mesh the DISPLAY, and a world new/load routes through
     // resetWorld, which discards the cast with everything else.
-    invalidateVoidCast();
+    voidcast.invalidate();
     // Same choke point, second consumer: the analyzer mirrors this store, so
     // this is where it learns what to copy across. Only what was WRITTEN goes in
     // — the worker widens to the chunks whose answer could have changed, and the
@@ -4172,42 +4201,7 @@ export function createFieldHost(deps?: {
     }
   };
 
-  // --- void cast (D-F3-15) -------------------------------------------------
-
-  const destroyVoidCast = (): void => {
-    const c = ctx;
-    if (c)
-      for (const entries of voidCastMeshes.values())
-        for (const e of entries) {
-          mesh.destroy(c, e.m);
-          geometry.destroy(c, e.g);
-        }
-    voidCastMeshes.clear();
-  };
-
-  // Free the cast and strand whatever job is in flight for it. SILENT: the
-  // callers that owe the user an explanation give one themselves. The bumped
-  // generation is the whole strand — `voidCastJobGen` is deliberately NOT
-  // cleared, because nothing here reaches the worker, which goes on computing a
-  // result that will now be dropped on arrival.
-  const discardVoidCast = (): void => {
-    voidCastGen++;
-    destroyVoidCast();
-  };
-
-  // Any field mutation ages the cast out: it was meshed from a snapshot, and
-  // re-casting per stroke would mean a whole-world worker job per stroke. So the
-  // v0 drops it and SAYS so — a silently vanishing X-ray beside a still-ticked
-  // checkbox would read as a bug. Self-limiting: the second mutation finds
-  // nothing live and returns, so a drag cannot spam the report channel.
-  const invalidateVoidCast = (): void => {
-    const awaited = voidCastJobGen === voidCastGen;
-    if (!awaited && voidCastMeshes.size === 0) return;
-    discardVoidCast();
-    reportToolError(
-      "void cast cleared — the field changed; re-toggle the void layer to refresh it",
-    );
-  };
+  // --- chunk snapshots (the void cast + the analyzer mirror) ---------------
 
   // One chunk's density as a buffer another realm may own. Boundary cast:
   // `.slice()` allocates a fresh ArrayBuffer, which the Int8Array declaration
@@ -4226,123 +4220,55 @@ export function createFieldHost(deps?: {
       density: chunkCopy(density),
     }));
 
-  // Build the cast's render state from a void-cast response: one mesh per
-  // non-empty bucket, ALL under the one void material, at chunk origins. The
-  // applyStampGhost twin, deliberately not folded into it — see the material's
-  // comment for why the two differ in depth state, and the invisible-overlay
-  // learning (2026-07-21) for why working render code is not refactored without
-  // a visual gate.
-  const applyVoidCast = (
-    chunks: { key: string; buckets: WireBucket[] }[],
-  ): void => {
-    const c = ctx;
-    if (!c) return;
-    destroyVoidCast();
-    for (const { key, buckets } of chunks) {
-      const [cx, cy, cz] = field.parseChunkKey(key);
-      const origin = chunkOrigin(cx, cy, cz);
-      const entries: { m: mesh.Mesh; g: geometry.Geometry }[] = [];
-      for (const bucket of buckets) {
-        const indices = new Uint32Array(bucket.indices);
-        if (indices.length === 0) continue;
-        const g = geometry.create(c, {
-          positions: new Float32Array(bucket.positions),
-          normals: new Float32Array(bucket.normals),
-          uvs: new Float32Array(bucket.uvs),
-          indices,
-        });
-        const m = mesh.create(c, { geometry: g, material: voidCastMaterial() });
-        mesh.setPosition(c, m, origin);
-        entries.push({ m, g });
-      }
-      if (entries.length > 0) voidCastMeshes.set(key, entries);
-    }
-  };
+  // --- void cast (D-F3-15) -------------------------------------------------
 
-  // Cast the void of the CURRENT field: one worker job over a snapshot of every
-  // allocated chunk. Four refusals, in the order a user experiences them.
+  // The X-ray's whole state and logic live in `field-voidcast.ts` — the cluster
+  // `docs/reference/field-host-clusters.md` §7.4 picked as the first to leave
+  // (zero mutation edges in either direction, zero `FieldHost` members), and the
+  // first consumer of the substrate assembled at the top of this closure.
   //
-  // The in-flight one is a cost guard, and it is keyed on the WORKER being busy
-  // rather than on the user still wanting the result: the client is a plain
-  // request pipe over ONE worker whose handler is synchronous per message, so a
-  // second cast posted now delays every chunk remesh and every stamp preview
-  // behind a second full sweep of the world — and a discard cannot call it off,
-  // only agree to ignore it. Toggling off and on again is therefore NOT free,
-  // and it is the sequence that would otherwise stack them.
+  // What stays here is the wiring, and it is short because the cluster's DATA
+  // was already substrate: the meshes `renderScene` draws ARE the module's, one
+  // Map shared by identity, and the only fact anything else ever read off the
+  // cluster is the in-flight generation `tick` turns into
+  // `FieldStats.voidCastPending` — `voidcast.jobGen()` below.
   //
-  // The same synchronous handler is why this job gets D-F4.5-19's PROGRESS and not
-  // its "cooperative cancel" — "the job polls; no cancel theater", and there is
-  // nothing here that can poll. The per-chunk loop lives in the worker
-  // (`field-protocol.ts`'s handleVoidCast), whose handler runs to completion per
-  // message: a cancel `postMessage` sent mid-job is not delivered, it QUEUES behind
-  // the very work it means to stop. The only real interrupt is `worker.terminate()`,
-  // which would take every chunk remesh and every stamp preview down with it. What
-  // exists instead is strand-not-cancel (`discardVoidCast`), and the honest chrome
-  // for that is the readout `voidCastPending` feeds, with no ✕ on it.
+  // The four functions beside the substrate are `const` arrows this closure
+  // never reassigns, so they travel as plain refs (the `segment` wiring's rule,
+  // read the same way round): a function binding that cannot move is the one
+  // kind of dependency a value copy cannot fork.
   //
-  // Re-check if the worker ever gains a mid-handler yield, or the client a second
-  // worker the cast could own alone.
+  // THE FORWARD-REFERENCE INVARIANT, stated here once because every later
+  // extraction lands in this same region and inherits it.
   //
-  // Determinate progress IS available and is deliberately declined: the worker can
-  // `post` mid-handler (posting does not block) and the total is `store.chunks.size`.
-  // It would cost a new worker→host message and its plumbing to put a percentage on
-  // a job whose CEILING is ~1.3 s (see VOID_CAST_CHUNK_BUDGET). Indeterminate is
-  // honest at that length.
-  const requestVoidCast = (): void => {
-    if (voidCastJobGen !== null) {
-      reportToolError(
-        "a void cast is still building — re-tick the void layer once it lands",
-      );
-      return;
-    }
-    discardVoidCast(); // an enable while a settled cast stands replaces it
-    const count = store.chunks.size;
-    if (count === 0) {
-      // Loud, by this feature's own rule (see invalidateVoidCast): a ticked box
-      // with nothing behind it reads as a bug. There is no air to cast in a
-      // world nothing has been dug out of yet.
-      reportToolError("nothing to cast yet — dig something first");
-      return;
-    }
-    if (count > VOID_CAST_CHUNK_BUDGET) {
-      reportToolError(
-        `void cast covers ${count} chunks, over the ${VOID_CAST_CHUNK_BUDGET}-chunk budget — the X-ray is a region-scale tool, not a world-scale one`,
-      );
-      return;
-    }
-    // Quiet: layer flags survive a dispose, so a call that lands while there is no
-    // context must not fire a job it has nowhere to put. Nobody has to re-toggle to
-    // get it back — `init` re-requests the cast the flag still asks for.
-    if (!ctx) return;
-    // Snapshot BEFORE the latch, not as an argument after it: a throw while
-    // building it (a detached store buffer — not reachable today, since nothing
-    // transfers the store's own chunks) would otherwise leave the latch set with
-    // no job to clear it, and every later cast refused forever.
-    const snapshot = snapshotAllChunks();
-    const gen = voidCastGen;
-    voidCastJobGen = gen;
-    worker
-      .voidCast(snapshot, store.cellSize)
-      .then((res) => {
-        // Cleared BEFORE the staleness guard: the worker is free either way,
-        // and a stranded job that left this set would refuse every later cast.
-        voidCastJobGen = null;
-        if (disposed || gen !== voidCastGen) return;
-        applyVoidCast(res.chunks);
-      })
-      // .catch, not then's second argument: applyVoidCast above can throw (a
-      // context torn down mid-flight, a lost device), and a two-argument then
-      // would route that into an unhandled rejection instead of into this
-      // handler — leaving the job latch stuck, which refuses every later cast.
-      .catch((err: unknown) => {
-        voidCastJobGen = null;
-        if (disposed || gen !== voidCastGen) return;
-        // The remeshOne posture, one level louder: a cast the user asked for
-        // and will not get is a tool problem, not a background hiccup.
-        const message = err instanceof Error ? err.message : String(err);
-        reportToolError(`void cast failed: ${message}`);
-      });
-  };
+  // This binding is USED ABOVE where it is DECLARED: `markDirtyWithNeighbors`
+  // (~1,900 lines up) calls `voidcast.invalidate()`. That is legal, and it is
+  // FORCED rather than chosen — `snapshotAllChunks` is a dep and is declared
+  // just above, so the construction cannot move up past it.
+  //
+  // What makes it safe is a property of the whole closure, not of this line: the
+  // body contains NO executed statements at closure level. Every top-level line
+  // between `createFieldHost(`'s brace and `return {` is a `const`/`let`
+  // declaration or a continuation of one — no bare calls, no `if`/`for`/`try`,
+  // no `function` declarations (re-verified 2026-08-06 by the rule in
+  // `docs/reference/field-host-clusters.md` §2). So nothing between the two
+  // points can RUN during construction, and a forward reference from inside a
+  // function body cannot be evaluated before its declaration executes. The one
+  // near-miss worth naming: a `createViewChannel` snapshot thunk does not run at
+  // construction either — `view-channel.ts` reads `opts.snapshot` inside
+  // `subscribe`, never in the factory.
+  //
+  // THE RULE THAT FOLLOWS: do not add an executed statement at closure level.
+  // One bare call placed in this gap turns every forward reference here into a
+  // `ReferenceError` at host construction — which no type check catches, and
+  // which every test would catch at once.
+  const voidcast = createVoidCast({
+    substrate,
+    reportToolError,
+    snapshotAllChunks,
+    chunkOrigin,
+    voidCastMaterial,
+  });
 
   // --- walkability advisor (D-F4-9) ---------------------------------------
   //
@@ -4357,7 +4283,9 @@ export function createFieldHost(deps?: {
   // ANALYZER_IDLE_MS.
 
   const analyzer = new AnalyzerWorkerClient(deps?.spawnAnalyzer);
-  const flagStore = createFlagStore();
+  // `flagStore` is declared above with the rest of the substrate's value members
+  // — see its comment there for why it cannot live on this line any more.
+
   // Snapshot (the selection seam's remount rationale): a subscriber arriving
   // while markers are on screen must not render an empty list.
   const flagsChannel = createViewChannel<[FlagsSummary]>({
@@ -6057,7 +5985,7 @@ export function createFieldHost(deps?: {
           redoDepth: ls.redoDepth,
           lastReconfigureMs,
           analyzerPending: analyzerPendingCount(),
-          voidCastPending: voidCastJobGen !== null,
+          voidCastPending: voidcast.jobGen() !== null,
         });
       renderScene(c, cam);
     }
@@ -6554,7 +6482,7 @@ export function createFieldHost(deps?: {
     // The cast describes the field that just went away. Discarded SILENTLY,
     // unlike an edit-time invalidation: everything else on screen is being
     // replaced too, so "void cast cleared" beside a fresh world is noise.
-    discardVoidCast();
+    voidcast.discard();
     drift = null;
     notifyDrift();
   };
@@ -6624,11 +6552,12 @@ export function createFieldHost(deps?: {
       // The X-ray's half of the same contract. `dispose` destroys the cast meshes
       // but the LAYER FLAG rides through, and `setLayers` only builds on the
       // false→true edge — so without this the box stays ticked over nothing, which
-      // is the exact reading `invalidateVoidCast` refuses to ship ("a silently
+      // is the exact reading `field-voidcast.ts`'s `invalidateVoidCast` refuses to
+      // ship ("a silently
       // vanishing X-ray beside a still-ticked checkbox would read as a bug").
       // Re-requesting rather than reporting: the user asked for the X-ray and
       // never withdrew it.
-      if (layers.voidCast) requestVoidCast();
+      if (layers.voidCast) voidcast.request();
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -6675,7 +6604,7 @@ export function createFieldHost(deps?: {
         destroyFlagMarkers(c);
         destroySelectionCells(c);
         destroyStampGhosts();
-        discardVoidCast();
+        voidcast.discard();
         if (normalsMat) material.destroy(c, normalsMat);
         destroyLitMaterials(c);
         if (kitMat) material.destroy(c, kitMat);
@@ -6884,8 +6813,8 @@ export function createFieldHost(deps?: {
       // built for the field as it stands (see FieldLayers). Off is a plain
       // silent free; a call that leaves it true rebuilds nothing, which is what
       // makes "re-toggle to refresh" the documented way back after an edit.
-      if (!layers.voidCast) discardVoidCast();
-      else if (!wasVoidCast) requestVoidCast();
+      if (!layers.voidCast) voidcast.discard();
+      else if (!wasVoidCast) voidcast.request();
     },
     setSlice(y) {
       if (y === sliceY) return; // slider-drag repeats of the same value are free

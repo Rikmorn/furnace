@@ -633,7 +633,10 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   blended group — submitted last, a depth-ignoring cast would wash cyan over every ghost in the
   frame; submitted first, the two hologram ghosts (which keep the default depth compare) read on
   top of it. A ghost is the action the user is steering; the cast is the room around it.
-- **Void-cast refusals + lifetime** — four refusals, in the order a user meets them, all via
+- **Void-cast refusals + lifetime** — the whole cluster (`requestVoidCast`,
+  `invalidateVoidCast`, `voidCastGen` / `voidCastJobGen`) lives in
+  `viewport-host/field-voidcast.ts` since foundations T3b1, not in the host; behaviour
+  unchanged by the move (§20.3). Four refusals, in the order a user meets them, all via
   `subscribeToolError`: a cast already in flight (the client is one worker with a synchronous
   per-message handler, so a second sweep would delay every remesh behind it); an empty world;
   a world over `VOID_CAST_CHUNK_BUDGET` = 512 chunks (measured at that ceiling as ~630 ms–1.3 s
@@ -1285,7 +1288,7 @@ served: ONE subscription point per seam, §16.7.)
   directory before rewriting it, and the cast's per-chunk loop is inside a worker handler
   that runs to completion per message, so a cancel `postMessage` would queue behind the
   work it means to stop. The reasons and their re-check triggers live at `useWorld.tsx`'s
-  `write` / `open` and `field-host.ts`'s `requestVoidCast`; nothing else restates them.
+  `write` / `open` and `field-voidcast.ts`'s `requestVoidCast`; nothing else restates them.
 - **The tracked guard is a round trip, not a precheck**: a save issues with
   `confirmedTracked: false`, and a `needs-tracked-confirm` outcome comes back and raises
   the confirm naming the path. The upload is an await, so a separate check-then-write
@@ -2611,13 +2614,14 @@ which is the shape every later extraction will take. **What the router does NOT 
 the nine DOM listeners and pointer capture stay in the host. T3c's gesture machine takes
 them, and finishes the same bug class for pointer capture that this finishes for Esc.
 
-### 20.3 The substrate record — declared, not yet wired
+### 20.3 The substrate record
 
-`viewport-host/substrate.ts` declares `HostSubstrate`, the record an extracted cluster will
-be handed, plus `createHostSubstrate` — an identity function whose entire value is being a
-single named place where the host states the split and the compiler checks it. **It is not
-constructed in `createFieldHost`**: T3b's first cluster extraction is the consumer, and
-building one before there is a consumer would be dead code claiming to be a boundary.
+`viewport-host/substrate.ts` declares `HostSubstrate`, the record an extracted cluster is
+handed, plus `createHostSubstrate` — an identity function whose entire value is being a
+single named place where the host states the split and the compiler checks it. Declared at
+T3a with no consumer on purpose, and **constructed in `createFieldHost` since T3b1
+(2026-08-06)**, when the void-cast extraction became the first thing to hand it to
+(`viewport-host/field-voidcast.ts`).
 
 The split is not a style preference and it is not about mutability. **Eleven members are held
 BY VALUE** because they are `const` in the host — the binding never moves, so every write

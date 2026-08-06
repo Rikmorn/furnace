@@ -353,8 +353,9 @@ Both halves already exist, and `requestVoidCast`'s own comment says so:
 - **The worker can post mid-handler**, and posting does not block — the void-cast handler in
   `frontend/lib/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
   per-chunk progress message has an obvious home.
-- **The total is `store.chunks.size`**, which `requestVoidCast` reads two lines below the
-  comment declining the feature.
+- **The total is `store.chunks.size`**, which `requestVoidCast` reads a few lines below the
+  comment declining the feature — past the in-flight guard, where the chunk count is
+  computed for the budget check anyway.
 
 ### Context
 
@@ -391,10 +392,14 @@ different design than two.
 
 - `packages/editor/src/frontend/lib/field-protocol.ts` — the void-cast handler's per-chunk
   loop, where a progress post would go.
-- `packages/editor/src/viewport-host/field-host.ts` — `requestVoidCast` and the comment
-  above it declining this; `VOID_CAST_CHUNK_BUDGET` (`:1364-1374`) and its measurement; and
-  `FieldStats.voidCastPending`'s TSDoc, which explains why the pending FLAG rides the stats
-  push instead of taking a seam of its own.
+- `packages/editor/src/viewport-host/field-voidcast.ts` — `requestVoidCast` and the comment
+  above it declining this, plus `VOID_CAST_CHUNK_BUDGET` and its measurement. (Both were in
+  `field-host.ts` until foundations T3b1, 2026-08-06. Cited by NAME rather than by line
+  range on purpose: the range this bullet used to carry, `:1364-1374`, had already rotted
+  before the move.)
+- `packages/editor/src/viewport-host/field-host.ts` — `FieldStats.voidCastPending`'s TSDoc,
+  which explains why the pending FLAG rides the stats push instead of taking a seam of its
+  own.
 - `packages/editor/src/frontend/components/shell/StatusBar.tsx` — `longJobs`, the consumer.
 
 ---

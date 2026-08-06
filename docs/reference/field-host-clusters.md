@@ -8,12 +8,15 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**One cluster has since left.** `segment` was extracted to
+**Two clusters have since left.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
-the closure. Every count below still includes it. They are left as measured because they are
-what the remaining 22 clusters were sized against; subtract `segment`'s row from §4 when
-reading them as current.
+the closure. `voidcast` followed on 2026-08-06, to
+`packages/editor/src/viewport-host/field-voidcast.ts`, taking two of its three state
+bindings and all five of its functions (§6's `voidcast` row records what stayed and why).
+Every count below still includes both. They are left as measured because they are what the
+remaining 21 clusters were sized against; subtract those two rows from §4 when reading them
+as current.
 
 **And foundations T3a changed three things the map names.** §2.2 records exactly what, and
 which numbers below are consequently stale. Read it before trusting a site list.
@@ -27,11 +30,11 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,347 lines** (re-measured 2026-08-05; was 7,410) |
-| Code / comment / blank | **3,554 / 3,554 / 239** (re-measured 2026-08-05; was 3,620 / 3,551 / 239) |
-| `export function createFieldHost` | **line 1658** → end of file (**~5,690 lines**) |
-| `return { … }` object literal | **line 6590** |
-| Closure-level bindings | **289** (re-measured 2026-08-05 by §2's rule; was 293. The arrow-function/data split — 161/132 as measured — was **not** re-derived) |
+| File total | **7,276 lines** (re-measured 2026-08-06 after `voidcast` left; was 7,347 at T3a, 7,410 at the original pass). Net **−71**, against 318 lines now standing in `field-voidcast.ts`: a module pays for a header the closure did not need, moving prose out of a shared file is not the same as deleting it, and the wiring left behind carries new prose of its own (the forward-reference invariant every later extraction inherits). |
+| Code / comment / blank | **3,496 / 3,541 / 239** (re-measured 2026-08-06; was 3,554 / 3,554 / 239 at T3a and 3,620 / 3,551 / 239 originally). The CODE figure is the one that moved for a structural reason — comments were added back by this same tranche. |
+| `export function createFieldHost` | **line 1650** → end of file (**5,627 lines**) *(re-measured 2026-08-06)* |
+| `return { … }` object literal | **line 6518** *(re-measured 2026-08-06)* |
+| Closure-level bindings | **284** (re-measured 2026-08-06 by §2's rule; was 289 at T3a, 293 originally. `voidcast` took five functions and two `let`s out and put `substrate` and `voidcast` back, which is the whole −5. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
@@ -42,17 +45,28 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Nearly half the file is prose. The comment density is why the file reads as documented
-rather than merely large — but the code alone is 3,554 lines, still ~9× the ~400-line file
-guideline in `.claude/rules/clean-code.md`, and `createFieldHost` alone is ~114× the
-~50-line function guideline.
+Comment lines now OUTNUMBER code lines — 3,541 to 3,496, i.e. **50.3%** of every non-blank
+line in the file is prose (they were exactly level at T3a, and code led at the original
+pass). That density is why the file reads as documented rather than merely large — but the
+code alone is 3,496 lines, still ~9× the ~400-line file guideline in
+`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~113× the ~50-line function
+guideline.
+
+**Two clusters out and those ratios have not visibly moved**, which is the honest scale of
+the problem. Two different reductions, worth keeping apart because they answer different
+questions: T3b1 took **0.97%** off the FILE (71 of 7,347 lines) but **1.63%** off the CODE
+(58 of 3,554). The gap between them is the point — a cluster's prose leaves with it, and
+then the wiring left behind earns prose of its own, so the FILE shrinks more slowly than
+the logic in it does. The code figure is the one that speaks to the ~400-line guideline,
+and at 1.63% per cluster that guideline is not reachable by extraction of this kind.
 
 The easy extractions are already done. These sibling modules in the same directory are
 already pure and are **not** part of the closure: `field-ghost`, `field-stamp`,
 `field-placements`, `field-pick`, `field-move`, `field-flags`, `field-history`,
 `field-selection-cells`, `field-camera`, `viewport-cursor`, `input-map`, `gizmo`,
-`camera-control`, `box-edges`, `reference-grid`. What remains inside the closure is the
-stateful residue.
+`camera-control`, `box-edges`, `reference-grid`, and now `field-segment` and
+`field-voidcast` — the last two lifted out STATEFUL rather than discovered to be pure. What
+remains inside the closure is the stateful residue.
 
 ## 2. How this map was produced
 
@@ -76,10 +90,10 @@ stateful residue.
   assignment, and container mutation (`.set` `.add` `.delete` `.clear` `.push` `.pop`
   `.shift` `.unshift` `.splice` `.sort` `.fill` `.copyWithin`) on a `const` binding.
 
-### 2.1 Two corrections, from extracting `segment` against this map
+### 2.1 Three corrections, from extracting `segment` and `voidcast` against this map
 
-Both were found by doing the work; both would mislead the next extraction if left only in
-the map's original terms.
+All three were found by doing the work; all three would mislead the next extraction if left
+only in the map's original terms.
 
 - **`let`-vs-`const` decides what may be passed by value — NOT the read/MUTATION split.**
   When a cluster moves into its own module, every dependency the map classifies as a plain
@@ -100,6 +114,17 @@ the map's original terms.
   all three of `segment`'s are `const` arrows, so they pass safely by reference — but they
   are still boundary surface, and a cluster whose neighbours' functions are numerous is more
   entangled than its row suggests.)
+- **STRING LITERALS were not stripped, so a few read edges are phantoms.** The method note
+  above says comments were stripped before matching; nothing says the same of strings, and
+  nothing did it. Worked example, found by extracting `voidcast`: the map recorded
+  `voidcast → tool.tool`, 1 site, `requestVoidCast`. Sweeping that function for a `tool`
+  binding read finds none — the only occurrence is the WORD inside its budget refusal
+  ("the X-ray is a region-scale tool, not a world-scale one"). The edge is deleted at both
+  ends below. The class matters more than the instance: any single-site edge whose binding
+  name is also an ordinary English word (`tool`, `store`, `dirty`, `log`, `stamp`, `table`,
+  `view`, `drift`, `gesture`, `selection`) may be one of these, so **verify a single-site
+  edge by grepping the named function before sizing a cluster off it**. Multi-site edges and
+  edges on non-word names (`voidCastJobGen`, `analyzerDirty`) are unaffected.
 
 ### 2.2 Changed since the measurement pass — foundations T3a, 2026-08-05
 
@@ -172,7 +197,7 @@ whose state it touches).
 | `selection` | 9 | 17 | 4 | 9 | 21 | 2 |
 | `materials` | 17 | 7 | 1 | 8 | 40 | 15 |
 | `analyzer` | 19 | 14 | 6 | 8 | 39 | 14 |
-| `tool` | 10 | 12 | 4 | 8 | 35 | 11 |
+| `tool` | 10 | 12 | 4 | 8 → **7** | 35 → **34** | 11 |
 | `camera` | 8 | 10 | 4 | 8 | 25 | 10 |
 | `targeting` | 1 | 6 | 0 | 7 | 14 | 2 |
 | `picking` | 0 | 4 | 0 | 7 | 9 | 1 |
@@ -180,7 +205,7 @@ whose state it touches).
 | `view` | 2 | 1 | 2 | 6 | 8 | 1 |
 | `move` | 3 | 7 | 1 | 5 | 20 | 5 |
 | `gesture` | 4 | 2 | 2 | 5 | 17 | 2 |
-| `voidcast` | 3 | 5 | 0 | 4 | 9 | **0** |
+| `voidcast` | 3 | 5 | 0 | 4 → **3** | 9 → **8** | **0** |
 | `history` | 2 | 2 | 3 | 4 | 7 | 1 |
 | `segment` | 6 | 6 | 1 | 3 | 8 | 1 |
 | `drift` | 2 | 3 | 2 | 3 | 5 | 3 |
@@ -589,7 +614,7 @@ and includes the occurrences inside the deleted function; it has not been re-der
 **MUTATES other clusters** (0 edges):
   - none
 
-**Read by other clusters** (17 edges):
+**Read by other clusters** (17 → **16** edges):
   - `digRadius` (read in `input`) — 2 sites: `onKeyDown`, `onWheel`
   - `digRadius` (read in `render`) — 3 sites: `ghostState`, `renderCursorAffordance`, `renderGhostLines`
   - `digRadius` (read in `segment`) — 2 sites: `rebuildSegmentPreview`, `segmentClick`
@@ -598,7 +623,9 @@ and includes the occurrences inside the deleted function; it has not been re-der
   - `lastStroke` (read in `input`) — 1 site: `onPointerMove`
   - `momentaryCtrl` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
   - `momentaryShift` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `tool` (read in `voidcast`) — 1 site: `requestVoidCast`
+  - ~~`tool` (read in `voidcast`) — 1 site: `requestVoidCast`~~ — **PHANTOM, deleted
+    2026-08-06.** `requestVoidCast` never read the `tool` binding; the match was the word
+    inside a refusal string. See §2.1's third correction for the class of error.
 
 **MUTATED BY other clusters** (11 edges):
   - `digging` (mutated by `input`) — 2 sites: `onPointerDown`, `onPointerUp`
@@ -901,35 +928,65 @@ and includes the occurrences inside the deleted function; it has not been re-der
 **Public members (3):** `undo`, `redo`, `subscribeHistory`
 
 
-### Cluster: voidcast
+### Cluster: voidcast — **EXTRACTED 2026-08-06**
+
+Lives in `packages/editor/src/viewport-host/field-voidcast.ts`. The row below is the
+measurement it was sized against, annotated with what the move actually cost.
 
 **Owns (state) — 3:** `voidCastMeshes`@1939 · `voidCastGen`@1948 · `voidCastJobGen`@1955
 
+Two of the three left as module-private `let`s. `voidCastMeshes` **stayed in the closure**
+and became a `HostSubstrate` value member: `render.renderScene` draws from it, and a `const`
+Map whose identity is the contract is exactly what the substrate's value side is for — the
+module fills and empties the host's own object rather than a copy of it.
+
 **Owns (functions) — 5:** `destroyVoidCast`@4188 · `discardVoidCast`@4204 · `invalidateVoidCast`@4214 · `applyVoidCast`@4246 · `requestVoidCast`@4302
 
-**Reads from other clusters** (7 edges):
+All five moved verbatim, and all five kept their names inside the new module (the closure
+now holds one `const voidcast = createVoidCast({…})` and calls `voidcast.invalidate()`,
+`.discard()`, `.request()`). `VOID_CAST_CHUNK_BUDGET` moved with them — `requestVoidCast` is
+its only reader. `chunkCopy` and `snapshotAllChunks`, which sat inside the same region,
+**stayed**: the analyzer mirror copies chunks through them too, so they are `world`'s, and
+`snapshotAllChunks` arrives back as a dep.
+
+**Reads from other clusters** (7 → **6** edges):
   - `ctx` (owned by `lifecycle`) — 3 sites: `applyVoidCast`, `destroyVoidCast`, `requestVoidCast`
   - `disposed` (owned by `lifecycle`) — 2 sites: `requestVoidCast`
   - `store` (owned by `world`) — 2 sites: `requestVoidCast`
-  - `tool` (owned by `tool`) — 1 site: `requestVoidCast`
+  - ~~`tool` (owned by `tool`) — 1 site: `requestVoidCast`~~ — **PHANTOM, deleted
+    2026-08-06** (§2.1's third correction: the match was a word in a refusal string).
   - `worker` (owned by `world`) — 1 site: `requestVoidCast`
+
+All four survivors are `HostSubstrate` members and every one of them is on the side the
+substrate's own doc header predicts: `store` and `worker` by value, `ctx` and `disposed` as
+thunks. Nothing in this cluster's `deps` record is a raw `let`.
+
+**Plus four function calls the edge count does not name** (§2.1's second correction, and the
+half of the coupling this row understates): `tool.reportToolError`, `world.snapshotAllChunks`,
+`world.chunkOrigin` and `materials.voidCastMaterial`. All four are `const` arrows, so they
+pass by reference.
 
 **MUTATES other clusters** (0 edges):
   - none
 
 **Read by other clusters** (2 edges):
-  - `voidCastJobGen` (read in `lifecycle`) — 1 site: `tick`
-  - `voidCastMeshes` (read in `render`) — 1 site: `renderScene`
+  - `voidCastJobGen` (read in `lifecycle`) — 1 site: `tick` — now `voidcast.jobGen()`, which
+    returns `number | null` exactly as the binding did; `tick` still publishes
+    `FieldStats.voidCastPending` as `!== null`.
+  - `voidCastMeshes` (read in `render`) — 1 site: `renderScene` — unchanged; the map is
+    shared substrate, not a returned value.
 
 **MUTATED BY other clusters** (0 edges):
   - none
 
-**Public members (0):** none — internal only
+**Public members (0):** none — internal only. Confirmed by the move: no `FieldHost`
+signature changed, and every existing pin ran unmodified.
 
 
 ### Cluster: analyzer
 
-**Owns (state) — 19:** `analyzer`@4370 · `flagStore`@4371 · `flagsChannel`@4363 · `agentProfile`@4376 · `agentProfileAnswered`@4387 · `profileMissingReported`@4392 · `analyzerDirty`@4398 · `analyzerStale`@4402 · `analyzerResync`@4405 · `analyzerPlacementsStale`@4408 · `analyzerWholeWorld`@4410 · `analyzerSeeds`@4416 · `analyzerBusy`@4419 · `analyzerIdle`@4420 · `verifyInFlight`@4637 · `flagMarkers`@1811 · `markerCount`@1815 · `flagSelectionBatch`@1933 · `analyzePump`@4605
+**Owns (state) — 19:** `analyzer`@4370 · `flagStore` (moved 2026-08-06 to the closure's
+state block, ahead of the substrate assembly it is a value member of) · `flagsChannel`@4363 · `agentProfile`@4376 · `agentProfileAnswered`@4387 · `profileMissingReported`@4392 · `analyzerDirty`@4398 · `analyzerStale`@4402 · `analyzerResync`@4405 · `analyzerPlacementsStale`@4408 · `analyzerWholeWorld`@4410 · `analyzerSeeds`@4416 · `analyzerBusy`@4419 · `analyzerIdle`@4420 · `verifyInFlight`@4637 · `flagMarkers`@1811 · `markerCount`@1815 · `flagSelectionBatch`@1933 · `analyzePump`@4605
 
 **Owns (functions) — 14:** `reportAnalyzerFailure`@4424 · `analyzerPlacementGroups`@4434 · `analyzerHasWork`@4452 · `postMirrorSync`@4461 · `analyzerFire`@4496 · `publishFlags`@4565 · `setSelectedFlag`@4576 · `selectFlagImpl`@4584 · `scheduleWholeWorldPass`@4622 · `verifyFlagImpl`@4646 · `analyzerPendingCount`@4752 · `destroyFlagMarkers`@4758 · `rebuildFlagMarkers`@4776 · `rebuildFlagSelection`@4829
 
@@ -1039,7 +1096,12 @@ and includes the occurrences inside the deleted function; it has not been re-der
   - `selectionCells` (owned by `selection`) — 2 sites: `renderScene`
   - `shading` (owned by `materials`) — 2 sites: `renderScene`, `sceneLights`
   - `stamp` (owned by `stamp`) — 1 site: `renderScene`
-  - `voidCastMeshes` (owned by `voidcast`) — 1 site: `renderScene`
+  - `voidCastMeshes` (**since 2026-08-06 owned by the SUBSTRATE, not by `voidcast`**) — 1
+    site: `renderScene`. The extraction left the Map in the closure precisely because this
+    edge exists: it is a `HostSubstrate` value member that `field-voidcast.ts` fills and
+    `renderScene` drains, one identity rather than two copies. The edge did not go away — it
+    stopped crossing a cluster line and started crossing a MODULE one, which is what
+    extracting against a substrate is supposed to do to a read edge.
 
 **MUTATES other clusters** (0 edges):
   - none
@@ -1163,7 +1225,7 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 | `stats` | 5 | 1 in (`lastReconfigureMs` ← `stamp`) | 3 |
 | `history` | 7 | 1 out (`drift.drift`) | 4 |
 | `segment` | 8 | 1 out (`tool.maskDropReported`) | 3 |
-| `voidcast` | **9** | **0** | 4 |
+| `voidcast` | ~~**9**~~ **8** | **0** | ~~4~~ 3 — **EXTRACTED 2026-08-06** |
 | `props` | 8 | 2 out (analyzer staleness flags) | 6 |
 | `view` | 8 | 1 out (`world.dirty`) | 6 |
 
@@ -1201,10 +1263,13 @@ handle passed by value cannot fork but a reassigned `let` silently can.
 
 1. **An explicit context record for the substrate. LANDED at T3a (2026-08-05) as
    `HostSubstrate`** — `packages/editor/src/viewport-host/substrate.ts`, a package-internal
-   record type plus an identity factory, whose own TSDoc is the authority on the split. It
-   is declared but **not yet constructed**: `createFieldHost` adopts it when T3b's first
-   cluster extraction has something to hand it, since building one with no consumer would be
-   dead code claiming to be a boundary. The substrate accounts for the large majority of the
+   record type plus an identity factory, whose own TSDoc is the authority on the split.
+   **CONSTRUCTED at T3b1 (2026-08-06)**, once the `voidcast` extraction had something to
+   hand it — `createFieldHost` assembles one at the top of the closure, and its first
+   consumer covered five of the sixteen members. Assembling it there rather than beside a
+   consumer is what fixes where a substrate member must be DECLARED by: the value side is
+   read eagerly, which is why `flagStore` moved up out of the advisor block. The substrate
+   accounts for the large majority of the
    244 read edges (`world.store` alone is read at 42 sites across 14 clusters, `world.log` at
    37 sites across 8, `catalogs.table` at 14 sites across 6).
 
@@ -1250,6 +1315,12 @@ handle passed by value cannot fork but a reassigned `let` silently can.
    everything; they get simpler only after the clusters beneath them do.
 
 ### 7.4 Which cluster to extract first
+
+**DONE — extracted 2026-08-06** to `packages/editor/src/viewport-host/field-voidcast.ts`,
+and it was the `HostSubstrate`'s first consumer, which is what this recommendation was for.
+The prediction below held: no `FieldHost` member changed, every pin ran unmodified, and the
+whole of the cluster's inbound DATA was already substrate. The one thing the recommendation
+got wrong was `tool.tool` — a phantom (§2.1). See §6's `voidcast` row for the as-built.
 
 **`voidcast`** (the X-ray layer): 3 state bindings, 5 functions, 9 external edges, **zero
 mutation edges in either direction**, 4 partners, and no public API surface at all — so no

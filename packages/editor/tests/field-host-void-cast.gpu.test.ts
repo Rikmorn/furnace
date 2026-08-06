@@ -262,7 +262,7 @@ test.skipIf(!bunWebGpuAvailable())(
     // off and on is exactly what a user with no in-flight signal does, so the refusal
     // was the FIRST they heard of the job. `voidCastPending` is what the status bar's
     // long-job readout reads (D-19 progress; there is no cancel to offer — see
-    // `requestVoidCast` for why neither end of this job can poll).
+    // `field-voidcast.ts`'s `requestVoidCast` for why neither end of this job can poll).
     const f = await fieldHostFixture();
     try {
       f.tick(16);

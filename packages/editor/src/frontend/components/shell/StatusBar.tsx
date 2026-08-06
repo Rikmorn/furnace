@@ -513,7 +513,8 @@ function longJobs(job: WorldJob | null, castPending: boolean): string[] {
  *  D-F4.5-19 wants "progress + cooperative cancel (the job polls; no cancel theater)", and
  *  it is the second clause that applies: NEITHER long job can poll. The two mechanical
  *  reasons, and the conditions under which each stops holding, are owned by the sites that
- *  would have to change — `useWorld.tsx`'s `write` and `field-host.ts`'s `requestVoidCast`.
+ *  would have to change — `useWorld.tsx`'s `write` and `field-voidcast.ts`'s
+ *  `requestVoidCast`.
  *  Do not restate them here; a third copy is a third thing to keep true.
  *
  *  So it is INDETERMINATE and it is a `<span>`: no ✕, no percentage, and none of

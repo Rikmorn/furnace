@@ -13,11 +13,23 @@
 // `view-channel.ts` and `input-router.ts` this is a seam between the host and
 // the clusters lifted out of it, not surface the chrome may reach for.
 //
-// The RECORD is unconsumed today, and that is the plan: `createFieldHost` adopts
-// it when T3b's first cluster extraction has something to hand it, and
-// constructing one before there is a consumer would be dead code claiming to be
-// a boundary. The two render-bookkeeping types below are already live — the host
-// reads them from here.
+// CONSUMED since T3b1 (2026-08-06). `createFieldHost` assembles one record at
+// the top of its closure and hands it to every cluster it lifts out;
+// `field-voidcast.ts` was the first, taking `store`, `worker`, `ctx()`,
+// `disposed()` and `voidCastMeshes`. It was declared one tranche ahead of that
+// deliberately — a boundary is worth stating before the first module needs it,
+// but constructing one with no consumer would have been dead code claiming to be
+// a boundary, so the assembly waited for something to hand it.
+//
+// One consequence of assembling it at the TOP of the closure, which is where a
+// new member's cost actually lands: the value side is read EAGERLY, so a member
+// must be declared above the assembly. Adding one to the value side can therefore
+// force a declaration to move (T3b1 hoisted `flagStore` out of the advisor block
+// for exactly this). The thunk side has no such constraint — an arrow closes over
+// a binding it is written above.
+//
+// The two render-bookkeeping types below are live for the same reason the record
+// is: the host reads them from here.
 import type * as binding from "@furnace/core/binding";
 import type * as field from "@furnace/core/field";
 import type * as geometry from "@furnace/core/geometry";

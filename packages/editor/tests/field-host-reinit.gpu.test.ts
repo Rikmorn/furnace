@@ -231,7 +231,7 @@ test.skipIf(!bunWebGpuAvailable())(
       // `dispose` destroys the cast meshes; the LAYER FLAG rides through, and setLayers
       // only builds on the false→true edge — so without init's re-request the box stays
       // ticked over an X-ray that is simply gone, which is the reading
-      // `invalidateVoidCast` refuses to ship.
+      // `field-voidcast.ts`'s `invalidateVoidCast` refuses to ship.
       f.host.dispose();
       await f.host.init(f.canvas, { sampleCount: 1 });
       expect(casts()).toBe(2);

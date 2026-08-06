@@ -324,7 +324,7 @@ test("the budget refusal is decided BEFORE the GPU guard, and 512 is inside it",
 });
 
 test("enabling the void cast on a world with nothing dug says so", () => {
-  // The feature's own rule (invalidateVoidCast's comment): a ticked box with
+  // The feature's own rule (`field-voidcast.ts`'s `invalidateVoidCast` comment): a ticked box with
   // nothing behind it reads as a bug. An undug world has no air to cast, and
   // that refusal is the one the user is most likely to hit first.
   const host = createFieldHost();

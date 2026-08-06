@@ -5286,7 +5286,7 @@ test("both stats popovers are portal LAYERS — the bar and the canvas cell keep
 //
 // NEITHER long job can poll, so D-F4.5-19 ships as its second clause: an indeterminate
 // readout and NO ✕. The mechanical reasons and their re-check triggers are owned by
-// `useWorld.tsx`'s `write` / `open` and `field-host.ts`'s `requestVoidCast` — not
+// `useWorld.tsx`'s `write` / `open` and `field-voidcast.ts`'s `requestVoidCast` — not
 // restated here. What these cases pin is the CONTRACT: the chip appears while the job
 // stands, goes when it lands, and offers nothing to click.
 
