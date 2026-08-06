@@ -32,7 +32,7 @@ import { useWorkspaceActions } from "./useWorkspace.tsx";
  *  inside a palette, and most of them change nothing). */
 export type PaletteRaise = (id: PaletteId) => void;
 
-/** Both contexts DEFAULT rather than throw, the CameraPoseContext precedent: the
+/** Both contexts DEFAULT rather than throw, the `useCameraPose` precedent: the
  *  summon sites are ordinary chrome (the status bar, the burger) that harness tests mount
  *  on their own, and outside a palette layer "raising a palette" genuinely is a no-op and
  *  "the order is the declared one" is genuinely true — that is the state of the world, not

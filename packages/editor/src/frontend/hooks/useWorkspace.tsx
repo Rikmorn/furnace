@@ -5,12 +5,14 @@
 // the component that BUILDS the `content={{ entities: <EntitiesPalette />, … }}` elements.
 // It reads ACTIONS ONLY, so a drag never re-renders it, which is what keeps those elements
 // referentially stable and therefore what keeps the five palette bodies (between them a
-// dozen host-state contexts and two form-heavy subtrees) off the pointer-rate path. A
+// dozen host-seam latches and two form-heavy subtrees) off the pointer-rate path. A
 // ShellChrome that starts reading the STATE context silently undoes that: it would rebuild
 // those elements per pointermove and re-render every palette with them. (ShellFrame, one level up, reads only useEditor — this
 // comment named it for both roles until F4.5a Task 13; useWorld.tsx and useView.tsx had
 // it right.) The provider's own `children` come from its parent, so its state changes
-// re-render only the context consumers below it (the FieldHostStateProvider pattern).
+// re-render only the context consumers below it (`useFieldHostState.tsx`'s shell context
+// is the same pattern taken further: its value is stable for the session, so the state
+// that moves rides latches instead).
 //
 // Honest about who pays: TopBar and BurgerMenu DO read the state — a hide/show label and
 // a checked box have to — and so they do repaint per drag frame. A header, a menu

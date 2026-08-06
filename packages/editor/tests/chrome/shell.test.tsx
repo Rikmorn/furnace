@@ -28,7 +28,13 @@ import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import { armedKeymap } from "../../src/frontend/components/shell/status-keymap.ts";
 import {
 	FieldHostStateProvider,
+	useCameraPose,
+	useFieldEntities,
+	useFieldHistory,
 	useFieldHostState,
+	useFieldSelection,
+	useFieldStamp,
+	useFieldTool,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { ACTIONS, byId, groupTitle } from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
@@ -406,9 +412,110 @@ test("an identical stats push does not re-render the readout", () => {
 	expect(renders).toBe(base + 2);
 });
 
-test("the provider releases the stats slot on unmount", () => {
+/** The FILL brush, spelled fresh on every call. The host clones its tool on every push
+ *  (`toolChannel.publish({ tool: cloneTool(tool), … })`), so two pushes of the "same"
+ *  tool never share an identity — which is the whole reason a VALUE comparator is
+ *  needed. Nested objects are rebuilt too: `toolsEqual` reaches into `smooth`. */
+const fillTool = (): FieldTool => ({
+	effect: "fill",
+	materialId: 0,
+	mask: { kind: "none" },
+	smooth: { strength: 16, iterations: 1, mode: "both" },
+	hollow: null,
+});
+
+// The subscribeTool ECHO GUARD's own half, which nothing pinned until now — the
+// statsEqual case above had no twin, and dropping `toolsEqual` from the tool mirror left
+// the whole suite green (measured, T3b1 Task 7). The two halves of that guard fail
+// differently and need a case each: tool-strip.test.tsx pins the NO-RE-PUSH half (an
+// adopted push must not go back out through host.setTool, or the host re-derives and
+// fires again — a loop), and this pins the NO-RE-RENDER half.
+//
+// What it costs to lose: the host re-derives and publishes on every momentary ⇧/⌃ press
+// AND release, and each push carries a fresh clone. Without the value comparison every
+// reader of the tool — the strip, the status bar's keymap line, the action registry —
+// repaints on both edges of every modifier tap, for a tool that did not change. Silent,
+// and invisible to every other case in the suite, because the RENDERED text is identical.
+test("an identical tool push does not re-render the readout", () => {
+	let renders = 0;
+	function Probe() {
+		const { tool } = useFieldTool();
+		renders++;
+		return <span>{tool.effect}</span>;
+	}
 	const stub = makeStubHost();
-	const { unmount } = render(
+	render(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<Probe />
+		</FieldHostStateProvider>,
+	);
+	const base = renders;
+	act(() => {
+		stub.fire.tool(fillTool());
+	});
+	expect(renders).toBe(base + 1);
+	// A DIFFERENT object with identical values — what a momentary tap pushes. The radius
+	// rides this seam too and is left at the host's own default on all three pushes, so
+	// what this measures is the TOOL half alone.
+	act(() => {
+		stub.fire.tool(fillTool());
+	});
+	expect(renders).toBe(base + 1);
+	// …and a real change still gets through, so the guard isn't just swallowing pushes.
+	act(() => {
+		stub.fire.tool({ ...fillTool(), effect: "dig" });
+	});
+	expect(renders).toBe(base + 2);
+});
+
+// The (re)mount rule, on the CHROME's side of the mirror. Every host state seam pushes its
+// current value to an arriving subscriber (`view-channel.ts`'s snapshot option) so a
+// surface mounting mid-session renders the session rather than a default — and the five
+// chrome-owned values have no host seam to get that from, so their cells owe the same
+// thing. Nothing pinned it: dropping the push-on-subscribe from `createCell` left the whole
+// chrome suite green (measured, T3b1 Task 7), because every other case mounts its surface
+// BEFORE the push it asserts about.
+//
+// What it costs to lose is a late mount reading a stale default, and the palettes are all
+// late mounts — `PaletteLayer` unmounts a closed body, so opening the flags palette after
+// the analyzer answered would show an empty list beside markers the viewport is drawing.
+// The tool is the readable case of the same mechanism: it is the value a probe can name.
+test("a surface mounting after a push reads the state, not the default", () => {
+	const stub = makeStubHost();
+	function Probe() {
+		const { tool } = useFieldTool();
+		return <span>{`armed:${tool.effect}`}</span>;
+	}
+	const { rerender } = render(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<span />
+		</FieldHostStateProvider>,
+	);
+	// The push lands with NOTHING reading the tool — an eyedrop or a momentary ⇧ while
+	// every surface that shows a brush happens to be closed.
+	act(() => {
+		stub.fire.tool(fillTool());
+	});
+	rerender(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<Probe />
+		</FieldHostStateProvider>,
+	);
+	// `dig` here — the chrome's DEFAULT_TOOL — is the failure: a strip that opened claiming
+	// the host is on a brush it stopped holding some time ago.
+	expect(screen.getByText("armed:fill")).toBeTruthy();
+});
+
+// The stats seam is LATCHED per reader (T3b1 Task 7), so what this pins moved with it:
+// the provider no longer claims it at all, and the claimant is whatever surface calls the
+// hook. Both halves still matter, and the second one matters more than it used to.
+test("a stats reader claims one slot, and releases it on unmount", () => {
+	const stub = makeStubHost();
+	function Probe() {
+		const { stats } = useFieldHostState();
+		return <span>{stats?.totalOps ?? "—"}</span>;
+	}
+	const { rerender, unmount } = render(
 		<FieldHostStateProvider host={stub.host} engineReady>
 			<span />
 		</FieldHostStateProvider>,
@@ -422,8 +529,15 @@ test("the provider releases the stats slot on unmount", () => {
 		});
 		return delivered;
 	};
-	// The provider, and nobody else — a second delivery is a surface below it that
-	// re-subscribed to a seam the provider owns.
+	// Nobody reading, nobody subscribed. A provider that claimed the seam anyway would
+	// put a per-rAF push behind every shell, open palette or not.
+	expect(push()).toBe(0);
+	rerender(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<Probe />
+		</FieldHostStateProvider>,
+	);
+	// One reader, one slot — a hook that subscribed twice shows up here and nowhere else.
 	expect(push()).toBe(1);
 	unmount();
 	// Back to nobody. On a multicast seam a release that does not really remove the
@@ -441,19 +555,42 @@ const DIG_TOOL: FieldTool = {
 	hollow: null,
 };
 
+/** Reads every seam this file asserts a claim over — the child the two cases below mount
+ *  when they want a READER present. Ten of the thirteen seams are latched in the surface
+ *  that calls the hook (T3b1 Task 7), so with no reader they are claimed by nobody, which
+ *  is the point of mounting this beside an empty `<span />`. */
+function SeamReader() {
+	useFieldHostState();
+	useCameraPose();
+	useFieldEntities();
+	useFieldSelection();
+	useFieldStamp();
+	useFieldHistory();
+	return <span />;
+}
+
 /** The four seams the control stack held until F4.5b Task 2, with the push that proves
- *  each slot is live. Table-driven rather than four copies of the case above: the claim
- *  is identical in all four, and four near-identical blocks would bury the one line that
- *  differs. */
+ *  each slot is live and WHO claims it now. Table-driven rather than four copies of the
+ *  case above: the claim has the same shape in all four, and four near-identical blocks
+ *  would bury the two lines that differ.
+ *
+ *  The `owner` column is what T3b1 Task 7 added, and the split is forced rather than
+ *  chosen. `tool` and `flags` stay the SHELL's: the tool seam writes the shared tool +
+ *  radius cells (`FieldHost.setTool` publishes nothing, so a per-reader copy would never
+ *  hear the strip's own change), and the flags seam releases an in-flight verify that must
+ *  keep being released while the flags palette is closed. `selection` and `stamp` are plain
+ *  host mirrors with a snapshot behind them, so they belong to whoever reads them. */
 const LIFTED_SEAMS: readonly (readonly [
 	string,
+	"shell" | "reader",
 	(stub: ReturnType<typeof makeStubHost>) => number,
 ])[] = [
-	["tool", (s) => s.fire.tool(DIG_TOOL)],
-	["selection", (s) => s.fire.selection(null)],
-	["stamp", (s) => s.fire.stamp(null)],
+	["tool", "shell", (s) => s.fire.tool(DIG_TOOL)],
+	["selection", "reader", (s) => s.fire.selection(null)],
+	["stamp", "reader", (s) => s.fire.stamp(null)],
 	[
 		"flags",
+		"shell",
 		(s) =>
 			s.fire.flags({
 				total: 0,
@@ -472,9 +609,12 @@ const LIFTED_SEAMS: readonly (readonly [
 // `ready`, and App assigns the host exactly once.
 test("no seam is claimed before engine-ready, and each is claimed exactly once after", () => {
 	const stub = makeStubHost();
+	// With a READER mounted throughout, so the gate is quantified over the ten latched
+	// seams too and not just the three the shell holds. The gate lives in one place for
+	// all thirteen (`onHost`, plus the shell effects' own guard) — this is what says so.
 	const tree = (engineReady: boolean) => (
 		<FieldHostStateProvider host={stub.host} engineReady={engineReady}>
-			<span />
+			<SeamReader />
 		</FieldHostStateProvider>
 	);
 	const { rerender } = render(tree(false));
@@ -501,10 +641,10 @@ test("no seam is claimed before engine-ready, and each is claimed exactly once a
 	expect(claims().filter(([, n]) => n !== 1)).toEqual([]);
 });
 
-test("the provider claims — and releases — the four seams lifted off the panel", () => {
-	for (const [name, push] of LIFTED_SEAMS) {
+test("the four seams lifted off the panel are claimed by their owner, and freed with it", () => {
+	for (const [name, owner, push] of LIFTED_SEAMS) {
 		const stub = makeStubHost();
-		const { unmount } = render(
+		const { rerender, unmount } = render(
 			<FieldHostStateProvider host={stub.host} engineReady>
 				<span />
 			</FieldHostStateProvider>,
@@ -516,15 +656,24 @@ test("the provider claims — and releases — the four seams lifted off the pan
 			});
 			return delivered;
 		};
-		// Claimed with no consumer mounted at all: the provider subscribes because it is
-		// the OWNER, not because something below it happens to be reading. A seam nobody
-		// claims is a control that goes dead with nothing thrown. Exactly one claimant,
-		// which is also the assertion a duplicate mirror below the provider would trip.
+		// With NOTHING reading: the shell's two are claimed anyway, because the provider
+		// subscribes to them as the OWNER of the state they feed. The reader's two are
+		// claimed by nobody — which is what a closed palette costing nothing looks like
+		// from here, and a latch that subscribed regardless would read as 1.
+		expect([name, deliver()]).toEqual([name, owner === "shell" ? 1 : 0]);
+		// With a reader: exactly one claimant either way. A seam nobody claims once its
+		// reader is up is a control that goes dead with nothing thrown; two claimants for
+		// one reader is a hook subscribing twice.
+		rerender(
+			<FieldHostStateProvider host={stub.host} engineReady>
+				<SeamReader />
+			</FieldHostStateProvider>,
+		);
 		expect([name, deliver()]).toEqual([name, 1]);
 		unmount();
-		// …and freed on the way out, the stats-seam rule above: an unmounted provider that
-		// is still subscribed keeps being delivered to, and the count is the only thing
-		// that says so.
+		// …and freed on the way out, the stats-seam rule above: anything still subscribed
+		// after its owner unmounted keeps being delivered to, and the count is the only
+		// thing that says so.
 		expect([name, deliver()]).toEqual([name, 0]);
 	}
 });
@@ -714,10 +863,15 @@ test("the status chips render what the host pushes, and idle quiet", async () =>
 	fetch404();
 	const stub = makeStubHost();
 	await renderShell(stub);
-	// Exactly ONE subscriber to the stats seam (the provider). The seam is multicast, so
-	// a second one anywhere in the shell would be a duplicate mirror of a per-rAF push
-	// rather than a stolen callback — invisible except here.
-	expect(stub.calls.subscribeStats.mock.calls.length).toBe(1);
+	// THREE subscribers, one per surface that reads the numbers: the status bar's chips
+	// (StatusBar), the world's dirty bit (useWorld) and the action registry's gates
+	// (useActionContext). `toBe(1)` here used to state the retired one-owner rule; what
+	// replaced it is a different claim about the same number — total stats FAN-OUT in the
+	// assembled shell. That is not free: the seam pushes every rAF and each reader runs
+	// `statsEqual` over eleven fields on every one of them, so a fourth reader is a real
+	// decision and this is where it gets made rather than noticed. Per-reader claims (one
+	// slot each, released on unmount) live above and in host-seams-and-catalogs.test.tsx.
+	expect(stub.calls.subscribeStats.mock.calls.length).toBe(3);
 
 	act(() => {
 		stub.fire.stats(makeStats({ totalOps: 128, undoDepth: 5 }));

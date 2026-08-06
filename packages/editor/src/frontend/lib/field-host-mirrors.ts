@@ -287,7 +287,7 @@ export const NO_FLAGS: FlagsSummary = Object.freeze({
   selected: null,
 }) as unknown as FlagsSummary;
 
-/** Nothing done yet. Also the FieldHistoryContext default (`useFieldHostState.tsx`) —
+/** Nothing done yet. Also what `useFieldHistory` reads outside a provider —
  *  see there for why an empty history is a truthful reading outside the provider rather
  *  than a wiring hole. */
 // Boundary cast: `NO_FLAGS`' reason, verbatim.

@@ -7,12 +7,12 @@
 //
 // The Δ badges do NOT intersect anything here: the host owns both the findings'
 // chunk keys and the entity footprints, so it answers "which rows does this report
-// touch?" at push time and the provider hands the answer down as a set. This file
-// reads it; it does not compute it.
+// touch?" at push time and the hook turns the answer into a set. This file reads it; it
+// does not compute it.
 //
-// It reads its three seams out of the shell's host-state provider (one-owner discipline:
-// no surface below that provider may re-subscribe to anything it owns,
-// which since F4.5c Task 14 is all thirteen seams the chrome reads) and reaches the host for its
+// It LATCHES its three seams itself, through `useFieldEntities` / `useFieldEntitySelection`
+// (T3b1 Task 7 — the seams are multicast, so each surface subscribes to what it reads and
+// a closed palette holds nothing), and reaches the host for its
 // VERBS the way every other shell surface does — `fieldHostRef` off EditorContext,
 // exactly as ShellChrome's ⌘Z does. The verbs are fire-and-forget; nothing here holds
 // host state, so there is no action provider to justify.

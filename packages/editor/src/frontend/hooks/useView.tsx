@@ -6,8 +6,8 @@
 //
 // It is a pure chrome→host concern, which is why it is NOT part of `useFieldHostState`.
 // The line between the two providers is the DIG LOOP, not the direction of travel:
-// `useFieldHostState` owns the thirteen host subscriptions and the chrome state
-// cohesive with them (the `setTool` funnel, whose echo guard makes it inseparable from the
+// `useFieldHostState.tsx` is where the thirteen host seams are read and where the chrome
+// state cohesive with them lives (the `setTool` funnel, whose echo guard makes it inseparable from the
 // tool mirror; the flag filters, which round-trip back through `subscribeFlags`); this
 // one owns what the viewport LOOKS like, which has no seam to mirror at all — the host
 // publishes no shading/layers/slice subscription. What sits on the far side of that line

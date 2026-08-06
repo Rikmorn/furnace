@@ -32,8 +32,8 @@
 // rail renders four buttons whose armed/disabled state is a function of `gesture`, `tool`,
 // `session` and `generators`, i.e. of the ctx, and the alternative is publishing a second
 // narrower context beside this one for a four-button column. Its own header records the
-// tradeoff. The status bar's `KeymapLine` is NOT a consumer either: it reads the two
-// narrow contexts it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
+// tradeoff. The status bar's `KeymapLine` is NOT a consumer either: it latches the two
+// narrow seams it needs (`useFieldTool`, `useFieldStamp`) and stays off this one.
 //
 // The two ends of an action live in different places on purpose. What an action DOES is
 // in `lib/actions.ts` (pure, testable without React); what it can SEE is assembled here.

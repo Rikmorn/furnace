@@ -2,17 +2,18 @@
 //
 // Every mutator is a recording mock; each subscribe seam is a REAL `createViewChannel`,
 // so a test can fire host-initiated pushes manually (wrap them in `act`). Ten of the
-// thirteen push the current (empty) state on subscribe — every one except tool, toolError
-// and stats — which is the production host's own split, seam for seam.
+// thirteen push their CURRENT state on subscribe — every one except tool, toolError and
+// stats — which is the production host's own split, seam for seam. Current, not empty:
+// see `mirrorSeam` for why the difference started mattering.
 //
 // MULTICAST, exactly as all thirteen of the production host's are since T3a: N
 // subscribers each get every push, an unsubscribe removes only its own callback and is
 // idempotent, and a subscriber that throws is logged rather than severing its siblings.
 // Every `fire.*` returns the DELIVERED COUNT at publish time, which is what lets a test
 // tell a subscriber that leaks from one that cleans up: `0` is a seam nobody holds, `1`
-// is the provider holding it alone, and anything above the expectation is a cleanup that
-// did not run. It replaced a boolean that could only say "somebody is there" — and, when
-// the seams were single slots, WHICH mount that was.
+// is one mirror of it, and anything above the expectation is a cleanup that did not run.
+// It replaced a boolean that could only say "somebody is there" — and, when the seams
+// were single slots, WHICH mount that was.
 //
 // The REAL helper rather than a hand-rolled imitation, deliberately: the stub then goes
 // stale exactly when the production host would. Tests are not part of the chrome bundle,
@@ -42,11 +43,48 @@ import type {
   StampSession,
   ToolErrorSeverity,
 } from "../../src/viewport-host/index.ts";
-import { createViewChannel } from "../../src/viewport-host/view-channel.ts";
+import {
+  createViewChannel,
+  type ViewChannel,
+} from "../../src/viewport-host/view-channel.ts";
 
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
  *  (its exact numbers are the host's business; what matters is that one arrives). */
 export const START_POSE: CameraPose = { yaw: 0.6, pitch: 0.5 };
+
+/** A state-MIRROR seam: a channel that remembers what was last published through it and
+ *  hands THAT to every later subscriber.
+ *
+ *  The production host's ten mirror seams read live host state in their `snapshot` thunk
+ *  (`stamp === null ? null : structuredClone(stamp)`, `flagStore.summary()`, …) — the
+ *  (re)mount rule, so a surface arriving mid-session renders the session rather than a
+ *  default. The stub's snapshots used to be frozen literals instead, which was invisible
+ *  for as long as ONE long-lived provider held every subscription and mounted before any
+ *  `fire.*`: nothing ever subscribed late. Per-consumer latches (T3b1 Task 7) subscribe
+ *  whenever a surface mounts, so a card opened BY a push would subscribe after it and be
+ *  handed the literal — reading "no session" beside a viewport drawing one, which is the
+ *  exact failure the real snapshots exist to prevent. Remembering the last push is the
+ *  smallest thing that makes the fixture model the seam it stands in for.
+ *
+ *  ONE deliberate infidelity, recorded so nobody builds on it: this hands every late
+ *  subscriber the SAME object reference, where the real host clones per subscribe
+ *  (`structuredClone(stamp)`, `{ ...pendingStamp }`). The stub is therefore more
+ *  identity-stable than production, so a chrome guard that happened to work by reference
+ *  equality would pass here and fail in the editor. Every guard the chrome actually has
+ *  compares by VALUE for exactly that reason (`toolsEqual`, `sameEntities`, `statsEqual`),
+ *  which is what makes the gap safe rather than merely known. */
+function mirrorSeam<T>(initial: T): ViewChannel<[T]> {
+  let last = initial;
+  const channel = createViewChannel<[T]>({ snapshot: () => [last] });
+  return {
+    subscribe: channel.subscribe,
+    publish: (value) => {
+      last = value;
+      channel.publish(value);
+    },
+    size: channel.size,
+  };
+}
 
 /** An EMPTY history — what the stub reports on subscribe, exactly as the real host does
  *  over a world nobody has edited yet. */
@@ -95,7 +133,7 @@ export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
 /** A minimal FieldHost stub: every mutator is a recording mock; the subscribe
  *  seams are real multicast channels so a test can fire host-initiated pushes
  *  manually (wrap in act) and read the delivered count back. Ten of the thirteen
- *  push the current (empty) state on subscribe, like the real host. */
+ *  push their current state on subscribe, like the real host. */
 export function makeStubHost(
   opts: {
     generators?: FieldGeneratorInfo[];
@@ -133,49 +171,35 @@ export function makeStubHost(
    *  mirror it here.
    *
    *  Which ones carry a `snapshot` is the production host's split, seam for seam:
-   *  the ten state MIRRORS push their current (empty) value to each arriving
-   *  subscriber, and the three EVENT seams (tool, toolError, stats) push nothing
-   *  until a `fire.*`. A stub that pushed on all thirteen would let a consumer
-   *  depending on an initial tool push go green against a host that never sends
-   *  one. */
+   *  the ten state MIRRORS push their current value to each arriving subscriber, and
+   *  the three EVENT seams (tool, toolError, stats) push nothing until a `fire.*`. A
+   *  stub that pushed on all thirteen would let a consumer depending on an initial
+   *  tool push go green against a host that never sends one. */
   const seams = {
     tool: createViewChannel<[FieldToolPush]>(),
     toolError: createViewChannel<[string, ToolErrorSeverity]>(),
     stats: createViewChannel<[FieldStats]>(),
-    cameraPose: createViewChannel<[CameraPose]>({
-      // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
-      // a stub that pushed nothing would let a consumer depending on that go green.
-      snapshot: () => [START_POSE],
-    }),
-    stamp: createViewChannel<[StampSession | null]>({ snapshot: () => [null] }),
-    selection: createViewChannel<[SelectionInfo | null]>({
-      snapshot: () => [null],
-    }),
+    // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
+    // a stub that pushed nothing would let a consumer depending on that go green.
+    cameraPose: mirrorSeam<CameraPose>(START_POSE),
+    stamp: mirrorSeam<StampSession | null>(null),
+    selection: mirrorSeam<SelectionInfo | null>(null),
     // The real host's initial catch-up tick — no payload, the subscriber re-reads
-    // `listEntities` itself.
+    // `listEntities` itself, which the stub really does hold.
     entities: createViewChannel<[]>({ snapshot: () => [] }),
-    drift: createViewChannel<[FieldDriftReport | null]>({
-      snapshot: () => [null],
+    drift: mirrorSeam<FieldDriftReport | null>(null),
+    flags: mirrorSeam<FlagsSummary>({
+      total: 0,
+      byKindSeverity: [],
+      visible: [],
+      selected: null,
     }),
-    flags: createViewChannel<[FlagsSummary]>({
-      snapshot: () => [
-        { total: 0, byKindSeverity: [], visible: [], selected: null },
-      ],
-    }),
-    entitySelection: createViewChannel<[number | null]>({
-      snapshot: () => [null],
-    }),
-    pendingStamp: createViewChannel<[PendingStamp | null]>({
-      snapshot: () => [null],
-    }),
-    history: createViewChannel<[FieldHistory]>({
-      snapshot: () => [NO_HISTORY],
-    }),
+    entitySelection: mirrorSeam<number | null>(null),
+    pendingStamp: mirrorSeam<PendingStamp | null>(null),
+    history: mirrorSeam<FieldHistory>(NO_HISTORY),
     // `null` on a fresh host, which is what a status bar mounting with no gesture
     // in flight must read rather than nothing at all.
-    segmentHud: createViewChannel<[SegmentHud | null]>({
-      snapshot: () => [null],
-    }),
+    segmentHud: mirrorSeam<SegmentHud | null>(null),
   };
   // What `occupiedTopY` answers. Mutable so a case can put content in the world
   // without a GPU: the seed decision is chrome-side arithmetic over this one number,
@@ -229,15 +253,15 @@ export function makeStubHost(
     setFlagFilters: mock(),
     verifyFlag: mock(),
     selectFlag: mock(),
-    // Every subscribe seam records its call, so a test can assert the seam was claimed
-    // EXACTLY ONCE across a whole mounted arrangement — the one-owner rule's only
-    // machine-checkable form, and since the seams went multicast the only form full
-    // stop: a second claimant no longer announces itself by breaking the first.
-    // ALL THIRTEEN belong to the shell's host-state provider —
-    // `subscribeEntitySelection` got its chrome owner in F4.5b Task 4,
-    // `subscribePendingStamp` arrived owned in Task 9, `subscribeHistory` in Task 12 and
-    // `subscribeSegmentHud` in F4.5c Task 14 — which is why the ownership cases
-    // enumerate thirteen.
+    // Every subscribe seam records its call, so a test can assert WHO claimed it and how
+    // many times — the one-claimant rule's only machine-checkable form, and since the seams
+    // went multicast the only form full stop: a second claimant no longer announces itself
+    // by breaking the first.
+    //
+    // The split the ownership cases enumerate (T3b1 Task 7): TEN are latched by the surface
+    // that reads them, so nobody claims them until one mounts and everybody must release on
+    // unmount; THREE — tool, toolError, flags — stay the shell provider's, because each
+    // feeds chrome-owned state that has to outlive any one surface.
     subscribeStats: mock(),
     subscribeToolError: mock(),
     subscribeEntities: mock(),

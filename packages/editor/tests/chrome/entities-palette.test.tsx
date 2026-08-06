@@ -220,9 +220,17 @@ test("an entity tick that changed nothing does not re-render the list", () => {
 	expect(renders).toBe(base + 1);
 });
 
-test("the provider releases both entity slots on unmount", () => {
+// Both entity seams are LATCHED per reader (T3b1 Task 7): `useFieldEntities` claims the
+// tick and the drift report together, in the palette that reads them, so a closed palette
+// holds neither. What that makes load-bearing is the RELEASE — on a multicast seam a
+// callback that outlives its surface has no symptom except this count.
+test("the entities reader claims both slots, and releases them on unmount", () => {
 	const stub = makeStubHost();
-	const { unmount } = render(
+	function Probe() {
+		const { entities } = useFieldEntities();
+		return <span>{entities.length}</span>;
+	}
+	const { rerender, unmount } = render(
 		<FieldHostStateProvider host={stub.host} engineReady>
 			<span />
 		</FieldHostStateProvider>,
@@ -243,13 +251,20 @@ test("the provider releases both entity slots on unmount", () => {
 		});
 		return delivered;
 	};
-	// The provider, and only the provider — a second delivery here would be a surface
-	// below it that re-subscribed.
+	// Nobody reading, neither slot claimed.
+	expect(pushTick()).toBe(0);
+	expect(pushDrift()).toBe(0);
+	rerender(
+		<FieldHostStateProvider host={stub.host} engineReady>
+			<Probe />
+		</FieldHostStateProvider>,
+	);
+	// One reader, one slot each — a second delivery here is the hook subscribing twice.
 	expect(pushTick()).toBe(1);
 	expect(pushDrift()).toBe(1);
 	unmount();
 	// Back to nobody. A release that did not really remove the callback leaves the
-	// unmounted provider's effect wired to a live seam — the leak the count is here to
+	// unmounted palette's latch wired to a live seam — the leak the count is here to
 	// catch, and one a multicast seam gives no other symptom for.
 	expect(pushTick()).toBe(0);
 	expect(pushDrift()).toBe(0);

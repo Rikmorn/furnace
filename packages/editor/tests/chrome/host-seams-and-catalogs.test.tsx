@@ -10,12 +10,17 @@ import "../inspector/_register.ts";
 // world-panel.test.tsx precedent). The GPU never initializes here — nothing in this file
 // calls host.init.
 //
-// (1) THE ONE-OWNER RULE, quantified over every seam. The claim is that
-//     `FieldHostStateProvider` holds all thirteen and no rendered surface holds any — a
-//     claim about the SET, which is why it cannot live in a per-surface test file. Since
-//     the seams went multicast (T3a) a second claimant no longer STEALS the first's
-//     callback, which is precisely why this file matters more, not less: the failure it
-//     used to catch as a dead surface now has no symptom at all except the counts here.
+// (1) THE ONE-CLAIMANT RULE, quantified over every seam. The claim used to be that
+//     `FieldHostStateProvider` holds all thirteen and no rendered surface holds any. T3b1
+//     Task 7 inverted it: ten seams are now latched per-consumer, in the surface that
+//     reads them, and only three are still the shell's. So the claim is the SPLIT — which
+//     three, and that the other ten are claimed by a reader and released with it. Still a
+//     claim about the SET, which is why it cannot live in a per-surface file.
+//
+//     Since the seams went multicast (T3a) a second claimant no longer STEALS the first's
+//     callback, which is why this file matters more, not less: what it catches now is a
+//     mirror that outlives its surface, and that has no symptom at all except the counts
+//     here.
 // (2) THE CATALOG PASS: `CatalogProvider`'s run-once GETs for materials, entities and
 //     agents, what each one installs on the host, and what the pass says to the toast
 //     stack and the message log.
@@ -34,7 +39,19 @@ import type { ReactElement } from "react";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
-import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import {
+	createCell,
+	FieldHostStateProvider,
+	useCameraPose,
+	useFieldEntities,
+	useFieldEntitySelection,
+	useFieldHistory,
+	useFieldHostState,
+	useFieldSegmentHud,
+	useFieldSelection,
+	useFieldStamp,
+	useFieldTool,
+} from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { EntityCatalog } from "../../src/shared/catalog.ts";
 import type { FieldTool, FlagsSummary } from "../../src/viewport-host/index.ts";
@@ -143,12 +160,12 @@ const CATALOG_JSON = JSON.stringify({
  *  on screen. Mounting it here keeps those cases assertions about what a user sees
  *  rather than about a store's internals.
  *
- *  `<FieldHostStateProvider />` is not scenery either: it owns ALL NINE FieldHost
- *  subscribe seams (F4.5b Task 2 lifted the last four out of this panel), so without it
- *  a `stub.fire.tool` / `.selection` / `.stamp` / `.flags` reaches nothing at all and
- *  every case below would be asserting about a panel wired to a dead host. This is also
- *  the arrangement the real editor mounts, which is what makes these cases claims about
- *  the product rather than about a fixture.
+ *  `<FieldHostStateProvider />` is not scenery either: every `useField*` hook reads its
+ *  context (the host handle plus the chrome-owned cells), so without it a hook throws and
+ *  a `stub.fire.tool` / `.selection` / `.stamp` / `.flags` reaches nothing at all — every
+ *  case below would be asserting about a surface wired to a dead host. This is also the
+ *  arrangement the real editor mounts, which is what makes these cases claims about the
+ *  product rather than about a fixture.
  *
  *  Built as an ELEMENT (rather than passed straight to `renderWithEditor`) so a case can
  *  re-render the same tree with the PANEL removed — the shell.test.tsx `withEditor`
@@ -177,9 +194,11 @@ const flushCatalog = () =>
 	});
 
 /** Mount the provider stack with NOTHING inside it. That is not a placeholder — it is the
- *  subject: the catalog pass and every seam claim below belong to the PROVIDERS, and a
- *  render with no surface in it is what proves they do not depend on one. The seam case
- *  re-renders over this same empty child to make its second half discriminating. */
+ *  subject: the catalog pass and the shell's three seam claims belong to the PROVIDERS, and
+ *  a render with no surface in it is what proves they do not depend on one — and, since the
+ *  collapse, that the other ten do. The seam case re-renders a reader over this same empty
+ *  child and then swaps it back out, which is what makes all three of its halves
+ *  discriminating. */
 async function renderProviders(stub: ReturnType<typeof makeStubHost>) {
 	const result = render(withEditor(<span />, stub));
 	await flushCatalog();
@@ -192,21 +211,21 @@ async function renderProviders(stub: ReturnType<typeof makeStubHost>) {
 const toastText = (text: string | RegExp): HTMLElement =>
 	within(screen.getByRole("list", { name: "notifications" })).getByText(text);
 
-// The one-owner rule, pinned from the side that would break it. A panel that subscribed
-// to a seam the shell owns used to STEAL it — no throw, no warning, the shell surface just
-// stopped updating. Multicast retires that failure and replaces it with a quieter one: two
-// mirrors of the same state, doing the same work twice, and a leak if either forgets to
-// release. ALL THIRTEEN belong to the provider now: stats to the status bar's chips, tool
-// errors to the toast stack, entities + drift + the entity selection to the entities
-// palette, the camera pose to the axis triad, the named history to the Undo/Redo labels
-// and the History palette (F4.5b Task 12), the pending segment to the status bar's keymap
-// line (F4.5c Task 14), and — since F4.5b Task 2 — tool / selection / stamp / flags to the
-// control stack, read out of context. This is the guard a re-added meter, a re-added
-// status line, or a mirror that crept back into a section has to trip.
+// The one-claimant rule, pinned from the side that would break it. A panel that subscribed
+// to a seam the shell owned used to STEAL it — no throw, no warning, the shell surface just
+// stopped updating. Multicast retired that failure, and T3b1 Task 7 then made a second
+// mirror the normal arrangement: each surface latches the seams it reads, so the status bar
+// and the action registry both hold the stats seam by design.
 //
-// Every seam, with the push that reports how many subscribers it reaches. Quantified
-// rather than spelled out case by case: the point is that the set is CLOSED, and a
-// fourteenth seam claimed by a palette body is exactly what this must catch.
+// What is left to get wrong is a mirror that OUTLIVES its surface — the unmounted tree
+// keeps being pushed at, the work keeps being done, and nothing anywhere says so. Plus the
+// split itself: a seam that crept back into the provider would put its cost on every
+// surface again, and a latch that subscribed with no reader would put it on a closed
+// palette.
+//
+// Every seam, with the push that reports how many subscribers it reaches. Quantified rather
+// than spelled out case by case: the point is that the set is CLOSED, and a fourteenth seam
+// nobody accounted for is exactly what this must catch.
 const DIG_TOOL: FieldTool = {
 	effect: "dig",
 	materialId: 0,
@@ -331,35 +350,118 @@ test("every stub release frees only its own subscriber, like all thirteen of the
 	}
 });
 
-test("every host seam is the PROVIDER's — thirteen seams, one claimant each", async () => {
+// The same release contract, for the CHROME's own cells — the six values with no host
+// seam behind them (`gesture`, `tool`, `radius`, `flags`, `filters`, `verifying`). They are
+// latched by the same `useSeam` the host seams are, so they are exposed to the same leak
+// class, and the case above does not reach them: it counts subscribers on the STUB HOST's
+// channels, and a cell is not one.
+//
+// The React half needs no case of its own and deliberately does not get one: `useSeam`
+// hands `useSyncExternalStore` whatever `connect` returned, so if React runs the release on
+// unmount for the ten host seams — which the counts above prove — it runs it for the cells
+// too, through identical code. What that leaves untested is the cell's OWN release body,
+// which is pure and framework-free, so it is tested that way. (Sabotage-proven: making the
+// release a no-op fails this and nothing else in the suite.)
+test("a cell frees only its own subscriber, and does so idempotently", () => {
+	const cell = createCell("a");
+	const heard: string[] = [];
+	const offA = cell.subscribe((v) => heard.push(`A:${v}`));
+	const offB = cell.subscribe((v) => heard.push(`B:${v}`));
+	// Push-on-subscribe reaches the ARRIVING subscriber and nobody else — B's mount must
+	// not re-deliver to A, which on a real mirror would be a spurious re-render of a
+	// surface that changed nothing.
+	expect(heard).toEqual(["A:a", "B:a"]);
+	expect(cell.size()).toBe(2);
+
+	// ONLY its own, and calling it twice is a no-op — the `view-channel.ts` contract, and
+	// the property that makes React's effect re-run safe by construction: the new subscribe
+	// runs BEFORE the previous cleanup, so a release keyed to anything but the callback
+	// identity takes the NEW subscriber with it and the value goes silent with nothing
+	// thrown.
+	offA();
+	offA();
+	expect(cell.size()).toBe(1);
+	heard.length = 0;
+	cell.write("b");
+	expect(heard).toEqual(["B:b"]);
+
+	// Back to nobody, which is the leak assertion: a count that does not return to zero is
+	// an unmounted surface's latch still being written to, and it has no other symptom.
+	offB();
+	expect(cell.size()).toBe(0);
+	cell.write("c");
+	expect(heard).toEqual(["B:b"]);
+});
+
+/** The three seams the SHELL owns, and the ten every other row belongs to a reader.
+ *  The split is not a preference — each of the three is forced (T3b1 Task 7):
+ *  `tool` writes the shared tool/radius cells (`FieldHost.setTool` publishes nothing, so
+ *  a per-reader copy would never hear the strip's own change), `toolError` posts a toast
+ *  that belongs to no one surface, and `flags` releases an in-flight verify that has to
+ *  keep being released while the flags palette is CLOSED. */
+const SHELL_SEAMS: ReadonlySet<string> = new Set([
+	"tool",
+	"toolError",
+	"flags",
+]);
+
+/** One surface reading every LATCHED seam, so the case below can watch all ten arrive
+ *  with a reader and leave with it. `useFieldTool` is here for `pendingStamp` — the one
+ *  value in its shape the host really does push back — and `useFieldEntities` covers the
+ *  entity PAIR. */
+function AllSeamsProbe() {
+	useFieldHostState();
+	useCameraPose();
+	useFieldEntities();
+	useFieldEntitySelection();
+	useFieldSelection();
+	useFieldStamp();
+	useFieldSegmentHud();
+	useFieldHistory();
+	useFieldTool();
+	return <span />;
+}
+
+test("every host seam has ONE claimant: three the shell's, ten their readers'", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	const { rerender } = await renderProviders(stub);
 
-	// (1) Nobody claimed anything twice. A second claim is the failure this rule exists
-	// for, and it reads as ONE extra call and nothing else.
+	// (1) With NOTHING reading, the shell's three are claimed and the other ten are not.
+	// A latch that subscribed without a reader would read as 1 here — which is the old
+	// arrangement creeping back, and the cost the collapse bought is exactly that a
+	// closed palette pays nothing.
 	for (const [name, claim] of seamsOf(stub))
-		expect([name, claim.mock.calls.length]).toEqual([name, 1]);
+		expect([name, claim.mock.calls.length]).toEqual([
+			name,
+			SHELL_SEAMS.has(name) ? 1 : 0,
+		]);
 
-	// (2) …and that one claim is the PROVIDER's. Counting claims alone cannot tell a
-	// provider claim from a child's — one claim is one claim whoever made it — so the
-	// CHILD is swapped out from under a provider that stays, and every seam is pushed
-	// again. A seam a child owned drops to zero subscribers here; a seam the provider
-	// owns still delivers to exactly one. This half is what inverted in Task 2: with the
-	// four mirrors still in FieldPanel it failed four times over. The child is a `<div />`
-	// rather than the `<span />` above so the swap is a real unmount, not a re-render of
-	// the same element type.
-	//
-	// EXACTLY one, not "at least one": the count is also the leak assertion now. A child
-	// that subscribed and did not release would read as 2 here, and on a multicast seam
-	// that is the only place it shows.
-	rerender(withEditor(<div />, stub));
+	// (2) A reader mounts and every seam delivers to EXACTLY ONE subscriber — the ten to
+	// the probe, the three to the provider above it. Exactly one, not "at least one": a
+	// hook that subscribed twice to the seam it reads would show up here and nowhere else.
+	rerender(withEditor(<AllSeamsProbe />, stub));
 	for (const [name, , push] of seamsOf(stub)) {
 		let delivered = 0;
 		act(() => {
 			delivered = push();
 		});
 		expect([name, delivered]).toEqual([name, 1]);
+	}
+
+	// (3) …and the reader takes its ten with it. THIS is the claim the one-owner rule
+	// became: a duplicate mirror is the normal arrangement on a multicast seam, but a
+	// mirror that outlives its surface is a leak with no other symptom — the unmounted
+	// tree just keeps being pushed at. The child is a `<div />` so the swap is a real
+	// unmount rather than a re-render of the same element type, and the provider stays
+	// mounted throughout, which is what makes the three that hold at 1 discriminating.
+	rerender(withEditor(<div />, stub));
+	for (const [name, , push] of seamsOf(stub)) {
+		let delivered = 0;
+		act(() => {
+			delivered = push();
+		});
+		expect([name, delivered]).toEqual([name, SHELL_SEAMS.has(name) ? 1 : 0]);
 	}
 });
 
