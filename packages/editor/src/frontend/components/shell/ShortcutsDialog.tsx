@@ -20,7 +20,7 @@
 // listener of its own for the keys that steer the viewport under the pointer (the fly
 // set, the radius steppers, the arrow nudges, the momentary modifiers). Those are not
 // registry actions — see the ownership rule at the top of `lib/actions.ts` — so their
-// rows are written out here and must be re-verified against `viewport-host/field-host.ts`
+// rows are written out here and must be re-verified against `field-host/field-host.ts`
 // when one of them changes.
 import { Fragment } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";

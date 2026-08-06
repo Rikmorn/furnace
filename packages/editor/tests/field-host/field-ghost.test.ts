@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { boxEdges } from "../../src/viewport-host/box-edges.ts";
+import { boxEdges } from "../../src/field-host/box-edges.ts";
 import {
   boxCorners,
   crossSegments,
   GHOST_COLOR,
   sphereGhostSegments,
-} from "../../src/viewport-host/field-ghost.ts";
+} from "../../src/field-host/field-ghost.ts";
 
 const CENTER: [number, number, number] = [1, 2, 3];
 

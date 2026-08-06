@@ -19,7 +19,7 @@
 // debounced write and its ⌘\ latch are all behaviour, and behaviour above the Shell
 // boundary is behaviour no test can reach.
 import { useState } from "react";
-import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: erased
+import type { FieldHost } from "../../../field-host/index.ts"; // type-only: erased
 import { ActionContextProvider } from "../../hooks/useActionContext.tsx";
 import { CatalogProvider } from "../../hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../hooks/useFieldHostState.tsx";

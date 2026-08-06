@@ -20,7 +20,7 @@ import {
   generatorFootprint,
   segmentGhostSegments,
   sphereGhostSegments,
-} from "../src/viewport-host/field-ghost.ts";
+} from "../src/field-host/field-ghost.ts";
 
 type Vec3T = [number, number, number];
 

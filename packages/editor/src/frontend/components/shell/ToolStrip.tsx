@@ -17,7 +17,7 @@
 // what is selected, because direct manipulation's parameter is the selection itself.
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import type { ViewportGesture } from "../../../viewport-host/index.ts"; // type-only: erased
+import type { ViewportGesture } from "../../../field-host/index.ts"; // type-only: erased
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import {
 	useFieldEntities,

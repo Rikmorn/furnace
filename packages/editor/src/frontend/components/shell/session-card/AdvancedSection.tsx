@@ -1,5 +1,5 @@
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
-import type { NudgeSteps } from "../../../../viewport-host/index.ts"; // type-only: erased
+import type { NudgeSteps } from "../../../../field-host/index.ts"; // type-only: erased
 import { CollapsibleSection } from "../../CollapsibleSection.tsx";
 import { SELECT_CLASS } from "../../field/form-bits.tsx";
 import { Button } from "../../ui/button.tsx";

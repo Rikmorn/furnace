@@ -99,7 +99,7 @@ finding 1 (now known to reach across package boundaries, not just editor's own s
 **The convention has a SECOND half nobody had written down, found 2026-07-31
 (F4.5b Task 3).** It also constrains where GPU tests may live: a `*.gpu.test.ts`
 placed in a subdirectory that sorts after `tests/chrome/` (here:
-`tests/viewport-host/`) is poisoned by the same clobber, and it does NOT skip —
+`tests/field-host/`) is poisoned by the same clobber, and it does NOT skip —
 it FAILS. The reason is that `ensureBunWebGpu()` memoizes its setup promise
 (`packages/core/tests/_helpers/gpu-fixture.ts`) and `bunWebGpuAvailable()` keeps
 answering `true` from the cached flag, so `test.skipIf(!bunWebGpuAvailable())`
@@ -299,7 +299,7 @@ it, they are only slower and vaguer than they claim.
 ## FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session
 
 **Status: mostly CLOSED by F3b Task 12.** `createFieldHost({ spawnWorker })` now takes the
-seam (`packages/editor/src/viewport-host/field-host.ts`), threaded into
+seam (`packages/editor/src/field-host/field-host.ts`), threaded into
 `FieldWorkerClient`'s existing `spawn` argument, and
 `packages/editor/tests/field-host-void-cast.gpu.test.ts` uses it to drive the whole loop —
 request → the real protocol handler in-process → response → `applyVoidCast` against a
@@ -343,6 +343,6 @@ That needs synthetic pointer events or a host-level gesture seam — a bigger de
 than this one turned out to be.
 
 **Reference:** `packages/editor/tests/field-host-void-cast.gpu.test.ts` (the harness, and
-its comments on why the worker is injected); `packages/editor/src/viewport-host/field-host.ts`
+its comments on why the worker is injected); `packages/editor/src/field-host/field-host.ts`
 (`createFieldHost`'s `deps` parameter); `packages/editor/tests/preview-host.gpu.test.ts`
 (prior art for the GPU fixture).

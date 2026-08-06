@@ -14,16 +14,16 @@ import {
   meshChunkField,
   SOLID,
 } from "@furnace/core/field";
-import { FieldWorkerClient } from "../src/viewport-host/field-client.ts";
+import { FieldWorkerClient } from "../src/field-host/field-client.ts";
 import type {
   FieldWorkerRequest,
   FieldWorkerResponse,
   WireBucket,
-} from "../src/viewport-host/field-protocol.ts";
+} from "../src/field-host/field-protocol.ts";
 import {
   createFieldWorkerHandler,
   VOID_CAST_ERROR_KEY,
-} from "../src/viewport-host/field-protocol.ts";
+} from "../src/field-host/field-protocol.ts";
 
 // 3-class fixture: rock (id0 organic), dirt (id1 organic), masonry (id2 kit).
 // A kit class makes the skinner emit + the mesher split off a backing bucket —

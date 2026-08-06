@@ -11,14 +11,14 @@
 // it is another decision about what the line SAYS, and the renderer is left holding only
 // the class name that says it.
 //
-// Type-imports only from the viewport host (erased) — the project-first invariant.
+// Type-imports only from the field host (erased) — the project-first invariant.
 import type {
   FieldTool,
   PendingStamp,
   SegmentHud,
   StampSession,
   ViewportGesture,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+} from "../../../field-host/index.ts"; // type-only: erased
 import { SESSION_VERBS, sessionStateTag } from "../../lib/field-session.ts";
 
 /** Everything the status bar needs about what is armed. ONE options object rather than

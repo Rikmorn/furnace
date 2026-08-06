@@ -47,8 +47,8 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { FieldHost, FieldTool } from "../../field-host/index.ts"; // type-only: erased
 import { brushArming } from "../../shared/field-brush.ts";
-import type { FieldHost, FieldTool } from "../../viewport-host/index.ts"; // type-only: erased
 import { useEditor } from "../components/editor-context.ts";
 import type { ActionCtx } from "../lib/actions.ts";
 import { useCatalog } from "./useCatalogs.tsx";

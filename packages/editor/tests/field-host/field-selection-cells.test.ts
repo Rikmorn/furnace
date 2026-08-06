@@ -22,7 +22,7 @@ import {
 import {
   SELECTION_DISPLAY_CAP,
   selectionDisplayCells,
-} from "../../src/viewport-host/field-selection-cells.ts";
+} from "../../src/field-host/field-selection-cells.ts";
 
 type Cell = [number, number, number];
 

@@ -15,6 +15,10 @@ import "../inspector/_register.ts";
 // where F4.5b Task 2 widened it to every seam there is.
 
 import { afterEach, expect, test } from "bun:test";
+import type {
+	FieldDriftReport,
+	FieldEntityInfo,
+} from "../../src/field-host/index.ts";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EntitiesPalette } from "../../src/frontend/components/shell/EntitiesPalette.tsx";
 import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
@@ -23,10 +27,6 @@ import {
 	useFieldEntities,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { byId } from "../../src/frontend/lib/actions.ts";
-import type {
-	FieldDriftReport,
-	FieldEntityInfo,
-} from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,

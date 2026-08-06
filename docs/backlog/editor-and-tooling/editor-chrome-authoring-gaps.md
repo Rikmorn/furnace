@@ -334,7 +334,7 @@ commit if the reconfigure answer turns out to be "post progress from somewhere".
 
 - `packages/editor/src/frontend/components/shell/StatusBar.tsx:486-501` — `longJobs`, the
   one derivation feeding both the chips and the `aria-live` announcement.
-- `packages/editor/src/viewport-host/field-host.ts` — `FieldStats` (`:331`) and
+- `packages/editor/src/field-host/field-host.ts` — `FieldStats` (`:331`) and
   `applyReconfigure`'s TSDoc §COST (`:870-878`), which carries the measurement and names
   `captureDueSnapshots` as the lever that exists and is unwired.
 - `packages/editor/src/frontend/lib/field-host-mirrors.ts:33` — `statsEqual`, the
@@ -351,7 +351,7 @@ progress is AVAILABLE — it was costed and declined, not overlooked.
 Both halves already exist, and `requestVoidCast`'s own comment says so:
 
 - **The worker can post mid-handler**, and posting does not block — the void-cast handler in
-  `viewport-host/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
+  `field-host/field-protocol.ts` loops over `store.chunks` extracting aprons, so a
   per-chunk progress message has an obvious home.
 - **The total is `store.chunks.size`**, which `requestVoidCast` reads a few lines below the
   comment declining the feature — past the in-flight guard, where the chunk count is
@@ -375,7 +375,7 @@ context in the chrome's single subscription point. That is real surface for a 1.
 
 **The stated reason changed at foundations T3a, the conclusion did not.** The seams were
 "deliberately single-slot and deliberately few" when this was filed; T3a made all thirteen
-multicast (`viewport-host/view-channel.ts`, `editor-architecture.md` §20). A fourteenth is
+multicast (`field-host/view-channel.ts`, `editor-architecture.md` §20). A fourteenth is
 therefore cheaper to *implement* than it was — the primitive exists and a seam is now three
 lines — but the deferral never rested on the implementation. It rests on the surface, and
 that is unchanged.
@@ -390,14 +390,14 @@ different design than two.
 
 ### Reference
 
-- `packages/editor/src/viewport-host/field-protocol.ts` — the void-cast handler's per-chunk
+- `packages/editor/src/field-host/field-protocol.ts` — the void-cast handler's per-chunk
   loop, where a progress post would go.
-- `packages/editor/src/viewport-host/field-voidcast.ts` — `requestVoidCast` and the comment
+- `packages/editor/src/field-host/field-voidcast.ts` — `requestVoidCast` and the comment
   above it declining this, plus `VOID_CAST_CHUNK_BUDGET` and its measurement. (Both were in
   `field-host.ts` until foundations T3b1, 2026-08-06. Cited by NAME rather than by line
   range on purpose: the range this bullet used to carry, `:1364-1374`, had already rotted
   before the move.)
-- `packages/editor/src/viewport-host/field-host.ts` — `FieldStats.voidCastPending`'s TSDoc,
+- `packages/editor/src/field-host/field-host.ts` — `FieldStats.voidCastPending`'s TSDoc,
   which explains why the pending FLAG rides the stats push instead of taking a seam of its
   own.
 - `packages/editor/src/frontend/components/shell/StatusBar.tsx` — `longJobs`, the consumer.

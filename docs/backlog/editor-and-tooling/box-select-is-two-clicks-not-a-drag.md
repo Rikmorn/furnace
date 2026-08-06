@@ -26,7 +26,7 @@ The shape, if it is taken: a press that arms the anchor, a move that previews th
 region or — under a threshold, exactly like `DRAG_THRESHOLD_PX` on the pointer tool — falls
 back to leaving the anchor armed so the existing two-click flow still works. Both mechanisms
 can coexist; the cost of the drag one is that the canvas is also where a camera orbit lives,
-so the arbitration has to be written down (`viewport-host/field-pick.ts` is the precedent for
+so the arbitration has to be written down (`field-host/field-pick.ts` is the precedent for
 that kind of ordering).
 
 ## Trigger to revisit
@@ -38,11 +38,11 @@ gates by the same user.
 
 ## Reference
 
-- `packages/editor/src/viewport-host/field-host.ts` — `boxAnchor`, the press branch, and the
+- `packages/editor/src/field-host/field-host.ts` — `boxAnchor`, the press branch, and the
   `onPointerUp` that has no region case.
-- `packages/editor/src/viewport-host/viewport-cursor.ts` — the `cross` mark an un-anchored
+- `packages/editor/src/field-host/viewport-cursor.ts` — the `cross` mark an un-anchored
   corner draws; `shell/status-keymap.ts` for the line that names the gesture.
-- `packages/editor/src/viewport-host/field-pick.ts` — the press/threshold/drag arbitration the
+- `packages/editor/src/field-host/field-pick.ts` — the press/threshold/drag arbitration the
   pointer tool already uses, and the precedent this would follow.
 - `docs/reference/editor-architecture.md` §12 (selection as a tool class), §17.1 (the pointer's
   press arbitration), §17.7 (cell-level selection display).

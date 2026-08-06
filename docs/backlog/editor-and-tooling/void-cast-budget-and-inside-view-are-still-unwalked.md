@@ -40,7 +40,7 @@ existing build, not work.
 
 ## Reference
 
-- `packages/editor/src/viewport-host/field-voidcast.ts` — `requestVoidCast`,
+- `packages/editor/src/field-host/field-voidcast.ts` — `requestVoidCast`,
   `VOID_CAST_CHUNK_BUDGET`, the four refusals, `voidCastGen` / `voidCastJobGen`. (All of it
   lived in `field-host.ts` until foundations T3b1, 2026-08-06.)
 - `packages/editor/scripts/analyzer-pixel-check.md` — the pixel-check recipe to copy.

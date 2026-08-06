@@ -8,7 +8,7 @@
 // `cursorRay` → `camera.screenToRay`, and there is no camera until `init` has
 // acquired a context.
 //
-// HERE and not in `tests/viewport-host/`, which the plan named: that directory
+// HERE and not in `tests/field-host/`, which the plan named: that directory
 // holds this slice's PURE module tests, and `bun test` walks a directory's own
 // files before its subdirectories — `tests/chrome/` registers happy-dom, which
 // replaces `globalThis.navigator`/`crypto`. Every headless FieldHost suite is a
@@ -34,11 +34,11 @@ import {
   parseOps,
   serializeOps,
 } from "@furnace/core/field";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
+import type { StampSession } from "../src/field-host/field-stamp.ts";
 import { LATTICE } from "../src/shared/field-brush.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
-import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

@@ -45,7 +45,7 @@ import type {
 	FieldHost,
 	FieldHostShading,
 	FieldLayers,
-} from "../../viewport-host/index.ts"; // type-only: erased
+} from "../../field-host/index.ts"; // type-only: erased
 import type { UiState, UiStore } from "../lib/persist.ts";
 
 /** The layer defaults — the host's own all-true-but-`voidCast` set, restated here because

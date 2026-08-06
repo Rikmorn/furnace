@@ -47,7 +47,7 @@ The editor does **not** replace the cookbook — it absorbs its *boilerplate*. T
   editor chrome. **Svelte 5 remains the committed framework for consumer/in-page UI**
   (`docs/reference/ui-foundation.md` boundary unchanged). RJSF-vs-JSON-Forms deferred to M5.
 - **Project-first resolution invariant.** The editor contains NO engine: the daemon bundles the
-  consumer's `@furnace/core` + extensions + the editor's viewport-host source from the consumer's
+  consumer's `@furnace/core` + extensions + the editor's field-host source from the consumer's
   `node_modules` into one ESM bundle (`/engine.js`) — one core/registry/zod instance (Branch A's
   instance-identity requirement). Consequences: devDependency + run command now; a global
   launcher / compiled binary is a *packaging* step later, not a re-architecture; "editor bundled

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// The daemon + viewport-host source must stay Node-portable: no Bun APIs.
+// The daemon + field-host source must stay Node-portable: no Bun APIs.
 // (Internal tests/scripts may use Bun freely — this scans src/ only.)
 const SRC = join(import.meta.dir, "..", "src");
 const BUN_PATTERNS = [

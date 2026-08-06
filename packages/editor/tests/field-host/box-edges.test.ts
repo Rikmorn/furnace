@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boxEdges } from "../../src/viewport-host/box-edges.ts";
+import { boxEdges } from "../../src/field-host/box-edges.ts";
 
 test("boxEdges: 8 corners → 12 line segments (24 vertices)", () => {
   const corners = new Float32Array(24).map((_, i) => i); // dummy distinct corners

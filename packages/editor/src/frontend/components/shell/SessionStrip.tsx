@@ -20,7 +20,7 @@
 // — `gateAction`'s `armsTool` clause refuses the family keys (X among them now, since the
 // brush it swaps cannot stroke), and the tool rail refuses its buttons through the same
 // gate. The clause names the brush because that is the one a user finds by trying it.
-import type { StampSession } from "../../../viewport-host/index.ts"; // type-only: erased
+import type { StampSession } from "../../../field-host/index.ts"; // type-only: erased
 // The name and the tag live in `lib/field-session.ts` since F4.5b Task 10: the session
 // CARD is the second surface that says both, and this file's own header warned that a
 // third spelling would be a third thing to keep in agreement.

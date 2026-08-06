@@ -28,6 +28,8 @@ import "../inspector/_register.ts";
 import { afterEach, expect, test } from "bun:test";
 import type { FieldFlag, FlagKind, FlagSeverity } from "@furnace/core/field";
 import type { ReactElement } from "react";
+import type { VerifyVerdictWire } from "../../src/field-host/analyzer-protocol.ts";
+import type { FlagRow, FlagsSummary } from "../../src/field-host/index.ts";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { FlagsPalette } from "../../src/frontend/components/shell/FlagsPalette.tsx";
 import { Toasts } from "../../src/frontend/components/shell/Toasts.tsx";
@@ -35,8 +37,6 @@ import { TooltipProvider } from "../../src/frontend/components/ui/tooltip.tsx";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import { createUiStore, type UiStore } from "../../src/frontend/lib/persist.ts";
-import type { VerifyVerdictWire } from "../../src/viewport-host/analyzer-protocol.ts";
-import type { FlagRow, FlagsSummary } from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,

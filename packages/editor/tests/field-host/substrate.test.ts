@@ -6,15 +6,15 @@ import type * as gpu from "@furnace/core/gpu";
 import type { Context } from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import type { EntityArchetype } from "../../src/shared/catalog";
-import { FieldWorkerClient } from "../../src/viewport-host/field-client";
-import { createFlagStore } from "../../src/viewport-host/field-flags";
+import { FieldWorkerClient } from "../../src/field-host/field-client";
+import { createFlagStore } from "../../src/field-host/field-flags";
 import {
   type ChunkRender,
   createHostSubstrate,
   type HostSubstrate,
   type PropRender,
-} from "../../src/viewport-host/substrate";
+} from "../../src/field-host/substrate";
+import type { EntityArchetype } from "../../src/shared/catalog";
 
 /** The spawn the fake worker client never makes: `FieldWorkerClient` spawns
  *  lazily on its first request, and this suite never issues one — so a thrower

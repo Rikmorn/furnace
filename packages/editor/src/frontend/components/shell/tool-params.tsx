@@ -26,10 +26,7 @@
 // `BrushInspector` used — so the raw-control count this move adds is zero, not one.
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { type ReactNode, useId, useRef, useState } from "react";
-import type {
-	FieldMaskChoice,
-	FieldTool,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+import type { FieldMaskChoice, FieldTool } from "../../../field-host/index.ts"; // type-only: erased
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";

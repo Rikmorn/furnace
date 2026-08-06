@@ -30,7 +30,7 @@ take then, because the fix is a value the user can watch move.
 
 ## Reference
 
-- `packages/editor/src/viewport-host/field-host.ts` — the studio rig (key light + hemisphere
+- `packages/editor/src/field-host/field-host.ts` — the studio rig (key light + hemisphere
   fill) and the shading-mode switch.
 - `docs/reference/editor-architecture.md` §16.5 (studio shading as the default and why the
   advisor's markers stay unlit under it).

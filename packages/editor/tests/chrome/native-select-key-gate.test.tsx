@@ -41,13 +41,13 @@ import "../inspector/_register.ts";
 // mistake that removes the element — or by watching the wrong mock.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { EditorContext } from "../../src/frontend/components/editor-context.ts";
-import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
-import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
 	FieldGeneratorInfo,
 	StampSession,
-} from "../../src/viewport-host/index.ts";
+} from "../../src/field-host/index.ts";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
 import {
 	act,
 	cleanup,

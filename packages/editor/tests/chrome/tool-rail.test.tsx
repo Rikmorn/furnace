@@ -21,13 +21,13 @@ import "../inspector/_register.ts";
 //      slice keeps closing.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { EditorContext } from "../../src/frontend/components/editor-context.ts";
-import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
-import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
 	FieldGeneratorInfo,
 	StampSession,
-} from "../../src/viewport-host/index.ts";
+} from "../../src/field-host/index.ts";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
 import {
 	act,
 	cleanup,
@@ -180,7 +180,7 @@ test("the rail carries the four tool families, and the ARMED one is the stronges
 	// The mirror is an INITIAL VALUE, not a push: the host initialises its armed slot to
 	// `pointer` (D-F4.5-7) and the chrome initialises its mirror to the same value across
 	// a fence that forbids them sharing the constant (the chrome cannot value-import
-	// anything under `viewport-host/`). Nothing else would catch them diverging — the rail
+	// anything under `field-host/`). Nothing else would catch them diverging — the rail
 	// would simply show Select pressed while LMB dug, with no call, no throw and no
 	// warning. (Relocated with its subject from tests/chrome/field-panel.test.tsx.)
 	expect(stub.calls.setGesture).not.toHaveBeenCalled();

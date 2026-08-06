@@ -39,7 +39,7 @@ import type {
   FieldHost,
   FieldStats,
   FieldTool,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 

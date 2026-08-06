@@ -24,12 +24,12 @@ import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize
 import {
   createFieldHost,
   STROKE_MIN_MS,
-} from "../src/viewport-host/field-host.ts";
+} from "../src/field-host/field-host.ts";
 import type {
   FieldHistory,
   FieldTool,
   SegmentHud,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 

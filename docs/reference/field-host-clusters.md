@@ -1,7 +1,7 @@
 # The `createFieldHost` closure, mapped
 
 A factual map of the state held inside `createFieldHost` in
-`packages/editor/src/viewport-host/field-host.ts`, as of 2026-08-03. Every binding in the
+`packages/editor/src/field-host/field-host.ts`, as of 2026-08-03. Every binding in the
 closure is assigned to exactly one owning cluster, and every read and write that crosses a
 cluster line is listed.
 
@@ -9,21 +9,21 @@ This is a **description, not a proposal**. §7 is the one forward-looking sectio
 marked as such.
 
 **Five clusters have since left, and a sixth left in half.** `segment` was extracted to
-`packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
+`packages/editor/src/field-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
-`packages/editor/src/viewport-host/field-voidcast.ts`, taking two of its three state
+`packages/editor/src/field-host/field-voidcast.ts`, taking two of its three state
 bindings and all five of its functions (§6's `voidcast` row records what stayed and why).
-`props` went the same day, to `packages/editor/src/viewport-host/field-props.ts`, taking one
+`props` went the same day, to `packages/editor/src/field-host/field-props.ts`, taking one
 of its two state bindings and all three of its functions. `stats` went the same day too, to
-`packages/editor/src/viewport-host/field-stats.ts`, taking **all six** of its state bindings
+`packages/editor/src/field-host/field-stats.ts`, taking **all six** of its state bindings
 and its one function — plus twenty lines of `tick` that the map attributes to `lifecycle`
 (§6's `stats` row explains why that matters more than the count does). Then `history` went,
-**but only as its FEED** — to `packages/editor/src/viewport-host/field-history-feed.ts`,
+**but only as its FEED** — to `packages/editor/src/field-host/field-history-feed.ts`,
 taking both of its state bindings and two of its three functions. `stepHistory` stayed, and
 §6's `history` row explains why that is a finding rather than an omission (it also corrects
 that row's function count, 2 → 3). Last of T3b1's five, `view` went to
-`packages/editor/src/viewport-host/field-view.ts`, taking both of its state bindings and its
+`packages/editor/src/field-host/field-view.ts`, taking both of its state bindings and its
 one function — and it is the one extraction sized by what it SUPPLIES rather than by what it
 takes (§6's `view` row, and the module's own header). Every count below still includes all
 six. They are left as measured because they are what the remaining 17 clusters were sized
@@ -193,7 +193,7 @@ smeared across §6, because the honest correction for most of the affected rows 
 site no longer exists", not a re-count nobody has done.
 
 - **`escapeLadder` is DELETED**, and its reads moved. The five-rung chain became a capture
-  STACK (`packages/editor/src/viewport-host/input-router.ts`): a state acquires an entry
+  STACK (`packages/editor/src/field-host/input-router.ts`): a state acquires an entry
   when it goes live and releases it in the same canonical setter that clears it, so the Esc
   reads that used to sit inside one `input`-cluster function now sit inside each state's own
   setter — `setBoxAnchor`, `setPendingStamp`, `setSelection`, `setSelectedEntity` and
@@ -208,7 +208,7 @@ site no longer exists", not a re-count nobody has done.
   arithmetic fix.
 - **The thirteen `subscribe*` seams are `ViewChannel`s.** Each `let …Cb: ((…) => void) | null`
   slot became a `const …Channel = createViewChannel(…)`
-  (`packages/editor/src/viewport-host/view-channel.ts`). The §6 state lists name the new
+  (`packages/editor/src/field-host/view-channel.ts`). The §6 state lists name the new
   bindings, with declaration lines re-measured at T3a. This matters to §2.1's rule and to
   §7.3's mechanism: a seam is now a `const` whose identity never moves, so it is safe to
   pass BY VALUE to an extracted module — thirteen bindings crossed from the `let` column to
@@ -651,7 +651,7 @@ so the three counts do not reconcile and never did. That is pre-existing map sla
 
 ### Cluster: props — **EXTRACTED 2026-08-06**
 
-Lives in `packages/editor/src/viewport-host/field-props.ts`. The row below is the measurement
+Lives in `packages/editor/src/field-host/field-props.ts`. The row below is the measurement
 it was sized against, annotated with what the move actually cost.
 
 **Owns (state) — 2:** `propMeshes`@1798 · `propCounts`@1804
@@ -771,7 +771,7 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 
 ### Cluster: view — **EXTRACTED 2026-08-06**
 
-Lives in `packages/editor/src/viewport-host/field-view.ts` (214 lines: **44 code**, 166
+Lives in `packages/editor/src/field-host/field-view.ts` (214 lines: **44 code**, 166
 comment). The row below is the measurement it was sized against, annotated with what the move
 actually cost. **This is the row §2.1's second correction gained its ordering clause on** —
 and the row that shows the whole page's line-count metric failing, because this cluster is the
@@ -859,7 +859,7 @@ suite: deleting `setSlice`'s `y === sliceY` guard, replacing `setLayers`' `else 
 suite fully green. The thirteen `setLayers` calls in `field-host-void-cast.gpu.test.ts` miss
 them because every one of those toggles — so the edge and the level always agree — and because
 what they assert is what the worker was SENT, which `requestVoidCast` decides behind its own
-four refusals. `packages/editor/tests/viewport-host/field-view.test.ts` closes all three plus
+four refusals. `packages/editor/tests/field-host/field-view.test.ts` closes all three plus
 the copy rule, at the seam the extraction created.
 
 
@@ -1108,7 +1108,7 @@ the copy rule, at the seam the extraction created.
 
 ### Cluster: history — **the FEED EXTRACTED 2026-08-06; `stepHistory` stayed**
 
-The feed lives in `packages/editor/src/viewport-host/field-history-feed.ts` — **not** in
+The feed lives in `packages/editor/src/field-host/field-history-feed.ts` — **not** in
 `field-history.ts`, which is the pure label-derivation module next door and whose header
 rules state out as a contract. The row below is the measurement it was sized against,
 annotated with what the move actually cost. It is the only row here that a cluster **half**
@@ -1203,13 +1203,13 @@ pinned by nothing in the PRE-EXISTING suite: reversing the two statements left i
 (1,363/0 either way, verified by sabotage), because no test there subscribes a callback that
 calls back into the host from inside its own first push. The record-rather-than-CLEAR half *is*
 pinned (clearing reddens two tests in `field-host-history.test.ts`). One unit,
-`tests/viewport-host/field-history-feed.test.ts`, now covers the ordering alone — with it in
+`tests/field-host/field-history-feed.test.ts`, now covers the ordering alone — with it in
 place the same reversal reddens exactly that one test.
 
 
 ### Cluster: voidcast — **EXTRACTED 2026-08-06**
 
-Lives in `packages/editor/src/viewport-host/field-voidcast.ts`. The row below is the
+Lives in `packages/editor/src/field-host/field-voidcast.ts`. The row below is the
 measurement it was sized against, annotated with what the move actually cost.
 
 **Owns (state) — 3:** `voidCastMeshes`@1939 · `voidCastGen`@1948 · `voidCastJobGen`@1955
@@ -1493,7 +1493,7 @@ these three are struck at neither, because they still do.
 
 ### Cluster: stats — **EXTRACTED 2026-08-06**
 
-Lives in `packages/editor/src/viewport-host/field-stats.ts`. The row below is the measurement
+Lives in `packages/editor/src/field-host/field-stats.ts`. The row below is the measurement
 it was sized against, annotated with what the move actually cost. **This is the row §2.1's
 fourth correction was found on** — read that bullet before trusting any small row in this
 document.
@@ -1564,7 +1564,7 @@ duration**: because nothing re-signs on a MATCH, an alias persists until a lengt
 differs under either shape; what moved is that the netting sequence now has the unwatched span
 to land in rather than one frame. Only `liveGenerators` and `compactableOps` can be wrong when
 it does — the other three `LogStats` fields ARE the signature.
-`packages/editor/tests/viewport-host/field-stats.test.ts` pins both halves of the guard.
+`packages/editor/tests/field-host/field-stats.test.ts` pins both halves of the guard.
 
 ---
 
@@ -1607,7 +1607,7 @@ say. `ctx`, `disposed` and `table` are `let`s the host REPLACES (`init`/`dispose
 material table meshes and bakes against a project the user has already changed, and a
 snapshotted `disposed` answers `false` for the life of the process. Only `store` and `log`
 are `const` handles a module may keep. The settled split is a type now —
-`HostSubstrate` in `packages/editor/src/viewport-host/substrate.ts` — and §7.3 states it.
+`HostSubstrate` in `packages/editor/src/field-host/substrate.ts` — and §7.3 states it.
 
 ### 7.2 What entangles the rest
 
@@ -1631,7 +1631,7 @@ The `let`-vs-`const` split (58 vs 12) is what decides the mechanism, because a `
 handle passed by value cannot fork but a reassigned `let` silently can.
 
 1. **An explicit context record for the substrate. LANDED at T3a (2026-08-05) as
-   `HostSubstrate`** — `packages/editor/src/viewport-host/substrate.ts`, a package-internal
+   `HostSubstrate`** — `packages/editor/src/field-host/substrate.ts`, a package-internal
    record type plus an identity factory, whose own TSDoc is the authority on the split.
    **CONSTRUCTED at T3b1 (2026-08-06)**, once the `voidcast` extraction had something to
    hand it — `createFieldHost` assembles one at the top of the closure, and its first
@@ -1686,7 +1686,7 @@ handle passed by value cannot fork but a reassigned `let` silently can.
 
 ### 7.4 Which cluster to extract first
 
-**DONE — extracted 2026-08-06** to `packages/editor/src/viewport-host/field-voidcast.ts`,
+**DONE — extracted 2026-08-06** to `packages/editor/src/field-host/field-voidcast.ts`,
 and it was the `HostSubstrate`'s first consumer, which is what this recommendation was for.
 The prediction below held: no `FieldHost` member changed, every pin ran unmodified, and the
 whole of the cluster's inbound DATA was already substrate. The one thing the recommendation

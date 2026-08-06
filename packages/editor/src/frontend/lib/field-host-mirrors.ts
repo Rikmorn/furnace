@@ -9,10 +9,6 @@
 // makes a duplicate subscription checkable at all, since the seams went multicast and a
 // second subscriber stopped announcing itself by breaking the first.
 
-// The row's own param renderer, so the push guard below compares exactly the
-// string the `<dl>` shows (see `sameParams`) — one function, so a row and its
-// guard cannot disagree about what "same param" means.
-import { formatParam } from "../../shared/field-entity.ts";
 import type {
   FieldEntityInfo,
   FieldHistory,
@@ -23,7 +19,11 @@ import type {
   FlagsSummary,
   PlacedArchetype,
   ViewportGesture,
-} from "../../viewport-host/index.ts"; // type-only: erased
+} from "../../field-host/index.ts"; // type-only: erased
+// The row's own param renderer, so the push guard below compares exactly the
+// string the `<dl>` shows (see `sameParams`) — one function, so a row and its
+// guard cannot disagree about what "same param" means.
+import { formatParam } from "../../shared/field-entity.ts";
 import type { UiState } from "./persist.ts";
 
 /** Value-equality for the subscribeStats push guard (the host fires it every rAF; an

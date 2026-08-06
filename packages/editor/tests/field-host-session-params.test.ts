@@ -13,7 +13,7 @@
 // consumer to read it instead of re-reading the host"). The touched-key set is therefore
 // host state too, so that one actor owns both halves of the question.
 //
-// HERE and not in `tests/viewport-host/` — the field-host-move.test.ts rule: that directory
+// HERE and not in `tests/field-host/` — the field-host-move.test.ts rule: that directory
 // holds the pure module tests, and `bun test` walks `tests/chrome/` (which registers
 // happy-dom) before any sibling subdirectory. Every headless FieldHost suite is a `tests/`
 // root file.
@@ -33,11 +33,11 @@ import {
   generatorById,
   serializeOps,
 } from "@furnace/core/field";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
+import type { StampSession } from "../src/field-host/field-stamp.ts";
 import type { EntityCatalog } from "../src/shared/catalog.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
-import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

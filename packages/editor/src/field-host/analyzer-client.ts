@@ -165,9 +165,9 @@ export class AnalyzerWorkerClient {
  *  flag, re-fired once on `settle()`. `fire` returns whether a job was actually
  *  posted; false leaves the latch idle instead of wedging it.
  *
- *  COPIED from `createPreviewCoalescer` in `src/viewport-host/field-stamp.ts`
+ *  COPIED from `createPreviewCoalescer` in `src/field-host/field-stamp.ts`
  *  rather than imported: `tests/frontend-no-engine-leakage.test.ts` forbids any
- *  `viewport-host` specifier in a chrome-graph file, because that barrel carries
+ *  `field-host` specifier in a chrome-graph file, because that barrel carries
  *  engine code. This much duplication is the cheaper side of that trade — the
  *  alternative is hoisting the primitive into a third module, which is a refactor
  *  of the stamp host, not of this. */

@@ -5,11 +5,11 @@
 // Headless — the whole path is store state plus an orbit write. The marker
 // emphasis it drives is an instanced UPLOAD and therefore not observable from
 // here or from a GPU test either (nothing reads instance data back); its decision
-// is the pure `flagMarkerStyle`, pinned in tests/viewport-host/field-flags.ts.
+// is the pure `flagMarkerStyle`, pinned in tests/field-host/field-flags.ts.
 // What IS pinned here is everything a user can reach: the refusal, the seam, the
 // camera, and the world-reset clear.
 //
-// HERE and not in `tests/viewport-host/`, for the reason field-host-history.test.ts
+// HERE and not in `tests/field-host/`, for the reason field-host-history.test.ts
 // states: that directory holds this slice's PURE module tests, and `bun test` runs
 // `tests/chrome/` — which registers happy-dom and replaces `globalThis.navigator` —
 // before any sibling subdirectory, so a host suite there passes alone and fails in
@@ -33,12 +33,12 @@ import {
 import type {
   AnalyzerRequest,
   AnalyzerResponse,
-} from "../src/viewport-host/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../src/viewport-host/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/viewport-host/field-client.ts";
-import { flagCellBox } from "../src/viewport-host/field-flags.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FlagsSummary } from "../src/viewport-host/index.ts";
+} from "../src/field-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../src/field-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/field-host/field-client.ts";
+import { flagCellBox } from "../src/field-host/field-flags.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FlagsSummary } from "../src/field-host/index.ts";
 
 type V3 = [number, number, number];
 

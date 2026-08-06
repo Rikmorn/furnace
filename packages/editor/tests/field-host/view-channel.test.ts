@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { createViewChannel } from "../../src/viewport-host/view-channel";
+import { createViewChannel } from "../../src/field-host/view-channel";
 
 describe("createViewChannel", () => {
   test("multicasts one publish to every subscriber, in subscribe order", () => {

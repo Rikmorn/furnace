@@ -6,6 +6,7 @@
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
 import { expect, type mock, test } from "bun:test";
+import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
   ACTION_GROUPS,
   ACTIONS,
@@ -14,7 +15,6 @@ import {
   groupTitle,
   TOOL_FAMILIES,
 } from "../src/frontend/lib/actions.ts";
-import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 import { makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
 
 const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>

@@ -14,7 +14,7 @@
 // needs a pointer-made selection the host exposes no seam for), and it puts the
 // same span + entity ops in the same log a commit would.
 //
-// HERE and not in `tests/viewport-host/`, which the plan named: that directory
+// HERE and not in `tests/field-host/`, which the plan named: that directory
 // holds this slice's PURE module tests (field-pick, box-edges, camera-control…)
 // and `bun test` runs `tests/chrome/` — which registers happy-dom and replaces
 // `globalThis.navigator`/`crypto` — before any sibling subdirectory. Every other
@@ -37,12 +37,12 @@ import {
   parseOps,
   serializeOps,
 } from "@furnace/core/field";
+import { generatorFootprint } from "../src/field-host/field-ghost.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
 import type { EntityCatalog } from "../src/shared/catalog.ts";
 import { LATTICE, latticeClearance } from "../src/shared/field-brush.ts";
-import { generatorFootprint } from "../src/viewport-host/field-ghost.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

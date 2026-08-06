@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import { createContext, useContext } from "react";
-import type { FieldHost } from "../../viewport-host/index.ts";
+import type { FieldHost } from "../../field-host/index.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type { EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";

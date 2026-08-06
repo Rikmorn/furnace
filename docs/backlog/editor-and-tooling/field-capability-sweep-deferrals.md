@@ -32,7 +32,7 @@ governs that axis, per generator.
 
 **Trigger:** a generator whose size params are not obviously mappable to a box (or the second
 time someone reaches for a corner and finds nothing there). Take it with the gizmo, not before
-— `viewport-host/gizmo.ts` already owns handle picking and `field-move.ts` the anchored
+— `field-host/gizmo.ts` already owns handle picking and `field-move.ts` the anchored
 arithmetic, and a resize is a third gesture through the same arbitration.
 
 ## Multi-select entities

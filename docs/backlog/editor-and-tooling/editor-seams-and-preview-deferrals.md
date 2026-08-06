@@ -7,8 +7,8 @@ dockview/WebGPU lifecycle problem, and the two render-path fidelity deferrals in
 viewport host, and the field worker protocol's un-guarded generator evaluate. Merged so
 there is **one place to check whenever you touch the project-first bundle boundary
 (`packages/dungeon/src/editor-extensions.ts`, `packages/editor/src/daemon/bundle.ts`), the
-viewport host's render path (`packages/editor/src/viewport-host/index.ts`), or the field
-worker protocol (`packages/editor/src/viewport-host/field-protocol.ts`)**. Sections keep
+viewport host's render path (`packages/editor/src/field-host/index.ts`), or the field
+worker protocol (`packages/editor/src/field-host/field-protocol.ts`)**. Sections keep
 their original content.
 
 ## `editor-extensions.ts` re-exports more than the editor consumes
@@ -50,7 +50,7 @@ the contract side).
 **Reference:** `packages/dungeon/src/editor-extensions.ts` (the seam),
 `packages/editor/src/frontend/components/WorldPanel.tsx` (main-thread cast — three members),
 `packages/editor/src/frontend/lib/generation-protocol.ts` (`WorkerEngine` — two members),
-`packages/editor/src/viewport-host/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
+`packages/editor/src/field-host/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
 `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation session as a generic editor facility
@@ -61,7 +61,7 @@ Promoting this to a facility means: (1) declaring the generator-consumer contrac
 
 **Trigger to revisit.** A second project wants cockpit generation (forcing the contract to be explicit rather than dungeon-shaped), OR the Slice 3.3 generator-entity / socket work formalizes the generation contract (at which point the panel↔generator protocol should be defined alongside it, not left as an ad-hoc cast). The field charter's brush editor re-shapes this contract — fold into that brainstorm if it lands first.
 
-**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/viewport-host/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
+**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/field-host/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation preview should be its own dockview panel, not a viewport takeover
 
@@ -102,7 +102,7 @@ visibility swap + the zero-size init comment), `packages/editor/src/frontend/com
 ## The editor viewport is non-HDR and draws no post chain
 
 > **Re-anchored 2026-08-05 (foundations T2).** This entry was written against the SCENE-editing
-> viewport host (`viewport-host/index.ts` `renderLoaded`, which passed `effects: []` and could
+> viewport host (`field-host/index.ts` `renderLoaded`, which passed `effects: []` and could
 > not render a scene document's authored post chain). That host, the Slice 3.1 preview host
 > beside it, and the scene format's `effects` table are all deleted. **The gap itself is
 > unchanged and now belongs to the field host**, which is the editor's only viewport — so the
@@ -112,7 +112,7 @@ visibility swap + the zero-size init comment), `packages/editor/src/frontend/com
 
 `createFieldHost` requests a **non-HDR** context — `requestContext(canvas, { sampleCount: 4 })`,
 taking `hdr`'s `false` default — and its `frame.render` call passes **`effects: []`**
-(`packages/editor/src/viewport-host/field-host.ts`). So the editor viewport shows lights +
+(`packages/editor/src/field-host/field-host.ts`). So the editor viewport shows lights +
 ambient + studio/normals shading and nothing else: no bloom, no tonemap, no fog-through-post.
 
 The game does not look like that. `packages/dungeon/src/main.ts` requests
@@ -133,7 +133,7 @@ so the field, op log, tool and camera have to survive it exactly as they do ther
 (mood, emissives, fog), OR any work that gives the editor a "preview as the game sees it" mode.
 The AA switch's dispose-and-re-init path is the precedent to build on, not a new mechanism.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (the `requestContext` call and
+**Reference:** `packages/editor/src/field-host/field-host.ts` (the `requestContext` call and
 the `effects: []` render), `packages/dungeon/src/main.ts` (what the game actually requests),
 `packages/core/src/frame/render.ts` (the HDR↔effects throw contract),
 `docs/reference/editor-architecture.md` §16.5 (the context-property re-init precedent).
@@ -149,7 +149,7 @@ declaration forbids). `commitGenerator` and `reconfigureGenerator` both go throu
 every path that puts a result into the op log is covered.
 
 The editor's stamp preview does not. `handleStampPreview`
-(`packages/editor/src/viewport-host/field-protocol.ts` ~:297) calls `def.evaluate(...)`
+(`packages/editor/src/field-host/field-protocol.ts` ~:297) calls `def.evaluate(...)`
 **directly** and hand-rolls the ctx pairing inline (`def.contextFree ? undefined : { store }`),
 so it skips both guards. It cannot use the seam today: `evaluateGenerator` is deliberately
 **not** on the public field index — it is in-core surface, reached from core's own tests only
@@ -208,6 +208,6 @@ still a design decision. Nothing about `usesSeed` is outstanding.
 
 **Reference:** `packages/core/src/field/generators.ts` (`evaluateGenerator`, the two guards),
 `packages/core/src/field/index.ts` (what the field module does and does not export),
-`packages/editor/src/viewport-host/field-protocol.ts` (`handleStampPreview`),
+`packages/editor/src/field-host/field-protocol.ts` (`handleStampPreview`),
 `packages/core/src/field/types.ts` (`GeneratorDef.emits` TSDoc, which states the guard is the
 committer's and that direct `evaluate` calls skip it).

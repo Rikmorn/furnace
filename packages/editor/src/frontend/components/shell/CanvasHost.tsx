@@ -1,7 +1,7 @@
 // The full-window canvas layer: the one surface the FieldHost renders into, sized by
 // the shell's layout contract rather than by any panel.
 import { useEffect, useRef } from "react";
-import type { FieldHost } from "../../../viewport-host/index.ts"; // type-only: erased
+import type { FieldHost } from "../../../field-host/index.ts"; // type-only: erased
 import { errorMessage } from "../../lib/humanize.ts";
 import { useEditor } from "../editor-context.ts";
 

@@ -127,10 +127,10 @@ test("GET /engine.js serves the ESM bundle", async () => {
 
 test("GET /engine.js with a broken extensions entry → 500 with diagnostics", async () => {
   // The broken project must live INSIDE the workspace so esbuild resolves
-  // @furnace/editor/viewport-host (self-reference up to packages/editor's
+  // @furnace/editor/field-host (self-reference up to packages/editor's
   // package.json) and then reaches the genuinely-missing extension import. A
   // root outside the workspace (e.g. os.tmpdir()) fails on the unresolvable
-  // viewport-host FIRST — that is the documented project-first behavior (see
+  // field-host FIRST — that is the documented project-first behavior (see
   // bundle.test.ts), not what this test is asserting. We assert the *extension*
   // diagnostic surfaces, so we keep the broken root in-workspace.
   // mkdtempSync first (nothing to clean if it itself throws); everything that

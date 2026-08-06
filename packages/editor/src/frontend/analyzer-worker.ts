@@ -6,8 +6,8 @@
 import type {
   AnalyzerEngine,
   AnalyzerRequest,
-} from "../viewport-host/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../viewport-host/analyzer-protocol.ts";
+} from "../field-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../field-host/analyzer-protocol.ts";
 
 async function loadEngine(engineUrl: string): Promise<AnalyzerEngine> {
   // Variable indirection: the runtime-built /engine.js must not be resolved at

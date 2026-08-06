@@ -36,11 +36,11 @@ import {
   setDensity,
 } from "@furnace/core/field";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
-import { AnalyzerWorkerClient } from "../src/viewport-host/analyzer-client.ts";
-import type { AnalyzerRequest } from "../src/viewport-host/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/viewport-host/field-client.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FlagsSummary } from "../src/viewport-host/index.ts";
+import { AnalyzerWorkerClient } from "../src/field-host/analyzer-client.ts";
+import type { AnalyzerRequest } from "../src/field-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/field-host/field-client.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FlagsSummary } from "../src/field-host/index.ts";
 import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 const DUNGEON_ROOT = resolve(import.meta.dir, "../../dungeon");

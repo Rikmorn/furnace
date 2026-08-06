@@ -23,13 +23,13 @@ import {
   SOLID,
 } from "@furnace/core/field";
 import type { Context, RequestContextOptions } from "@furnace/core/gpu";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import { placesProps } from "../src/viewport-host/field-placements.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import { placesProps } from "../src/field-host/field-placements.ts";
 import type {
   CameraPose,
   FieldLayers,
   SegmentHud,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 
 // --- startStamp with NO selection: region-draw, not a refusal (D-F4.5-7) ----
 //

@@ -1,12 +1,15 @@
-// The package's public host barrel (`@furnace/editor/viewport-host`, see package.json
+// The package's public host barrel (`@furnace/editor/field-host`, see package.json
 // exports). It is what the daemon's virtual bundle entry re-exports (daemon/bundle.ts)
 // and the ONE module the chrome type-imports host types from — never a value import,
 // which tests/frontend-no-engine-leakage.test.ts machine-enforces, because everything
 // behind this file value-imports @furnace/core.
 //
-// The directory name is historical: the scene-editing viewport host that gave it its name
-// was deleted with the rest of the scene surface, and `createFieldHost` is now the only
-// host here.
+// The directory is named for what it holds: `createFieldHost` and the modules behind it.
+// It was renamed on 2026-08-06 (foundations T3b1) off a name inherited from the
+// scene-editing viewport host — deleted with the rest of the scene surface, but outliving
+// itself here for long enough that this comment used to apologise for it. Git history
+// follows the move (`git log --follow`); dated records under `docs/learnings/` are where
+// the old spelling still reads as current.
 
 // The advisor's presentation types, re-exported beside the host that hands them
 // out — a consumer names them without reaching into field-flags.ts.

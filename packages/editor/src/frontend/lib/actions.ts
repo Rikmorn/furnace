@@ -11,7 +11,7 @@
 // adding a reader means editing this number.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
-// (`viewport-host/field-host.ts`) and this registry's, on `window`. The rule:
+// (`field-host/field-host.ts`) and this registry's, on `window`. The rule:
 //
 //   A key has ONE handler per press. The canvas keeps a key when the verb steers the
 //   viewport under the pointer and must NOT fire from a palette — the fly set, `[`/`]`,
@@ -29,7 +29,7 @@
 //
 // This module is PURE and DOM-free (`KeyboardEvent` appears as a type only, erased at
 // build). It type-imports the host types like every other chrome module — the chrome may
-// never VALUE-import anything under `viewport-host/` (machine-enforced by
+// never VALUE-import anything under `field-host/` (machine-enforced by
 // `tests/frontend-no-engine-leakage.test.ts`), so every host verb here goes through the
 // `FieldHost` instance the context hook reads off `fieldHostRef`.
 import type {
@@ -40,7 +40,7 @@ import type {
   SelectionInfo,
   StampSession,
   ViewportGesture,
-} from "../../viewport-host/index.ts"; // type-only: erased
+} from "../../field-host/index.ts"; // type-only: erased
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
@@ -330,7 +330,7 @@ const BRUSH_FAMILY: readonly FamilyMember[] = [
   {
     label: "Segment",
     // The 60 m is FieldHost's MAX_SEGMENT_M, RESTATED (that constant's doc names this as
-    // the restating site): the chrome cannot value-import anything under `viewport-host/`,
+    // the restating site): the chrome cannot value-import anything under `field-host/`,
     // so the two agree by review. It was `ToolPalette`'s Segment tooltip until F4.5b Task 8
     // deleted that file, and for one commit the cap had no affordance at all — a user met
     // it only as a post-hoc refusal.

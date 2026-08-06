@@ -38,16 +38,16 @@ generator entities — a different object model — would start from the entitie
 `engine-architecture/transform-hierarchy-helpers.md`.
 
 (Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel
-speed-trim; `viewport-host/camera-control.ts` `flyLook`/`flyMove`.)
+speed-trim; `field-host/camera-control.ts` `flyLook`/`flyMove`.)
 
 
 ## New deferred items surfaced during M5B
 
 ### Gizmo-controller extraction
 
-**Title:** Extract translate-gizmo controller from `viewport-host/index.ts`
+**Title:** Extract translate-gizmo controller from `field-host/index.ts`
 
-**Context:** `viewport-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
+**Context:** `field-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
 (all host wiring), but it is past the ~400-line cognitive-load guideline
 (`docs/rules/clean-code.md`). The gizmo controller — `tryStartGizmoDrag`,
 `updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `committedTransform`,
@@ -84,7 +84,7 @@ the SchemaForm/field architecture. Removable if the architecture doesn't change.
 
 **Title:** Gizmo commit writes explicit rotation/scale even when they were previously omitted
 
-**Context:** `currentTransform` in `viewport-host/index.ts` fills omitted rotation/scale with
+**Context:** `currentTransform` in `field-host/index.ts` fills omitted rotation/scale with
 schema defaults (`[0,0,0,1]` / `[1,1,1]`) so it always produces a complete transform record.
 This means a gizmo commit writes `{ position, rotation: [0,0,0,1], scale: [1,1,1] }` into the
 document even when the entity's transform only had `position` before the drag. The fields have

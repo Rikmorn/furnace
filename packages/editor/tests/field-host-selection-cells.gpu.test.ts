@@ -16,11 +16,11 @@
 // belong to the gate. What this file CAN do about it is assert the premise the gate
 // then checks, which the cap case below does: the camera really is inside the flooded
 // volume, so the cubes it draws are the ones that were missing. The ORDERING rule (shell before interior) is
-// pure and pinned in tests/viewport-host/field-selection-cells.test.ts at
+// pure and pinned in tests/field-host/field-selection-cells.test.ts at
 // fixture-sized numbers; the CAP is exercised for real here, because the fixture
 // is big enough to cross it.
 //
-// HERE and not in `tests/viewport-host/`: `bun test` runs a directory's own files
+// HERE and not in `tests/field-host/`: `bun test` runs a directory's own files
 // before its subdirectories, and `tests/chrome/` registers happy-dom, which
 // replaces `globalThis.navigator` — taking `navigator.gpu` with it.
 import { expect, test } from "bun:test";
@@ -39,9 +39,9 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import { SELECTION_DISPLAY_CAP } from "../src/viewport-host/field-selection-cells.ts";
-import type { SelectionInfo } from "../src/viewport-host/index.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import { SELECTION_DISPLAY_CAP } from "../src/field-host/field-selection-cells.ts";
+import type { SelectionInfo } from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 

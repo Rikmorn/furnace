@@ -116,7 +116,7 @@ export type WorldActions = {
  *
  *  "dig into the rock" names an INTENTION, not a gesture, and that is deliberate: a fresh
  *  host boots with the `pointer` gesture armed, so LMB selects rather than strokes
- *  (`viewport-host/field-host.ts` — "`pointer` is the DEFAULT one, so this branch — not
+ *  (`field-host/field-host.ts` — "`pointer` is the DEFAULT one, so this branch — not
  *  the stroke below — is what a fresh host does with its first click"). Digging needs the
  *  Dig brush armed first, which drops the gesture. A "drag to dig" here would name a
  *  gesture that, at the exact moment this fires, does something else. */

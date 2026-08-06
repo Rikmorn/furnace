@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type CaptureHandle,
   createInputRouter,
-} from "../../src/viewport-host/input-router";
+} from "../../src/field-host/input-router";
 
 describe("createInputRouter", () => {
   test("escape() on an empty stack returns false and does nothing", () => {

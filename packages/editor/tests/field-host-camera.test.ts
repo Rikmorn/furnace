@@ -8,7 +8,7 @@
 // because every one of those needs `cursorRay`, and there is no camera until
 // `init` has acquired a context.
 //
-// HERE and not in `tests/viewport-host/`: that directory holds this slice's PURE
+// HERE and not in `tests/field-host/`: that directory holds this slice's PURE
 // module tests (camera-control, field-move, field-pick…), and `bun test` walks a
 // directory's own files before its subdirectories — `tests/chrome/` registers
 // happy-dom, which replaces `globalThis.navigator`. Every headless FieldHost
@@ -39,10 +39,10 @@ import {
   frameBox,
   type OrbitState,
   toEyeTarget,
-} from "../src/viewport-host/camera-control.ts";
-import { generatorFootprint } from "../src/viewport-host/field-ghost.ts";
-import type { CameraPose } from "../src/viewport-host/field-host.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+} from "../src/field-host/camera-control.ts";
+import { generatorFootprint } from "../src/field-host/field-ghost.ts";
+import type { CameraPose } from "../src/field-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 
 type V3 = [number, number, number];
 
@@ -229,7 +229,7 @@ test("frameSelection fits the SELECTED entity's footprint and keeps the viewing 
   // Stated through `frameBox` because that IS the claim at this level — the host
   // frames the selected entity's footprint from the pose it is already at. The
   // fit arithmetic itself (centre, longest edge × 1.8, floored at 2 m) is pinned
-  // against literals in tests/viewport-host/camera-control.test.ts.
+  // against literals in tests/field-host/camera-control.test.ts.
   const pose = lastPose(poses);
   const fitted: OrbitState = frameBox(
     { target: [0, 0, 0], distance: 0, yaw: pose.yaw, pitch: pose.pitch },

@@ -64,13 +64,13 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { openBlockedReason } from "../../../shared/field-entity.ts";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
 	FieldHost,
 	StampSession,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+} from "../../../field-host/index.ts"; // type-only: erased
+import { openBlockedReason } from "../../../shared/field-entity.ts";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import {
 	useFieldEntities,

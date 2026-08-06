@@ -7,11 +7,11 @@ are decided the same way (is the third occurrence here yet?) and because reading
 together is how you notice that two of them want the same provider stack.
 
 **Taken 2026-08-06 (foundations T3b1):** *Two layering back-edges: `ui/` reaching app chrome,
-and `viewport-host/` reaching `frontend/lib/`.* Its trigger — "the next task whose scope is
+and `field-host/` reaching `frontend/lib/`.* Its trigger — "the next task whose scope is
 already a move" — fired on the T3b1 cluster extractions. Eight modules left `frontend/lib/`
-for `src/viewport-host/` (host-only) or a new `src/shared/` (chrome-shared), and
+for `src/field-host/` (host-only) or a new `src/shared/` (chrome-shared), and
 `components/tips.tsx` moved into `components/ui/`. The as-built direction chain
-`frontend/ → viewport-host/ → shared/` is in `docs/reference/editor-architecture.md` §7.
+`frontend/ → field-host/ → shared/` is in `docs/reference/editor-architecture.md` §7.
 
 **Two things that entry named are NOT resolved, and neither is hiding here.** (1) The `ui/`
 half fixed the DIRECTION only: `ui/tips.tsx` still has four outward edges where every other
@@ -74,7 +74,7 @@ it inside the current file means editing gate logic in the middle of the action 
 The box brush and the segment brush each hold a pending first click — `boxAnchor` and
 `segmentAnchor` — and the two are mutually exclusive by construction: arming one clears the
 other. Every path that drops a half-drawn gesture therefore has to clear BOTH, and four
-places in `viewport-host/field-host.ts` do (line numbers re-checked 2026-08-05):
+places in `field-host/field-host.ts` do (line numbers re-checked 2026-08-05):
 
 | site | what it is |
 | --- | --- |
@@ -124,7 +124,7 @@ commit already in that neighbourhood.
 
 ### Reference
 
-- `packages/editor/src/viewport-host/field-host.ts` — the four sites above, and
+- `packages/editor/src/field-host/field-host.ts` — the four sites above, and
   `setPendingStamp` at `:3062-3070` for the precedent.
 - `packages/editor/tests/field-host-stamp-entry.gpu.test.ts` — the `ARM_EXITS` table,
   which walks the disarm paths and is where a fifth site would want a row.

@@ -51,7 +51,7 @@ import { useId } from "react";
 import type {
 	FieldHostShading,
 	FieldLayers,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+} from "../../../field-host/index.ts"; // type-only: erased
 import { useViewActions, useViewState } from "../../hooks/useView.tsx";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { Checkbox } from "../ui/checkbox.tsx";

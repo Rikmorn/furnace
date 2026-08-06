@@ -5,7 +5,7 @@ import {
   closestPointParamOnAxis,
   gizmoSpan,
   pickAxis,
-} from "../../src/viewport-host/gizmo.ts";
+} from "../../src/field-host/gizmo.ts";
 
 test("pickAxis: ray through the gizmo origin hits some axis (or null) within tolerance", () => {
   const hit = pickAxis(

@@ -6,7 +6,7 @@
 // pointer over a live context; its push is pinned in `field-host-pointer.gpu.test.ts`.
 // Between the two files every host path that mutates the log is covered.
 //
-// HERE and not in `tests/viewport-host/`, for the reason field-host-entity-verbs.test.ts
+// HERE and not in `tests/field-host/`, for the reason field-host-entity-verbs.test.ts
 // states: that directory holds this slice's PURE module tests, and `bun test` runs
 // `tests/chrome/` — which registers happy-dom and replaces `globalThis.navigator` — before
 // any sibling subdirectory, so a host suite there passes alone and fails in the full run.
@@ -25,8 +25,8 @@ import {
   generatorById,
   serializeOps,
 } from "@furnace/core/field";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldHistory } from "../src/viewport-host/index.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FieldHistory } from "../src/field-host/index.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

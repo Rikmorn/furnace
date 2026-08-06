@@ -10,7 +10,7 @@ import { createEngineBundler } from "../src/daemon/bundle.ts";
 // project-first invariant is exercised by bundle.gpu.test.ts, which boots the
 // bundled host on a real device. In production the consumer must carry
 // @furnace/editor in its own node_modules; bundling from a root outside the
-// workspace fails to resolve @furnace/editor/viewport-host — the expected
+// workspace fails to resolve @furnace/editor/field-host — the expected
 // project-first behavior.
 const FIXTURE = join(import.meta.dir, "fixtures", "mini-project");
 

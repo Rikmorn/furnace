@@ -18,15 +18,15 @@ import "../inspector/_register.ts";
 //      bar, because a bake mid-session would write a world the ghost has not joined yet.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { EditorContext } from "../../src/frontend/components/editor-context.ts";
-import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
-import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
-import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type {
 	FieldEntityInfo,
 	FieldGeneratorInfo,
 	StampSession,
-} from "../../src/viewport-host/index.ts";
+} from "../../src/field-host/index.ts";
+import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
+import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
+import { notify } from "../../src/frontend/lib/notify-store.ts";
 import {
 	act,
 	cleanup,

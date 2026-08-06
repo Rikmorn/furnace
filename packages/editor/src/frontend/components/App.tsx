@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { FieldHost } from "../../viewport-host/index.ts"; // type-only
+import type { FieldHost } from "../../field-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
 import { useDaemonFeed } from "../hooks/useDaemonFeed.ts";
 import { api } from "../lib/api.ts";

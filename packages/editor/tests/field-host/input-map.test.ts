@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { arrowNudgeSteps } from "../../src/viewport-host/input-map.ts";
+import { arrowNudgeSteps } from "../../src/field-host/input-map.ts";
 
 // The stamp-nudge sign table. Pinned key by key BECAUSE nothing reachable from
 // bun:test drives the keydown handler that consumes it (attachListeners only

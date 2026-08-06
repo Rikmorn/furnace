@@ -17,7 +17,7 @@ nothing outside core *calls* it.
 **There are already THREE hand-written copies of the extent rule, and the third one has the bug
 Rider A just fixed.** Core's `localHalfExtents`, the dungeon's `placementCollider`, and — found
 while writing this entry — the editor's `proxyScale`
-(`packages/editor/src/viewport-host/field-placements.ts:73-79`), which sizes every prop proxy and
+(`packages/editor/src/field-host/field-placements.ts:73-79`), which sizes every prop proxy and
 placement ghost. It applies the same split (box per-axis, round primitives by max axis) and takes
 `Math.max(scale[0], scale[1], scale[2])` **raw, with no `Math.abs`** — exactly the divergence
 Rider A removed from the dungeon in the same commit as `collisionCenter`. A mirrored record would
@@ -52,5 +52,5 @@ what the third consumer actually wants from this module, and choosing before it 
 `collisionExtentY`, `collisionCenter`); `packages/dungeon/src/field-world.ts`
 (`placementCollider` — the second implementation of the extent rule);
 `packages/dungeon/tests/field-placements.gpu.test.ts` (the parity test that holds the two
-together); `packages/editor/src/viewport-host/field-placements.ts` (`proxyScale`, the would-be
+together); `packages/editor/src/field-host/field-placements.ts` (`proxyScale`, the would-be
 consumer of a triple). `docs/reference/api-posture.md` R4 covers the naming of whatever lands.

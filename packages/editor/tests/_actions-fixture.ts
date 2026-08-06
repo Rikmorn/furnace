@@ -5,8 +5,8 @@
 // case in it, which is why running the dispatch suite alone used to report the table
 // suite's cases too.
 import { mock } from "bun:test";
+import type { FieldHost } from "../src/field-host/index.ts";
 import type { ActionCtx } from "../src/frontend/lib/actions.ts";
-import type { FieldHost } from "../src/viewport-host/index.ts";
 
 export function makeHostSpy() {
   return {

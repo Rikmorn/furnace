@@ -3,7 +3,7 @@
 // each value clamped to the generator's own schema bounds. No engine imports —
 // the schema bounds and the maze pitch are PASSED IN (the host reads them from
 // @furnace/core/field and threads them here), so this unit-tests without a GPU.
-// It sits in `viewport-host/` because the host is its only consumer; the
+// It sits in `field-host/` because the host is its only consumer; the
 // no-core-values property above is now a testability choice rather than the
 // project-first invariant, which binds `src/frontend/` and `src/shared/` (where
 // field-entity.ts stays type-only for exactly that reason).

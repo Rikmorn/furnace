@@ -9,7 +9,7 @@
 // and the tests call the real handlers with synthetic events, because the move
 // state machine has no method seam for the pointer half.
 //
-// HERE and not in `tests/viewport-host/`: `bun test` runs a directory's own files
+// HERE and not in `tests/field-host/`: `bun test` runs a directory's own files
 // before its subdirectories, and `tests/chrome/` registers happy-dom, which
 // replaces `globalThis.navigator` — taking `navigator.gpu` with it. Every host
 // GPU test is in this directory for that reason.
@@ -43,11 +43,11 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
+import type { StampSession } from "../src/field-host/field-stamp.ts";
 import { LATTICE } from "../src/shared/field-brush.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
-import type { StampSession } from "../src/viewport-host/field-stamp.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 

@@ -4,7 +4,7 @@ Tracker for the field-editor tool items deferred out of F2b/F3a/F3b: each is a k
 gap, cost, or divergence in the field tools that was filed rather than fixed because it
 needed a design call, a measurement, or a scope the shipping task did not have. They are
 merged so there is **one place to check whenever you touch
-`packages/editor/src/viewport-host/field-host.ts`, `field-props.ts`, `field-placements.ts`,
+`packages/editor/src/field-host/field-host.ts`, `field-props.ts`, `field-placements.ts`,
 or `packages/core/src/field/{ops,kit-render,reconfigure}.ts`**. Nothing here blocks; every
 section keeps its own trigger. Sections keep their original content.
 
@@ -52,8 +52,8 @@ that supplies proper normals.
 point), OR the first time a silhouette mismatch actually misleads a placement decision —
 e.g. props read as well-spaced in the editor and visibly interpenetrate in the game.
 
-**Reference:** `packages/editor/src/viewport-host/field-placements.ts` (the proxy
-mapping + the shading constraint); `packages/editor/src/viewport-host/field-props.ts`
+**Reference:** `packages/editor/src/field-host/field-placements.ts` (the proxy
+mapping + the shading constraint); `packages/editor/src/field-host/field-props.ts`
 (`rebuildProps`, `proxyGeometry` — both were in `field-host.ts` until foundations T3b1,
 2026-08-06); `packages/editor/src/shared/catalog.ts`
 (`parseEntityCatalog` — deliberately does not carry the catalog's `meshes` paths);
@@ -65,7 +65,7 @@ this would converge on); `docs/reference/dungeon-architecture.md` (the placement
 **Context.** One rule — "how big is a placed prop, given its archetype's collision
 primitive and its record's per-axis scale" — has two independent implementations:
 
-- `proxyScale` / `proxyExtents` in `packages/editor/src/viewport-host/field-placements.ts`
+- `proxyScale` / `proxyExtents` in `packages/editor/src/field-host/field-placements.ts`
   (editor): the proxy the editor DRAWS, both as a ghost wireframe and as the committed
   instanced prop.
 - `placementCollider` in `packages/dungeon/src/field-world.ts` (game): the static collider
@@ -98,7 +98,7 @@ sizing gains a third consumer (which is the same threshold Task 6 used for
 `packPlacementMatrices`), OR a walk-gate turns up props that collide differently than they
 drew.
 
-**Reference:** `packages/editor/src/viewport-host/field-placements.ts` (`proxyExtents`,
+**Reference:** `packages/editor/src/field-host/field-placements.ts` (`proxyExtents`,
 `proxyScale` — and their TSDoc, which names the dungeon as the authority);
 `packages/dungeon/src/field-world.ts` (`placementCollider`);
 `packages/core/src/field/kit-render.ts` (`packPlacementMatrices` — where the promoted
@@ -108,7 +108,7 @@ parses the catalog the dungeon actually ships).
 
 ## The editor's prop layer rebuilds unconditionally, and re-creates proxy geometry every time
 
-**Context.** `rebuildProps` in `packages/editor/src/viewport-host/field-props.ts` tears the
+**Context.** `rebuildProps` in `packages/editor/src/field-host/field-props.ts` tears the
 whole placed-prop layer down and rebuilds it from the op log on every path that could have
 changed it — commit, reconfigure apply, ⌘Z/⇧⌘Z, world new/load, `setEntityCatalog`. Two
 costs ride along, and they are one fix:
@@ -140,11 +140,11 @@ prop layer lands on a per-frame path — e.g. slice-clipping the props
 (the *Placed props ignore the slice plane* section below), whose most likely implementation
 rebuilds the layer on every slice-slider tick, which is a drag, which is a hot path.
 
-**Reference:** `packages/editor/src/viewport-host/field-props.ts` (`rebuildProps`,
+**Reference:** `packages/editor/src/field-host/field-props.ts` (`rebuildProps`,
 `proxyGeometry`, `destroyProps` — the whole cluster, lifted out of `field-host.ts` at
 foundations T3b1, 2026-08-06; the call sites stayed behind and there are NINE of them, not
 seven — see `docs/reference/field-host-clusters.md` §6's `props` row);
-`packages/editor/src/viewport-host/field-placements.ts` (`groupPlacements` — the grouping a
+`packages/editor/src/field-host/field-placements.ts` (`groupPlacements` — the grouping a
 signature would be taken over; `PROXY_PRIMITIVE` — the three-primitive ceiling);
 the *Placed props ignore the slice plane* section below (the sibling that would
 make this a hot path).
@@ -152,7 +152,7 @@ make this a hot path).
 ## Placed props ignore the slice plane — they draw full-height over a sliced field
 
 **Context.** F3b Task 10 added the editor's committed prop layer (`rebuildProps` in
-`packages/editor/src/viewport-host/field-props.ts`), gated by the `props` layer flag alone.
+`packages/editor/src/field-host/field-props.ts`), gated by the `props` layer flag alone.
 `setSlice(y)` clips the FIELD and the KIT by re-meshing every chunk through the worker's
 apron clamp (samples at/above the plane read as air), and it makes every gesture raycast
 slice-coherent. Props get none of that: turn the slice on and the cave's floor is cut away
@@ -186,9 +186,9 @@ rather than as a known display gap; OR whenever the stamp ghost's identical full
 is closed (the two want the same answer, and closing one alone would make the ghost and the
 committed layer disagree with each other). The void cast rides along on whichever fires.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`renderScene`'s `props`
+**Reference:** `packages/editor/src/field-host/field-host.ts` (`renderScene`'s `props`
 gate; `setSlice`; `applyStampGhost`'s existing full-height note);
-`packages/editor/src/viewport-host/field-protocol.ts` (`sliceAprons` — how the field is
+`packages/editor/src/field-host/field-protocol.ts` (`sliceAprons` — how the field is
 actually clipped); `docs/reference/editor-architecture.md` §16 (Layers + slice) and §18
 (the prop layer).
 
@@ -216,9 +216,9 @@ a real annoyance; OR the first catalog with more than two archetypes, where swit
 between them stops being a rare gesture. It also becomes moot if a future design gives
 each archetype its own palette button (one press = one session, seeded correctly).
 
-**Reference:** `packages/editor/src/viewport-host/field-placements.ts`
+**Reference:** `packages/editor/src/field-host/field-placements.ts`
 (`seedArchetypeParams`, `withArchetypeOptions`);
-`packages/editor/src/viewport-host/field-host.ts` (`startStamp` — the seeding call site
+`packages/editor/src/field-host/field-host.ts` (`startStamp` — the seeding call site
 and the TSDoc that states the once-only rule); `packages/dungeon/catalog/entities.json`
 (the authored `scatter` blocks).
 
@@ -249,7 +249,7 @@ bodged.
 someone at a gate, OR when snapshot capture is wired into the editor session (the same
 records make the rewind cheap enough to run per preview).
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`openEntity`,
+**Reference:** `packages/editor/src/field-host/field-host.ts` (`openEntity`,
 `sendPreviewJob`, `snapshotChunks`); `packages/core/src/field/reconfigure.ts`
 (`restorePreState` — the two routes and when the culled one is taken);
 `packages/core/src/field/snapshots.ts` (`captureDueSnapshots`). Note the sibling v0
@@ -289,7 +289,7 @@ wholesale. (This originally named "the F4 tool-feel round"; F4 turned out to be 
 **Reference:** F3 spec §3.3 + D-F3-14 (local design spec); `BrushShape` in
 `packages/core/src/field/types.ts`; the capsule SDF + `assertOpValid` kit rule in
 `packages/core/src/field/ops.ts`; the gesture in
-`packages/editor/src/viewport-host/field-host.ts` (`segmentClick`). Precedent: WorldEdit
+`packages/editor/src/field-host/field-host.ts` (`segmentClick`). Precedent: WorldEdit
 `//line` and Axiom's path tools ship both cross-sections.
 
 ## The void cast monopolises the one field worker: no cancel, and refusal where coalescing belongs
@@ -327,11 +327,11 @@ on, OR the first other whole-world worker job (F4's analyzer is the likely candi
 which point "one worker, first come first served" stops being a one-feature problem and
 wants a priority or a second worker.
 
-**Reference:** `packages/editor/src/viewport-host/field-voidcast.ts` (`requestVoidCast`'s
+**Reference:** `packages/editor/src/field-host/field-voidcast.ts` (`requestVoidCast`'s
 in-flight refusal and the `VOID_CAST_CHUNK_BUDGET` comment carrying the measurement — both
 were in `field-host.ts` until foundations T3b1, 2026-08-06);
-`packages/editor/src/viewport-host/field-stamp.ts` (`createPreviewCoalescer`, the shape that
-already exists); `packages/editor/src/viewport-host/field-client.ts` (one worker, no cancel —
+`packages/editor/src/field-host/field-stamp.ts` (`createPreviewCoalescer`, the shape that
+already exists); `packages/editor/src/field-host/field-client.ts` (one worker, no cancel —
 the class TSDoc states the contract).
 
 ## An entity delete leaves the previous reconfigure's drift report standing
@@ -364,7 +364,7 @@ badge on a row whose named disturbance is one edit out of date, not a wrong acti
 (core's own TSDoc invites it), OR a gate report of a drift row that outlived the edit it
 described.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`deleteEntity`;
+**Reference:** `packages/editor/src/field-host/field-host.ts` (`deleteEntity`;
 `stepHistory`'s clear, which is the precedent, and `applyReconfigureSession`'s
 `drift = result.drift.length === 0 ? null : result.drift`);
 `packages/core/src/field/reconfigure.ts` (`deleteGeneratorEntity`'s "No drift report" note
@@ -398,7 +398,7 @@ but not act on it" shape and the two should be answered together.
 **Trigger to revisit.** F4.5b Task 8 or 10, whichever settles what a frozen entity
 looks like in the palette row and the session card.
 
-**Reference.** `packages/editor/src/viewport-host/field-host.ts` —
+**Reference.** `packages/editor/src/field-host/field-host.ts` —
 `gizmoVisible`, `beginMoveSession`;
 `packages/editor/src/shared/field-entity.ts` — `openBlockedReason`.
 
@@ -407,7 +407,7 @@ looks like in the palette row and the session card.
 ## Log-signature caches can miss a world swap
 
 **Context.** `FieldHost` memoizes derived state on a *signature* built from the op log's
-own numbers. `currentLogStats` (`packages/editor/src/viewport-host/field-stats.ts` since
+own numbers. `currentLogStats` (`packages/editor/src/field-host/field-stats.ts` since
 foundations T3b1, 2026-08-06; `field-host.ts` before that — the op-cost meter's cache) uses
 `(ops.length, undoStack.length, redoStack.length)`. A world
 swap goes through `resetWorld`, which empties `log.ops` and both stacks and resets
@@ -465,8 +465,8 @@ point at which that starts paying.
 **Trigger to revisit:** a third log-signature cache being added, or the first report of a
 stale meter reading after a world load.
 
-**Reference:** `packages/editor/src/viewport-host/field-stats.ts` (`currentLogStats` and the
-module header's note on the widened window); `packages/editor/src/viewport-host/field-host.ts`
+**Reference:** `packages/editor/src/field-host/field-stats.ts` (`currentLogStats` and the
+module header's note on the widened window); `packages/editor/src/field-host/field-host.ts`
 (`entityFootprints`, the fixed version + its comment);
 `packages/editor/tests/field-host-pointer.gpu.test.ts` (the world-swap case).
 
@@ -502,7 +502,7 @@ ghost never showed. A history step is the same class of event.
 lifecycle — F4.5b Task 8/10 (session card + strip) would surface it, since the
 card is what leaves an enabled Apply on screen.
 
-**Reference.** `packages/editor/src/viewport-host/field-host.ts` — `stepHistory`,
+**Reference.** `packages/editor/src/field-host/field-host.ts` — `stepHistory`,
 `resetWorld`, `setMaterialTable`. Tests for the move half:
 `packages/editor/tests/field-host-move.test.ts`.
 
@@ -510,8 +510,8 @@ card is what leaves an enabled Apply on screen.
 
 ## A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it
 
-**Context.** `dropMove()` (`packages/editor/src/viewport-host/field-host.ts`) ends a live
-move by asking `moveIsIdle(d)` (`viewport-host/field-move.ts`) whether the move handed the
+**Context.** `dropMove()` (`packages/editor/src/field-host/field-host.ts`) ends a live
+move by asking `moveIsIdle(d)` (`field-host/field-move.ts`) whether the move handed the
 region anything — and `moveIsIdle` reads the DRAG's accumulated lattice steps
 (`d.applied`), i.e. how far the CURSOR travelled. A grab is not only driven by the cursor:
 the arrow pad (`nudgeStampRegion`) and the stamp inspector's d-pad move the same session's
@@ -544,7 +544,7 @@ a region comparator rather than a drag one.
 terminal verbs — Task 10's session card is the likely one, since its Apply button is a
 third entry point into exactly this decision and would inherit the same discard.
 
-**Reference.** `packages/editor/src/viewport-host/field-move.ts` (`moveIsIdle`),
+**Reference.** `packages/editor/src/field-host/field-move.ts` (`moveIsIdle`),
 `field-host.ts` (`dropMove`, `confirmActiveSession`), `tests/field-host-move.test.ts`.
 
 ---
@@ -609,7 +609,7 @@ that would actually hurt, and it is still unmeasured.
 (a move, not a click), or a second consumer of `subscribeStamp`. The "a task upgrades the
 renderers" half of this trigger has now fired once and paid nothing — do not re-fire it.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`notifyStamp` /
+**Reference:** `packages/editor/src/field-host/field-host.ts` (`notifyStamp` /
 `subscribeStamp`), `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (the stamp
 mirror, and `sameEntities` beside it as the precedent), `packages/editor/src/frontend/
 inspector/SchemaForm.tsx` (the `seed.current !== values` re-seed),

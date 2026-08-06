@@ -5,15 +5,15 @@ import type * as geometry from "@furnace/core/geometry";
 import type * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import { FieldWorkerClient } from "../../src/viewport-host/field-client";
-import { createFlagStore } from "../../src/viewport-host/field-flags";
-import type { FieldLayers } from "../../src/viewport-host/field-host";
-import { createView } from "../../src/viewport-host/field-view";
+import { FieldWorkerClient } from "../../src/field-host/field-client";
+import { createFlagStore } from "../../src/field-host/field-flags";
+import type { FieldLayers } from "../../src/field-host/field-host";
+import { createView } from "../../src/field-host/field-view";
 import {
   type ChunkRender,
   createHostSubstrate,
   type PropRender,
-} from "../../src/viewport-host/substrate";
+} from "../../src/field-host/substrate";
 
 // TWO DECISIONS, BOTH FOUND UNPINNED BY SABOTAGE during T3b1 Task 5, and neither
 // of them new — this file covers behaviour the closure had all along and nothing

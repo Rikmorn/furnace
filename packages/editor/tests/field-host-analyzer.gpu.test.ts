@@ -50,15 +50,15 @@ import type {
   AnalyzerRequest,
   AnalyzerResponse,
   VerifyVerdictWire,
-} from "../src/viewport-host/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../src/viewport-host/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/viewport-host/field-client.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+} from "../src/field-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../src/field-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/field-host/field-client.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import type {
   FieldStats,
   FieldTool,
   FlagsSummary,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 

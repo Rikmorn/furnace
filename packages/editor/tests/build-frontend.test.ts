@@ -5,7 +5,7 @@ import { join } from "node:path";
 const PKG = join(import.meta.dir, "..");
 const DIST = join(PKG, "dist", "frontend");
 
-// Internal tooling test — Bun APIs allowed (only daemon/viewport-host src is Node-portable).
+// Internal tooling test — Bun APIs allowed (only daemon/field-host src is Node-portable).
 test("build-frontend produces index.html + bundled assets", async () => {
   rmSync(DIST, { recursive: true, force: true });
   const proc = Bun.spawn(["bun", join(PKG, "scripts", "build-frontend.ts")], {

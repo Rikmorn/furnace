@@ -235,7 +235,7 @@ const QUARTER_TURNS: Record<Rotation, QuarterTurn> = {
  *  therefore occupies a different world AABB than its unrotated form, and can
  *  extend past the recorded `region`. That is the SAME region-vs-params
  *  mismatch the field host already documents for oversized params
- *  (`packages/editor/src/viewport-host/field-host.ts`, `snapshotChunks`: "the
+ *  (`packages/editor/src/field-host/field-host.ts`, `snapshotChunks`: "the
  *  region-vs-params mismatch is the stamp UI's to surface"), not a second
  *  hedge — `region` is the stamp's ANCHOR, not a clip box. */
 function rotateGrid(g: MiniGrid, turns: QuarterTurn): MiniGrid {

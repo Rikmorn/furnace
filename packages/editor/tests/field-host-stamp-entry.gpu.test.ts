@@ -8,7 +8,7 @@
 // is pinned in `field-host-headless.test.ts`; what lives here is everything
 // downstream of a click.
 //
-// HERE and not in `tests/viewport-host/` (this slice's PURE module tests): `bun
+// HERE and not in `tests/field-host/` (this slice's PURE module tests): `bun
 // test` runs a directory's own files before its subdirectories, and
 // `tests/chrome/` registers happy-dom, which REPLACES `globalThis.navigator` and
 // takes `navigator.gpu` with it. The bun-webgpu fixture memoizes and never
@@ -28,13 +28,13 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import type {
   PendingStamp,
   SelectionInfo,
   StampSession,
   ViewportGesture,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import {
   stubAnimationFrameCaptured,

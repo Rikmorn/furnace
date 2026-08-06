@@ -10,10 +10,6 @@
 import { expect, test } from "bun:test";
 import type { FieldOp, PlacementRecord } from "@furnace/core/field";
 import { packPlacementMatrices } from "@furnace/core/field";
-import type {
-  EntityArchetype,
-  EntityCollision,
-} from "../src/shared/catalog.ts";
 import {
   FALLBACK_COLLISION,
   groupPlacements,
@@ -29,7 +25,11 @@ import {
   seedArchetypeParams,
   touchedParamKeys,
   withArchetypeOptions,
-} from "../src/viewport-host/field-placements.ts";
+} from "../src/field-host/field-placements.ts";
+import type {
+  EntityArchetype,
+  EntityCollision,
+} from "../src/shared/catalog.ts";
 
 const BOX: EntityCollision = { kind: "box", halfExtents: [0.4, 0.35, 0.4] };
 const SPHERE: EntityCollision = { kind: "sphere", radius: 0.3 };

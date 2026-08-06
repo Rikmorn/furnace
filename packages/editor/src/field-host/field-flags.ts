@@ -68,7 +68,7 @@ export const VERIFIED_CLEAR_TINT: FlagTint = [0.4, 0.8, 0.5, 1];
  *
  * PRIVATE, and the format with it. It reaches a consumer only as
  * {@link FlagRow.key} — a value to hand back, never a string to build. The
- * chrome cannot value-import anything under `viewport-host/`:
+ * chrome cannot value-import anything under `field-host/`:
  * `frontend-no-engine-leakage.test.ts` bans the whole DIRECTORY by path, because
  * the barrel beside this file re-exports the hosts and so carries core. THIS
  * file carries none (both its imports are `import type`), but the rule is a path
@@ -190,7 +190,7 @@ export type FlagRow = {
 
 /** How many findings of one (kind, severity) pair stand. A ROW rather than a
  *  keyed map entry so a reader never has to spell the pair — which matters
- *  because the chrome cannot value-import anything under `viewport-host/` (see
+ *  because the chrome cannot value-import anything under `field-host/` (see
  *  {@link flagKey}), so a key function would be unreachable from the one consumer
  *  that needs it. */
 export type FlagCount = {

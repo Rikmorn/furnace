@@ -70,7 +70,7 @@ export type UiState = {
   /** Which of the advisor's triage bands the Flags palette asks for (D-F4.5-3's
    *  "widget state (flag filters included)"). A record of booleans rather than the
    *  `FlagFilters` type itself: this module is pure chrome and must not type-import
-   *  anything under `viewport-host/`, and the restore has to be schema-tolerant
+   *  anything under `field-host/`, and the restore has to be schema-tolerant
    *  anyway — a band that was renamed or retired is simply not adopted.
    *
    *  Its own key rather than a field inside `workspace`, even though D-3 calls it

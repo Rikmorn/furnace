@@ -8,7 +8,7 @@ says so in its own header, and this file is the other half of that sentence.
 
 Run it whenever anything under the marker layer changes — `rebuildFlagMarkers`,
 `flagTint`, the `flags` layer gate, the marker material, or the tints in
-`src/viewport-host/field-flags.ts`. It takes about three minutes.
+`src/field-host/field-flags.ts`. It takes about three minutes.
 
 Precedent: `docs/learnings/2026-07-21-invisible-line-overlays.md`, rule 1 — *any
 feature whose output is pixels needs either a pixel check or an error-scope check;

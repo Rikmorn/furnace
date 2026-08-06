@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import type { ViewportGesture } from "../../src/viewport-host/index.ts";
+import type { ViewportGesture } from "../../src/field-host/index.ts";
 import {
   cursorAffordance,
   viewportCursor,
-} from "../../src/viewport-host/viewport-cursor.ts";
+} from "../../src/field-host/viewport-cursor.ts";
 
 // --- cursorAffordance (f2b item 10 / D-F4.5-7) -----------------------------
 

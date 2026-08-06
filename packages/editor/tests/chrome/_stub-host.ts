@@ -17,15 +17,14 @@
 //
 // The REAL helper rather than a hand-rolled imitation, deliberately: the stub then goes
 // stale exactly when the production host would. Tests are not part of the chrome bundle,
-// so a value import of the viewport host is allowed here.
+// so a value import of the field host is allowed here.
 //
 // Shared because three suites now mount chrome that talks to a host: the field panel's
 // own tests, the entities palette's, and the shell's (which renders both inside the
 // shell layout). A second copy would go stale against the real FieldHost independently
 // of this one.
 import { mock } from "bun:test";
-import type { EntityCatalog } from "../../src/shared/catalog.ts";
-import { withArchetypeOptions } from "../../src/viewport-host/field-placements.ts";
+import { withArchetypeOptions } from "../../src/field-host/field-placements.ts";
 import type {
   CameraPose,
   FieldDriftReport,
@@ -42,11 +41,12 @@ import type {
   SelectionInfo,
   StampSession,
   ToolErrorSeverity,
-} from "../../src/viewport-host/index.ts";
+} from "../../src/field-host/index.ts";
 import {
   createViewChannel,
   type ViewChannel,
-} from "../../src/viewport-host/view-channel.ts";
+} from "../../src/field-host/view-channel.ts";
+import type { EntityCatalog } from "../../src/shared/catalog.ts";
 
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
  *  (its exact numbers are the host's business; what matters is that one arrives). */

@@ -10,7 +10,7 @@
 // events, because the two-click/one-click state machines inside the host have
 // no method seam at all.
 //
-// HERE and not in `tests/viewport-host/` (which holds this slice's PURE module
+// HERE and not in `tests/field-host/` (which holds this slice's PURE module
 // tests, `field-pick.test.ts` among them) for a harness reason worth stating,
 // because it is invisible and it bites silently: `bun test` runs a directory's
 // own files before its subdirectories, and `tests/chrome/` registers happy-dom,
@@ -49,10 +49,10 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import type { AnalyzerRequest } from "../src/viewport-host/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/viewport-host/field-client.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
-import type { FlagsSummary } from "../src/viewport-host/index.ts";
+import type { AnalyzerRequest } from "../src/field-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/field-host/field-client.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
+import type { FlagsSummary } from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 
@@ -467,7 +467,7 @@ test.skipIf(!bunWebGpuAvailable())(
 // 0.25 m lattice the lifted and unlifted boxes still overlap where the centre ray
 // crosses them — the camera looks AT the target, so the ray is inside the column for
 // only a fraction of a cell either way. The lift is pinned in
-// tests/viewport-host/field-flags.test.ts (red when it goes) and is shared BY
+// tests/field-host/field-flags.test.ts (red when it goes) and is shared BY
 // CONSTRUCTION: the pick, the frame and the outline all call the one function, so
 // there is no second spelling for it to drift from. What these cases own is the seam
 // and the layer gate, and both go red when either is broken.

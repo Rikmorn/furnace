@@ -1391,7 +1391,7 @@ const DIG_RANGE_M = 30;
  *  CARRIED to the chrome at runtime as {@link SegmentHud}'s `capM` (D-25), which
  *  is the only place the number reaches a user while it still matters — the
  *  status bar's segment line counts against it as the cursor moves. The chrome
- *  cannot value-import anything under `viewport-host/`, so a seam is the one way
+ *  cannot value-import anything under `field-host/`, so a seam is the one way
  *  the two can be the same number rather than two numbers that agree.
  *
  *  Still RESTATED, once, in the tool rail's Segment member hint (`BRUSH_FAMILY`
@@ -1517,7 +1517,7 @@ const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
 // §Color space: shaders write linear, the swap chain encodes). Converted once
 // here rather than eyeballed — the two surfaces are meant to be the same colour,
 // and a hand-picked approximation is how that quietly stops being true. The
-// chrome cannot value-import anything under `viewport-host/`, so the two agree
+// chrome cannot value-import anything under `field-host/`, so the two agree
 // by review (the MAX_SEGMENT_M / FlagsSection tint-palette precedent): if the
 // token moves, this moves.
 const SELECTED_COLOR: [number, number, number, number] = [
@@ -2511,7 +2511,7 @@ export function createFieldHost(deps?: {
 
   // --- tool application ---------------------------------------------------
 
-  // Cursor client coords → NDC (Y-up, [-1,1]). Copied from viewport-host/index.ts.
+  // Cursor client coords → NDC (Y-up, [-1,1]). Copied from field-host/index.ts.
   const toNdc = (clientX: number, clientY: number): [number, number] => {
     if (!canvasEl) return [0, 0];
     const r = canvasEl.getBoundingClientRect();
@@ -2687,7 +2687,7 @@ export function createFieldHost(deps?: {
     // Boundary cast: screenToRay returns Vec3 (Float32Array); fixed indices
     // 0/1/2 are always present. `noUncheckedIndexedAccess` widens them to
     // `number | undefined`. Marshal to plain tuples for `raycastField` exactly
-    // as viewport-host's rayFromCursor does (the recognized fixed-index read).
+    // as field-host's rayFromCursor does (the recognized fixed-index read).
     const ox = r.origin[0] as number;
     const oy = r.origin[1] as number;
     const oz = r.origin[2] as number;
@@ -4512,7 +4512,7 @@ export function createFieldHost(deps?: {
     // 2 drives directed lanes at ONE anchor cell and a pit is a whole region, so
     // an anchor's lanes would prove nothing about it. The two spellings of the
     // reason agree by REVIEW — the chrome cannot value-import anything under
-    // `viewport-host/` (the FlagsSection tint-palette precedent).
+    // `field-host/` (the FlagsSection tint-palette precedent).
     if (row.flag.kind === "pit") {
       reportToolError("that finding is region-level — walk it");
       return;
@@ -4658,7 +4658,7 @@ export function createFieldHost(deps?: {
   // nothing reads instance data back, so no test observes that the outline (or the
   // marker's size pop) is actually drawn. What IS pinned is everything either can be
   // derived from — `flagCellBox` and `flagMarkerStyle` are pure and covered in
-  // tests/viewport-host/field-flags.test.ts, and `summary.selected`'s own resolution
+  // tests/field-host/field-flags.test.ts, and `summary.selected`'s own resolution
   // is covered there and in tests/field-host-flag-select.test.ts. An accessor added
   // for one assertion is not worth the surface; the gate is the eyeball check. The
   // third of the three is the cell layer's `selection` gate — see renderScene.

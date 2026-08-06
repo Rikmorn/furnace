@@ -4,7 +4,7 @@
 // when it goes live and releases it when it clears, and Esc cancels the top.
 //
 // This suite is the equivalence record for that swap. The router's own unit tests
-// (`tests/viewport-host/input-router.test.ts`) pin the stack; these pin that the
+// (`tests/field-host/input-router.test.ts`) pin the stack; these pin that the
 // HOST still wires every rung to it, with the scenarios the old ladder's rung
 // comments argued from. Two of those scenarios already had homes and are NOT
 // duplicated here: the arm-with-corner pair ("Esc drops the pending CORNER first
@@ -14,7 +14,7 @@
 //
 // It needs a device for the reason every host GPU suite does: a click resolves
 // through `cursorRay` → `screenToRay`, and there is no camera until `init` has a
-// context. HERE and not in `tests/viewport-host/` because `bun test` runs a
+// context. HERE and not in `tests/field-host/` because `bun test` runs a
 // directory's own files before its subdirectories and `tests/chrome/` replaces
 // `globalThis.navigator` (taking `navigator.gpu` with it) — the same placement
 // note the sibling GPU suites carry.
@@ -30,12 +30,12 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import type {
   PendingStamp,
   SelectionInfo,
   StampSession,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import { stubAnimationFrameNoop } from "./_helpers/raf.ts";
 

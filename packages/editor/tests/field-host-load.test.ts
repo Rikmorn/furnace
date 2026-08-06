@@ -7,7 +7,7 @@
 import { expect, test } from "bun:test";
 import type { FieldManifest } from "@furnace/core/field";
 import { DEFAULT_CELL_SIZE } from "@furnace/core/field";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

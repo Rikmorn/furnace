@@ -12,7 +12,7 @@ import {
   pickNearest,
   rayAabbT,
   rayObbT,
-} from "../../src/viewport-host/field-pick.ts";
+} from "../../src/field-host/field-pick.ts";
 
 /** Unit quaternion `[x, y, z, w]` for a rotation about +Y (the only axis the
  *  cases below need — a wall prop's yaw). */

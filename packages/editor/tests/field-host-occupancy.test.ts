@@ -7,7 +7,7 @@
 // field-host-selection-cells.gpu.test.ts). A test that needed a context here would be a
 // sign the verb had picked up a dependency on the render side.
 //
-// At `tests/` root rather than `tests/viewport-host/` for the harness reason the pointer
+// At `tests/` root rather than `tests/field-host/` for the harness reason the pointer
 // suite documents: `bun test` walks a directory's own files before its subdirectories, and
 // `tests/chrome/` registers happy-dom, which replaces `globalThis.navigator`. Nothing here
 // touches `navigator.gpu`, so the placement is precautionary rather than load-bearing —
@@ -23,7 +23,7 @@ import {
   encodeChunkFile,
   SOLID,
 } from "@furnace/core/field";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,

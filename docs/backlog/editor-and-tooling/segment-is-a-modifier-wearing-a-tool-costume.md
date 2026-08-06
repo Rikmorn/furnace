@@ -50,6 +50,6 @@ misleading.
 **Reference:** `armMember` + `brushArming` + the family-ring docblocks in
 `packages/editor/src/frontend/lib/actions.ts`; the name/suffix compensation in
 `packages/editor/src/frontend/components/shell/ToolStrip.tsx`; the segment brush itself in
-`packages/editor/src/viewport-host/field-segment.ts` (its `commitToolOp` path is what makes
+`packages/editor/src/field-host/field-segment.ts` (its `commitToolOp` path is what makes
 the composition real rather than cosmetic); `docs/reference/editor-architecture.md` for the
 rail/strip split.

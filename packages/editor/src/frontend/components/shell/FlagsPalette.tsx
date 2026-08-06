@@ -26,7 +26,7 @@ import type {
 	FlagCount,
 	FlagFilters,
 	FlagRow,
-} from "../../../viewport-host/index.ts"; // type-only: erased
+} from "../../../field-host/index.ts"; // type-only: erased
 import { useFieldFlags } from "../../hooks/useFieldHostState.tsx";
 import {
 	Grid,
@@ -80,7 +80,7 @@ const FILTER_BANDS = Object.keys(FILTER_HINTS) as (keyof FlagFilters)[];
 /** Rows the user can act on wear the alarm colour; context wears the warning
  *  amber. The viewport's twins of these are `CANDIDATE_TINT` / `INFO_TINT` in
  *  field-flags.ts — matched by intent, NOT by import: the chrome cannot
- *  value-import anything under `viewport-host/` (frontend-no-engine-leakage
+ *  value-import anything under `field-host/` (frontend-no-engine-leakage
  *  bans the directory), so the two palettes agree by review. */
 const DOT_CLASS = {
 	candidate: "text-destructive-text",

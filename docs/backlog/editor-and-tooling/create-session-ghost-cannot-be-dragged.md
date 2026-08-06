@@ -15,7 +15,7 @@ complete mechanism: press the selected entity, travel past `DRAG_THRESHOLD_PX` a
 a move; `G` grabs it with no button held; the gizmo's arms constrain it to one axis; `R`
 turns it; `⏎` drops it; `Esc` reverts. A move IS a reconfigure session, so nothing reaches
 the op log until the drop and a cancelled move costs nothing. The arithmetic in
-`viewport-host/field-move.ts` is anchored rather than incremental, so a cursor returned to the
+`field-host/field-move.ts` is anchored rather than incremental, so a cursor returned to the
 press point returns the region exactly.
 
 None of that is reachable from a CREATE session, and the asymmetry is the item: two ways to
@@ -36,8 +36,8 @@ inside the canvas means while something is armed.
 
 ## Reference
 
-- `packages/editor/src/viewport-host/field-move.ts` — pure, anchored, already region-shaped.
-- `packages/editor/src/viewport-host/field-host.ts` — `beginMove`, `pointerPress`,
+- `packages/editor/src/field-host/field-move.ts` — pure, anchored, already region-shaped.
+- `packages/editor/src/field-host/field-host.ts` — `beginMove`, `pointerPress`,
   `nudgeStampRegion`, and the pending-stamp region-draw arm.
 - `packages/editor/src/frontend/components/shell/session-card/AdvancedSection.tsx` — the d-pad
   that is the current answer.

@@ -8,13 +8,15 @@
 // "For the field host" names the main consumer, not the only one: the CHROME
 // value-imports `brushArming` (`hooks/useActionContext.tsx`), which is why this
 // sits in `src/shared/` — the neutral layer both arrows point at — rather than
-// in `viewport-host/`. That placement carries a rule, and it is machine-enforced:
-// `src/shared/` is React-free and engine-free, where engine-free means no VALUE
-// import of `@furnace/core` (type-only is erased and fine), and
-// `tests/frontend-no-engine-leakage.test.ts` scans this directory with no
-// exemptions. Today the file imports NOTHING at all; the first import added here
-// has to keep that rule, because a core value import in this file would land in
-// the chrome bundle exactly like a direct one.
+// in `field-host/`. That placement carries a rule, and both halves of it are
+// machine-enforced: `src/shared/` is React-free and engine-free, where
+// engine-free means no VALUE import of `@furnace/core` (type-only is erased and
+// fine). `tests/frontend-no-engine-leakage.test.ts` scans this directory with no
+// exemptions for the engine half; `tests/no-chrome-leakage.test.ts` scans it for
+// the React half and for imports reaching back up into `frontend/`. Today the
+// file imports NOTHING at all; the first import added here has to keep that
+// rule, because a core value import in this file would land in the chrome bundle
+// exactly like a direct one.
 
 /** The four effects a brush stroke can apply. Named here rather than inline on
  *  `FieldTool` because the arming rule below is parameterized on it and lives here —
@@ -35,7 +37,7 @@ export type BrushEffect = "dig" | "fill" | "paint" | "smooth";
  *    segment brush means "sweep a rampart instead of a tunnel", not "stop segmenting".
  *
  * `classes` is taken STRUCTURALLY rather than as core's `MaterialClass[]`, which is what
- * keeps this module's no-imports property (the viewport host imports it).
+ * keeps this module's no-imports property (the field host imports it).
  */
 export function brushArming(input: {
   effect: BrushEffect;

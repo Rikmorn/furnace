@@ -10,6 +10,12 @@
 // `toolsEqual` are COMPILE-time backstops. They fail `bun run typecheck`, never a
 // test — a runtime assertion cannot notice a field nobody has written yet.
 import { expect, test } from "bun:test";
+import type {
+  FieldEntityInfo,
+  FieldStats,
+  FieldTool,
+  PlacedArchetype,
+} from "../src/field-host/index.ts"; // type-only: erased
 import {
   DEFAULT_FLAG_FILTERS,
   DEFAULT_GESTURE,
@@ -24,12 +30,6 @@ import {
   statsEqual,
   toolsEqual,
 } from "../src/frontend/lib/field-host-mirrors.ts";
-import type {
-  FieldEntityInfo,
-  FieldStats,
-  FieldTool,
-  PlacedArchetype,
-} from "../src/viewport-host/index.ts"; // type-only: erased
 
 /** Every NUMERIC field `statsEqual` compares — the list the loop below walks so no
  *  compared field is trusted on the strength of its neighbours passing. The one

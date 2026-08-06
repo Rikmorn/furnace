@@ -37,7 +37,7 @@ import {
   entryLabel,
   fieldHistory,
   HISTORY_TAIL,
-} from "../../src/viewport-host/field-history.ts";
+} from "../../src/field-host/field-history.ts";
 
 /** The 3-class table every headless field suite in this package uses (one kit class,
  *  which every stamp requires), trimmed to what a hall reads. */

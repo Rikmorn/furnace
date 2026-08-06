@@ -3,10 +3,9 @@
 // scratch store (ghost) and in commitGenerator (commit), so the committed
 // chunks must mesh byte-identically to the previewed ghost buckets.
 import { describe, expect, spyOn, test } from "bun:test";
-import { nudgeRegion, spanCells } from "../src/shared/field-brush.ts";
-import type { FieldWorkerResponse } from "../src/viewport-host/field-protocol.ts";
-import { createFieldWorkerHandler } from "../src/viewport-host/field-protocol.ts";
-import { deriveSizeDefaults } from "../src/viewport-host/field-size.ts";
+import type { FieldWorkerResponse } from "../src/field-host/field-protocol.ts";
+import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
+import { deriveSizeDefaults } from "../src/field-host/field-size.ts";
 import {
   createPreviewCoalescer,
   previewIsEmpty,
@@ -17,7 +16,8 @@ import {
   withPreviewError,
   withPreviewResult,
   withRegion,
-} from "../src/viewport-host/field-stamp.ts";
+} from "../src/field-host/field-stamp.ts";
+import { nudgeRegion, spanCells } from "../src/shared/field-brush.ts";
 import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 const REGION = {
@@ -334,7 +334,7 @@ import {
   meshChunkField,
   opBounds,
 } from "@furnace/core/field";
-import { FieldWorkerClient } from "../src/viewport-host/field-client.ts";
+import { FieldWorkerClient } from "../src/field-host/field-client.ts";
 
 // 3-class fixture with a kit class (stamps require one) — mirrors the
 // field-protocol test table.
@@ -587,7 +587,7 @@ test("the handler round drops nothing: a stale response for a superseded run lea
 
 import type { FieldManifest, GeneratorEntity } from "@furnace/core/field";
 import { DEFAULT_CELL_SIZE } from "@furnace/core/field";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 
 test("listEntities returns CLONED entity ops from a loaded oplog, brush ops filtered out", () => {
   const manifest: FieldManifest = {
@@ -650,9 +650,9 @@ import {
   parseOps,
   serializeOps,
 } from "@furnace/core/field";
-import type { FieldWorkerRequest } from "../src/viewport-host/field-protocol.ts";
-import type { StampSession } from "../src/viewport-host/field-stamp.ts";
-import type { FieldDriftReport } from "../src/viewport-host/index.ts";
+import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
+import type { StampSession } from "../src/field-host/field-stamp.ts";
+import type { FieldDriftReport } from "../src/field-host/index.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,
@@ -1465,9 +1465,9 @@ test("a load-time compaction that throws is caught: the world still loads and th
 // seam for it is F4 cockpit-pass work, not a shortcut taken here.
 
 import type { PlacementRecord } from "@furnace/core/field";
+import { groupPlacements } from "../src/field-host/field-placements.ts";
+import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import type { EntityCatalog } from "../src/shared/catalog.ts";
-import { groupPlacements } from "../src/viewport-host/field-placements.ts";
-import type { FieldEntityInfo } from "../src/viewport-host/index.ts";
 
 const CAVE_REGION = {
   min: [0, 0, 0] as [number, number, number],

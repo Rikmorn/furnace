@@ -9,7 +9,7 @@
 // listeners the host registers and the tests call the real handlers with
 // synthetic events.
 //
-// HERE and not in `tests/viewport-host/`: `bun test` runs a directory's own files
+// HERE and not in `tests/field-host/`: `bun test` runs a directory's own files
 // before its subdirectories, and `tests/chrome/` registers happy-dom, which
 // replaces `globalThis.navigator` — taking `navigator.gpu` with it. Every host
 // GPU test is in this directory for that reason. The verb half that needs no
@@ -42,12 +42,12 @@ import {
   ensureBunWebGpu,
 } from "../../core/tests/_helpers/gpu-fixture.ts";
 import { installMockResizeObserver } from "../../core/tests/_helpers/mock-resize-observer.ts";
-import { generatorFootprint } from "../src/viewport-host/field-ghost.ts";
+import { generatorFootprint } from "../src/field-host/field-ghost.ts";
 import type {
   CameraPose,
   SelectionInfo,
-} from "../src/viewport-host/field-host.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+} from "../src/field-host/field-host.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import { type HostListeners, makeHostCanvas } from "./_helpers/host-canvas.ts";
 import {
   stubAnimationFrameCaptured,

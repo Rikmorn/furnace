@@ -5,14 +5,14 @@ import type * as geometry from "@furnace/core/geometry";
 import type * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import { FieldWorkerClient } from "../../src/viewport-host/field-client";
-import { createFlagStore } from "../../src/viewport-host/field-flags";
-import { createHistoryFeed } from "../../src/viewport-host/field-history-feed";
+import { FieldWorkerClient } from "../../src/field-host/field-client";
+import { createFlagStore } from "../../src/field-host/field-flags";
+import { createHistoryFeed } from "../../src/field-host/field-history-feed";
 import {
   type ChunkRender,
   createHostSubstrate,
   type PropRender,
-} from "../../src/viewport-host/substrate";
+} from "../../src/field-host/substrate";
 
 // ONE PROPERTY, and only because T3b1 proved nothing else pinned it: that
 // `subscribe` records the change signature BEFORE the channel's snapshot fires,

@@ -5,15 +5,15 @@ import type * as geometry from "@furnace/core/geometry";
 import type * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
-import { FieldWorkerClient } from "../../src/viewport-host/field-client";
-import { createFlagStore } from "../../src/viewport-host/field-flags";
-import type { FieldStats } from "../../src/viewport-host/field-host";
-import { createStatsMeter } from "../../src/viewport-host/field-stats";
+import { FieldWorkerClient } from "../../src/field-host/field-client";
+import { createFlagStore } from "../../src/field-host/field-flags";
+import type { FieldStats } from "../../src/field-host/field-host";
+import { createStatsMeter } from "../../src/field-host/field-stats";
 import {
   type ChunkRender,
   createHostSubstrate,
   type PropRender,
-} from "../../src/viewport-host/substrate";
+} from "../../src/field-host/substrate";
 
 // THE NEW SEAM ONLY. The eleven payload numbers themselves are pinned where they
 // have always been — through `FieldHost.subscribeStats` in the GPU suites

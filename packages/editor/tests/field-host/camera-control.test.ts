@@ -16,7 +16,7 @@ import {
   orbitAbout,
   snapToAxis,
   toEyeTarget,
-} from "../../src/viewport-host/camera-control.ts";
+} from "../../src/field-host/camera-control.ts";
 
 type V3 = [number, number, number];
 

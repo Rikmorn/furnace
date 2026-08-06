@@ -7,11 +7,11 @@ import type {
   FlagKind,
   FlagSeverity,
 } from "@furnace/core/field";
-import type { VerifyVerdictWire } from "../../src/viewport-host/analyzer-protocol.ts";
+import type { VerifyVerdictWire } from "../../src/field-host/analyzer-protocol.ts";
 import type {
   FlagRow,
   FlagsSummary,
-} from "../../src/viewport-host/field-flags.ts";
+} from "../../src/field-host/field-flags.ts";
 import {
   CANDIDATE_TINT,
   createFlagStore,
@@ -24,7 +24,7 @@ import {
   INFO_TINT,
   VERIFIED_CLEAR_TINT,
   VERIFIED_TRAPPED_TINT,
-} from "../../src/viewport-host/field-flags.ts";
+} from "../../src/field-host/field-flags.ts";
 
 const CELL = 0.25;
 

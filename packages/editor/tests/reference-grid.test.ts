@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   buildGridLines,
   segmentsToBatch,
-} from "../src/viewport-host/reference-grid.ts";
+} from "../src/field-host/reference-grid.ts";
 
 // The constant coordinate a grid segment sits on: a Z-aligned line has a constant x
 // (endpoints share x, z spans ±extent); an X-aligned line has a constant z.

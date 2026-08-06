@@ -12,9 +12,9 @@
 // route through the App-owned prompt; the outcomes it CAN finish it reports itself, so
 // the message and the call that produced it stay next to each other.
 //
-// Type-imports only from the viewport host (erased) — the project-first invariant.
+// Type-imports only from the field host (erased) — the project-first invariant.
 import type { FieldManifest } from "@furnace/core/field"; // type-only: erased
-import type { FieldHost } from "../../viewport-host/index.ts"; // type-only: erased
+import type { FieldHost } from "../../field-host/index.ts"; // type-only: erased
 import type { api as realApi } from "./api.ts";
 import {
   bakeUploadCalls,

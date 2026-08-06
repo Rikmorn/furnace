@@ -17,7 +17,7 @@ without conditions.
 
 **This is the residue of a resolved entry, kept because the fix did not cover it.** It was
 one of two costs named by *Two layering back-edges: `ui/` reaching app chrome, and
-`viewport-host/` reaching `frontend/lib/`* in `chrome-shape-follow-ons.md`, taken at
+`field-host/` reaching `frontend/lib/`* in `chrome-shape-follow-ons.md`, taken at
 foundations T3b1 (2026-08-06). That move fixed the **direction** problem — the tooltip trio
 moved to `components/ui/tips.tsx`, so no file under `ui/` imports app-layer chrome any more.
 It did **not** fix this, because the throw is a Radix runtime requirement that travels with

@@ -45,7 +45,7 @@ finish (§18).
 
 `@furnace/editor` is a **devDependency** of the consumer plus a long-running local daemon and a browser-served chrome. It is not a binary and not vendored into anything: the consumer adds it to `devDependencies` and runs it with a command, the Storybook/Vite model.
 
-The editor contains **no engine**. This is the load-bearing invariant (called "project-first resolution"): every engine import — `@furnace/core`, the consumer's extensions, the viewport-host — is resolved and bundled *from the consumer's own `node_modules`*, never from the editor package's. The editor ships UI chrome and a daemon; the engine code is always the consumer's. (Verified: `packages/editor/package.json` declares `@furnace/core` only as a `devDependency`, used for types and the workspace symlink; the runtime engine bundle is built from the project root — see §3.)
+The editor contains **no engine**. This is the load-bearing invariant (called "project-first resolution"): every engine import — `@furnace/core`, the consumer's extensions, the field-host — is resolved and bundled *from the consumer's own `node_modules`*, never from the editor package's. The editor ships UI chrome and a daemon; the engine code is always the consumer's. (Verified: `packages/editor/package.json` declares `@furnace/core` only as a `devDependency`, used for types and the workspace symlink; the runtime engine bundle is built from the project root — see §3.)
 
 **Dogfood / run command.** In `packages/hello-world`, `bun run edit` runs the `"edit"` script:
 
@@ -81,16 +81,16 @@ The daemon builds the consumer's engine code in **one** esbuild bundle, resolvin
 
 ```
 import "<root>/<extensionsEntry>";                          // registration side-effects, when configured
-export { createFieldHost } from "@furnace/editor/viewport-host";
+export { createFieldHost } from "@furnace/editor/field-host";
 export { getService } from "@furnace/core/registry";        // the consumer's service seam (T1b)
 export * as extensions from "<root>/<extensionsEntry>";     // the consumer's public surface, when configured
 ```
 
 esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, with `resolveDir: root`. The bundler context is **incremental**: each `GET /engine.js` calls `ctx.rebuild()`. Build failure returns `{ ok: false, error }` carrying esbuild's formatted diagnostics.
 
-`createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and `viewport-host/index.ts`'s own header records that the directory name is what is left of them. The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
+`createFieldHost` is the editor's only host (§11); the scene viewport host and the Slice 3.1 preview host that used to ride beside it were deleted at F4.5a, and the directory that outlived them under the first one's name was renamed to match its one remaining occupant in T3b1 (§7). The `export * as extensions` is the **consumer-code seam**: it re-exports the same extension module the bare side-effect import already runs — so registration still fires exactly once — this time as a value namespace worker code can call the consumer's own functions through. When no extensions entry is configured the bundle emits `export const extensions = {}`. `EngineModule` (`frontend/lib/engine.ts`, the `loadEngine()` return type) is correspondingly `{ createFieldHost, extensions }` with `extensions: Record<string, unknown>`.
 
-**The analyzer no longer reads the namespace** (T1b): the virtual entry re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `viewport-host/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
+**The analyzer no longer reads the namespace** (T1b): the virtual entry re-exports `getService` from the CONSUMER's `@furnace/core/registry`, and `frontend/analyzer-worker.ts` resolves stage 2 via `mod.getService("analyzerVerify")` — a validated lookup that throws a nameable `FurnaceError` when the project registered nothing (the dungeon's `editor-extensions.ts` registers the service with `defineService` at import time, Branch A). The looked-up fn is still narrowed ONCE to `AnalyzerEngine["analyzerVerify"]` at the worker's boundary cast; the type stays structurally declared in `field-host/analyzer-protocol.ts` (the wire-twin rule survives unchanged). Nothing on the main thread reads `extensions` at all. The generation-era members (`runWorld` / `bakeWorldFiles` / `realizeRegion` / `MaterialCache` / `worldDir`) went with the World panel; the dungeon's `editor-extensions.ts` still exports far more than the editor consumes, and the engine bundle may tree-shake whatever nothing imports.
 
 **The daemon holds no schema knowledge.** The second bundle (`src/daemon/registry-bundle.ts`) existed for exactly one job: import the consumer's extensions on the *Node* side so `session.apply` could run `validateDocument` against the project's own registry before committing a scene mutation. With the mutations gone there is nothing server-side to validate — every schema decision now happens in the browser, inside the field host and the generator registry it drives. The daemon writes bytes (`generation.bake`) and reads them back (`field.load`); it does not know what a generator is. Deleted with it: the `extension-build-failed` error code, whose only throwers were that bundle's build and import paths.
 
@@ -180,14 +180,16 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Three entrypoints, because a worker is reached by URL and not by an import graph.** `src/frontend/index.html` is the chrome; `src/frontend/field-worker.ts` (§11) and `src/frontend/analyzer-worker.ts` (§15) each ship as their own module bundle, since the chrome spawns them with `new Worker("/<name>.js", { type: "module" })` and neither can ride the html entry's graph. Both run engine code (`@furnace/core/field`) **directly**, not through `/engine.js` — the analyzer worker additionally loads `/engine.js` at runtime for its stage-2 verify, which drives the project's own mover (§3a).
 
-**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`viewport-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `viewport-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
+**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**The import arrow runs one way — `frontend/ → viewport-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/viewport-host/` the engine-facing half, and `src/shared/` the neutral floor. Each layer may import DOWN the chain and never up; `shared/` imports nothing of the editor's at all. Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+**The import arrow runs one way — `frontend/ → field-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, and `src/shared/` the neutral floor. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing of the editor's at all. Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
-- **Host-only** (`viewport-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
-- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `viewport-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `viewport-host` specifier — the guard is right, and it is what decided the split.
+- **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
+- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
 
-The guard scans `src/shared/` with no exemptions precisely because those three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `viewport-host` specifier.
+The guard scans `src/shared/` with no exemptions precisely because those three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `field-host` specifier. That specifier rule ends the segment (`field-host/` or the end of the specifier) so it does not also catch `frontend/lib/field-host-mirrors.ts`, a chrome-internal helper that shares the prefix and nothing else.
+
+**Both directions are machine-enforced.** `tests/no-chrome-leakage.test.ts` is the mirror of the engine guard: it scans `src/field-host/` for React imports and for any specifier reaching back into `frontend/`, and `src/shared/` for React imports — closing the React-free half of the `shared/` rule, which was prose until T3b1's last task. It is stricter than the engine guard in one respect: `import type` counts, because the question is which layer a module belongs to rather than what reaches a bundle.
 
 **The host owns resize-rendering, and the chrome must not.** The field host subscribes its own re-render via `gpu.onResize`. Because the engine's `onResize` sets the canvas backing store *before* emitting, the host's render runs at the new size; a chrome-side `ResizeObserver` fires before the backing-store resize and blanks the surface. This was a real bug caught only by a manual visual gate, and the constraint is documented at the source.
 
@@ -291,7 +293,7 @@ row were deleted across F4.5a/b (§16.7, §17.9), and each mention below carries
 saying where the organ went. Where a later slice changed a host contract, the change is
 recorded inline at the claim it falsified rather than left for the reader to reconcile.
 
-- **`FieldHost`** (`viewport-host/field-host.ts`) — a PreviewHost-class host (own
+- **`FieldHost`** (`field-host/field-host.ts`) — a PreviewHost-class host (own
   canvas/context/camera/rAF loop) owning the field authoring loop: a
   `@furnace/core/field` store + op log (undo/redo = chunk-keyed two-channel inverse
   deltas, ⌘Z/⇧⌘Z), LMB tool strokes, RMB fly-look + WASD/QE (camera-control reuse), a
@@ -301,7 +303,7 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   Threaded to the chrome through the `/engine.js` runtime channel (the same channel the
   now-deleted PreviewHost used) — the chrome never value-imports engine code;
   `tests/frontend-no-engine-leakage.test.ts` machine-enforces the ban against
-  `@furnace/core`, `field-protocol`, AND `viewport-host` value-imports.
+  `@furnace/core`, `field-protocol`, AND `field-host` value-imports.
   What is actually IN that closure — all 293 bindings assigned to 23 clusters, with every
   cross-cluster read and mutation listed — is mapped in
   `docs/reference/field-host-clusters.md`, which is what any further extraction out of it
@@ -320,8 +322,8 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   the filled kit ghost (§12). The F2b gate's deferred remainder was consumed into the F4.5
   stage and is discharged except for one item, now its own entry:
   `docs/backlog/editor-and-tooling/box-select-is-two-clicks-not-a-drag.md`.
-- **Remesh worker** (`frontend/field-worker.ts` + `viewport-host/field-protocol.ts` /
-  `viewport-host/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
+- **Remesh worker** (`frontend/field-worker.ts` + `field-host/field-protocol.ts` /
+  `field-host/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
   protocol: 20³ density+material apron pair + the material table in, per-class mesh
   buckets + kit instance lists out, buffers transferable both ways; dirty-SET
@@ -385,7 +387,7 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
   display was deferred to F4 and LANDED at F4.5b (§17.7).
 - **Layers + slice** — the state itself (the flags, the plane, `sliceOpts()`, and both
-  facade seams) lives in `viewport-host/field-view.ts` since foundations T3b1 (2026-08-06),
+  facade seams) lives in `field-host/field-view.ts` since foundations T3b1 (2026-08-06),
   not in the host; behaviour unchanged by the move (§20.3), and all 25 read sites stayed
   behind as calls (`viewState.layers()` / `viewState.sliceY()` / `viewState.sliceOpts()`).
   `FieldLayers { field, kit, props, ghost, selection, grid,
@@ -565,7 +567,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   hologram-blue wireframe batch of oriented proxy boxes (`placementGhostBatch`,
   `occlude:false`, under the `ghost` layer gate). No mesh loading in the ghost (v0).
 - **Committed prop layer** — the cluster (`rebuildProps`, `proxyGeometry`, `destroyProps`
-  and the per-archetype instance counts) lives in `viewport-host/field-props.ts` since
+  and the per-archetype instance counts) lives in `field-host/field-props.ts` since
   foundations T3b1, not in the host; behaviour unchanged by the move (§20.3), and the nine
   call sites below stayed behind. It rebuilds one instanced draw per archetype from
   the op log's `PlacementOp` records: `groupPlacements` (group size = instance count) →
@@ -649,7 +651,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   top of it. A ghost is the action the user is steering; the cast is the room around it.
 - **Void-cast refusals + lifetime** — the whole cluster (`requestVoidCast`,
   `invalidateVoidCast`, `voidCastGen` / `voidCastJobGen`) lives in
-  `viewport-host/field-voidcast.ts` since foundations T3b1, not in the host; behaviour
+  `field-host/field-voidcast.ts` since foundations T3b1, not in the host; behaviour
   unchanged by the move (§20.3). Four refusals, in the order a user meets them, all via
   `subscribeToolError`: a cast already in flight (the client is one worker with a synchronous
   per-message handler, so a second sweep would delay every remesh behind it); an empty world;
@@ -715,7 +717,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   (finite endpoints, finite positive radius, kit-class rejection) — is in `core-modules.md`; the
   box cross-section variant is explicitly NOT shipped
   (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
-- **Host extractions + the worker seam** — `viewport-host/field-placements.ts` (pure: proxy
+- **Host extractions + the worker seam** — `field-host/field-placements.ts` (pure: proxy
   extents/scale, oriented corners, `groupPlacements`, `placementGhostBatch`,
   `placementsByEntity`, and the two catalog-seeding helpers) with
   `tests/field-placements.test.ts`, the `field-ghost.ts` precedent; `field-ghost.ts`
@@ -754,8 +756,8 @@ finding and a reachability demotion tags one; neither deletes one. The only thin
 retires a finding is a re-analysis that no longer reports it — the analyzer changing its
 mind.
 
-- **The analyzer worker** (`frontend/analyzer-worker.ts` + `viewport-host/analyzer-protocol.ts` /
-  `viewport-host/analyzer-client.ts`) — a FOURTH `build-frontend.ts` entrypoint beside the chrome, the
+- **The analyzer worker** (`frontend/analyzer-worker.ts` + `field-host/analyzer-protocol.ts` /
+  `field-host/analyzer-client.ts`) — a FOURTH `build-frontend.ts` entrypoint beside the chrome, the
   generation worker and the remesher, spawned by URL as `/analyzer-worker.js`
   (`tests/build-frontend.test.ts` pins that all three worker bundles land un-hashed at the
   outdir root, or those URLs 404). It holds a MIRROR
@@ -814,7 +816,7 @@ mind.
   project's verify path holds one headless `PhysicsContext` as a module singleton, and core's
   context ids are 16-bit and wrap without aliasing detection. Only a LOAD failure drops the
   memo, so a later verify can retry a bundle that has since built.
-- **Host wiring** (`viewport-host/field-host.ts`) — the mirror syncs at the SAME density
+- **Host wiring** (`field-host/field-host.ts`) — the mirror syncs at the SAME density
   choke point the void cast invalidates from, so every write is mirrored by construction. A
   latest-wins `createAnalyzePump` collapses bursts: `analyzerFire` is read at FIRE time (so
   the accumulated dirty set goes out, not the one current when a key was pressed), posts the
@@ -865,7 +867,7 @@ mind.
   account of it. Everything else that reads `agentProfile` — the pump, the `verifyFlag`
   guard, `analyzerPendingCount` — treats the two null-ish states the same on purpose: neither
   has a capsule, so neither owes any analysis.
-- **Flag presentation state — `viewport-host/field-flags.ts`**, pure and GPU-free (the
+- **Flag presentation state — `field-host/field-flags.ts`**, pure and GPU-free (the
   `field-ghost.ts` / `field-placements.ts` sibling). `createFlagStore()` holds stage-1
   findings by OWNER chunk, pits beside them (a pit region can span chunks, so its anchor's
   chunk is not a complete owner), and verdicts keyed by `${kind}@${cell}` — the same key the
@@ -897,7 +899,7 @@ mind.
   UNLIT instanced (`shader.unlitInstanced`, white base), deliberately: a marker that dims when
   the camera-following key light looks away is a marker that stops doing its job in the
   shading mode meant for mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule
-  (`viewport-host/field-props.ts`). Colour is the stage-2
+  (`field-host/field-props.ts`). Colour is the stage-2
   verdict if there is one, else the triage band — `CANDIDATE_TINT` red, `INFO_TINT` the
   selection amber (shared with `SELECTION_COLOR` rather than restated: both mean CONTEXT),
   `VERIFIED_TRAPPED_TINT` the candidate red darkened, `VERIFIED_CLEAR_TINT` a muted green. An
@@ -909,7 +911,7 @@ mind.
   `layers.flags && flagMarkers` push from `renderScene` fails no test in this repo, and neither
   does whitening the tint at its UPLOAD site (`mesh.setInstanceTint` inside
   `rebuildFlagMarkers`). Keep that second one qualified — `flagTint` itself IS pinned
-  (`tests/viewport-host/field-flags.test.ts` asserts all four constants and the `inconclusive`
+  (`tests/field-host/field-flags.test.ts` asserts all four constants and the `inconclusive`
   fall-through), so the gap is the hop from that pure function to the GPU, not the colour
   policy, and the unqualified version under-claims real coverage.
   `tests/field-host-analyzer.gpu.test.ts` builds the layer against a real device and pins its
@@ -1073,7 +1075,7 @@ mind.
   mismatch rather than resolving it — this is that debt paid. Pinned by a GPU test straddling
   the threshold (an over-length second click commits nothing and leaves the anchor ARMED), and
   restated in `ToolPalette`'s tooltip, which agrees by REVIEW rather than by import: the chrome
-  cannot value-import anything under `viewport-host/`, the same rule that keeps `flagKey`
+  cannot value-import anything under `field-host/`, the same rule that keeps `flagKey`
   private and puts `rowByKey` in the store.
 - **Deliberately untouched: the void cast's worker scheduling.** F3b's X-ray still monopolises
   the one FIELD worker with no cancel and refuses where coalescing belongs (§14); F4 gave the
@@ -1393,7 +1395,7 @@ view, workspace) and owns the listener. The overlay's one remaining hand-maintai
 is the canvas-owned keys.
 
 **Who owns a key.** There are two keydown listeners. The canvas
-(`viewport-host/field-host.ts`) keeps the keys that steer the viewport under the pointer —
+(`field-host/field-host.ts`) keeps the keys that steer the viewport under the pointer —
 the fly set, `[`/`]`, the arrow nudges, momentary ⇧/⌃ — plus first refusal on ⌘Z, ⏎, Esc,
 R and F. Everything else is the registry's, on `window`, which is the only listener that
 carries the gates and the only one that still works after a palette click takes the
@@ -1533,7 +1535,7 @@ One BEHAVIOUR CHANGE runs under all of it and is the bargain the rest is bought 
 cannot disagree at boot). Under it LMB selects and drags rather
 than strokes, and the wheel travels the camera instead of sizing the brush.
 
-**`viewport-host/field-pick.ts` is the arbitration, and it is pure and GPU-free** — the
+**`field-host/field-pick.ts` is the arbitration, and it is pure and GPU-free** — the
 `field-ghost.ts` / `field-placements.ts` sibling. CPU rather than a GPU id pass, and that is a
 decision with reasons rather than a fallback: the field host acquires its context at
 `sampleCount: 4` and core's `frame.renderToTexture` throws on any context whose
@@ -1651,7 +1653,7 @@ load-bearing decision of the whole verb — nothing is written to the log until 
 cancelled move costs nothing and leaves no history entry, and the drop is one ordinary
 reconfigure splice.
 
-`viewport-host/field-move.ts` owns the arithmetic and is pure, for `field-pick.ts`'s reason:
+`field-host/field-move.ts` owns the arithmetic and is pure, for `field-pick.ts`'s reason:
 
 - The mapping is **anchored, never incremental**. Every reading asks where the cursor is
   relative to the last anchor and applies the DIFFERENCE against what has already gone to
@@ -1677,7 +1679,7 @@ reconfigure splice.
   Routing both ⏎s through one verb is what keeps that a single defect rather than a
   difference between two keys.
 
-**`viewport-host/gizmo.ts`** is the translate handles' pure math — `gizmoSpan` derives the
+**`field-host/gizmo.ts`** is the translate handles' pure math — `gizmoSpan` derives the
 geometry from the selected footprint and `axisLines` emits the `drawLines` pair, so the drawn
 arms and the picked arms are the same span. `pickAxis` culls an axis within `VIEW_PARALLEL_COS`
 (~8°) of the view ray, where a hit-distance test is meaningless. The arms narrow to the
@@ -1739,7 +1741,7 @@ doing it inside `ShellChrome` would rebuild the palette body elements per pointe
 in an effect — a render React discards must not leave its ctx behind as the one the next
 keypress acts on.
 
-**Who owns a key.** Two keydown listeners. The canvas (`viewport-host/field-host.ts`) keeps the
+**Who owns a key.** Two keydown listeners. The canvas (`field-host/field-host.ts`) keeps the
 keys that steer the viewport under the pointer — the fly set, `[`/`]`, the arrow nudges, the
 momentary ⇧/⌃ — plus first refusal on ⌘Z, ⏎, Esc, R and F. Everything else is the registry's, on
 `window`, which is the only listener that carries the gates and the only one that still works
@@ -1779,7 +1781,7 @@ that has already gone.
 **Esc cancels ONE thing per press, and the thing it picks is the most recent.** Both entry
 points — the canvas keydown branch and the public `FieldHost.escape()` verb — still share one
 implementation so they cannot disagree, but that implementation is a **capture stack**
-(`viewport-host/input-router.ts`) rather than the five fixed rungs it was at the seal. Six
+(`field-host/input-router.ts`) rather than the five fixed rungs it was at the seal. Six
 states can be captured: a half-drawn box anchor, the segment anchor, the pending stamp arm
 (§17.8), the live session (a move included), the selected entity, and the cell selection —
 which is PARKED in the Reselect slot, so an Esc that went one press too far has the same way
@@ -1869,7 +1871,7 @@ The same commit pruned the inspector's orphans of the deleted scene surface —
 
 ### 17.6 ONE named history — the seam and the palette
 
-**`viewport-host/field-history.ts` derives what each undo/redo step DID, in words**
+**`field-host/field-history.ts` derives what each undo/redo step DID, in words**
 (D-F4.5-11). Core's `LogEntry` carries no label field and deliberately so — a label is a
 presentation fact that would have to be authored at every push site and serialized into worlds it
 has no business being in. It is derivable instead, and this module is the one place the
@@ -1968,7 +1970,7 @@ the user hunting inside the box. The viewport's own marker click deliberately do
 the user is already looking at what they pressed. Refusals are one-way and synchronous — a key
 naming no VISIBLE finding reports on the tool-error seam and changes nothing.
 
-**Cell-level selection display.** `viewport-host/field-selection-cells.ts` draws a flood
+**Cell-level selection display.** `field-host/field-selection-cells.ts` draws a flood
 selection's actual cells instead of one AABB outline, because a 200 000-cell flood in an open
 world encloses the camera and the only thing telling the user what they had selected was a box
 they were standing inside. Drawing 200 000 blended cubes is not the fix either:
@@ -2056,7 +2058,7 @@ keymap, the canvas cursor and the host's own click routing), and inferring it in
 they would disagree. The arm SHADOWS the armed gesture: while one stands LMB is drawing a region
 whatever the gesture slot still says.
 
-**`viewport-host/viewport-cursor.ts`** is D-F4.5-8's third arming channel, and its two decisions
+**`field-host/viewport-cursor.ts`** is D-F4.5-8's third arming channel, and its two decisions
 live together because they have to agree: the CSS keyword under the pointer (`grabbing` / `grab`
 for a live move, `cell` for the two-click gestures, `crosshair` for the one-click commits,
 `default` for the pointer and for anything a session has suspended) and the world-space mark drawn
@@ -2500,13 +2502,13 @@ the seal because two of the changes are observable, and one of them changes a be
 user can feel.
 
 `view-channel.ts`, `input-router.ts` and `substrate.ts` are all **package-internal**:
-deliberately not re-exported from `viewport-host/index.ts`. They are seams between the host
+deliberately not re-exported from `field-host/index.ts`. They are seams between the host
 and the clusters being lifted out of it, not surface the chrome may reach for. The map of
 what is being lifted, and what is left, is `docs/reference/field-host-clusters.md`.
 
 ### 20.1 The view channel — thirteen seams, N subscribers each
 
-`viewport-host/view-channel.ts` is the multicast push seam behind every
+`field-host/view-channel.ts` is the multicast push seam behind every
 `FieldHost.subscribe*` member. It is the push-direction sibling of
 `frontend/lib/notify-store.ts` and framework-free for the same reason: subscribe returns an
 unsubscribe and nothing more, so who hears a publish, what a late mount sees, and what a
@@ -2526,7 +2528,7 @@ dismissed) and `subscribeStats` — pushed every rAF, so the longest a subscribe
 frame, and a snapshot would be the only place that payload was assembled off the tick.
 
 `subscribeStats`' channel, its payload and its log-signature cache live in
-`viewport-host/field-stats.ts` since foundations T3b1 (2026-08-06), not in the host; the
+`field-host/field-stats.ts` since foundations T3b1 (2026-08-06), not in the host; the
 facade member is unchanged. The frame now ASKS the meter (`stats.publishIfWatched()`) rather
 than assembling the readout inside `tick`, and one behaviour moved with it: the payload's
 op-cost scan is now INSIDE the "is anyone subscribed" guard, where the host ran it just
@@ -2600,17 +2602,17 @@ of its own first push. The `notify` verb still asks "is anybody listening" first
 `historyChannel.size() === 0`, and still leaves the signature alone when the answer is no.
 
 **Since foundations T3b1 (2026-08-06) all thirteen seams are bare delegates**, because that
-whole body moved into `viewport-host/field-history-feed.ts` — the channel, the signature and
+whole body moved into `field-host/field-history-feed.ts` — the channel, the signature and
 both verbs — and `FieldHost.subscribeHistory` now reads `return historyFeed.subscribe(cb)`
 with its signature and observable behaviour unchanged. The ordering above is therefore a
 property of one function in one file rather than an agreement between the facade and the
-state it reaches past; `tests/viewport-host/field-history-feed.test.ts` pins it, which
+state it reaches past; `tests/field-host/field-history-feed.test.ts` pins it, which
 nothing did before. The module is deliberately NOT `field-history.ts` — that file is the pure
 label-derivation module and its header rules state out.
 
 ### 20.2 The input router — Esc becomes a capture stack
 
-`viewport-host/input-router.ts` replaces the five-rung `escapeLadder()` with a stack of
+`field-host/input-router.ts` replaces the five-rung `escapeLadder()` with a stack of
 captures. **A gesture or a selection ACQUIRES a capture when its state goes live and
 RELEASES it in the same canonical setter that clears the state**, so membership IS liveness:
 the stack cannot hold an entry for a state that is gone, and Esc cannot miss one that is
@@ -2673,19 +2675,19 @@ them, and finishes the same bug class for pointer capture that this finishes for
 
 ### 20.3 The substrate record
 
-`viewport-host/substrate.ts` declares `HostSubstrate`, the record an extracted cluster is
+`field-host/substrate.ts` declares `HostSubstrate`, the record an extracted cluster is
 handed, plus `createHostSubstrate` — an identity function whose entire value is being a
 single named place where the host states the split and the compiler checks it. Declared at
 T3a with no consumer on purpose, and **constructed in `createFieldHost` since T3b1
 (2026-08-06)**, when the void-cast extraction became the first thing to hand it to
-(`viewport-host/field-voidcast.ts`). **FIVE consumers stand today**, all from T3b1, and the
+(`field-host/field-voidcast.ts`). **FIVE consumers stand today**, all from T3b1, and the
 record's whole claim is that the four after the first paid nothing to join:
-`viewport-host/field-props.ts` is the second and needed no new member (`log`, `propMeshes`,
-`ctx()` and `archetypeById()` were already declared); `viewport-host/field-stats.ts` is the
+`field-host/field-props.ts` is the second and needed no new member (`log`, `propMeshes`,
+`ctx()` and `archetypeById()` were already declared); `field-host/field-stats.ts` is the
 third, reading `store` and `log` off the value side, and the first consumer to leave NOTHING
 behind in the record, because no other cluster ever read its state directly;
-`viewport-host/field-history-feed.ts` is the fourth and takes the record's smallest surface —
-`log` alone, and no private thunk beside it; `viewport-host/field-view.ts` is the fifth and
+`field-host/field-history-feed.ts` is the fourth and takes the record's smallest surface —
+`log` alone, and no private thunk beside it; `field-host/field-view.ts` is the fifth and
 reads `store` and `dirty`. **Not one of the four added a member.**
 
 **A single-consumer dependency does NOT earn a member.** Two of the five carry one: the void

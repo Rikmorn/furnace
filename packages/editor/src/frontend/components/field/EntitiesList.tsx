@@ -109,6 +109,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
+import type { FieldEntityInfo } from "../../../field-host/index.ts"; // type-only: erased
 // The committed-entity policy vocabulary: one blocked-reason rule per row verb,
 // plus the param renderer the provider's push guard also compares through. A
 // chrome-side lib module on purpose (see its header): the host imports it, never
@@ -120,7 +121,6 @@ import {
 	freezeBlockedReason,
 	openBlockedReason,
 } from "../../../shared/field-entity.ts";
-import type { FieldEntityInfo } from "../../../viewport-host/index.ts"; // type-only: erased
 import {
 	Grid,
 	GridCell,

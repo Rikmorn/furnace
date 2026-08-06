@@ -18,6 +18,12 @@ import "../inspector/_register.ts";
 // canvas's aria-label, each fails a case below.
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { ReactElement } from "react";
+import type {
+	FieldTool,
+	SegmentHud,
+	SelectionInfo,
+	StampSession,
+} from "../../src/field-host/index.ts";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import {
@@ -46,12 +52,6 @@ import {
 	PALETTES,
 } from "../../src/frontend/lib/palette-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
-import type {
-	FieldTool,
-	SegmentHud,
-	SelectionInfo,
-	StampSession,
-} from "../../src/viewport-host/index.ts";
 import {
 	act,
 	cleanup,

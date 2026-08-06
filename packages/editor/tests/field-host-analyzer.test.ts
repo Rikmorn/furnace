@@ -36,14 +36,14 @@ import type {
   AnalyzerRequest,
   AnalyzerResponse,
   VerifyVerdictWire,
-} from "../src/viewport-host/analyzer-protocol.ts";
-import { createAnalyzerWorkerHandler } from "../src/viewport-host/analyzer-protocol.ts";
-import type { WorkerLike } from "../src/viewport-host/field-client.ts";
-import { createFieldHost } from "../src/viewport-host/field-host.ts";
+} from "../src/field-host/analyzer-protocol.ts";
+import { createAnalyzerWorkerHandler } from "../src/field-host/analyzer-protocol.ts";
+import type { WorkerLike } from "../src/field-host/field-client.ts";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import type {
   FlagsSummary,
   ToolErrorSeverity,
-} from "../src/viewport-host/index.ts";
+} from "../src/field-host/index.ts";
 import { stubCancelAnimationFrame } from "./_helpers/raf.ts";
 
 /** The dungeon's shipped capsule, restated as a literal (the analyzer-protocol

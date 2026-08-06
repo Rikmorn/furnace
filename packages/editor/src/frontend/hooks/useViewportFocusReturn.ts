@@ -10,7 +10,7 @@
 // returning focus to the trigger. Return it NEVER — today's behaviour — and someone who
 // clicked the ⬒ mid-flight finds W/A/S/D, `[`, `]` and the arrow nudges dead, because the
 // canvas holds those bindings on its own element and they fire only while it has focus
-// (`viewport-host/field-host.ts`'s `attachListeners`). Both halves are pinned in
+// (`field-host/field-host.ts`'s `attachListeners`). Both halves are pinned in
 // tests/chrome/viewport-focus-return.test.tsx; a mechanism that passes only the first is
 // the WCAG-violating one.
 //

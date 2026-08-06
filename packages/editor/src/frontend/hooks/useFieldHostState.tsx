@@ -1,6 +1,6 @@
 // How the chrome reads the host: ONE latch per consumer, over seams that are multicast.
 //
-// Every FieldHost subscribe seam is MULTICAST (T3a: `viewport-host/view-channel.ts`) — N
+// Every FieldHost subscribe seam is MULTICAST (T3a: `field-host/view-channel.ts`) — N
 // subscribers each get every push, an unsubscribe removes only its own callback, and a
 // throwing subscriber is logged rather than severing its siblings. That is what this file
 // is built on now. It used to be built on the opposite: a single-slot seam, where a second
@@ -91,7 +91,7 @@ import type {
 	SelectionInfo,
 	StampSession,
 	ViewportGesture,
-} from "../../viewport-host/index.ts"; // type-only: erased
+} from "../../field-host/index.ts"; // type-only: erased
 import {
 	DEFAULT_FLAG_FILTERS,
 	DEFAULT_GESTURE,
@@ -255,7 +255,7 @@ export type FieldFlagsState = {
 // render a default beside something the viewport is plainly drawing).
 //
 // NOT `createViewChannel` itself, which is the same shape one package layer down: the
-// chrome may not value-import `viewport-host` (`tests/frontend-no-engine-leakage.test.ts`
+// chrome may not value-import `field-host` (`tests/frontend-no-engine-leakage.test.ts`
 // enforces it — the barrel carries core, and a second core in the chrome bundle is the
 // bug the project-first invariant exists to prevent). Framework-free anyway, the
 // `notify-store.ts` discipline, so the rule it keeps is decided in one readable place.

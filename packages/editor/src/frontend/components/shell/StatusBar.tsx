@@ -16,7 +16,7 @@
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useSyncExternalStore } from "react";
-import type { FieldStats } from "../../../viewport-host/index.ts"; // type-only: erased
+import type { FieldStats } from "../../../field-host/index.ts"; // type-only: erased
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
 	useFieldHostState,
