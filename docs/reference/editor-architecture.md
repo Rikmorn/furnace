@@ -377,7 +377,11 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   panel. Amber AABB overlay (occlude:false), `reselect()` one-slot restore,
   `subscribeSelection` + `subscribeToolError` feed the panel footer. Cell-level
   display was deferred to F4 and LANDED at F4.5b (§17.7).
-- **Layers + slice** — `FieldLayers { field, kit, props, ghost, selection, grid,
+- **Layers + slice** — the state itself (the flags, the plane, `sliceOpts()`, and both
+  facade seams) lives in `viewport-host/field-view.ts` since foundations T3b1 (2026-08-06),
+  not in the host; behaviour unchanged by the move (§20.3), and all 25 read sites stayed
+  behind as calls (`viewState.layers()` / `viewState.sliceY()` / `viewState.sliceOpts()`).
+  `FieldLayers { field, kit, props, ghost, selection, grid,
   flags, voidCast }`; the first SEVEN gate the render lists per frame (display-only; a
   hidden selection keeps masking ops), and two of them arrived later: `props` with F3b's
   placed-prop layer (§14) and `flags` with F4's advisor markers (§15). The eighth,
@@ -2659,19 +2663,36 @@ handed, plus `createHostSubstrate` — an identity function whose entire value i
 single named place where the host states the split and the compiler checks it. Declared at
 T3a with no consumer on purpose, and **constructed in `createFieldHost` since T3b1
 (2026-08-06)**, when the void-cast extraction became the first thing to hand it to
-(`viewport-host/field-voidcast.ts`). `viewport-host/field-props.ts` is the second, the same
-day, and it needed no new member: `log`, `propMeshes`, `ctx()` and `archetypeById()` were
-already declared. That is the record earning its keep — the second consumer paid nothing.
-`viewport-host/field-stats.ts` is the third and paid nothing either, reading `store` and
-`log` off the value side; it is also the first consumer to leave NOTHING behind in the
-record, because no other cluster ever read its state directly.
+(`viewport-host/field-voidcast.ts`). **FIVE consumers stand today**, all from T3b1, and the
+record's whole claim is that the four after the first paid nothing to join:
+`viewport-host/field-props.ts` is the second and needed no new member (`log`, `propMeshes`,
+`ctx()` and `archetypeById()` were already declared); `viewport-host/field-stats.ts` is the
+third, reading `store` and `log` off the value side, and the first consumer to leave NOTHING
+behind in the record, because no other cluster ever read its state directly;
+`viewport-host/field-history-feed.ts` is the fourth and takes the record's smallest surface —
+`log` alone, and no private thunk beside it; `viewport-host/field-view.ts` is the fifth and
+reads `store` and `dirty`. **Not one of the four added a member.**
 
-**A single-consumer dependency does NOT earn a member.** Both extracted modules carry one:
-the void cast takes `voidCastMaterial()` and the prop layer takes `kitMat()`, each a host
-`let` reached through a function on the module's own deps record rather than through the
-substrate. The bar is TWO extracted readers, because widening the record for one consumer
-charges every future cluster's assembly for that consumer's convenience — and the thing that
-keeps a `let` honest is the CALL, not whose record it sits on.
+**A single-consumer dependency does NOT earn a member.** Two of the five carry one: the void
+cast takes `voidCastMaterial()` and the prop layer takes `kitMat()`, each a host `let`
+reached through a function on the module's own deps record rather than through the substrate.
+`field-stats.ts` carries two more of the same kind (`lastRemeshMs()`, `remeshVersion()`), and
+`field-history-feed.ts` carries none at all — and neither does `field-view.ts`, whose two
+deps are VERBS on another extracted module (`voidcast`'s `discard`/`request`) rather than
+host state of any kind. The bar is TWO extracted readers, because
+widening the record for one consumer charges every future cluster's assembly for that
+consumer's convenience — and the thing that keeps a `let` honest is the CALL, not whose
+record it sits on.
+
+**And a third answer exists, which `field-view.ts` is the first instance of: the state
+MOVES IN.** Its two `let`s (`layers`, `sliceY`) had five reader clusters between them — on a
+reader-count reading of the bar, the two most obvious substrate members in the closure — and
+neither was added. They left the closure entirely, and the 25 sites that used to read the
+shared bindings now call the owning module's getters. So the record is not "where reassignable
+state goes"; it is where state the HOST still owns and shares goes. State that acquires an
+OWNER rides on that owner's seam instead, which is why those sites spell `viewState.layers()`
+and not `substrate.layers()`. Same CALL either way — the law is unchanged — but the question
+"who owns this" now has three answers, not two, and the substrate is only the middle one.
 
 **That bar governs ADDING a member, never declining one already declared**, and the
 distinction is load-bearing rather than pedantic. `archetypeById()` also has exactly one

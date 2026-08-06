@@ -8,7 +8,7 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Four clusters have since left, and a fifth left in half.** `segment` was extracted to
+**Five clusters have since left, and a sixth left in half.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
@@ -22,9 +22,12 @@ and its one function — plus twenty lines of `tick` that the map attributes to 
 **but only as its FEED** — to `packages/editor/src/viewport-host/field-history-feed.ts`,
 taking both of its state bindings and two of its three functions. `stepHistory` stayed, and
 §6's `history` row explains why that is a finding rather than an omission (it also corrects
-that row's function count, 2 → 3). Every count below still includes all five. They are left as
-measured because they are what the remaining 18 clusters were sized against; subtract those
-rows from §4 when reading them as current.
+that row's function count, 2 → 3). Last of T3b1's five, `view` went to
+`packages/editor/src/viewport-host/field-view.ts`, taking both of its state bindings and its
+one function — and it is the one extraction sized by what it SUPPLIES rather than by what it
+takes (§6's `view` row, and the module's own header). Every count below still includes all
+six. They are left as measured because they are what the remaining 17 clusters were sized
+against; subtract those rows from §4 when reading them as current.
 
 **And foundations T3a changed three things the map names.** §2.2 records exactly what, and
 which numbers below are consequently stale. Read it before trusting a site list.
@@ -38,11 +41,11 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,165 lines** (re-measured 2026-08-06 after the `history` feed left; was 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−51** this time, against **203** lines now standing in `field-history-feed.ts`. The same shape as the other four — a module pays for a header the closure did not need — but a better ratio than `stats` or `props`, because this cluster's prose was dense (a 29-line signature/guard comment travelled wholesale) and its wiring is one line. |
-| Code / comment / blank | **3,400 / 3,529 / 236** (re-measured 2026-08-06 after the `history` feed; was 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **−29** code and **−21** comment — the first extraction in the tranche where the comment column fell too. It is the mirror of `stats`: there the assembly prose the closure GAINED outweighed the prose that left, because the wiring needed explaining. Here two dense blocks travelled (a 29-line signature/guard comment, plus the 10-line facade comment that went with the line it defends — the ordering is now a property of one function in one file rather than an agreement between two) and the 25-line assembly note replacing them does not cover the difference. |
-| `export function createFieldHost` | **line 1652** → end of file (**5,514 lines**) *(re-measured 2026-08-06 after the `history` feed; the +1 on the start line is the `field-history.ts` import splitting into a type-only import plus the new module's)* |
-| `return { … }` object literal | **line 6418** *(re-measured 2026-08-06 after the `history` feed)* |
-| Closure-level bindings | **272** (re-measured 2026-08-06 after the `history` feed by §2's rule; was 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. The feed took two functions, one `const` channel and one `let` out and put `historyFeed` back: −3. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived, and §6's per-cluster counts must not be summed to stand in for it: those rows are mixed-epoch, so the two figures are only comparable at the epoch each was taken. §6's `history` row works the example) |
+| File total | **7,181 lines** (re-measured 2026-08-06 after `view` left; was 7,165 after the `history` feed, 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **+16** this time — the file GREW — against **214** lines now standing in `field-view.ts`. That is not an anomaly, it is what a supply-side cluster costs: what left is two `let`s, an 8-line literal, a 2-line arrow and two short facade bodies; what arrived is a 20-line assembly note, a 6-line note on a forced local, and the formatter's re-wrap of the read sites, each of which grew by 10–18 characters. See the `view` row in §6. |
+| Code / comment / blank | **3,400 / 3,545 / 236** (re-measured 2026-08-06 after `view`; was 3,400 / 3,529 / 236 after the `history` feed, 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **Zero** code and **+16** comment — the first extraction in the tranche that removed no code from the host at all. The threading is why: the bodies that left are small, and the 26 longer read expressions the move put in their place cost the formatter enough wraps to swallow the difference. The whole of this move shows up in the file as prose. |
+| `export function createFieldHost` | **line 1653** → end of file (**5,529 lines**) *(re-measured 2026-08-06 after `view`; the +1 on the start line is the `field-view.ts` import)* |
+| `return { … }` object literal | **line 6447** *(re-measured 2026-08-06 after `view`)* |
+| Closure-level bindings | **270** (re-measured 2026-08-06 after `view` by §2's rule; was 272 after the `history` feed, 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. `view` took two `let`s and one function out and put `viewState` back: −2. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived, and §6's per-cluster counts must not be summed to stand in for it: those rows are mixed-epoch, so the two figures are only comparable at the epoch each was taken. §6's `history` row works the example) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
@@ -53,24 +56,25 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines still OUTNUMBER code lines — 3,529 to 3,400, i.e. **50.9%** of every non-blank
+Comment lines still OUTNUMBER code lines — 3,545 to 3,400, i.e. **51.0%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
 code alone is 3,400 lines, still ~8.5× the ~400-line file guideline in
 `.claude/rules/clean-code.md`, and `createFieldHost` alone is ~110× the ~50-line function
 guideline.
 
-**Five clusters out and those ratios have not visibly moved**, which is the honest scale of
+**Six clusters out and those ratios have not visibly moved**, which is the honest scale of
 the problem. Two different reductions, worth keeping apart because they answer different
 questions. Per cluster: `voidcast` took **0.97%** off the FILE (71 of 7,347 lines) but
 **1.63%** off the CODE (58 of 3,554); `props` took **0.66%** off the FILE (48 of 7,276) and
 **1.20%** off the CODE (42 of 3,496); `stats` took **0.17%** off the FILE (12 of 7,228) and
 **0.72%** off the CODE (25 of 3,454); the `history` feed took **0.71%** off the FILE (51 of
-7,216) and **0.85%** off the CODE (29 of 3,429). Cumulatively T3b1 stands at **−2.5%** of the
-file and **−4.3%** of the code. The gap between the two figures is the point — a cluster's
+7,216) and **0.85%** off the CODE (29 of 3,429); `view` **ADDED 0.22%** to the FILE (16 of
+7,165) and moved the CODE by **0.00%** (0 of 3,400). Cumulatively T3b1 stands at **−2.3%** of
+the file and **−4.3%** of the code. The gap between the two figures is the point — a cluster's
 prose leaves with it, and then the wiring left behind earns prose of its own, so the FILE
 shrinks more slowly than the logic in it does. The code figure is the one that speaks to the
-~400-line guideline, and at ~0.7–1.6% per cluster that guideline is not reachable by
+~400-line guideline, and at ~0–1.6% per cluster that guideline is not reachable by
 extraction of this kind. `stats` is the case that says so most plainly: it removed the most
 BINDINGS of the five and the fewest lines, because a cluster's size in bindings and its size
 in lines are not the same measurement. The `history` feed is the one case where the two
@@ -78,16 +82,25 @@ figures nearly agree (0.71 / 0.85), and the reason is instructive: it is the onl
 whose comment column fell as well, because the prose it moved was dense and the wiring note
 that replaced it did not have a new shape to explain.
 
+**And `view` is the case that breaks the metric.** It is a real extraction — two `let`s and a
+function left the closure, and 25 read sites that used to reach into a shared binding now go
+through a seam — and it moved the code column by nothing whatsoever. A cluster's LINE size and
+its COUPLING size are independent quantities, and this row is where they part company
+completely: 44 lines of code in `field-view.ts`, and the most invasive diff in the tranche.
+Anyone sizing the remaining clusters by these percentages should read the `view` row in §6
+first; the number that predicted this move's cost was its INBOUND read count, which appears in
+no total on this page.
+
 The easy extractions are already done. These sibling modules in the same directory are
 already pure and are **not** part of the closure: `field-ghost`, `field-stamp`,
 `field-placements`, `field-pick`, `field-move`, `field-flags`, `field-history`,
 `field-selection-cells`, `field-camera`, `viewport-cursor`, `input-map`, `gizmo`,
 `camera-control`, `box-edges`, `reference-grid`, and now `field-segment`, `field-voidcast`,
-`field-props`, `field-stats` and `field-history-feed` — the last five lifted out STATEFUL
-rather than discovered to be pure. The newest is the sharpest illustration of the difference:
-`field-history` was already in the pure list, and the feed had to become a SEPARATE file
-because that module's header rules state out. What remains inside the closure is the stateful
-residue.
+`field-props`, `field-stats`, `field-history-feed` and `field-view` — the last six lifted out
+STATEFUL rather than discovered to be pure. `field-history-feed` is the sharpest illustration
+of the difference: `field-history` was already in the pure list, and the feed had to become a
+SEPARATE file because that module's header rules state out. What remains inside the closure is
+the stateful residue.
 
 ## 2. How this map was produced
 
@@ -140,7 +153,13 @@ only in the map's original terms.
   calling `destroyProps`. Read as data, it is something the host occasionally looks at; read
   as calls, it is something half the host asks to run. So the understatement is not confined
   to a cluster's own dependencies — it applies to what depends on IT, and the outbound column
-  is the one a reader is most likely to trust as a size.
+  is the one a reader is most likely to trust as a size. **And an uncounted call can be an
+  ORDERING constraint, not merely coupling** (found 2026-08-06 by extracting `view`): `view`'s
+  outbound column here lists exactly one edge, `world.dirty`, but `ret.setLayers` has always
+  called `discardVoidCast`/`requestVoidCast`, so `createView` cannot be assembled above
+  `createVoidCast`. A cluster planned as independent off this row would meet that fact as a
+  build error partway through its threading pass. Extracting `view` LAST is what made the
+  discovery free.
 - **STRING LITERALS were not stripped, so a few read edges are phantoms.** The method note
   above says comments were stripped before matching; nothing says the same of strings, and
   nothing did it. Worked example, found by extracting `voidcast`: the map recorded
@@ -243,7 +262,7 @@ whose state it touches).
 | `targeting` | 1 | 6 | 0 | 7 | 14 | 2 |
 | `picking` | 0 | 4 | 0 | 7 | 9 | 1 |
 | `props` | 2 | 3 | 1 | 6 | 8 → **7** as `deps` (+**9** uncounted calls — §6) | 2 |
-| `view` | 2 | 1 | 2 | 6 | 8 | 1 |
+| `view` | 2 | 1 | 2 | **5** on data edges (6 − the `selection` phantom) · **7** if calls count (+`voidcast` out, +`tool` in — §6) | 8 → **7** as data (+**6** uncounted `sliceOpts()` calls in and **2** into `voidcast` out — §6) | 1 |
 | `move` | 3 | 7 | 1 | 5 | 20 | 5 |
 | `gesture` | 4 | 2 | 2 | 5 | 17 | 2 |
 | `voidcast` | 3 | 5 | 0 | 4 → **3** | 9 → **8** | **0** |
@@ -750,30 +769,98 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 **Public members (4):** `setDigRadius`, `setTool`, `subscribeTool`, `subscribeToolError`
 
 
-### Cluster: view
+### Cluster: view — **EXTRACTED 2026-08-06**
+
+Lives in `packages/editor/src/viewport-host/field-view.ts` (214 lines: **44 code**, 166
+comment). The row below is the measurement it was sized against, annotated with what the move
+actually cost. **This is the row §2.1's second correction gained its ordering clause on** —
+and the row that shows the whole page's line-count metric failing, because this cluster is the
+smallest of the six in code and the largest in diff.
 
 **Owns (state) — 2:** `layers`@1830 · `sliceY`@1842
 
+Both left. Nothing stayed, and nothing was added to `HostSubstrate` either — despite five
+reader clusters between them, which on a reader-count rule would have made both obvious
+substrate members. The rule is not reader count: the substrate carries state the HOST still
+owns and shares, and state that acquires an OWNER rides on that owner's seam instead. So the
+17 `layers` reads spell `viewState.layers()` and not `substrate.layers()`. Same CALL either
+way; different answer to "who owns this".
+
 **Owns (functions) — 1:** `sliceOpts`@2732
 
-**Reads from other clusters** (2 edges):
-  - `selection` (owned by `selection`) — 1 site: `layers`
-  - `store` (owned by `world`) — 1 site: `ret.setSlice`
+It moved verbatim onto the module's seam. Its own comment carried a stale count with it —
+"the four gesture sites below" against six real call sites (`computeTarget`, `eyedropper`,
+`selectionPoint`, `materialSeedVoxel`, `voidSeedVoxel`, `pointerPick`), corrected in the
+module.
 
-**MUTATES other clusters** (1 edge):
-  - `dirty` (owned by `world`) — 1 site: `ret.setSlice`
+**Reads from other clusters** (2 edges → **2** in the module's `deps`, but not these two):
+  - ~~`selection` (owned by `selection`) — 1 site: `layers`~~ — a PHANTOM. Same family as
+    §2.1's third correction but a different mechanism: not a string literal, an object
+    PROPERTY KEY. The only `selection` in the `layers` declaration is the flag name
+    `selection: true`. It was the only key in that literal that collided with a closure binding
+    AT THE MEASUREMENT EPOCH — `propMeshes`, `flagStore` and `gridMinor` are spelled
+    differently from the `props`, `flags` and `grid` keys, and `field`/`kit`/`ghost`/`voidCast`
+    had no bare closure binding either — which is why the row carries one phantom and not six.
+    (T3b1 has since introduced a closure-level `props`, so a re-run of the pass would find a
+    second.) Deleted at both ends. **The
+    class to carry forward: any single-site edge whose binding name could be a property key of
+    a literal in the named site is suspect, exactly as one that could be an English word is.**
+  - `store` (owned by `world`) — 1 site: `ret.setSlice`. A `HostSubstrate` value member; needed
+    no addition.
+  - **+ `dirty`** (owned by `world`) — the mutation edge below, which is a substrate value
+    member on the read side of the record too.
 
-**Read by other clusters** (5 edges):
-  - `layers` (read in `lifecycle`) — 1 site: `ret.init`
+**MUTATES other clusters** (1 edge → **1 edge + 2 uncounted CALLS**):
+  - `dirty` (owned by `world`) — 1 site: `ret.setSlice`. Unchanged: the module adds every
+    allocated chunk key to the host's own set, by identity.
+  - **+ `discardVoidCast()` / `requestVoidCast()`** (owned by `voidcast`) — 1 site,
+    `ret.setLayers`, the X-ray's on/off edge. **The map never showed this**, because a
+    cross-cluster call is not a data edge (§2.1's second correction). It is the load-bearing
+    omission of the whole row: it is an ORDERING constraint, so `createView` sits BELOW
+    `createVoidCast` in the closure and the compiler now enforces what was previously an
+    unwritten agreement.
+
+**Read by other clusters** (5 edges → **26 threaded read sites**):
+  - `layers` (read in `lifecycle`) — 1 site: `ret.init` → `viewState.layers().voidCast`
   - `layers` (read in `picking`) — 2 sites: `pickCandidates`
-  - `layers` (read in `render`) — 14 sites: `renderScene`
-  - `sliceY` (read in `targeting`) — 2 sites: `cursorRay`
+  - `layers` (read in `render`) — 14 sites: `renderScene` (the count is right, and it is the
+    single densest read site in the closure)
+  - `sliceY` (read in `targeting`) — 2 sites: `cursorRay`. **The one place the compiler forced
+    a local**: the two reads are a null check and a compare in one expression, and narrowing
+    does not survive a call boundary, so that site binds `const sliceY = viewState.sliceY()`
+    first and keeps the expression verbatim.
   - `sliceY` (read in `world`) — 1 site: `remeshOne`
+  - **+ `sliceOpts()`** — 6 sites, counted NOWHERE. It is a call on a function-valued binding,
+    and §2.1's second correction is exactly this: the edge counts are over data bindings, so a
+    cluster's own exported helper carries no inbound edges however many callers it has. A
+    quarter of this move's threading is invisible on this row for that reason.
+
+**Twenty-six READS at twenty-five SITES**, over SIX clusters — `render` 14, `targeting` 6,
+`picking` 3, and one each in `lifecycle`, `world` and `tool`. The two counts differ by one
+because `cursorRay` reads the plane twice in a single expression: **24 sites changed only the
+READ EXPRESSION** (`layers.x` → `viewState.layers().x`, one call for one read), and the 25th
+collapsed its two reads into the one forced local above, which keeps its expression verbatim.
+Twenty-five calls now stand where twenty-six reads did. No reorder, no hoist, no simplified
+conditional, and no
+`const l = viewState.layers()` at the top of `renderScene` even though 14 calls in one frame
+invite it: the per-read call is the tranche's settled spelling (`field-props.ts`,
+`field-stats.ts`), and `renderScene` is render code under the invisible-overlay learning
+(2026-07-21), where a visual gate is the only thing that can prove a refactor.
 
 **MUTATED BY other clusters** (0 edges):
   - none
 
-**Public members (2):** `setLayers`, `setSlice`
+**Public members (2):** `setLayers`, `setSlice` — plain delegates after the move, signatures
+and behaviour unchanged.
+
+**THREE decisions this move found unpinned**, by sabotage against the full 1,364-test editor
+suite: deleting `setSlice`'s `y === sliceY` guard, replacing `setLayers`' `else if
+(!wasVoidCast)` with a bare `else`, and never discarding on the off transition all left the
+suite fully green. The thirteen `setLayers` calls in `field-host-void-cast.gpu.test.ts` miss
+them because every one of those toggles — so the edge and the level always agree — and because
+what they assert is what the worker was SENT, which `requestVoidCast` decides behind its own
+four refusals. `packages/editor/tests/viewport-host/field-view.test.ts` closes all three plus
+the copy rule, at the seam the extraction created.
 
 
 ### Cluster: targeting
@@ -827,7 +914,9 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
   - `selection` (read in `input`) — 1 site: `escapeLadder`†
   - `selection` (read in `stamp`) — 1 site: `ret.startStamp`
   - `selection` (read in `tool`) — 5 sites: `toolMask`
-  - `selection` (read in `view`) — 1 site: `layers`
+  - ~~`selection` (read in `view`) — 1 site: `layers`~~ — **PHANTOM, deleted 2026-08-06**: the
+    occurrence is the object KEY `selection: true` in the `layers` literal, not a read of this
+    binding. See §6's `view` row for the class.
 
 **MUTATED BY other clusters** (2 edges):
   - `lastSelection` (mutated by `world`) — 1 site: `resetWorld`
@@ -1291,7 +1380,14 @@ these three are struck at neither, because they still do.
   - `ghostMeshes` (owned by `stamp`) — 1 site: `renderScene`
   - `gizmoBatch` (owned by `entities`) — 3 sites: `renderScene`
   - `lastPointer` (owned by `targeting`) — 6 sites: `ghostState`, `renderCursorAffordance`
-  - `layers` (owned by `view`) — 14 sites: `renderScene`
+  - `layers` (**since 2026-08-06 owned by `field-view.ts`; a CALL, not a binding read**) — 14
+    sites: `renderScene`. The densest read site in the closure, and the reason `view`'s
+    extraction is a threading pass rather than a relocation: all fourteen became
+    `viewState.layers().x`, expression-for-expression, with no hoisted snapshot at the top of
+    the frame (see §6's `view` row, and `field-view.ts`'s header for why the hoist was
+    declined). Fourteen SITES, but **12 + 2 × chunkCount** crossings per frame — the `field`
+    and `kit` reads sit inside `for (const cm of chunkMeshes.values())`, exactly as they did
+    before the move, so the per-chunk term is the price of the call and not of the extraction.
   - `pendingStamp` (owned by `gesture`) — 2 sites: `renderCursorAffordance`
   - `placementGhost` (owned by `stamp`) — 3 sites: `renderScene`
   - `propMeshes` (owned by `props`) — 1 site: `renderScene`
@@ -1487,10 +1583,13 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 | `segment` | 8 | 1 out (`tool.maskDropReported`) | 3 |
 | `voidcast` | ~~**9**~~ **8** | **0** | ~~4~~ 3 — **EXTRACTED 2026-08-06** |
 | `props` | 8 → **7** | 2 out (analyzer staleness flags) → **1 call** | 6 — **EXTRACTED 2026-08-06** |
-| `view` | 8 | 1 out (`world.dirty`) | 6 |
+| `view` | 8 → **7** as data, **+8** uncounted calls | 1 out (`world.dirty`) **+2 uncounted calls out** (`voidcast`) | **5** on data edges · **7** if calls count — **EXTRACTED 2026-08-06** |
 
 All six read the same small substrate — `world.store`, `world.log`, `lifecycle.ctx`,
-`lifecycle.disposed`, `catalogs.table` — and nothing else of consequence.
+`lifecycle.disposed`, `catalogs.table` — and nothing else of consequence. (`view` is the
+narrowest instance and the one that shows the column's limit: it reads `world.store` and
+`world.dirty` and nothing else at all, and it was still the tranche's most invasive move —
+its cost was never in this column but in the 25 sites that read IT.)
 
 **The ranking's own top row was the wrong number**, which is worth stating because the column
 it ranks on is what this section recommends acting on. `stats` sat at the head as the cheapest
@@ -1616,6 +1715,18 @@ its tasks by MEASURED extraction cost against the as-built, and the two stalenes
 out to be one named write-thunk rather than two problems. What the ranking above could not
 see is the thing that made `props` interesting: nine inbound CALLS, which no column here
 counts (§2.1's second correction). See §6's `props` row.
+
+**And `view` went LAST, deliberately, against a ranking that puts it joint-cheapest.** On
+this section's own column it ties `props` at 8 external edges with one boundary mutation, so
+nothing here argues for deferring it. Two facts the column cannot hold did. First, its cost
+is not inbound: 25 sites in six other clusters read its two `let`s (or the helper over one of
+them), and every one had to
+become a call — a diff no edge count on this page predicts, because the column measures what
+a cluster READS and this cluster's expense is what reads IT. Second, it depends on `voidcast`
+through two uncounted calls, so extracting it earlier would have discovered that ordering
+constraint as a build error in the middle of the threading pass. **The generalisation for
+whatever T3b2 orders next: rank by inbound reads when choosing what to extract, and by
+outbound calls when choosing WHEN.** Neither number is in the table above.
 
 ### 7.5 Honest assessment: extracting the stamp session
 

@@ -122,6 +122,7 @@ import {
   withRegion,
 } from "./field-stamp.ts";
 import { createStatsMeter } from "./field-stats.ts";
+import { createView } from "./field-view.ts";
 import { createVoidCast } from "./field-voidcast.ts";
 import {
   type Axis,
@@ -1859,19 +1860,13 @@ export function createFieldHost(deps?: {
   let selectionCellsCount = 0;
 
   // --- view state (layers + slice plane) ----------------------------------
-  let layers: FieldLayers = {
-    field: true,
-    kit: true,
-    props: true,
-    ghost: true,
-    selection: true,
-    grid: true,
-    flags: true,
-    voidCast: false, // an X-ray costs a whole-world remesh — opt in
-  };
-  // Slice-view clip plane (world metres; null = off). Display + targeting
-  // only — never read by logApply, the oplog, or bakeFieldWorld.
-  let sliceY: number | null = null;
+  //
+  // Both `let`s left with `field-view.ts`, and the assembly did NOT stay here to
+  // mark the spot the way the other four extractions' did: `createView` takes
+  // the void cast's `discard` and `request`, so it cannot be constructed above
+  // `createVoidCast` — search `const viewState =`, ~2,300 lines down. What every
+  // reader of this block wants to know is that the flags and the plane are still
+  // the host's own state, read as `viewState.layers()` / `viewState.sliceY()`.
 
   // --- stamp session (ghost preview → commit) -----------------------------
   let stamp: StampSession | null = null;
@@ -2497,7 +2492,7 @@ export function createFieldHost(deps?: {
         aprons,
         table,
         store.cellSize,
-        sliceY ?? undefined,
+        viewState.sliceY() ?? undefined,
       );
       lastRemeshMs = performance.now() - t0;
       remeshVersion++;
@@ -2714,18 +2709,17 @@ export function createFieldHost(deps?: {
         field.worldToVoxel(oy, cs),
         field.worldToVoxel(oz, cs),
       ) < 0;
+    // Bound to a local for the ONE reason a local is ever right here: the
+    // expression reads the plane TWICE — a null check, then a compare — and
+    // narrowing does not survive a call boundary, so a second `viewState.sliceY()`
+    // would still be `number | null` and would not compile. Two reads inside one
+    // synchronous expression cannot observe a write between them, so this says
+    // exactly what the closure's `let` said. See `field-view.ts`'s header.
+    const sliceY = viewState.sliceY();
     const eyeInRock =
       buried && (sliceY === null || field.worldToVoxel(oy, cs) * cs < sliceY);
     return { origin: [ox, oy, oz], dir: [dx, dy, dz], eyeInRock };
   };
-
-  // Slice-coherence (F2b Task 15 disposition): EVERY cursor-driven field
-  // raycast passes the slice clip, not just computeTarget — an eyedrop, a
-  // box-select corner, or a flood seed under an active slice must land on the
-  // sliced surface the user SEES, never on rock the display hides (what you
-  // see is what you target). The four gesture sites below share this helper.
-  const sliceOpts = (): { maxY: number } | undefined =>
-    sliceY === null ? undefined : { maxY: sliceY };
 
   // The world-space brush centre for a cursor position under the dig-feel contract
   // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
@@ -2745,7 +2739,13 @@ export function createFieldHost(deps?: {
     // on the sliced surface shown.
     const rc = eyeInRock
       ? null
-      : field.raycastField(store, origin, dir, DIG_RANGE_M, sliceOpts());
+      : field.raycastField(
+          store,
+          origin,
+          dir,
+          DIG_RANGE_M,
+          viewState.sliceOpts(),
+        );
     return computeBrushCenter(
       { origin, dir, eyeInRock, hit: rc ? rc.point : null },
       digRadius,
@@ -2775,7 +2775,7 @@ export function createFieldHost(deps?: {
         ray.origin,
         ray.dir,
         DIG_RANGE_M,
-        sliceOpts(),
+        viewState.sliceOpts(),
       );
       if (!rc) return;
       voxel = rc.voxel;
@@ -3076,7 +3076,7 @@ export function createFieldHost(deps?: {
         ray.origin,
         ray.dir,
         DIG_RANGE_M,
-        sliceOpts(),
+        viewState.sliceOpts(),
       );
       if (rc) return rc.point;
     }
@@ -3137,7 +3137,7 @@ export function createFieldHost(deps?: {
       ray.origin,
       ray.dir,
       DIG_RANGE_M,
-      sliceOpts(),
+      viewState.sliceOpts(),
     );
     if (!rc) {
       reportToolError("material select: no rock under the cursor within range");
@@ -3171,7 +3171,7 @@ export function createFieldHost(deps?: {
       ray.origin,
       ray.dir,
       DIG_RANGE_M,
-      sliceOpts(),
+      viewState.sliceOpts(),
     );
     if (rc) return rc.prev;
     const target = computeTarget(clientX, clientY);
@@ -3336,7 +3336,7 @@ export function createFieldHost(deps?: {
     for (const [entityId, aabb] of entityFootprints())
       candidates.push({ kind: "entity", entityId, aabb });
 
-    if (layers.props) {
+    if (viewState.layers().props) {
       // A prop click selects its OWNING entity, and `placementOwners` is what
       // pairs each record with the span that claims it (the pure module owns the
       // attribution rule, and is where it is unit-tested without a GPU).
@@ -3362,7 +3362,7 @@ export function createFieldHost(deps?: {
       }
     }
 
-    if (layers.flags) {
+    if (viewState.layers().flags) {
       // The pick volume is the CELL — `flagCellBox`, the same box the camera
       // frames and the selected-flag outline draws, built on the same half-cell
       // lift the instanced matrices use, so none of the four can part company.
@@ -3403,7 +3403,7 @@ export function createFieldHost(deps?: {
           ray.origin,
           ray.dir,
           PICK_RANGE_M,
-          sliceOpts(),
+          viewState.sliceOpts(),
         );
     // How far the ray is KNOWN to be clear: the terrain hit, or the probe's own
     // range when it missed — nothing past that range was tested, so nothing past
@@ -4163,6 +4163,30 @@ export function createFieldHost(deps?: {
     snapshotAllChunks,
     chunkOrigin,
     voidCastMaterial,
+  });
+
+  // The layer flags + the slice plane (`field-view.ts`). Named `viewState`, not
+  // `view`: three render functions take a `camera.Camera` parameter called
+  // `view`, and one of them reads this binding fourteen times.
+  //
+  // The position is FORCED, and by an edge the closure map does not have. Both
+  // deps are `voidcast`'s own verbs — `ret.setLayers` has always driven the
+  // X-ray's on/off edge — so this line cannot rise above the assembly directly
+  // over it. The map records `view`'s only outbound edge as `world.dirty`,
+  // because a cross-cluster CALL is not a data edge (§2.1); making the two verbs
+  // constructor deps is what turns the omission into something the compiler
+  // enforces. The cluster's own state block, ~2,300 lines up, says where it went.
+  //
+  // Everything that READS this is a forward reference from inside a function
+  // body — `cursorRay`, `renderScene`, `pickCandidates` and `remeshOne` all sit
+  // above it — which is safe for the reason spelled out at the `createVoidCast`
+  // assembly above: nothing between this closure's brace and its `return {` ever
+  // RUNS, so no function body can be evaluated before this declaration executes.
+  // No hoist was needed, and none was taken.
+  const viewState = createView({
+    substrate,
+    discardVoidCast: voidcast.discard,
+    requestVoidCast: voidcast.request,
   });
 
   // --- walkability advisor (D-F4-9) ---------------------------------------
@@ -5594,17 +5618,19 @@ export function createFieldHost(deps?: {
     const meshes: mesh.Mesh[] = [];
     const instanced: mesh.InstancedMesh[] = [];
     for (const cm of chunkMeshes.values()) {
-      if (layers.field) for (const e of cm.entries) meshes.push(e.m);
-      if (layers.kit && cm.kit) instanced.push(cm.kit);
+      if (viewState.layers().field)
+        for (const e of cm.entries) meshes.push(e.m);
+      if (viewState.layers().kit && cm.kit) instanced.push(cm.kit);
     }
     // Committed placed props: proxy primitives on the shared instanced-lit
     // material, their own layer gate (they are entities, not field — the "if you
     // can dig it, it's field" jurisdiction line drawn in the layer strip).
-    if (layers.props) for (const p of propMeshes) instanced.push(p.im);
+    if (viewState.layers().props)
+      for (const p of propMeshes) instanced.push(p.im);
     // The walkability advisor's markers: ONE opaque unlit instanced draw covering
     // every visible finding. Their own gate — the findings keep arriving while it
     // is off (the analyzer is not a display layer), this only stops drawing them.
-    if (layers.flags && flagMarkers) instanced.push(flagMarkers.im);
+    if (viewState.layers().flags && flagMarkers) instanced.push(flagMarkers.im);
     // The cell-level selection display, under the `selection` layer with the
     // outlines below (hiding the layer hides the DISPLAY; the selection itself
     // stays live and keeps masking ops). Premultiplied and depth-write-free, so
@@ -5619,7 +5645,8 @@ export function createFieldHost(deps?: {
     // A `drawnSelectionCells()` accessor would be a second count whose only
     // consumer is one assertion, and two counts that can disagree is worse than
     // one that is honest about its scope.
-    if (layers.selection && selectionCells) instanced.push(selectionCells.im);
+    if (viewState.layers().selection && selectionCells)
+      instanced.push(selectionCells.im);
     // The void cast goes in FIRST of the three translucents on purpose. All
     // three sort after every opaque (frame.render's blended group), so this
     // position decides nothing against the field — but within the blended group
@@ -5629,7 +5656,7 @@ export function createFieldHost(deps?: {
     // in the frame; submitted first, the two ghosts keep their hologram-blue and
     // read on top of it. Right priority: a ghost is the action the user is
     // steering right now, the cast is the room around it.
-    if (layers.voidCast)
+    if (viewState.layers().voidCast)
       for (const entries of voidCastMeshes.values())
         for (const e of entries) meshes.push(e.m);
     // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
@@ -5656,7 +5683,9 @@ export function createFieldHost(deps?: {
     //    onPointerDown), so the same promise would be false with no gesture
     //    armed at all.
     const ghost =
-      layers.ghost && gesture === null && stamp === null ? ghostState() : null;
+      viewState.layers().ghost && gesture === null && stamp === null
+        ? ghostState()
+        : null;
     if (ghost?.kitBox && ghostCube) {
       ghostPos.set(ghost.kitBox.center);
       ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
@@ -5669,7 +5698,7 @@ export function createFieldHost(deps?: {
     // Stamp ghosts share the ghost LAYER gate only (no selection-mode
     // suppression — the session, not LMB, owns their promise) and draw after
     // the opaque field like the kit-fill cube (premultiplied, no depth write).
-    if (layers.ghost)
+    if (viewState.layers().ghost)
       for (const entries of ghostMeshes.values())
         for (const e of entries) meshes.push(e.m);
     // Kit instances always render with the lit-instanced material, even in the
@@ -5686,7 +5715,7 @@ export function createFieldHost(deps?: {
       effects: [],
     });
     // Depth-tested grid (occlude:true): solid geometry hides it. Minors, then majors.
-    if (layers.grid) {
+    if (viewState.layers().grid) {
       frame.drawLines(c, {
         vertices: gridMinor.vertices,
         colors: gridMinor.colors,
@@ -5707,7 +5736,7 @@ export function createFieldHost(deps?: {
     // (the box preview on pointer move) — nothing is materialized per frame.
     // Hiding the layer hides the DISPLAY only: both selections stay live (the
     // cell one keeps masking ops, the entity one keeps feeding its seam).
-    if (layers.selection) {
+    if (viewState.layers().selection) {
       if (selectionBatch)
         frame.drawLines(c, {
           vertices: selectionBatch.vertices,
@@ -5755,7 +5784,7 @@ export function createFieldHost(deps?: {
     // a flag selection cannot even be made while the layer is hidden.
     // occlude:false like every other selection overlay: a finding inside rock is
     // exactly the kind the advisor is for.
-    if (layers.flags && flagSelectionBatch)
+    if (viewState.layers().flags && flagSelectionBatch)
       frame.drawLines(c, {
         vertices: flagSelectionBatch.vertices,
         colors: flagSelectionBatch.colors,
@@ -5766,7 +5795,7 @@ export function createFieldHost(deps?: {
     // boxes, occlude:false like every other ghost overlay so props previewed
     // inside a cave read through its walls. Under the ghost layer gate with the
     // hologram meshes: they are two halves of one preview.
-    if (layers.ghost && placementGhost)
+    if (viewState.layers().ghost && placementGhost)
       frame.drawLines(c, {
         vertices: placementGhost.vertices,
         colors: placementGhost.colors,
@@ -5775,7 +5804,7 @@ export function createFieldHost(deps?: {
       });
     // The segment brush's pending anchor + capsule preview. Under the GHOST
     // layer, not `selection`: they preview a brush op the next click commits.
-    if (layers.ghost) {
+    if (viewState.layers().ghost) {
       const anchorLines = segment.anchorBatch();
       if (anchorLines)
         frame.drawLines(c, {
@@ -5799,7 +5828,7 @@ export function createFieldHost(deps?: {
     // a two-click gesture shows BEFORE its first click, so arming one is not a
     // mode with no affordance at all. Which mark to draw is `cursorAffordance`'s
     // decision, pinned in the pure module; here is only the drawing.
-    if (layers.ghost) renderCursorAffordance(c, view);
+    if (viewState.layers().ghost) renderCursorAffordance(c, view);
   };
 
   // The live stats readout, lifted out whole (`field-stats.ts`): its channel, its
@@ -6457,7 +6486,7 @@ export function createFieldHost(deps?: {
       // vanishing X-ray beside a still-ticked checkbox would read as a bug").
       // Re-requesting rather than reporting: the user asked for the X-ray and
       // never withdrew it.
-      if (layers.voidCast) voidcast.request();
+      if (viewState.layers().voidCast) voidcast.request();
       attachListeners(canvas);
       lastFrameT = 0;
       raf = requestAnimationFrame(tick);
@@ -6707,23 +6736,10 @@ export function createFieldHost(deps?: {
       return selectionChannel.subscribe(cb);
     },
     setLayers(next) {
-      const wasVoidCast = layers.voidCast;
-      layers = { ...next }; // copy — host state never aliases panel objects
-      // The one layer with an edge effect: nothing to show unless a cast was
-      // built for the field as it stands (see FieldLayers). Off is a plain
-      // silent free; a call that leaves it true rebuilds nothing, which is what
-      // makes "re-toggle to refresh" the documented way back after an edit.
-      if (!layers.voidCast) voidcast.discard();
-      else if (!wasVoidCast) voidcast.request();
+      viewState.setLayers(next);
     },
     setSlice(y) {
-      if (y === sliceY) return; // slider-drag repeats of the same value are free
-      sliceY = y;
-      // Re-mesh EVERYTHING through the new clip. Plain adds, not
-      // markDirtyWithNeighbors: every allocated chunk is being re-marked
-      // anyway, so each chunk's 26-neighbourhood is in the set by
-      // construction. The throttled drain (REMESH_PER_FRAME) paces the burst.
-      for (const key of store.chunks.keys()) dirty.add(key);
+      viewState.setSlice(y);
     },
     occupiedTopY() {
       return occupiedTopYOf();
