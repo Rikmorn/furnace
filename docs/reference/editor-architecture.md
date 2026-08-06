@@ -1395,9 +1395,13 @@ it) plus the doors; what moved behind a chevron is the registry's own verbs, who
 is ⌘K by name. `help` is the fourth group and is deliberately NOT a submenu: it carries one
 action, and a one-row submenu is a chevron guarding one row.
 
-**Since F4.5b Task 7 the bindings are DECLARED ONCE, in `frontend/lib/actions.ts`.** That
-table is the editor's action registry: per action, an id, a group, a contextual `label`,
-an `enabled` predicate, the display chord, a `match` predicate and a `gate`. It was three
+**Since F4.5b Task 7 the bindings are DECLARED ONCE**, and since foundations T3b2 Task 4 in
+two halves: the DATA half is a row in `src/action-registry/descriptors.ts` (id, group, the
+binding as data, a `hint`, a `gate`, the two flags), and `frontend/lib/actions.ts` joins the
+four things a row cannot hold onto it by id — `label`, `enabled`, `checked` and `run`. The
+displayed chord is DERIVED from the binding (`capOf` → `keycap()`) rather than stated, and
+`match` is gone: one pure `matchBinding` over four facts replaced 22 closures. §22.5 and §22.6
+carry the whole of it. It was three
 readers when this section was written — the window key dispatcher
 (`hooks/useGlobalKeybindings.ts`), the burger's World/Edit/View groups and
 `shell/ShortcutsDialog.tsx` — and more have arrived since; **§17.4 carries the current count
@@ -1743,11 +1747,17 @@ item raise the same App-owned prompt, though the sentence is spelled in both
 
 ### 17.4 The action registry, the window dispatcher, and the RMB-gated fly
 
-**`frontend/lib/actions.ts` is the editor's one action registry** (D-10/D-11/D-12): per action
-an id, a group, a contextual `label`, an `enabled` predicate, the display chord, a one-sentence
-`hint`, a `match` predicate, a `gate`, and the `armsTool` / `flyLetter` flags. The module is
-pure and DOM-free (`KeyboardEvent` appears as a type only), and it type-imports the host like
-every other chrome module. There was one field more, `menuTitle` — the burger's half of the
+**The editor has one action registry** (D-10/D-11/D-12), and since foundations T3b2 Task 4 it
+is written in two files. `src/action-registry/descriptors.ts` holds the DATA per action — an
+id, a group, the binding as a `KeyBinding` row, a one-sentence `hint`, a `gate`, and the
+`armsTool` / `flyLetter` flags — so a process with no DOM can hold the table (§22.5).
+`frontend/lib/actions.ts` holds the four closures a row cannot (`label`, `enabled`, `checked`,
+`run`) and JOINS them onto those rows by id, exhaustively and at compile time. Two fields a
+reader may look for are not in either list: the display chord is DERIVED from the binding
+(`capOf` → `keycap()`) rather than stated beside it, and `match` no longer exists — one pure
+`matchBinding(binding, facts)` replaced all 22 closures, which is what let the table leave the
+browser. The chrome module is pure and DOM-free (`KeyboardEvent` appears as a type only), and
+it type-imports the host like every other chrome module. There was one field more, `menuTitle` — the burger's half of the
 same "the reason will not fit in the label" concept — until F4.5c Task 8 rendered it on a
 non-menu surface and merged it into `hint`: one concept, one name, one place a rewording
 happens.
@@ -1762,11 +1772,15 @@ through `TOOL_FAMILIES` (§17.8), the top bar (Bake and the palette toggle,
 `ActionTip` (`components/ui/tips.tsx`), which looks a keycap up by id so a tooltip cannot
 print a stale chord. Two further modules value-import `entityName` alone and are NOT readers
 of the table (`shell/SessionCard.tsx`, `shell/ToolStrip.tsx`) — the distinction is what the
-count means, and it is why re-deriving the eight takes three numbers, not one: **eleven**
-files import `lib/actions.ts`, **ten** of those value-import it (`hooks/useActionContext.tsx`
-takes `ActionCtx` as a type and reads nothing), and **eight** of those read the table. The
-number has been wrong at every re-count so far, so it is written in exactly two places — here
-and at the head of `lib/actions.ts` — and adding a reader means editing both. §16.6 points
+count means, and it is why re-deriving the eight takes three numbers, not one: **fourteen**
+files import `lib/actions.ts`, **twelve** of those value-import it
+(`hooks/useActionContext.tsx` and `components/field/EntitiesList.tsx` take `ActionCtx` and
+`ActionId` as types and read nothing), and **eight** of those read the table. The first two
+moved in T3b2 Task 4 — `runNamed` / `sayResult` gave `WorldDrawer.tsx` and `useWorld.tsx` value
+imports, `ActionId` gave `EntitiesList.tsx` a type-only one — and the commit that moved them
+restated this procedure without re-running it, which is the failure this paragraph is about.
+The number has been wrong at every re-count so far, so it is written in exactly two places —
+here and at the head of `lib/actions.ts` — and adding a reader means editing both. §16.6 points
 here rather than carrying a third copy. The
 `tool` and `session` groups are deliberately absent from the menu — arming a brush and ending
 a session are the rail's and the viewport's, and the overlay is where they are discovered.
@@ -1792,9 +1806,11 @@ at that point the key is claimed, and a disabled ⌘S must still suppress the br
 sheet. A REFUSED action prevents nothing, so the character the user is typing still reaches
 their field.
 
-**The gate** (`gateAction`, and `clickGate` for a pointer press on the same verb, so a button
-and its key refuse for the same reason in the same words) has two classes plus two per-action
-flags:
+**The gate** (`gateAction`, with `clickGate` its `caller: "named"` reading for a pointer press
+on the same verb, so a button and its key refuse for the same reason in the same words) has two
+classes plus two per-action flags. Since T3b2 Task 4 the two CLASSES and `flyLetter` bind the
+KEY caller only, while `armsTool` and the modal suppression bind both — see §22.6's caller
+table for why, and for the hard-code that split closed:
 
 | Class / flag | When the key may fire |
 | --- | --- |
@@ -3083,17 +3099,20 @@ no rule at all.
 
 ### 22.5 `src/action-registry/` — the editor's verbs as rows, and the layer's fourth node
 
-`frontend/lib/actions.ts` declares 39 actions with 12 fields each. **Five** of those fields
-are closures — `label`, `enabled`, `checked`, `run` over a live React context, and `match`
-over a `KeyboardEvent` — and they are the whole reason the one action table cannot leave the
-browser. The other **seven** are data. `src/action-registry/` is those seven, for all 39.
+`frontend/lib/actions.ts` used to declare 39 actions with 12 fields each. **Five** of those
+fields were closures — `label`, `enabled`, `checked`, `run` over a live React context, and
+`match` over a `KeyboardEvent` — and they were the whole reason the one action table could
+not leave the browser. The other **seven** are data. `src/action-registry/` is those seven,
+for all 39; T3b2 Task 3 landed the rows and Task 4 deleted the literals they were derived
+from, so `actions.ts` now JOINS its four remaining closures onto these rows by id (`match`
+became a `KeyBinding` row and one pure matcher).
 
-The blocker was never the DOM. `actions.ts` is already DOM-free (`KeyboardEvent` appears as
-a type only, erased at build) and its only value imports are neutral-floor modules. What was
+The blocker was never the DOM. `actions.ts` was already DOM-free (`KeyboardEvent` appears as
+a type only, erased at build) and its only value imports were neutral-floor modules. What was
 missing: **one export-map entry** (`packages/editor/package.json` carried exactly one,
 `./field-host`, and the daemon bundles from the CONSUMER's root, so it names editor modules
 by bare specifier), the five closures, and **nothing machine-enforcing Node-importability**
-at all. All three are now addressed or scheduled.
+at all. All three are addressed.
 
 **The layer.** `action-registry/` sits BESIDE `field-host/` under the chrome, not under it.
 It may value-import `@furnace/core` and `shared/`; it may import React, the DOM,
@@ -3106,21 +3125,27 @@ proves things:
 | no React | `no-chrome-leakage.test.ts` | specifier scan |
 | nothing out of `frontend/` | same | specifier scan |
 | nothing out of `field-host/` | same | specifier scan (the file's first host rule — the two nodes are siblings, so nothing else would stop the registry taking a `FieldHost` with it) |
-| the chrome may reach it **type-only** | `frontend-no-engine-leakage.test.ts` | that file's `valueImportRules`, which already knows `import type` is erased |
+| the chrome may not VALUE-import `schemas.ts` (nor bare `zod`) | `frontend-no-engine-leakage.test.ts` | that file's `valueImportRules`, which already knows `import type` is erased |
 
-The fourth is that file's rule because it is that file's *reason*: the registry is licensed
+The fourth is that file's rule because it is that file's *reason*: `schemas.ts` is licensed
 to value-import core (an action that takes input carries a zod schema built from core's `z`
-re-export — the single-instance contract), so a chrome VALUE-import would pull zod and
-behind it core into the main bundle, the same second instance the other three rules exist to
-prevent, arriving by a fourth door.
+re-export — the single-instance contract), so a chrome VALUE-import of **it** would pull zod
+and behind it core into the main bundle, the same second instance the other three rules exist
+to prevent, arriving by a fourth door. It read "the chrome may reach the DIRECTORY type-only"
+until Task 4 narrowed it to the one module that carries zod — see *the schemas get their own
+module*, below, for why both halves of the constraint are only satisfiable that way. The
+barrel is covered by construction rather than by a second pattern: `index.ts` re-exports the
+schema module's TYPES only, so there is no value edge for a chrome import of it to follow.
 
 **The DOM half is not a regex, and could not usefully be one** — `KeyboardEvent` in a type
 position is erased, and `window`/`document` are ordinary English words in files this dense
 with prose. `tests/action-registry/node-door.test.ts` imports the module in a bare runtime
-instead, twice: by relative path, and by the new `@furnace/editor/action-registry` bare
+instead, three times: by relative path, by the `@furnace/editor/action-registry` bare
 specifier (the daemon's actual route in, and the failure mode `bundle.test.ts`'s note
-describes). Both doors were sabotage-verified — a module-scope `document.title` fails them,
-and removing the export-map entry fails the second alone.
+describes), and — since Task 4 — by relative path into `schemas.ts`, which the barrel
+deliberately does not value-re-export and which is the only module here whose graph reaches
+outside the package. All three doors were sabotage-verified — a module-scope `document.title`
+fails them, and removing the export-map entry fails the second alone.
 
 **Bindings become data.** Five matcher helpers (`mod`, `chord`, `bare`, `shifted`,
 `question`) plus three hand-rolled inline ones (⌫/⌦, ⏎, Esc) collapse into five `KeyBinding`
@@ -3168,39 +3193,191 @@ shift-agnostic binding when it makes one — `?` spends eleven lines of TSDoc on
 its AltGr residue — and none of these three carries a word. A declarative table is allowed to
 force that question and is not allowed to answer it.
 
-**The rows stand beside the literals for one commit**, exactly as `shared/action-table.ts`
-did in Task 2 and for the same reason. The gate asserts all seven fields (order included)
+**The rows stood beside the literals for exactly one commit**, as `shared/action-table.ts`
+did in Task 2 and for the same reason. The gate asserted all seven fields (order included)
 against the live table, and the 22 binding rows against the 22 live `match` closures over a
 **640-press cross-product** (40 keys × all 16 modifier combinations, with meta and ctrl
-enumerated separately so "the two sides collapse them the same way" is checked rather than
+enumerated separately so "the two sides collapse them the same way" was checked rather than
 assumed) — **zero** divergences, **no exception list**, and at most one claimant per press
-throughout. A second case pins the two ⇧ policies as DATA, so unifying them cannot happen as
-a side effect of a tidy-up. `ActionGroup` and `ActionGate` **moved** down rather than being duplicated
-and pinned: they are types, the chrome may type-import them, and `actions.ts` re-exports
-them so its four importers keep one import site. `ACTION_GROUPS` stays in the chrome — a
-group's title and render order are rendering facts, and it is a value the chrome
-value-imports.
+throughout. Task 4 deleted the literals, so the derive half went with them; what survives in
+`tests/action-registry/descriptors.test.ts` is the shape half (keyed ⟺ gated, unique ids,
+unique caps, the MCP-projection membership), the two-⇧-policies pin, and the cross-product
+reduced to the property that still means something without a second matcher to compare
+against — **at most one action claims any press**, plus the canvas keys claiming none. That
+file now imports nothing from `frontend/`. `ActionGroup` and `ActionGate` **moved** down
+rather than being duplicated and pinned: they are types, the chrome may type-import them, and
+`actions.ts` re-exports them so its importers keep one import site. `ACTION_GROUPS` stays in
+the chrome — a group's title and render order are rendering facts, and it is a value the
+chrome value-imports.
 
 **`mcpProjection` is recorded, not built.** Six rows carry it, and they are the whole
 membership: the axis views project onto one `view.snap {axis, sign}` MCP tool while the
 chrome keeps six literal greppable ids (the WCAG 2.5.8 equivalent affordance of §18.5 —
 delete them and the finding re-opens). Both facts, stated once each.
 
-**The chrome-type-only rule closes the `shared/` route, so Task 4's schemas get their own
-module.** Four chrome surfaces render `hint`, `keys` and `group` at RUNTIME, which needs a
-VALUE import; the rule bars the chrome from value-importing anything under
-`action-registry/`. The plan's escape hatch was to flow that data through
+**The schemas get their own module, because the chrome-value-import rule closes every other
+route.** Chrome surfaces render `hint`, `keys` and `group` at RUNTIME, which needs a
+VALUE import; the rule as Task 3 wrote it barred the chrome from value-importing anything
+under `action-registry/`. The plan's escape hatch was to flow that data through
 `shared/action-table.ts` — but the same rule is applied to the `shared/` walk, correctly,
-since the floor sits BELOW the registry and an upward import is not available at all. Today
-nothing bites, because `descriptors.ts` carries no zod at value level; the moment Task 4
-populates `input:` rows with `z.object(...)`, it does, and the only remaining options are a
-chrome value-import of a schema-bearing module (the STOP condition) or restating the labels
-in `shared/` (the duplication this slice exists to remove). **Decision, recorded here so T4
-inherits it rather than discovers it: `descriptors.ts` stays plain, zod-free,
-chrome-value-importable data, and the input schemas move to a separate
-`action-registry/schemas.ts` as an id-keyed map — with the chrome value-import rule narrowed
-to THAT module plus bare `zod`.** It honours the hard constraint machine-checkably rather
-than by review, keeps the chrome reading one source instead of restating it, and is what
-spec §3.3's "zod never crosses a boundary" actually asks for. Not implemented in T3b2: with
-no zod values in the directory there is nothing to split yet, and a seam built before its
-first schema would be guessing at the map's shape.
+since the floor sits BELOW the registry and an upward import is not available at all. Nothing
+bit while `descriptors.ts` carried no zod at value level; the moment a row carried
+`z.object(...)` it would, and the only remaining options were a chrome value-import of a
+schema-bearing module or restating the labels in `shared/` (the duplication this slice exists
+to remove). **As built (Task 4): `descriptors.ts` — with `keys.ts`, `result.ts` and the
+barrel — is plain, zod-free, chrome-value-importable data, and the six input schemas live in
+`action-registry/schemas.ts` as an id-keyed map, with the chrome value-import rule narrowed to
+THAT module plus bare `zod`.** `ActionDescriptor` has no `input` field at all: the schema is
+looked up by the same id (`ACTION_INPUT_SCHEMAS["tool.stamp"]`), so there is one home for it
+rather than a field that could only ever be populated elsewhere.
+
+**Narrowing the chrome's ban moved the containment; it did not delete it, and that took a
+second rule plus a third check.** The directory-wide ban made "no zod, no core, in the chrome
+bundle" structurally impossible to break — the chrome could not value-import ANY of it, so
+which registry file carried an engine import did not matter. Narrowed, it does: a value
+`import { z } from "@furnace/core/registry"` in `descriptors.ts`, `keys.ts`, `result.ts` or
+the barrel would ride a legitimate chrome value-import into the main bundle, and
+`no-chrome-leakage.test.ts` scans this directory for React, `frontend/` and `field-host/`
+only. So `frontend-no-engine-leakage.test.ts` now runs its ENGINE and ZOD rules over
+`src/action-registry/` too, with `schemas.ts` the one exempt file. Three sabotages hold it: a
+value core import in `descriptors.ts` reddens, the same import in the barrel reddens, and the
+identical import in `schemas.ts` stays green.
+
+**One check in that file is not a proxy.** Every rule above is a specifier scan, and that file
+says in its own words that it deliberately does not chase `await import(…)`. So it also
+BUILDS `frontend/lib/actions.ts` for the browser — the chrome module that value-imports the
+registry, and therefore the door the narrowing opened — and asserts zod's runtime class names
+are absent from the output (with a positive marker so an empty build cannot pass). 28 KB and
+~16 ms at head. Sabotage-verified with a DYNAMIC import of `schemas.ts` planted in
+`descriptors.ts`: invisible to every regex in the file, caught here.
+
+**Six schemas, not twelve — the axis views take their input from their own ids.** The
+measured worklist counts twelve actions as needing input; six of those are the axis views,
+and they carry no schema. Their axis and sign ARE the id, so a `{axis, sign}` schema on
+`view.snapNegZ` would let a caller hand it `x` and make the id a lie. What they carry instead
+is `mcpProjection`. The six that do take one are `world.saveAs` and `world.makeDefault`
+(`{name}`), `edit.duplicate` / `edit.delete` / `edit.grab` (`{entityId}`) and `tool.stamp`
+(`{generatorId}`), and the two sets are asserted disjoint.
+
+**Every field inside an input is REQUIRED and the whole input is optional**, which is the
+chrome/agent split expressed once: `InputOf<Id>` admits `undefined`, so a chrome surface
+dispatches a verb with nothing and each run falls back to what the ctx has selected, while a
+caller that names a verb must name its object too. One asymmetry is worth knowing: `edit.
+delete` REFUSES an `entityId` that is not the selected one, because its confirm names the
+generator and counts the ops and both come off `ctx.selectedEntity` — the only entity the
+chrome can describe. Duplicate and Grab need the id alone and take any.
+
+### 22.6 The action's own verdict — `ActionResult`, and the one dispatch funnel
+
+Before T3b2 Task 4 every `run` was `(ctx) => void`: **zero** actions were async, **zero**
+produced a result anything read, and failure had three shapes, none of them the action's —
+the host's `reportToolError` channel (41 sites across `field-host/` — the planning digest
+said 46, counting 38 in `field-host.ts` where head has 33, five of them having left with
+T3b1's cluster extractions), a `notify.error` from
+inside a chrome seam, or silence. `run: (ctx, input) => Promise<ActionResult>` is a NEW
+channel for all 39.
+
+```ts
+export type ActionResult =
+  | { ok: true }
+  | { ok: false; kind: "refused"; message: string }
+  | { ok: false; kind: "failed"; message: string };
+```
+
+**Three provenances, one funnel, never a doubled toast.** This is the reconciliation the
+type's own module header carries, and it is why there are two non-ok kinds rather than one:
+
+1. **The host's** — `reportToolError` → `subscribeToolError` → a toast. Not actions, and they
+   did not move. A verb that hands off to the host returns `{ ok: true }` on the hand-off —
+   most of the table, and the membership is greppable (`run: handOff(` in `BEHAVIORS`) rather
+   than counted here, for the reason that function's own note gives; the host answers for
+   itself, later, on its own channel.
+2. **The world seam's** — `frontend/lib/world-actions.ts` composes and says its own save and
+   load sentences ("bake failed: ENOSPC"). Same shape as the host's, one layer up.
+3. **The action's** — the Result. `runAction` in `frontend/lib/actions.ts` is the one funnel
+   every surface dispatches through, and it says a Result out loud exactly once.
+
+`refused` is a verdict the action itself reached that nobody has said yet, so the funnel says
+it with `notify.error` — the same call, in one place, that used to sit inside the verb.
+`failed` is an error a layer below already surfaced on its own channel, so the funnel stays
+quiet and the Result carries it to a caller who is not looking at the screen. Both halves are
+pinned in `tests/actions.test.ts`, and the sabotage that proves it: make `sayResult` speak
+`failed` too and the no-double-toast case reddens.
+
+**Two sentences moved into the funnel, and two were newly created.** The MOVED pair is
+`write`'s invalid-name error and `bake`'s untitled backstop — same wording, same
+`notify.error` severity, now said in one place. The NEW pair is `write`'s own guard, which was
+one silent `if (!host || inFlight.current) return;` and is now two refusals a caller can read:
+*"the engine is not up yet"* and *"a world write is already running"*. Both are reachable and
+both are pinned, and neither is the path it looks like. **No host** is not a pre-engine ⌘S —
+`save`/`bake` reach `write` only with `name !== null`, `name` is set only inside `write`/`open`
+which both already had a host, and `App.tsx` assigns the host once and never nulls it; the way
+in is `saveAs`, which takes its name from the drawer's FORM and has no such precondition, on a
+shell `App.tsx` renders unconditionally (⌘S → type a name → Save, before the bundle lands).
+**In flight** is the window `inFlight` exists for and its own docblock names: `job` is React
+state that every control reads, a held ⌘S repeats faster than a commit, and the synchronous
+ref covers the gap. `WorldActions.save` / `saveAs` / `bake`
+therefore return `Promise<ActionResult>` — they were `void` returns over `void write(...)`,
+which made a rejection out of the upload an unhandled promise rejection — and the other eight
+world verbs still return `void`, because no action dispatches into them and each already
+reports through `runVerb`'s toast. `world.makeDefault` is **not** one of the awaiting three
+the planning digest named: it opens a MODAL and returns, the promise lives two hops down
+inside the confirm's `onConfirm`, and awaiting a human decision would leak the promise on
+every cancel. Its verdict answers for the dispatch — the confirm was raised.
+
+**`runAction(def, ctx, env, input?, onClaim?)`** is gate → claim → `enabled` → run → say.
+`onClaim` fires the instant the gate ALLOWS and before `enabled` is consulted, because at
+that point the key has been claimed: a disabled ⌘S must still suppress the browser's
+save-page dialog. It is `useGlobalKeybindings`' `preventDefault` seam and nothing else passes
+one. The INERT case (`enabled` false, gate open) returns a refusal carrying the action's
+LABEL and says nothing — the existing three-way policy made answerable, since those labels
+already state the reason on screen ("Bake — name the world first (⌘S)") while a caller who
+cannot see the screen gets that same sentence as the message.
+
+**The third caller class the gate's env was never written for (S12).** `clickGate` used to
+branch around `gateAction` for menu-only actions and hard-code `inTextInput: false` on the
+argument *"the user typed to find it and then named it"* — true of a palette row, untrue of
+an agent. `GateEnv` is now a UNION discriminated by `caller`:
+
+| | `key` | `named` (menu / palette / rail / agent) |
+|---|---|---|
+| modal confirm open | refuses | refuses |
+| `armsTool` during a session | refuses, with the hint | refuses, with the same hint |
+| no `gate` (menu-only) | refuses | **runs** — the rule is about keycaps, and a control has none |
+| `typed` gate + `inTextInput` | refuses | not asked |
+| `flyLetter` + right button held | refuses | not asked |
+
+The three key clauses live inside the `key` branch, so the two key-only facts are simply not
+askable of a named call — there is no `false` left to write down and nobody has to justify
+one. That is the whole fix: the hard-code became unwriteable rather than relocated.
+
+**Where the input typing does and does not reach.** The DECLARATION site is checked — the
+behavior table is keyed by `ActionId` and each row's `run` states its own `InputOf<Id>`, so
+`edit.duplicate` reading a `generatorId` does not compile. The DISPATCH site is not:
+`runAction` types `input` as the widened union, so handing an action another action's input
+compiles and degrades to the ctx fallback. A generic was tried and does not close it — `byId`
+answers `ActionDef` with `id: string`, so the id cannot be inferred at any call site the chrome
+writes, and recovering it means making `ActionDef` generic everywhere it is held. Not bought:
+no chrome caller passes an input at all, and T4's agent surface is what will have a reason.
+
+**A throw out of ANY of the 39 runs is now surfaced rather than thrown past the dispatcher**
+— the second user-visible change this task shipped, and the whole of what `failed` means.
+Before the funnel a run that threw took its listener with it: a sync throw out of the keydown
+handler, and an unhandled rejection once the world verbs became async. `runAction` catches it,
+returns `failed`, and — uniquely among `failed` results — SAYS it, because this is the one no
+layer below has voiced. The funnel says what the funnel owns.
+
+**`ActionId` earned its first consumer.** `ACTION_DESCRIPTORS` is declared `as const
+satisfies` and exported widened, which is two statements about one array: the literal tuple
+gives `ActionId` (a union of the 39 ids), the widened export keeps `d.hint` readable without
+narrowing. The chrome's behavior table is `{ readonly [Id in ActionId]: ActionBehavior<Id> }`
+— so a descriptor with no behavior and a behavior with no descriptor are both COMPILE errors,
+where the join they replace was a runtime `find` that threw at module init. `byId` narrowed to
+`ActionId` in the same change. `shared/action-table.ts`'s `ToolActionId` still cannot use the
+union (the floor sits below the registry) and still resolves by throwing.
+
+**The keycap is derived everywhere now.** `ActionDef.keys` is the `KeyBinding`, and `capOf(def)`
+(a thin read of the registry's `keycap()`) is what every surface printing one calls. What that replaces
+is a `keys: "⇧⌘S"` string on every row, declared beside a matcher it had to agree with by
+review — the gap `keybindings.test.ts` had already named in writing and closed for exactly one
+row.

@@ -12,21 +12,27 @@
 // a type that resolves and a value that does not. A table of rows travels; a table of
 // closures does not.
 //
-// MIGRATION (until T3b2 Task 4): THE ROWS STAND BESIDE THE LITERALS, exactly as
-// `shared/action-table.ts` did in this slice's Task 2 and for the same reason —
-// `tests/action-registry/`'s gate derives every field here against the live table and
-// asserts them equal, which is a proof only while both sides are standing. Every one of
-// these seven fields is currently spelled twice, here and in `frontend/lib/actions.ts`.
-// Task 4 moves the five closures across and deletes that table; most of the gate goes
-// with it, and this duplication ends.
+// THE ROWS ARE THE ONLY COPY since T3b2 Task 4. They stood beside the literals in
+// `frontend/lib/actions.ts` for exactly one commit, under a derive-and-diff gate that
+// asserted all seven fields and all 22 bindings equal over a 640-press cross-product; Task 4
+// deleted the literals, and the chrome now JOINS its FOUR closures onto these rows by id —
+// `label`, `enabled`, `checked` and `run`. The fifth, `match`, did not move: it became the
+// `keys` row below plus one pure `matchBinding`.
+// There is one spelling of every field below, and `keycap()` derives the printed cap from
+// the binding rather than a surface stating it.
 //
 // THE LAYER. `src/action-registry/` sits beside `field-host/` under the chrome: it MAY
 // value-import `@furnace/core` and `shared/`, and it may import React, the DOM,
 // `field-host/` or `frontend/` not at all — `tests/no-chrome-leakage.test.ts` holds the
 // three import rules and `tests/action-registry/node-door.test.ts` holds the DOM one by
-// importing this module in a bare runtime. The chrome may reach it TYPE-ONLY, so a schema
-// value (zod) can never enter the chrome bundle; `tests/frontend-no-engine-leakage.test.ts`
-// holds that half.
+// importing this module in a bare runtime.
+//
+// THIS MODULE IS ZOD-FREE AT VALUE LEVEL, and that is load-bearing rather than incidental:
+// chrome surfaces render `hint`, `keys` and `group` at RUNTIME, which needs a value
+// import, and the chrome bundle must gain neither zod nor `@furnace/core` behind it. So the
+// input schemas live in `schemas.ts` — the one module under this directory the chrome may
+// not value-import (`tests/frontend-no-engine-leakage.test.ts`, narrowed to it plus bare
+// `zod` in Task 4; editor-architecture §22.5).
 //
 // The one value import: `LATTICE`, because `edit.grab`'s hint STATES the host's nudge step
 // and must read it rather than restate it. The number was already on the neutral floor
@@ -34,7 +40,6 @@
 // slice's Task 2 changed is that the hint stopped hardcoding `0.5` and started reading it —
 // one of the six chrome sites that did (editor-architecture §22.4). The descriptor inherits
 // the same obligation, which is why this row is a template literal and not a string.
-import type { z } from "@furnace/core/registry";
 import { LATTICE } from "../shared/field-brush.ts";
 import type { KeyBinding } from "./keys.ts";
 
@@ -45,12 +50,13 @@ import type { KeyBinding } from "./keys.ts";
  *  viewport's, so filing them in the burger would be a second, worse route to both.
  *
  *  `help` is the odd one and says so here rather than reading as an oversight: it carries a
- *  single action, and the burger renders that action DIRECTLY rather than as a fourth
- *  submenu. Two reasons, both structural. A one-row submenu is a chevron guarding one row.
- *  And that row's select hands focus to the dialog it opens (`BurgerMenu`'s `handingOff`),
- *  which a generic registry row cannot express — so the menu item is hand-written, and its
- *  label, keycap and verb are read off this table through `byId` so there is still exactly
- *  one spelling of each.
+ *  single action, and the burger renders that action FLAT rather than as a fourth submenu,
+ *  because a one-row submenu is a chevron guarding one row. The row itself is the same
+ *  generic `RegistryItems` the three submenus use — it just takes an `onSelect`, because this
+ *  overlay has no trigger for Radix to restore focus to and the menu must forward its own
+ *  answer to the dialog it opens (`BurgerMenu`'s `handOff`). (Corrected in T3b2 Task 4: this
+ *  paragraph claimed the item was HAND-WRITTEN and read off the table "through `byId`".
+ *  `BurgerMenu.tsx` contains no `byId` and never did.)
  *
  *  What each group is CALLED, and the order a user meets them in, is the CHROME's
  *  (`ACTION_GROUPS` in `frontend/lib/actions.ts`) — three surfaces name the same six sets
@@ -83,16 +89,23 @@ export type ActionGate = "chord" | "typed";
  *  Absent means absent, uniformly: no `keys` is a menu-only verb the keyboard cannot
  *  reach, no `hint` is a verb whose label says the whole of it, no `gate` is the same
  *  verb read from the other side. `keys` and `gate` are declared together or not at all
- *  (asserted). */
+ *  (asserted).
+ *
+ *  NO `input` FIELD, and that is the layering decision of §22.5 rather than an omission:
+ *  an input schema is a zod VALUE, this module must stay chrome-value-importable, and the
+ *  two are only compatible if the schemas live elsewhere. `schemas.ts` holds them, keyed by
+ *  the same id — `ACTION_INPUT_SCHEMAS["tool.stamp"]` is this row's input. */
 export type ActionDescriptor = {
   /** Stable id, `group.verb`. Unique across the table (asserted).
    *
-   *  `string` rather than a union of the 39, deliberately for now. The union is one
-   *  `as const satisfies` away and buys a real thing — `shared/action-table.ts`'s
-   *  `ToolActionId` is seven hand-written literals that resolve against the registry by
-   *  THROWING rather than by assignment — but `shared/` sits BELOW this module and cannot
-   *  import the union to narrow against. Whoever gains the first consumer that can use it
-   *  should add it; nothing today can. */
+   *  `string` HERE, in the shape, and a union of the 39 at the VALUE — see {@link ActionId}
+   *  below, which the table earns by being declared `as const`. The shape cannot state the
+   *  union without being circular, and it does not need to: every consumer that wants the
+   *  union wants it of the TABLE, not of the type.
+   *
+   *  `shared/action-table.ts`'s `ToolActionId` is still seven hand-written literals that
+   *  resolve by THROWING rather than by assignment, and still cannot use this: `shared/`
+   *  sits BELOW this module, so the arrow is not available to it. */
   readonly id: string;
   readonly group: ActionGroup;
   /** The key that runs it, as data. Absent = menu-only, unreachable from the keyboard.
@@ -112,15 +125,6 @@ export type ActionDescriptor = {
   /** This keycap is ALSO one of the viewport's fly keys (w/a/s/d/q/e — `readFlyMove`), so
    *  the look drag owns it: refused while the right button is down. */
   readonly flyLetter?: boolean;
-  /** Absent = a bare verb, which is all 39 of them today. Present = the zod input schema,
-   *  built from `@furnace/core/registry`'s `z` re-export and no other zod install (schema
-   *  objects cross registry boundaries and mixing instances breaks `instanceof`
-   *  introspection). JSON Schema for the wire comes from `toJsonSchema` at the projection
-   *  edge and is never hand-authored.
-   *
-   *  The import above it is TYPE-ONLY today because nothing sets this field yet; the layer
-   *  licenses the value import the moment one does. */
-  readonly input?: z.ZodObject<z.ZodRawShape>;
   /** How this verb projects onto ONE MCP tool, recorded here as data for T4 rather than
    *  built now.
    *
@@ -138,8 +142,17 @@ export type ActionDescriptor = {
 
 /** Every action the editor can run, in the order the table declares them — which is the
  *  order the burger's submenus, the shortcuts overlay's sections and the ⌘K palette's
- *  groups all render in, so it is data rather than incident. */
-export const ACTION_DESCRIPTORS: readonly ActionDescriptor[] = [
+ *  groups all render in, so it is data rather than incident.
+ *
+ *  DECLARED `as const satisfies` and EXPORTED widened, which is two statements about one
+ *  array and both are wanted. `as const` keeps the 39 ids as LITERALS, which is what
+ *  {@link ActionId} is made of and therefore what makes the chrome's behavior table
+ *  exhaustive by type rather than by a runtime join that throws. The widened export is what
+ *  every READER wants: under the literal tuple, `ACTION_DESCRIPTORS[number]` is a 39-member
+ *  union and `d.hint` does not exist on the members that omit it, so a reader would have to
+ *  narrow before touching an optional field that the shape declares optional. `satisfies`
+ *  type-checks every row either way. */
+const DESCRIPTORS = [
   {
     id: "world.new",
     group: "world",
@@ -391,4 +404,20 @@ export const ACTION_DESCRIPTORS: readonly ActionDescriptor[] = [
     hint: "Every binding this build answers to, in one list — including the viewport keys the canvas owns, which no menu can show",
     gate: "typed",
   },
-];
+] as const satisfies readonly ActionDescriptor[];
+
+export const ACTION_DESCRIPTORS: readonly ActionDescriptor[] = DESCRIPTORS;
+
+/** The 39 ids, as a union, read off the table rather than restated beside it.
+ *
+ *  WHAT IT BUYS, and it is one thing that could not be bought before this slice moved the
+ *  table: the chrome's behavior map (`frontend/lib/actions.ts`) is keyed by this union, so a
+ *  descriptor with no behavior and a behavior with no descriptor are both COMPILE errors.
+ *  The join used to be a runtime `find` that threw, and a throw at module init is the
+ *  latest a missing verb can be found rather than the earliest.
+ *
+ *  Task 3 left `ActionDescriptor.id` as plain `string` and said the union was "one
+ *  `as const satisfies` away and buys a real thing" with nothing able to use it. Task 4
+ *  gave it its first consumer, so it is here. `shared/action-table.ts` still cannot use it —
+ *  the floor sits below this node — and its seven literals still resolve by throwing. */
+export type ActionId = (typeof DESCRIPTORS)[number]["id"];

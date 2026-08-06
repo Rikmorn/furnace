@@ -29,7 +29,7 @@ import { usePaletteSummon } from "../../hooks/usePaletteStack.tsx";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { useWorldState, type WorldJob } from "../../hooks/useWorld.tsx";
 import type { ActionCtx } from "../../lib/actions.ts";
-import { ACTIONS } from "../../lib/actions.ts";
+import { ACTIONS, runNamed } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import type { EditorState } from "../../lib/state.ts";
@@ -242,7 +242,7 @@ function SelectionVerb({
 			variant="ghost"
 			className="h-6 px-2 text-xs"
 			disabled={disabled}
-			onClick={() => action.run(ctx)}
+			onClick={() => void runNamed(action, ctx)}
 		>
 			{action.label(ctx)}
 		</Button>

@@ -59,7 +59,12 @@ import type {
 	ToolFamily,
 	ToolFamilyMember,
 } from "../../lib/actions.ts";
-import { controlVerdict, TOOL_FAMILIES } from "../../lib/actions.ts";
+import {
+	capOf,
+	controlVerdict,
+	runNamed,
+	TOOL_FAMILIES,
+} from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 // The refusal VOICE, shared with `ReasonTip` and the key dispatcher: this file renders
 // refusals its own way (`aria-disabled`, so they stay focusable), but what a refused
@@ -157,16 +162,23 @@ export function ToolRail() {
 					id: family.id,
 					group: family.name,
 					label: family.label(ctx),
-					keys: family.arm.keys,
+					// Both caps DERIVED from their bindings, never stated: `capOf` reads the
+					// registry's `keycap()`, so a rail tooltip cannot print a chord the table
+					// has moved.
+					keys: capOf(family.arm),
 					hint: family.arm.hint,
-					cycleKeys: family.cycle?.keys,
+					cycleKeys: family.cycle === null ? undefined : capOf(family.cycle),
 					armed: family.armed(ctx),
 					// The registry's own three-way (live / inert / refused, and the sentence).
 					// It lives there rather than here because the command palette renders the
 					// same verbs and must refuse them in the same words.
 					verdict: controlVerdict(family.arm, ctx),
 					members: family.members(ctx),
-					run: () => family.arm.run(ctx),
+					// Through the ONE funnel, so the button, the key and the ⌘K row all gate,
+					// run and report identically. The `refused` early-return below still
+					// speaks first: it reads the verdict this row already carries, and the
+					// funnel is never reached on that path.
+					run: () => void runNamed(family.arm, ctx),
 					armMember: (member: ToolFamilyMember) => member.arm(ctx),
 				};
 			}),

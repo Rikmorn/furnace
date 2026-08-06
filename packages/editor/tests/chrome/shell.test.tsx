@@ -42,7 +42,12 @@ import {
 	useFieldStamp,
 	useFieldTool,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import { ACTIONS, byId, groupTitle } from "../../src/frontend/lib/actions.ts";
+import {
+	ACTIONS,
+	byId,
+	capOf,
+	groupTitle,
+} from "../../src/frontend/lib/actions.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import {
@@ -2317,7 +2322,7 @@ test("the burger's View submenu carries the triad's six axis views, in the triad
 	// THE claim of this whole item: the six views are reachable somewhere other than the
 	// tips, and named identically there — the tips are under the WCAG 2.2 SC 2.5.8 target-size
 	// minimum and rest on that SC's equivalent-affordance exception (the sizes are on
-	// `AxisTriad`'s HIT/NEG_HIT, and the argument on `AXIS_VIEWS`). Two surfaces wording one
+	// `AxisTriad`'s HIT/NEG_HIT, and the argument on `axisView`). Two surfaces wording one
 	// view differently would be two controls to a reader, and the exception would not hold.
 	//
 	// ORDER is asserted too, and it is a real claim: the group renders in table position,
@@ -2471,14 +2476,23 @@ test("the overlay renders the REGISTRY — every keyed action has a row, with it
 	// The claim the hand-maintained table could never make: a binding cannot ship
 	// undocumented, because the rows ARE the table. Every action with a `match` is
 	// listed under its own keycap.
+	// `capOf` and NOT `action.keys`, which is the BINDING since T3b2 Task 4 — a survey that
+	// kept the old field would have skipped every row (nothing is `undefined` and nothing is a
+	// string) and passed on an empty loop. The cap is derived from the binding here exactly as
+	// the overlay derives it, which is the point: one spelling.
+	let listedRows = 0;
 	for (const action of ACTIONS) {
-		if (action.match === undefined) continue;
-		const keys = action.keys ?? "";
+		const keys = capOf(action);
+		if (keys === undefined) continue;
+		listedRows += 1;
 		expect({
 			id: action.id,
 			listed: within(dialog).queryAllByText(keys).length,
 		}).toEqual({ id: action.id, listed: 1 });
 	}
+	// The loop ran. A survey whose filter silently matches nothing is the failure mode this
+	// case just had, and a count is what makes it impossible to have again.
+	expect(listedRows).toBe(22);
 });
 
 // --- (c3c) the TREE: three submenus over a top level that fits on one screen ---
@@ -2646,7 +2660,7 @@ test("the burger's Keyboard shortcuts item advertises the chord it now HAS", asy
 		.closest("[role='menuitem']");
 	if (!(item instanceof HTMLElement)) throw new Error("no shortcuts item");
 	expect(item.textContent).toBe(
-		`Keyboard shortcuts${byId("help.shortcuts").keys}`,
+		`Keyboard shortcuts${capOf(byId("help.shortcuts"))}`,
 	);
 });
 

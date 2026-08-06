@@ -2,7 +2,7 @@
 // the WHOLE table at once.
 //
 // It is a VIEW, not a surface with verbs of its own. Every label is `def.label(ctx)`,
-// every keycap is `def.keys`, every refusal is `controlVerdict` — so a row cannot say
+// every keycap is `capOf(def)`, every refusal is `controlVerdict` — so a row cannot say
 // something the burger, the rail or the keyboard would not. Nothing here decides what a
 // verb is called or when it may run; if it ever does, that is the D-12 violation this file
 // exists to make obvious.
@@ -38,7 +38,9 @@ import {
 	type ActionDef,
 	type ActionGroup,
 	byId,
+	capOf,
 	controlVerdict,
+	runNamed,
 	TOOL_FAMILIES,
 } from "../../lib/actions.ts";
 import {
@@ -94,10 +96,11 @@ function actionRow(def: ActionDef, ctx: ActionCtx): Row {
 		value: def.id,
 		group: def.group,
 		label,
-		keys: def.keys,
+		keys: capOf(def),
 		verdict: controlVerdict(def, ctx),
 		keywords: def.hint === undefined ? [label] : [label, def.hint],
-		run: () => def.run(ctx),
+		// Through the ONE funnel, so a row and the verb's key refuse in the same words.
+		run: () => void runNamed(def, ctx),
 	};
 }
 
@@ -258,7 +261,7 @@ function CommandBody({
 				<span>↑↓ navigate</span>
 				<span>⏎ run</span>
 				<span>esc close</span>
-				<kbd className="ml-auto font-mono">{SELF.keys}</kbd>
+				<kbd className="ml-auto font-mono">{capOf(SELF)}</kbd>
 			</div>
 		</>
 	);

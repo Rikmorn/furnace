@@ -51,7 +51,13 @@ import {
 	useWorkspaceActions,
 	useWorkspaceState,
 } from "../../hooks/useWorkspace.tsx";
-import { ACTIONS, type ActionGroup, groupTitle } from "../../lib/actions.ts";
+import {
+	ACTIONS,
+	type ActionGroup,
+	capOf,
+	groupTitle,
+	runNamed,
+} from "../../lib/actions.ts";
 import { PALETTE_IDS, PALETTES } from "../../lib/palette-store.ts";
 import {
 	DropdownMenu,
@@ -83,7 +89,7 @@ import {
  *
  *  IT IS CALLED FIRST, AND THAT ORDER IS INCIDENTAL — deliberately stated as such rather than
  *  as a contract, because a review swapped the two statements and the whole suite stayed green.
- *  React batches `action.run`'s `setState` past this handler either way, so the dialog cannot
+ *  React batches `runNamed`'s `setState` past this handler either way, so the dialog cannot
  *  mount before the hand-off lands whichever order they are written in. Reading first is how a
  *  reader expects "forward, then run" to look; nothing depends on it, and a comment claiming
  *  otherwise would be an authoritative sentence nothing checks. */
@@ -99,8 +105,11 @@ function RegistryItems({
 		// The chord rides BOTH branches: a checkbox action with a `keys` would
 		// otherwise lose it silently, and `view.togglePalettes` is one keycap away
 		// from being exactly that.
-		const chord = action.keys !== undefined && (
-			<DropdownMenuShortcut>{action.keys}</DropdownMenuShortcut>
+		// The cap is DERIVED from the binding (`capOf` → the registry's `keycap`), never
+		// stated beside it, so a menu item cannot advertise a chord nothing answers.
+		const cap = capOf(action);
+		const chord = cap !== undefined && (
+			<DropdownMenuShortcut>{cap}</DropdownMenuShortcut>
 		);
 		// `title` is shown only where it can be READ: a disabled item carries
 		// `pointer-events-none`, so it never surfaces a native tooltip — which is
@@ -115,7 +124,10 @@ function RegistryItems({
 		const disabled = !action.enabled(ctx);
 		const run = () => {
 			onSelect?.();
-			action.run(ctx);
+			// Through the ONE funnel, so a menu item and this verb's key refuse in the same
+			// words and report in the same place. `void`: a menu select cannot await, and
+			// the funnel has already said whatever there was to say.
+			void runNamed(action, ctx);
 		};
 		// A checkbox item where the action reports a checked state, a plain item
 		// otherwise — the one structural difference a menu needs from the table.

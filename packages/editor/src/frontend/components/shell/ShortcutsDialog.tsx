@@ -30,6 +30,7 @@ import {
 	ACTIONS,
 	type ActionCtx,
 	type ActionGroup,
+	capOf,
 } from "../../lib/actions.ts";
 import {
 	Dialog,
@@ -157,12 +158,12 @@ const CANVAS_GROUP: BindingGroup = {
 /** The rows one registry group contributes: its keyed actions, named by the label they
  *  wear right now and explained by the sentence the table carries. */
 function registryRows(group: ActionGroup, ctx: ActionCtx): Binding[] {
-	return ACTIONS.filter((a) => a.group === group && a.keys !== undefined).map(
-		(a) => ({
-			keys: a.keys ?? "",
-			what: a.hint ?? a.label(ctx),
-		}),
-	);
+	// The cap is DERIVED from the binding, so the overlay — the one surface whose whole job
+	// is being right about keys — cannot advertise a chord nothing answers.
+	return ACTIONS.flatMap((a) => {
+		const keys = a.group === group ? capOf(a) : undefined;
+		return keys === undefined ? [] : [{ keys, what: a.hint ?? a.label(ctx) }];
+	});
 }
 
 export function ShortcutsDialog({

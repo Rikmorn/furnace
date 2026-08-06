@@ -19,6 +19,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
+import { sayResult } from "../../lib/actions.ts";
 import { api, type WorldRow } from "../../lib/api.ts";
 import { cn } from "../../lib/cn.ts";
 import { isValidWorldName, WORLD_NAME_RULE } from "../../lib/generation.ts";
@@ -525,7 +526,14 @@ export function WorldDrawer() {
 						overwrites={listed}
 						onSubmit={(next) => {
 							setForm(null);
-							actions.saveAs(next);
+							// The verb ANSWERS since T3b2 Task 4 and its one refusal — an invalid
+							// name — is now a verdict rather than a `notify.error` inside `write`.
+							// `sayResult` is the same funnel voice the action dispatcher uses, said
+							// here because this form calls the world verb DIRECTLY rather than
+							// through `world.saveAs`: the drawer already holds the name, and routing
+							// it back through the action to arrive at the same call would be a
+							// longer way to the same place.
+							void actions.saveAs(next).then(sayResult);
 						}}
 						onCancel={() => setForm(null)}
 					/>

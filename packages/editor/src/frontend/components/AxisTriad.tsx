@@ -25,7 +25,7 @@ const NEG_CAP = 5; // the −axis cap: smaller and unlabelled, the way a ViewCub
 // `view.snapNegZ` in `frontend/lib/actions.ts` — named in full, rather than elided, so a
 // reader can CHECK this dependency instead of trusting it. It runs one way: delete those
 // six and these two constants are a live finding again. The full argument is on
-// `AXIS_VIEWS` there; the finding this closes is recorded at
+// `axisView` there; the finding this closes is recorded at
 // `docs/reference/editor-architecture.md` §18.5.
 const HIT = 18;
 const NEG_HIT = 14;

@@ -11,7 +11,7 @@ import { useState } from "react";
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import { useFieldStamp } from "../../hooks/useFieldHostState.tsx";
 import { useWorldActions, useWorldState } from "../../hooks/useWorld.tsx";
-import { ACTIONS } from "../../lib/actions.ts";
+import { ACTIONS, capOf, runNamed } from "../../lib/actions.ts";
 import { Button } from "../ui/button.tsx";
 import { ReasonTip } from "../ui/tips.tsx";
 import { BurgerMenu } from "./BurgerMenu.tsx";
@@ -97,9 +97,9 @@ function PalettesButton() {
 			size="sm"
 			variant="ghost"
 			className="h-7 shrink-0 px-2 font-normal text-muted-foreground text-xs"
-			onClick={() => def.run(ctx)}
+			onClick={() => void runNamed(def, ctx)}
 		>
-			{def.keys} {def.label(ctx).toLowerCase()}
+			{capOf(def)} {def.label(ctx).toLowerCase()}
 		</Button>
 	);
 }
@@ -121,7 +121,7 @@ function BakeButton() {
 				size="sm"
 				variant="secondary"
 				disabled={!enabled}
-				onClick={() => def.run(ctx)}
+				onClick={() => void runNamed(def, ctx)}
 			>
 				Bake
 			</Button>

@@ -16,10 +16,22 @@ import "../inspector/_register.ts";
 // tests/chrome/menubar.test.tsx). Every DOM test in this package sits under a subdir for
 // exactly that reason.
 //
-// Only `_register.ts` is imported, not `_harness.tsx`: this case touches
-// `document.createElement` and nothing else, so it needs testing-library not at all.
-import { expect, test } from "bun:test";
+// TWO SUBJECTS, and they are both here because both need a real DOM and neither needs
+// anything else. `isTextInputTarget` is the first. The second is `preventDefault`, added in
+// T3b2 Task 4 — a claim about a real `KeyboardEvent`'s `defaultPrevented` flag, which no
+// synthetic literal can carry. It is what pulled testing-library into this file (the second
+// subject mounts the dispatcher hook; the first still touches `document.createElement` and
+// nothing else).
+import { afterEach, expect, test } from "bun:test";
+import { createElement, useRef } from "react";
+import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
+import { useGlobalKeybindings } from "../../src/frontend/hooks/useGlobalKeybindings.ts";
+import type { ActionCtx } from "../../src/frontend/lib/actions.ts";
 import { isTextInputTarget } from "../../src/frontend/lib/keybindings.ts";
+import { makeCtx } from "../_actions-fixture.ts";
+import { cleanup, render } from "../inspector/_harness.tsx";
+
+afterEach(cleanup);
 
 /** An `<input>` of `type`. Built through the attribute rather than the property so the
  *  fixture goes through the same normalisation the DOM applies to real markup. */
@@ -73,4 +85,73 @@ test("isTextInputTarget: a control you OPERATE is not typed text", () => {
   expect(isTextInputTarget(document.createElement("canvas"))).toBe(false);
   expect(isTextInputTarget(document.createElement("button"))).toBe(false);
   expect(isTextInputTarget(null)).toBe(false);
+});
+
+// --- preventDefault is SYNCHRONOUS (T3b2 Task 4) ------------------------------
+//
+// THE RISK THIS TASK CREATED. `useGlobalKeybindings` used to run four statements inline;
+// it now calls an `async` funnel and depends on `onClaim?.()` landing before the first
+// `await` in it. Nothing else in the repo asserts `defaultPrevented`, and the failure is
+// silent: insert one `await` above `onClaim?.()` in `runAction` and every other case in
+// this package stays green while ⌘S starts opening Safari's save sheet — the claim is
+// about a MICROTASK boundary, and a test that awaits between dispatch and assertion cannot
+// see one. So: a real event, `cancelable`, and NO await before the expectation.
+
+/** Mount the one window listener, over a ctx the fixture supplies and a confirm slot the
+ *  case controls. `createElement` rather than JSX so this file stays `.ts` beside the
+ *  `isTextInputTarget` cases it shares a DOM with. */
+function Dispatcher({ confirm }: { confirm: ConfirmRequest | null }) {
+  const ctxRef = useRef<ActionCtx>(makeCtx());
+  const confirmRef = useRef<ConfirmRequest | null>(confirm);
+  confirmRef.current = confirm;
+  useGlobalKeybindings(ctxRef, confirmRef);
+  return null;
+}
+
+/** Press it for real. `cancelable` is load-bearing: `preventDefault()` on a
+ *  non-cancelable event is a no-op and `defaultPrevented` stays false, so a fixture that
+ *  omitted it would report the bug this case exists to catch, always. */
+const press = (init: KeyboardEventInit): KeyboardEvent => {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  window.dispatchEvent(event);
+  return event;
+};
+
+test("a claimed key is prevented SYNCHRONOUSLY — no microtask between the press and the claim", () => {
+  render(createElement(Dispatcher, { confirm: null }));
+  // ⌘S. Read on the very next line, with nothing awaited: the browser decides whether to
+  // open its save sheet when the listener returns, not when a promise settles.
+  expect(press({ key: "s", metaKey: true }).defaultPrevented).toBe(true);
+});
+
+test("a DISABLED action still claims its key — the reason `onClaim` sits before `enabled`", () => {
+  render(createElement(Dispatcher, { confirm: null }));
+  // ⌘Z with an empty undo stack (the fixture's `stats` is null, so `undoDepth` reads 0).
+  // The verb does nothing and the key is still spent: an unprevented ⌘Z reaches the text
+  // field's own undo stack, and an unprevented ⌫ over the canvas navigates back.
+  expect(press({ key: "z", metaKey: true }).defaultPrevented).toBe(true);
+  expect(press({ key: "Backspace" }).defaultPrevented).toBe(true);
+});
+
+test("a REFUSED action prevents NOTHING — the character the user is typing survives", () => {
+  // The other direction, and the one that would make an over-eager claim look correct. A
+  // modal confirm refuses every class, and a refusal must leave the press alone.
+  render(
+    createElement(Dispatcher, {
+      confirm: {
+        title: "t",
+        message: "m",
+        confirmLabel: "ok",
+        onConfirm: () => undefined,
+      },
+    }),
+  );
+  expect(press({ key: "s", metaKey: true }).defaultPrevented).toBe(false);
+  // …and a key nothing claims at all is untouched, so the case is not passing by refusing
+  // everything.
+  expect(press({ key: "w" }).defaultPrevented).toBe(false);
 });

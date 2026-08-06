@@ -43,7 +43,7 @@
 // reaching anything under `ui/` is the thing that breaks this.
 import type { FocusEvent, ReactElement, ReactNode } from "react";
 import { isRovingTravel } from "../../hooks/useRovingList.tsx";
-import { byId } from "../../lib/actions.ts";
+import { type ActionId, byId, capOf } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { notify } from "../../lib/notify-store.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
@@ -219,7 +219,7 @@ export function KeyTip(props: {
  *  Requires the shell's single `TooltipProvider` above it — a Radix `Tooltip` outside one
  *  does not degrade, it throws. */
 export function ActionTip(props: {
-	actionId?: string;
+	actionId?: ActionId;
 	hint: string;
 	children: ReactElement;
 }) {
@@ -234,7 +234,9 @@ export function ActionTip(props: {
 			<TooltipContent>
 				<KeyTip
 					keys={
-						props.actionId === undefined ? undefined : byId(props.actionId).keys
+						props.actionId === undefined
+							? undefined
+							: capOf(byId(props.actionId))
 					}
 					hint={props.hint}
 				/>

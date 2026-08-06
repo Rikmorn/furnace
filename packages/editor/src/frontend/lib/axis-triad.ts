@@ -22,7 +22,7 @@ export type ProjectedAxis = {
 
 /** How a snap view is NAMED, everywhere it is named — each triad tip's `aria-label` and
  *  `title`, and the burger's six View rows. One spelling because they are one control
- *  reached two ways; the argument for why that matters is on `AXIS_VIEWS` in
+ *  reached two ways; the argument for why that matters is on `axisView` in
  *  `lib/actions.ts`.
  *
  *  The words "positive" and "negative", not `+` and `-`. That is the ACCESSIBLE spelling

@@ -1,100 +1,58 @@
-// THE DERIVE-AND-DIFF GATE for the descriptor rows — foundations T3b2 Task 3's proof,
-// taken while both sides are standing.
+// THE ROWS' OWN SHAPE — what is true of the descriptor table whatever the chrome does with
+// it.
 //
-// `src/action-registry/descriptors.ts` claims to carry the whole SERIALIZABLE half of the
-// editor's action table. This file is what makes that a proof rather than a hope: every one
-// of the seven data fields is asserted against the live `frontend/lib/actions.ts` table,
-// and the binding rows are asserted against the 22 live `match` CLOSURES over a 640-press
-// cross-product — not against a transcription of them.
+// WHAT THIS FILE WAS, AND WHY MOST OF IT IS GONE. Foundations T3b2 Task 3 landed the rows
+// BESIDE the `frontend/lib/actions.ts` literals for exactly one commit, and this file was the
+// proof that the two agreed: all seven data fields asserted row for row in order, and the 22
+// binding rows asserted against the 22 live `match` CLOSURES over a 640-press cross-product,
+// with zero divergences and no exception list. Task 4 deleted those literals — the chrome now
+// joins its five closures ONTO these rows — so a derivation compared against a deleted
+// literal has nothing left to say, and every assertion that read `ACTIONS` went with them.
+// The MIGRATION marker that stood here named exactly what had to survive, and this is it: the
+// shape half (keyed ⟺ gated, unique ids, unique caps, the MCP-projection membership) and the
+// two-⇧-policies pin, none of which ever mentioned `ACTIONS`.
 //
-// WHAT A FAILURE HERE MEANS, in the order to check it: (1) a descriptor row drifted from
-// the action it describes, or (2) the `KeyBinding` union cannot express a binding the
-// closure expresses. (2) is a FINDING about the SCHEMA — the schema is what bends, never the
-// behaviour. That is not hypothetical: this gate found one, `named`'s two ⇧ policies, and
-// the union grew a `ShiftPolicy` field to hold both rather than the rows being talked into
-// one. There is no exception list here and there must never be one; a divergence means the
-// union is short a way to say something.
+// The cross-product survived in a REDUCED form, and the reduction is honest about what is
+// left to check. It can no longer compare two matchers, because there is only one; what it
+// still holds is a property of the table by itself, and the sharper of the two the old case
+// asserted — AT MOST ONE ACTION MAY CLAIM A PRESS, over every key any binding names × all 16
+// modifier combinations, plus the keys the CANVAS owns classifying as nothing. A table that
+// claimed everything would pass a same-shape comparison and fails this.
 //
-// Task 4 moves the five closures across and deletes the `frontend/lib/actions.ts` table.
-// Most of this file goes with it: a derivation compared against a deleted literal has
-// nothing left to say. What should SURVIVE is the shape half — every keyed row has a gate,
-// ids are unique, keycaps are unique — which is about the table rather than about the move.
+// NOTHING FROM `frontend/` IS IMPORTED HERE ANY MORE, which is a second thing the deletion
+// bought: this file now tests the registry from the registry's own side, the way
+// `node-door.test.ts` and `keys.test.ts` do. The chrome's half of the join — that every
+// descriptor has a behavior and every behavior a descriptor — is the chrome's to hold, and it
+// holds it at COMPILE time (`ActionBehaviors` is a mapped type over `ActionId`).
 import { expect, test } from "bun:test";
 import {
   ACTION_DESCRIPTORS,
-  type ActionDescriptor,
   keycap,
   matchBinding,
 } from "../../src/action-registry/index.ts";
-import type { ActionDef } from "../../src/frontend/lib/actions.ts";
-import { ACTIONS } from "../../src/frontend/lib/actions.ts";
+import { ACTION_INPUT_SCHEMAS } from "../../src/action-registry/schemas.ts";
 
-/** A synthetic keydown, filled the way `tests/keybindings.test.ts` fills one and for its
- *  reason: a real `KeyboardEvent` always carries all four modifier flags as booleans, and a
- *  matcher comparing `e.shiftKey === false` would pass against a real event and fail against
- *  a sloppy literal. */
-const ev = (o: Partial<KeyboardEvent> & { key: string }) =>
-  ({
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...o,
-  }) as KeyboardEvent;
-
-/** The dispatcher's job, in one line — the ONLY translation from a DOM event to facts, and
- *  the reason `matchBinding` never sees one. `useGlobalKeybindings` grows this same call in
- *  Task 4; here it stands in for it so the comparison below is between the two MATCHERS
- *  rather than between two ways of reading an event. */
-const factsOf = (e: KeyboardEvent) => ({
-  key: e.key,
-  mod: e.metaKey || e.ctrlKey,
-  shift: e.shiftKey,
-  alt: e.altKey,
+/** A press, as the four facts a binding is allowed to read. `metaKey` and `ctrlKey` are
+ *  built separately and collapsed here, exactly as `keyFacts` does it in the dispatcher, so
+ *  the cross-product below can enumerate the two independently. */
+const facts = (o: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+}) => ({
+  key: o.key,
+  mod: o.metaKey === true || o.ctrlKey === true,
+  shift: o.shiftKey === true,
+  alt: o.altKey === true,
 });
 
-// --- the seven data fields ---------------------------------------------------
-//
-// MIGRATION (until T3b2 Task 4): everything from here to the end of the cross-product case
-// compares the rows against the LIVE `frontend/lib/actions.ts` table. Task 4 deletes that
-// table, and every assertion that reads `ACTIONS` dies with it — `liveRow`, the ordered
-// field diff, and the 640-press equivalence. What must SURVIVE the move is the shape half
-// (keyed ⟺ gated, unique ids, unique keycaps, the MCP-projection membership) and the two-⇧-
-// policies pin, none of which mention `ACTIONS`.
-
-/** Every action's serializable half, read off the LIVE table. `keys` is the printed cap
- *  here (that is what `ActionDef` carries); the descriptor side derives its own from the
- *  binding, which is what makes the comparison worth making. */
-const liveRow = (a: ActionDef) => ({
-  id: a.id,
-  group: a.group,
-  keys: a.keys ?? null,
-  hint: a.hint ?? null,
-  gate: a.gate ?? null,
-  armsTool: a.armsTool ?? null,
-  flyLetter: a.flyLetter ?? null,
-});
-
-const descriptorRow = (d: ActionDescriptor) => ({
-  id: d.id,
-  group: d.group,
-  keys: d.keys === undefined ? null : keycap(d.keys),
-  hint: d.hint ?? null,
-  gate: d.gate ?? null,
-  armsTool: d.armsTool ?? null,
-  flyLetter: d.flyLetter ?? null,
-});
-
-test("every action has a descriptor, in the same ORDER, with the same seven data fields", () => {
-  // Order is data, not incident: the burger's submenus, the shortcuts overlay's sections
-  // and the ⌘K palette all render the table in the order it is written. One assertion over
-  // both arrays so a drifted row reports its neighbours rather than only its index.
-  expect(ACTION_DESCRIPTORS.map(descriptorRow)).toEqual(ACTIONS.map(liveRow));
-});
+// --- the table's own shape ----------------------------------------------------
 
 test("the counts the digest measured still hold — 39 rows, 22 of them keyed", () => {
-  // A spot-check on the assertion above, and cheap insurance against it being satisfied by
-  // two empty arrays.
+  // Cheap insurance that every case below is not being satisfied by an empty array, and the
+  // one place the table's size is written down as a number.
   expect({
     rows: ACTION_DESCRIPTORS.length,
     keyed: ACTION_DESCRIPTORS.filter((d) => d.keys !== undefined).length,
@@ -119,6 +77,39 @@ test("ids and keycaps are both unique across the table", () => {
     d.keys === undefined ? [] : [keycap(d.keys)],
   );
   expect(new Set(caps).size).toBe(caps.length);
+});
+
+test("every id `schemas.ts` names is a row in this table", () => {
+  // The `satisfies Partial<Record<ActionId, …>>` on that map already makes a stray key a
+  // compile error; this is the runtime half, and it is not redundant — `bun test` transpiles
+  // without type-checking, so a suite run alone would never see the compile error.
+  const ids = new Set(ACTION_DESCRIPTORS.map((d) => d.id));
+  for (const id of Object.keys(ACTION_INPUT_SCHEMAS))
+    expect({ id, row: ids.has(id) }).toEqual({ id, row: true });
+});
+
+test("the six that take input are the six the slice named, and no axis view is among them", () => {
+  // THE SETTLED READING of "twelve actions need input", pinned so it cannot drift back. Six
+  // take a schema. The other six are the axis views, whose axis and sign ARE their id — a
+  // `{axis, sign}` schema on `view.snapNegZ` would let a caller hand it `x` and make the id a
+  // lie — so what they carry instead is `mcpProjection`, below. The two sets are disjoint and
+  // that disjointness is the claim.
+  expect(Object.keys(ACTION_INPUT_SCHEMAS)).toEqual([
+    "world.saveAs",
+    "world.makeDefault",
+    "edit.duplicate",
+    "edit.delete",
+    "edit.grab",
+    "tool.stamp",
+  ]);
+  const projected = ACTION_DESCRIPTORS.filter(
+    (d) => d.mcpProjection !== undefined,
+  ).map((d) => d.id);
+  for (const id of projected)
+    expect({ id, alsoSchema: id in ACTION_INPUT_SCHEMAS }).toEqual({
+      id,
+      alsoSchema: false,
+    });
 });
 
 test("only the six axis views carry an MCP projection, and each names its own pair", () => {
@@ -149,11 +140,11 @@ test("only the six axis views carry an MCP projection, and each names its own pa
   }
 });
 
-// --- the 640-press equivalence, and the ONE listed exception ------------------
+// --- the 640-press property ---------------------------------------------------
 
 /** Every key any binding names, in both cases where case is a thing, plus the keys the
- *  CANVAS owns — those must classify as nothing on both sides, which is the half of this
- *  comparison that a descriptor table cannot pass by claiming everything. */
+ *  CANVAS owns — those must classify as nothing, which is the half of this property a table
+ *  cannot pass by claiming everything. */
 const KEYS = [
   "s",
   "S",
@@ -198,8 +189,8 @@ const KEYS = [
 ];
 
 /** All 16 modifier combinations. `metaKey` and `ctrlKey` are enumerated SEPARATELY rather
- *  than as one `mod`, because the claim being checked is that the two sides collapse them
- *  the same way — asserting it over a pre-collapsed fixture would assume it. */
+ *  than as one `mod`, because every binding in this table treats them as one and a
+ *  pre-collapsed fixture would assume the thing being checked. */
 const MODS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(
   (n) => ({
     metaKey: (n & 1) !== 0,
@@ -209,45 +200,40 @@ const MODS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(
   }),
 );
 
-test("the rows claim exactly what the closures claim, over every key × every modifier", () => {
-  // ZERO exceptions, and there is no list to add one to. The rows reproduce the 22 closures
-  // press for press — including the TWO ⇧ policies the source carries across its three
-  // named-key bindings, which `ShiftPolicy` exists to preserve rather than unify.
-  const divergences: {
-    key: string;
-    mods: string;
-    rows: string[];
-    live: string[];
-  }[] = [];
+/** Which rows claim this press. */
+const claimants = (f: ReturnType<typeof facts>): string[] =>
+  ACTION_DESCRIPTORS.filter(
+    (d) => d.keys !== undefined && matchBinding(d.keys, f),
+  ).map((d) => d.id);
+
+test("at most ONE action claims any press, over every key × every modifier", () => {
+  // The property `keybindings.test.ts` holds over its 22-row human-authored table, checked
+  // here over the whole cross-product instead. Collected rather than asserted per press, so a
+  // collision reports which two rows collided on which press rather than only the first.
+  const collisions: { key: string; mods: string; rows: string[] }[] = [];
   let checked = 0;
   for (const key of KEYS)
     for (const mods of MODS) {
-      const e = ev({ key, ...mods });
-      const live = ACTIONS.filter((a) => a.match?.(e) === true).map(
-        (a) => a.id,
-      );
-      const rows = ACTION_DESCRIPTORS.filter(
-        (d) => d.keys !== undefined && matchBinding(d.keys, factsOf(e)),
-      ).map((d) => d.id);
+      const rows = claimants(facts({ key, ...mods }));
       checked += 1;
-      if (JSON.stringify(rows) !== JSON.stringify(live))
-        divergences.push({ key, mods: JSON.stringify(mods), rows, live });
-      // At most one action may claim a press — the property `keybindings.test.ts` holds
-      // over its 22-row table, checked here over the whole cross-product instead.
-      expect({ key, mods, claimants: rows.length <= 1 }).toEqual({
-        key,
-        mods,
-        claimants: true,
-      });
+      if (rows.length > 1)
+        collisions.push({ key, mods: JSON.stringify(mods), rows });
     }
-  expect({ checked, divergences }).toEqual({ checked: 640, divergences: [] });
+  expect({ checked, collisions }).toEqual({ checked: 640, collisions: [] });
+});
+
+test("the canvas keys classify as NOTHING — the registry claims none of them", () => {
+  // The fly set, the radius steppers and an arrow nudge are the viewport's (the ownership
+  // rule at the top of `frontend/lib/actions.ts`). Bare, which is how the canvas listener
+  // reads them.
+  for (const key of ["w", "a", "d", "q", "e", "[", "]", "ArrowUp", "Shift"])
+    expect({ key, rows: claimants(facts({ key })) }).toEqual({ key, rows: [] });
 });
 
 test("the three named-key bindings keep TWO ⇧ policies — preserved, not unified", () => {
-  // THE FINDING, PINNED AS DATA. The cross-product above proves the rows match the closures,
-  // and it would go on proving that if someone unified BOTH sides in one commit. This is the
-  // assertion that makes unifying them a deliberate act: today's source refuses ⇧⌫ and
-  // accepts ⇧⏎ / ⇧Esc, neither side says why, and T3b2 declined to pick.
+  // THE FINDING, PINNED AS DATA. Today's source refuses ⇧⌫ and accepts ⇧⏎ / ⇧Esc, neither
+  // side says why, and T3b2 declined to pick — so this is the assertion that makes unifying
+  // them a deliberate act rather than the side effect of a tidy-up.
   //
   // If this fails you are changing product behaviour on a destructive key. Read
   // `docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md` and get the
@@ -262,12 +248,7 @@ test("the three named-key bindings keep TWO ⇧ policies — preserved, not unif
   });
   // And the behaviour those two words buy, stated in keycaps, so a reader never has to hold
   // `"up"`/`"any"` in their head to see what is at stake.
-  const shifted = (key: string) =>
-    ACTION_DESCRIPTORS.filter(
-      (d) =>
-        d.keys !== undefined &&
-        matchBinding(d.keys, factsOf(ev({ key, shiftKey: true }))),
-    ).map((d) => d.id);
+  const shifted = (key: string) => claimants(facts({ key, shiftKey: true }));
   expect({
     "⇧⌫": shifted("Backspace"),
     "⇧⌦": shifted("Delete"),

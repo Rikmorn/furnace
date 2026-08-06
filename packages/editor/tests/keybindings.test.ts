@@ -8,12 +8,16 @@
 // tests/chrome/keybindings-dom.test.ts). `isTextInputTarget`, which needs a real
 // HTMLElement, is covered there.
 import { expect, test } from "bun:test";
+import { matchBinding } from "../src/action-registry/index.ts";
 import {
   ACTIONS,
   type ActionDef,
   byId,
+  capOf,
+  clickGate,
   type GateEnv,
   gateAction,
+  keyFacts,
   matchAction,
 } from "../src/frontend/lib/actions.ts";
 import { makeCtx } from "./_actions-fixture.ts";
@@ -32,11 +36,24 @@ const ev = (o: Partial<KeyboardEvent> & { key: string }) =>
     ...o,
   }) as KeyboardEvent;
 
-const LOOSE: GateEnv = {
+/** A keypress with nothing standing in its way. The `key` arm of {@link GateEnv} — every
+ *  case in this file is about the KEYBOARD, which is the caller class the three key gates
+ *  belong to; the `named` class has its own case at the foot of the file. */
+const LOOSE = {
+  caller: "key",
   inTextInput: false,
   confirmOpen: false,
   looking: false,
-};
+} as const satisfies GateEnv;
+
+/** Who claims this event — the 22 bindings read as data, through the ONE matcher. The
+ *  `match` closures this replaces were per-action functions over a `KeyboardEvent`; there is
+ *  now one `matchBinding` over four facts, and `keyFacts` is the only place an event is
+ *  read. */
+const claimants = (event: KeyboardEvent): string[] =>
+  ACTIONS.filter(
+    (a) => a.keys !== undefined && matchBinding(a.keys, keyFacts(event)),
+  ).map((a) => a.id);
 
 /** Every keyed action, with an event that should run it. The list is the BINDING TABLE
  *  in machine-readable form: adding a binding without a row here fails the completeness
@@ -75,28 +92,28 @@ test("⌃K reaches the palette too — the pre-named Safari fallback is already 
   // not need a second BINDING if the browser gate finds it claimed: `mod` accepts Ctrl as
   // well as ⌘ throughout this table, so the fallback is a documentation change, not a
   // code one. This case is what makes that claim true rather than hopeful.
-  const claimants = ACTIONS.filter(
-    (a) => a.match?.(ev({ key: "k", ctrlKey: true })) === true,
-  ).map((a) => a.id);
-  expect(claimants).toEqual(["view.commandPalette"]);
+  expect(claimants(ev({ key: "k", ctrlKey: true }))).toEqual([
+    "view.commandPalette",
+  ]);
 });
 
 test("every binding reaches its action, and EXACTLY one action claims each event", () => {
-  for (const { id, event } of BINDINGS) {
-    const claimants = ACTIONS.filter((a) => a.match?.(event) === true).map(
-      (a) => a.id,
-    );
-    // Both halves in one assertion, so a duplicate claim reports which two collided
-    // rather than only that the first one won.
-    expect({ event: event.key, claimants }).toEqual({
+  // Both halves in one assertion, so a duplicate claim reports which two collided
+  // rather than only that the first one won.
+  for (const { id, event } of BINDINGS)
+    expect({ event: event.key, claimants: claimants(event) }).toEqual({
       event: event.key,
       claimants: [id],
     });
-  }
 });
 
 test("every keyed action has a row above — a binding cannot ship unpinned", () => {
-  const keyed = ACTIONS.filter((a) => a.match !== undefined).map((a) => a.id);
+  // THE HUMAN-AUTHORED HALF of the pin, and the reason `BINDINGS` above is still 22 literal
+  // rows after the table became data. Deriving those rows from the descriptors would make
+  // both cases vacuous — a derived expectation compared against the table it was derived
+  // from asserts nothing at all — so the events stay hand-written and this is what makes
+  // them exhaustive in the other direction.
+  const keyed = ACTIONS.filter((a) => a.keys !== undefined).map((a) => a.id);
   expect(new Set(keyed)).toEqual(new Set(BINDINGS.map((b) => b.id)));
 });
 
@@ -147,7 +164,7 @@ test("`?` is matched by the CHARACTER, not by ⇧ — the one binding whose keyc
   // character, so the event can be built FROM the cap. Without this, a cap edited to `⇧/`
   // would leave every case here green while the menu advertised a key nothing answers.
   const def = byId("help.shortcuts");
-  expect(matchAction(ev({ key: def.keys ?? "", shiftKey: true }))?.id).toBe(
+  expect(matchAction(ev({ key: capOf(def) ?? "", shiftKey: true }))?.id).toBe(
     "help.shortcuts",
   );
 });
@@ -188,8 +205,10 @@ test("`s` is BOTH a fly key and the stamp family — the look gate is what separ
 
 // --- the gate ---------------------------------------------------------------
 
-const verdict = (def: ActionDef, env: Partial<GateEnv>) =>
-  gateAction(def, makeCtx(), { ...LOOSE, ...env });
+const verdict = (
+  def: ActionDef,
+  env: Partial<Extract<GateEnv, { caller: "key" }>>,
+) => gateAction(def, makeCtx(), { ...LOOSE, ...env });
 
 test("⌘-chords stay live inside a text input — the browser default they replace is worse", () => {
   expect(verdict(byId("world.save"), { inTextInput: true }).ok).toBe(true);
@@ -209,7 +228,7 @@ test("bare keys are refused in a text input — they are characters someone is t
     "tool.brush",
     "edit.delete",
     "help.shortcuts",
-  ])
+  ] as const)
     expect({ id, ok: verdict(byId(id), { inTextInput: true }).ok }).toEqual({
       id,
       ok: false,
@@ -222,7 +241,7 @@ test("only the FLY LETTERS stand down during a look drag — R and F are not fly
   // turning a ghost while orbiting round it — a natural gesture that worked before the
   // registry — stopped working. `readFlyMove` reads w/a/s/d/q/e and nothing else.
   const looking = { looking: true };
-  for (const id of ["tool.stamp", "tool.stampCycle"])
+  for (const id of ["tool.stamp", "tool.stampCycle"] as const)
     expect({ id, ok: verdict(byId(id), looking).ok }).toEqual({
       id,
       ok: false,
@@ -234,7 +253,7 @@ test("only the FLY LETTERS stand down during a look drag — R and F are not fly
     "tool.brush",
     "edit.grab",
     "edit.delete",
-  ])
+  ] as const)
     expect({ id, ok: verdict(byId(id), looking).ok }).toEqual({ id, ok: true });
 });
 
@@ -244,7 +263,7 @@ test("the fly-letter flag is declared only where the keycap actually collides", 
   const flyKeys = new Set(["w", "a", "s", "d", "q", "e"]);
   for (const a of ACTIONS) {
     if (a.flyLetter !== true) continue;
-    const cap = (a.keys ?? "").replace("⇧", "").toLowerCase();
+    const cap = (capOf(a) ?? "").replace("⇧", "").toLowerCase();
     expect({ id: a.id, collides: flyKeys.has(cap) }).toEqual({
       id: a.id,
       collides: true,
@@ -255,7 +274,7 @@ test("the fly-letter flag is declared only where the keycap actually collides", 
 test("Esc and ⏎ are refused in a text input, and LIVE during a look drag", () => {
   // A field binds both itself (Escape reverts the edit, Enter commits it); running the
   // ladder on top would cancel the session behind the form the user is still in.
-  for (const id of ["session.escape", "session.confirm"]) {
+  for (const id of ["session.escape", "session.confirm"] as const) {
     expect({ id, ok: verdict(byId(id), { inTextInput: true }).ok }).toEqual({
       id,
       ok: false,
@@ -269,7 +288,7 @@ test("Esc and ⏎ are refused in a text input, and LIVE during a look drag", () 
 });
 
 test("a modal confirm suppresses EVERY class, chords included", () => {
-  for (const id of ["world.save", "view.frame", "session.escape"])
+  for (const id of ["world.save", "view.frame", "session.escape"] as const)
     expect({ id, ok: verdict(byId(id), { confirmOpen: true }).ok }).toEqual({
       id,
       ok: false,
@@ -290,7 +309,7 @@ test("a key that re-arms LMB is refused while a session owns the interaction, WI
     // session stands (D-F4.5-7 — `onPointerDown` swallows the stroke), so a swap
     // there changes only what a click that cannot happen would have done.
     "tool.swapEffect",
-  ]) {
+  ] as const) {
     const v = gateAction(byId(id), session, LOOSE);
     expect({ id, ok: v.ok }).toEqual({ id, ok: false });
     // The hint is the whole point: a key that looks dead teaches the user it is dead.
@@ -300,16 +319,58 @@ test("a key that re-arms LMB is refused while a session owns the interaction, WI
     });
   }
   // Esc, ⏎ and R stay live — they are how the session ENDS.
-  for (const id of ["session.escape", "session.confirm", "session.rotate"])
+  for (const id of [
+    "session.escape",
+    "session.confirm",
+    "session.rotate",
+  ] as const)
     expect({ id, ok: gateAction(byId(id), session, LOOSE).ok }).toEqual({
       id,
       ok: true,
     });
 });
 
-test("a menu-only action can never be dispatched", () => {
-  // It has no `match`, so nothing reaches it — and the gate refuses it as a backstop, so
-  // a matcher added without a gate cannot slip through ungated.
+test("a menu-only action can never be dispatched BY A KEY", () => {
+  // It has no binding, so nothing reaches it — and the gate refuses it as a backstop, so
+  // a binding added without a gate cannot slip through ungated.
   expect(gateAction(byId("world.new"), makeCtx(), LOOSE).ok).toBe(false);
   expect(gateAction(byId("edit.history"), makeCtx(), LOOSE).ok).toBe(false);
+});
+
+// --- the second caller class (T3b2 Task 4, S12) -------------------------------
+
+test("the SAME menu-only action IS runnable when it is NAMED — the no-gate refusal is about keycaps", () => {
+  // The burger has always run these straight from its items and the ⌘K palette renders the
+  // whole table, half of which is menu-only. What used to express that was `clickGate`
+  // branching around `gateAction` before it could refuse; it is now the `caller` class, so
+  // the two paths are one function and the difference is stated rather than routed around.
+  for (const id of ["world.new", "edit.history"] as const)
+    expect({ id, ok: clickGate(byId(id), makeCtx()).ok }).toEqual({
+      id,
+      ok: true,
+    });
+});
+
+test("the three KEY refusals do not bind a named call — but the session refusal does", () => {
+  // S12's finding, as behaviour. `clickGate` used to assert `inTextInput: false` on an
+  // argument ("the user typed to find it and then named it") that is untrue of an agent; the
+  // fix is that the `typed` class, the fly-letter class and the no-gate class are all about
+  // a KEY, so a named call is never asked. The ⌘K palette activates rows from inside a text
+  // field, and every letter-keyed verb has to survive that.
+  for (const id of ["view.frame", "tool.brush", "session.escape"] as const)
+    expect({ id, ok: clickGate(byId(id), makeCtx()).ok }).toEqual({
+      id,
+      ok: true,
+    });
+  // `tool.stamp` is the fly-letter case: refused to a KEY while the right button is held,
+  // and never to a rail button, which is a left-button press on a control.
+  expect(clickGate(byId("tool.stamp"), makeCtx()).ok).toBe(true);
+  // What DOES bind both callers is the state refusal — a button that arms what its own key
+  // refuses is the two-surfaces-disagree defect, and the sentence has to be the same one.
+  const session = makeCtx({ session: { generator: "hall" } as never });
+  const v = clickGate(byId("tool.brush"), session);
+  expect({ ok: v.ok, hint: v.ok ? null : v.hint }).toEqual({
+    ok: false,
+    hint: "finish the session first — ⏎ applies it, Esc discards it",
+  });
 });

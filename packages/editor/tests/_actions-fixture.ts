@@ -5,8 +5,15 @@
 // case in it, which is why running the dispatch suite alone used to report the table
 // suite's cases too.
 import { mock } from "bun:test";
+import { ACTION_OK } from "../src/action-registry/index.ts";
 import type { FieldHost } from "../src/field-host/index.ts";
 import type { ActionCtx } from "../src/frontend/lib/actions.ts";
+
+/** The three world verbs that ANSWER (T3b2 Task 4 — `WorldActions`' own docblock says which
+ *  three and why). A spy returning `undefined` here would be a lie the type system cannot
+ *  see through a `mock()`, and the dispatch funnel reads what they return: a bare `mock()`
+ *  made `world.save` resolve to `undefined` and `sayResult` throw on it. */
+const wrote = () => mock(() => Promise.resolve(ACTION_OK));
 
 /** The FOURTEEN host verbs the action table runs (`grep -o 'ctx\.host?\.[a-zA-Z]*'
  *  src/frontend/lib/actions.ts | sort -u`), plus `isLooking`, which no `run` calls — the
@@ -96,9 +103,9 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
     history: { undoLabel: null, redoLabel: null },
     run: {
       world: {
-        save: mock(),
-        saveAs: mock(),
-        bake: mock(),
+        save: wrote(),
+        saveAs: wrote(),
+        bake: wrote(),
         open: mock(),
         reset: mock(),
         makeDefault: mock(),

@@ -1,8 +1,7 @@
 import { type RefObject, useEffect } from "react";
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
-import { type ActionCtx, gateAction, matchAction } from "../lib/actions.ts";
+import { type ActionCtx, matchAction, runAction } from "../lib/actions.ts";
 import { isTextInputTarget } from "../lib/keybindings.ts";
-import { notify } from "../lib/notify-store.ts";
 
 /**
  * The editor's ONE window keydown listener: match an event to an action, gate it, run it.
@@ -19,7 +18,18 @@ import { notify } from "../lib/notify-store.ts";
  * consulted — because at that point the key has been claimed. A disabled ⌘S must still
  * suppress the browser's save-page dialog, and a ⌫ over the canvas with nothing selected
  * must still not navigate. A REFUSED action is the opposite: nothing is prevented, so the
- * character the user is typing still reaches their text field.
+ * character the user is typing still reaches their text field. That seam is `runAction`'s
+ * `onClaim` callback, which fires between the two checks and which nothing else passes.
+ *
+ * It is `runAction` and not a sequence of its own since foundations T3b2 Task 4: the gate,
+ * the claim, the enabled check, the run and the sentence that answers for it are ONE funnel
+ * shared with every control in the chrome, so a key and a button cannot refuse a verb in
+ * different words — or run it and report differently.
+ *
+ * NO INPUT IS PASSED, and there is nowhere for one to come from: a keypress carries a
+ * keycap and nothing else, so every keyed verb falls back to what the ctx has selected.
+ * `void`, because a keydown handler cannot await and the funnel has already said whatever
+ * there was to say; the returned {@link ActionResult} is for a caller that can read one.
  *
  * The field canvas has a listener of its own. Where both bind one key (⌘Z, ⏎, Esc, R, F)
  * the canvas branch that acts calls `stopPropagation`, so this listener never sees it —
@@ -34,28 +44,19 @@ export function useGlobalKeybindings(
       const def = matchAction(e);
       if (def === null) return;
       const ctx = ctxRef.current;
-      const verdict = gateAction(def, ctx, {
-        inTextInput: isTextInputTarget(e.target),
-        confirmOpen: confirmRef.current !== null,
-        // Polled here, per keypress — never carried on the ctx.
-        looking: ctx.host?.isLooking() ?? false,
-      });
-      if (!verdict.ok) {
-        // A refusal with a reason the user cannot see gets said out loud; the rest
-        // (a modal is open, they are typing, they are holding the right button) are
-        // already visible and a toast would be noise.
-        //
-        // Through `sayRefusal` rather than the `hint !== null` + `notify.info` this used
-        // to spell inline: that WAS the rule, and it was the only copy of it until the
-        // pointer path needed the same one (W-1). Two copies is how a refused key and a
-        // refused click come to answer differently — and the shared one also stops a HELD
-        // key, which repeats at the OS rate, from stacking one sentence up the stack.
-        notify.sayRefusal(verdict.hint);
-        return;
-      }
-      e.preventDefault();
-      if (!def.enabled(ctx)) return;
-      def.run(ctx);
+      void runAction(
+        def,
+        ctx,
+        {
+          caller: "key",
+          inTextInput: isTextInputTarget(e.target),
+          confirmOpen: confirmRef.current !== null,
+          // Polled here, per keypress — never carried on the ctx.
+          looking: ctx.host?.isLooking() ?? false,
+        },
+        undefined,
+        () => e.preventDefault(),
+      );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

@@ -19,6 +19,7 @@ import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
 import {
 	ACTION_GROUPS,
 	ACTIONS,
+	capOf,
 	groupTitle,
 	TOOL_FAMILIES,
 } from "../../src/frontend/lib/actions.ts";
@@ -344,12 +345,13 @@ test("keycaps come from the registry, and so does the footer's own", async () =>
 	// hand-typed ⌘K here is a keycap that could outlive its binding. Scoped to the footer
 	// strip, because the row for that same action carries the same keycap two inches up.
 	const def = ACTIONS.find((a) => a.id === "view.commandPalette");
-	expect(def?.keys).toBe("⌘K");
+	const cap = def === undefined ? undefined : capOf(def);
+	expect(cap).toBe("⌘K");
 	const box = palette();
 	if (box === null) throw new Error("the palette is not open");
 	const footer = within(box).getByText("↑↓ navigate").parentElement;
 	if (!(footer instanceof HTMLElement)) throw new Error("no footer strip");
-	expect(within(footer).getByText(def?.keys ?? "")).toBeTruthy();
+	expect(within(footer).getByText(cap ?? "")).toBeTruthy();
 	expect(within(footer).getByText("esc close")).toBeTruthy();
 });
 

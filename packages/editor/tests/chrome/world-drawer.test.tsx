@@ -202,7 +202,14 @@ async function burgerItem(
  *  nothing can open is not the thing being tested. */
 async function renderTopBar(
 	stub: ReturnType<typeof makeStubHost>,
-	overrides: { openConfirm?: (r: ConfirmRequest) => void } = {},
+	overrides: {
+		openConfirm?: (r: ConfirmRequest) => void;
+		/** Model the PRE-ENGINE window: the shell is mounted and the bundle has not landed,
+		 *  so `fieldHostRef.current` is still undefined. `App.tsx` renders `<Shell />`
+		 *  unconditionally, so this is a state a user can reach and type into — see the case
+		 *  that uses it. */
+		hostless?: boolean;
+	} = {},
 ) {
 	const result = renderWithEditor(
 		<FieldHostStateProvider host={stub.host} engineReady>
@@ -230,7 +237,9 @@ async function renderTopBar(
 			</ViewProvider>
 		</FieldHostStateProvider>,
 		makeEditorContext({
-			fieldHostRef: { current: stub.host },
+			fieldHostRef: {
+				current: overrides.hostless === true ? undefined : stub.host,
+			},
 			...(overrides.openConfirm ? { openConfirm: overrides.openConfirm } : {}),
 		}),
 	);
@@ -1484,4 +1493,41 @@ test("Open LEAVES a camera the user has aimed — and says nothing about it", as
 
 	expect(daemon.inputFor("field.load")).toEqual({ name: "cavern" });
 	expect(stub.calls.frameWorld).not.toHaveBeenCalled();
+});
+
+// --- the two write guards, said out loud (T3b2 Task 4) ------------------------
+
+test("naming a world before the engine lands SAYS so — the pre-engine save-as", async () => {
+	// A CONSCIOUS BEHAVIOUR CHANGE, pinned because it is one. `write`'s guard was a single
+	// silent `if (!host || inFlight.current) return;`; a verb that answers cannot answer `ok`
+	// for something it did not do, so it refuses — and the dispatch funnel says the refusal.
+	// This case would have failed before the change: nothing was on screen.
+	//
+	// THE PATH IS REAL, and it is not the one it first looks like. `write` is reached from
+	// `save()`/`bake()` only when `name !== null`, and `name` is set only inside `write`/`open`
+	// — both of which already required a host, which is assigned once and never nulled
+	// (`App.tsx`). So `name !== null && host === null` is unreachable and a pre-engine ⌘S takes
+	// the `setDrawer("save-as")` branch instead. `saveAs` is the way in: it takes the name from
+	// the FORM and has no such precondition, `App.tsx` renders the shell unconditionally, and
+	// `busy` is false pre-engine so the submit button is live. ⌘S → type a name → Save.
+	stubDaemon([]);
+	const stub = makeStubHost();
+	await renderTopBar(stub, { hostless: true });
+	const drawer = await openDrawer();
+	act(() => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save as…" }));
+	});
+	act(() => {
+		fireEvent.change(within(drawer).getByLabelText("save as world name"), {
+			target: { value: "cavern" },
+		});
+	});
+	await act(async () => {
+		fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(notify.getSnapshot().log.map((m) => m.text)).toEqual([
+		"the engine is not up yet",
+	]);
 });

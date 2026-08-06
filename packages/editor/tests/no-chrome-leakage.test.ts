@@ -69,12 +69,20 @@ import { join } from "node:path";
 // held by `tests/action-registry/node-door.test.ts` instead, which imports the module in a
 // bare runtime and is the reason `matchBinding` takes FACTS rather than an event.
 //
-// The fourth rule of the set is not here: "the chrome may reach the registry TYPE-ONLY"
-// lives in `frontend-no-engine-leakage.test.ts`, beside the rules it is a member of. Its
-// reason is that file's reason — a chrome VALUE-import of the registry would pull zod, and
-// eventually `@furnace/core`, into the chrome bundle — and it is enforced by that file's
-// `valueImportRules` machinery, which already knows that `import type` is erased. Splitting
-// it by mechanism rather than by subject keeps each file's rules provable the same way.
+// THE ZOD RULES ARE NOT HERE, and what they say changed in T3b2 Task 4. Until then there was
+// one: "the chrome may reach the registry TYPE-ONLY". Task 4 gave chrome surfaces a
+// RUNTIME read of `hint`/`keys`/`group`, which needs a value import, so the ban narrowed to
+// the one module that carries zod (`schemas.ts`) — and the containment the directory-wide ban
+// used to provide for free moved with it: `frontend-no-engine-leakage.test.ts` now also scans
+// THIS directory, minus `schemas.ts`, for `@furnace/core` and bare `zod`, and bundles the
+// chrome's action graph to check the constraint rather than a proxy for it. Three rules there,
+// three here.
+//
+// They live there and not here for one reason: that file's `valueImportRules` machinery
+// already knows `import type` is erased, which is the whole shape of the permission, and its
+// subject is "what reaches the chrome's bundle" — which is what every one of them is about.
+// Splitting by mechanism rather than by subject keeps each file's rules provable the same way.
+// This file's three are about which LAYER a module belongs to, where even a type import counts.
 const FIELD_HOST = join(import.meta.dir, "..", "src", "field-host");
 const SHARED = join(import.meta.dir, "..", "src", "shared");
 const ACTION_REGISTRY = join(import.meta.dir, "..", "src", "action-registry");

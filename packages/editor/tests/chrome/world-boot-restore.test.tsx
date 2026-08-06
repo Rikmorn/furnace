@@ -28,6 +28,7 @@ import {
 	useWorldState,
 	WorldProvider,
 } from "../../src/frontend/hooks/useWorld.tsx";
+import { sayResult } from "../../src/frontend/lib/actions.ts";
 import type { WorldRow } from "../../src/frontend/lib/api.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
@@ -162,7 +163,13 @@ function WorldProbe() {
 			<span>{`world:${name ?? "untitled"}`}</span>
 			<span>{`dirty:${dirty}`}</span>
 			<span>{`job:${job ?? "none"}`}</span>
-			<button type="button" onClick={() => saveAs("scratch")}>
+			{/* Through `sayResult`, which is what a caller of a world verb OWES it since T3b2
+			    Task 4 (`WorldDrawer` does the same): the verb answers, and a probe that drops
+			    the verdict is a probe that cannot see a refusal. */}
+			<button
+				type="button"
+				onClick={() => void saveAs("scratch").then(sayResult)}
+			>
 				save as scratch
 			</button>
 		</>
@@ -176,10 +183,14 @@ function Boot({
 	stub,
 	store,
 	openConfirm = noConfirm,
+	hostless = false,
 }: {
 	stub: ReturnType<typeof makeStubHost>;
 	store: UiStore | undefined;
 	openConfirm?: (r: ConfirmRequest) => void;
+	/** Model the PRE-ENGINE window — the shell mounted, the bundle not yet landed, so
+	 *  `fieldHostRef.current` is still undefined. */
+	hostless?: boolean;
 }) {
 	// Memoised on the store: a fresh context value per render would hand the providers new
 	// refs every time and blur exactly the distinction the once-per-boot case draws —
@@ -187,11 +198,11 @@ function Boot({
 	const ctx = useMemo(
 		() =>
 			makeEditorContext({
-				fieldHostRef: { current: stub.host },
+				fieldHostRef: { current: hostless ? undefined : stub.host },
 				store,
 				openConfirm,
 			}),
-		[stub, store, openConfirm],
+		[stub, store, openConfirm, hostless],
 	);
 	return (
 		<EditorContext.Provider value={ctx}>
@@ -567,4 +578,56 @@ test("a boot into a session that already has ops is not a first run", async () =
 	await flush();
 	expect(screen.getByText("dirty:false")).toBeTruthy();
 	expect(hintCount()).toBe(0);
+});
+
+// --- (e) the write guard, said out loud (T3b2 Task 4) -------------------------
+
+test("a SECOND write while one is in flight is refused out loud, not swallowed", async () => {
+	// A CONSCIOUS BEHAVIOUR CHANGE, pinned because it is one. `write`'s guard was a single
+	// silent `if (!host || inFlight.current) return;`; it now refuses, and the caller says the
+	// refusal. This case would have failed before the change: nothing was on screen.
+	//
+	// `inFlight` IS REACHABLE, and the ref's own docblock names the case: *"`job` is what the
+	// CONTROLS and the status bar read, but ⌘S has no disabled state to wear — held down it
+	// would start a second upload over the first."* `world.save`'s `enabled` reads
+	// `ctx.world.busy`, which is `job !== null` — React STATE, one commit behind the
+	// synchronous ref. The ref exists for exactly the window the state cannot cover, so the
+	// guard is not dead code and the sentence is not decorative.
+	//
+	// Two clicks with the daemon's `world.list` HELD, which is where `saveWorld` parks: the
+	// first write is genuinely still in flight when the second arrives, without depending on
+	// React's commit timing to make it so.
+	const daemon = stubDaemon({ holdList: true });
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={undefined} />);
+	await flush();
+	const save = screen.getByRole("button", { name: "save as scratch" });
+	await act(async () => {
+		fireEvent.click(save);
+		await Promise.resolve();
+	});
+	await act(async () => {
+		fireEvent.click(save);
+		await Promise.resolve();
+	});
+	expect(logText()).toContain("a world write is already running");
+	// The first is still parked, so nothing was uploaded by either — the guard did not merely
+	// report, it stopped the second upload over the same directory.
+	expect(daemon.commands()).not.toContain("generation.bake");
+});
+
+test("a write with no engine is refused out loud too — the same guard, the other half", async () => {
+	// The seam-level twin of `world-drawer.test.tsx`'s pre-engine save-as, which walks the
+	// real UI path to it (⌘S → the drawer's name form → Save, all live before the bundle
+	// lands, because `App.tsx` renders the shell unconditionally). Here for the sentence
+	// itself, beside the guard it belongs to.
+	stubDaemon({});
+	const stub = makeStubHost();
+	render(<Boot stub={stub} store={undefined} hostless />);
+	await flush();
+	await act(async () => {
+		fireEvent.click(screen.getByRole("button", { name: "save as scratch" }));
+		await Promise.resolve();
+	});
+	expect(logText()).toContain("the engine is not up yet");
 });

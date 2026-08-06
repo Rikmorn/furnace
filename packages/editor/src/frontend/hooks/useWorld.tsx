@@ -26,7 +26,14 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	ACTION_OK,
+	type ActionResult,
+	failed,
+	refused,
+} from "../../action-registry/index.ts";
 import { useEditor } from "../components/editor-context.ts";
+import { sayResult } from "../lib/actions.ts";
 import { api } from "../lib/api.ts";
 import { WORLD_NAME_RULE } from "../lib/generation.ts";
 import { errorMessage } from "../lib/humanize.ts";
@@ -82,12 +89,29 @@ export type WorldState = {
 };
 
 export type WorldActions = {
-	/** ⌘S. A named world writes; an untitled one opens the drawer to be named first. */
-	save: () => void;
-	/** Write under a NEW name and adopt it (the drawer's name form). */
-	saveAs: (name: string) => void;
+	/** ⌘S. A named world writes; an untitled one opens the drawer to be named first.
+	 *
+	 *  THE THREE WRITE VERBS ANSWER, since foundations T3b2 Task 4, and the other eight
+	 *  below do not — an asymmetry with a reason rather than a half-finished migration.
+	 *  These three are what `world.save` / `world.saveAs` / `world.bake` dispatch INTO, and
+	 *  an action has to be able to say whether it did the thing. They were fired into the
+	 *  void (`void write(...)`), which made a rejection out of the upload an unhandled
+	 *  promise rejection and left a caller unable to tell a save from a refusal.
+	 *
+	 *  THE OTHER EIGHT DO NOT, and the reason is that no action needs their VERDICT — not
+	 *  that no action reaches them, which is what this said until the T3b2 review measured
+	 *  it. Four actions do reach three of them: `world.new` → `reset`, `world.open` and an
+	 *  input-less `world.saveAs` → `openDrawer`, `world.makeDefault` → `makeDefault`. Every
+	 *  one of those completes its dispatch by RAISING A SURFACE — a confirm, the drawer —
+	 *  and `ok` is the honest answer to "was it raised". What the user then does with the
+	 *  surface is a second dispatch. The remaining five have no action caller at all, and
+	 *  each already reports on its own channel (`runVerb`'s toast). */
+	save: () => Promise<ActionResult>;
+	/** Write under a NEW name and adopt it (the drawer's name form, and `world.saveAs`
+	 *  when a caller names the copy). */
+	saveAs: (name: string) => Promise<ActionResult>;
 	/** Save + point worlds/index.json at it: the world the game loads. */
-	bake: () => void;
+	bake: () => Promise<ActionResult>;
 	/** Replace the host's world with a saved one. */
 	open: (name: string) => void;
 	/** Discard to untitled solid rock. */
@@ -276,9 +300,36 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			target: string,
 			makeDefault: boolean,
 			confirmedTracked = false,
-		): Promise<void> => {
+		): Promise<ActionResult> => {
 			const host = fieldHostRef.current;
-			if (!host || inFlight.current) return;
+			// Two refusals in one guard and they are different sentences on purpose: "the
+			// engine is not up" and "one is already running" are the two states a caller
+			// retries differently. One `if (!host || inFlight.current) return;` before T3b2
+			// Task 4, and NAMED here because a verb that answers cannot answer `ok` for
+			// something it did not do.
+			//
+			// A DELIBERATE BEHAVIOUR DELTA, and BOTH halves are reachable — each is pinned by
+			// a case that would have failed before the change (`world-boot-restore.test.ts`
+			// §(e), and the pre-engine save-as in `world-drawer.test.tsx`). Neither is the
+			// path it first looks like, so both are written down:
+			//
+			//   NO HOST is NOT a pre-engine ⌘S. `save`/`bake` only reach here with
+			//   `name !== null`, and `name` is set only inside `write`/`open` — both of which
+			//   already had a host, which `App.tsx` assigns once and never nulls. So
+			//   `name !== null && host === null` cannot happen and a pre-engine ⌘S takes the
+			//   `setDrawer("save-as")` branch. `saveAs` is the way in: it takes the name from
+			//   the FORM and has no such precondition, `App.tsx` renders the shell
+			//   unconditionally, and `busy` is false pre-engine so Save is live. ⌘S → type a
+			//   name → Save, before the bundle lands.
+			//
+			//   IN FLIGHT is the window `inFlight` exists for, named in its own docblock
+			//   above: `job` is React state and every control reads it, but a HELD ⌘S repeats
+			//   faster than a commit, and the ref is what covers the gap the state cannot.
+			//
+			// Both used to do nothing and say nothing — the failure mode W-1 spent a whole
+			// round closing everywhere else.
+			if (!host) return refused("the engine is not up yet");
+			if (inFlight.current) return refused("a world write is already running");
 			inFlight.current = true;
 			setJob(makeDefault ? "bake" : "save");
 			// The SSE bundle-outdated guard reads this: a hard reload mid-write would kill
@@ -307,17 +358,35 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 						message: `This rewrites worlds/${target}/** — tracked files the game loads. Whatever is committed there is replaced by the world in the editor right now.`,
 						confirmLabel: "Overwrite",
 						destructive: true,
-						onConfirm: () => void write(target, makeDefault, true),
+						// `.then(sayResult)` like every other caller of a world verb: no sentence
+						// is lost today (all three of `write`'s own refusals are unreachable on a
+						// re-entry that already got past them once, and a `failed` was already
+						// said by `world-actions.ts`), but this is the one call site that would
+						// otherwise break "one funnel, and it says the verdict once" — and it is
+						// the site most likely to grow a refusal later.
+						onConfirm: () =>
+							void write(target, makeDefault, true).then(sayResult),
 					});
-					return;
+					// The confirm was RAISED, which is what this dispatch was for. What the user
+					// then answers is a second dispatch (`onConfirm` re-enters here), not this
+					// one's verdict — and awaiting a human decision would leak the promise on
+					// every cancel.
+					return ACTION_OK;
 				}
-				if (outcome.status === "invalid-name") {
-					notify.error(
+				if (outcome.status === "invalid-name")
+					// THE ONE SENTENCE THAT MOVED. It was a `notify.error` on this line; it is now
+					// the action's verdict, said once by the dispatch funnel (`sayResult`, which
+					// uses `notify.error` so the toast is the same one it always was). This is the
+					// only failure in `write` that `write` itself decides — every other one below
+					// belongs to `world-actions.ts`, which composes and says its own.
+					return refused(
 						`"${target}" is not a valid world name — ${WORLD_NAME_RULE}`,
 					);
-					return;
-				}
-				if (outcome.status !== "saved") return;
+				// `saveWorld` has ALREADY said this on its own channel ("bake failed: ENOSPC",
+				// "save refused — could not check whether worlds/x is tracked …"). Surfaced
+				// rather than re-said: the funnel stays quiet on a `failed`, and the message
+				// travels to a caller who is not looking at the screen.
+				if (outcome.status === "failed") return failed(outcome.message);
 				setName(target);
 				// The save point is what was WRITTEN, not where the session has got to. Anything
 				// the user dug while the upload was in flight is still unsaved, and the flag has
@@ -330,6 +399,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				// leaving the list up over the canvas would make the user dismiss it to see
 				// what they just saved. A no-op for the ⌘S path, where nothing is open.
 				setDrawer(null);
+				return ACTION_OK;
 			} finally {
 				inFlight.current = false;
 				setJob(null);
@@ -382,16 +452,23 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 		return {
 			save: () => {
 				// An untitled world has nowhere to go: naming it IS the save (D-21), and the
-				// drawer is where a name is typed beside the rule it has to satisfy.
-				if (name === null) setDrawer("save-as");
-				else void write(name, false);
+				// drawer is where a name is typed beside the rule it has to satisfy. Opening
+				// it IS the save verb succeeding at what it can do here — the write that
+				// follows is a second dispatch.
+				if (name === null) {
+					setDrawer("save-as");
+					return Promise.resolve(ACTION_OK);
+				}
+				return write(name, false);
 			},
-			saveAs: (target) => void write(target, false),
+			saveAs: (target) => write(target, false),
 			bake: () => {
 				// Backstop only — every control that offers Bake is disabled while untitled,
-				// with the reason on it.
-				if (name === null) notify.error("name the world first (⌘S)");
-				else void write(name, true);
+				// with the reason on it. The sentence was a `notify.error` here; it is now the
+				// verdict, said once by the dispatch funnel.
+				if (name === null)
+					return Promise.resolve(refused("name the world first (⌘S)"));
+				return write(name, true);
 			},
 			// Both world SWAPS go through the discard gate: they replace the host's
 			// world outright, and the op log — the editor's only undo — goes with it.

@@ -55,23 +55,48 @@ const PROTOCOL = `["'][^"']*(field|analyzer)-protocol`;
 // a documented edge, not a gap to widen the rule for. Widening it back to unanchored would
 // re-break the mirrors file for a spelling nothing uses.
 const FIELD_HOST = `["'][^"']*field-host(/|["'])`;
-// `src/action-registry/` (foundations T3b2 Task 3) is licensed to value-import
-// `@furnace/core` — it holds the editor's verbs as rows, and an action that takes input
-// carries a zod schema built from core's `z` re-export (the single-instance contract). That
-// licence is exactly why the chrome may reach it TYPE-ONLY and no further: a chrome
-// value-import would pull zod, and behind it core, into the main bundle — the same second
-// instance the three rules above exist to prevent, arriving by a fourth door.
+// `src/action-registry/schemas.ts` (foundations T3b2) is the ONE module under the registry
+// that carries a zod VALUE — the input schemas, built from `@furnace/core/registry`'s `z`
+// re-export for the single-instance contract. A chrome value-import of it would pull zod,
+// and behind it core, into the main bundle: the same second instance the three rules above
+// exist to prevent, arriving by a fourth door.
+//
+// NARROWED TO THAT MODULE IN TASK 4, from a rule over the whole directory, and the narrowing
+// is what makes both halves of the constraint satisfiable at once. Chrome surfaces
+// render `hint`, `keys` and `group` at RUNTIME, which needs a value import; the directory-
+// wide rule barred it, and the plan's escape hatch — flow the data through
+// `shared/action-table.ts` — is not available either, because the same rule is applied to the
+// `shared/` walk and the floor sits BELOW the registry. So the layer split instead:
+// `descriptors.ts`, `keys.ts`, `result.ts` and the barrel are plain, zod-free and
+// chrome-value-importable, and every zod value lives in `schemas.ts`. What the guard checks
+// is the constraint itself (no zod, no core, in the chrome bundle) rather than a proxy for it
+// (editor-architecture §22.5, which recorded the decision in Task 3).
+//
+// THE BARREL IS COVERED BY CONSTRUCTION, not by a second pattern: `index.ts` re-exports the
+// schema module's TYPES only, so there is no value edge for a chrome import of it to follow.
+// A `export { ACTION_INPUT_SCHEMAS } from "./schemas.ts"` added there would defeat this rule
+// silently — which is why that file says so in its header.
+//
+// NARROWING THE CHROME'S BAN OPENED A HOLE, AND THE THIRD SCAN BELOW CLOSES IT. The
+// directory-wide rule made "no zod, no core, in the chrome bundle" structurally impossible to
+// break: the chrome could not value-import ANY of it, so it did not matter which of those
+// files carried an engine import. Narrowed to the schema module, it does matter — a value
+// `import { z } from "@furnace/core/registry"` added to `descriptors.ts`, `keys.ts`,
+// `result.ts` or the barrel would ride a legitimate chrome value-import straight into the
+// main bundle, and no rule in either guard file would see it (`no-chrome-leakage.test.ts`
+// scans this directory for React, `frontend/` and `field-host/` and nothing else). So the
+// containment moved rather than being deleted: the four chrome-reachable modules are held to
+// the SAME engine and zod rules the chrome is, and `schemas.ts` is the one file exempt from
+// them — it is the module the licence was written for, and the chrome cannot reach it.
 //
 // It is enforced HERE rather than in `no-chrome-leakage.test.ts` (which owns the registry's
 // other three rules) because the reason is this file's reason and the mechanism is this
 // file's mechanism: `valueImportRules` already knows that `import type` / `export type` are
-// erased and therefore fine, which is the whole shape of the permission. The same anchor as
-// the host rule, for the same reason — a future `frontend/lib/action-registry-mirrors.ts`
-// must not trip it.
+// erased and therefore fine, which is the whole shape of the permission.
 //
 // This rule binds `shared/` too, and correctly: the floor sits BELOW the registry, so a
 // value-import there would point the arrow backwards as well as carry core.
-const ACTION_REGISTRY = `["'][^"']*action-registry(/|["'])`;
+const ACTION_SCHEMAS = `["'][^"']*action-registry/schemas`;
 // zod's FRONT DOOR. `zod` is a direct dependency of this package (`package.json`) —
 // legitimately, for the daemon, which validates every command with it. Nothing stops a
 // chrome file writing `import { z } from "zod"` and putting the whole library in the main
@@ -134,14 +159,15 @@ const ZOD = `["']zod["']`;
 //
 // WHAT THE EXEMPTION DOES NOT COVER, and the split below is what makes that machine-true
 // rather than a sentence. Every word of the rationale above is about ENGINE code in a
-// worker realm; none of it reaches `action-registry` or `zod`, and a worker has no business
-// with either (measured: the two entries import the two protocol modules and nothing else).
-// When `action-registry` was added to a single flat `FORBIDDEN` list, the exemption widened
-// over it silently — harmless, since neither entry imports it, but this file is the
-// authority on its own rule set and an accidental licence is not one anybody granted. So
-// the rules are two sets: EXEMPTABLE (the three engine rules, which the two entries may
-// break) and UNIVERSAL (the registry and zod, which nothing under `frontend/` may break).
-// If a worker ever genuinely needs one of those, that is a conversation, not a default.
+// worker realm; none of it reaches the registry's schemas or `zod`, and a worker has no
+// business with either (measured: the two entries import the two protocol modules and
+// nothing else). When `action-registry` was added to a single flat `FORBIDDEN` list, the
+// exemption widened over it silently — harmless, since neither entry imports it, but this
+// file is the authority on its own rule set and an accidental licence is not one anybody
+// granted. So the rules are two sets: EXEMPTABLE (the three engine rules, which the two
+// entries may break) and UNIVERSAL (the schemas and zod, which nothing under `frontend/` may
+// break). If a worker ever genuinely needs one of those, that is a conversation, not a
+// default.
 //
 // THE PROTOCOL PAIR LEFT THIS SCAN, deliberately, and the coverage arithmetic is exactly
 // zero (foundations T3b1): `field-protocol.ts` and `analyzer-protocol.ts` moved from
@@ -170,6 +196,16 @@ const ZOD = `["']zod["']`;
 // specifier under `field-host`, which the third rule catches.
 const ENGINE_DIRECT_WORKER = new Set(["field-worker.ts", "analyzer-worker.ts"]);
 
+/** The registry's own directory, and the ONE file in it that may carry zod.
+ *
+ *  The exemption is a filename rather than a rule set because there is only one thing to
+ *  say about it: `schemas.ts` holds the input schemas, it is licensed to value-import
+ *  `@furnace/core/registry` for the single-instance contract, and the chrome may not
+ *  value-import it. Every other file here is chrome-reachable and must therefore carry
+ *  neither. */
+const ACTION_REGISTRY = join(import.meta.dir, "..", "src", "action-registry");
+const ZOD_LICENSED = new Set(["schemas.ts"]);
+
 /** The three ways a value dependency (non-erased) enters a module's bundle, for
  *  a given quoted-specifier pattern. `import type` / `export type` are erased,
  *  so the value-import / re-export rules exclude them via the `type` lookahead. */
@@ -190,7 +226,7 @@ const EXEMPTABLE = [
 /** The two rules NOTHING under `frontend/` may break, worker entries included. Neither is an
  *  engine rule, so neither is covered by the engine exemption's reasoning. */
 const UNIVERSAL = [
-  ...valueImportRules(ACTION_REGISTRY),
+  ...valueImportRules(ACTION_SCHEMAS),
   ...valueImportRules(ZOD),
 ];
 
@@ -208,7 +244,7 @@ test("frontend has no value imports of @furnace/core (project-first invariant)",
   const offenders = walk(FRONTEND).filter((f) => {
     const text = readFileSync(f, "utf8");
     // The exemption is applied to the ENGINE rules only. A worker entry still may not
-    // value-import the action registry or zod — nothing in the exemption's rationale
+    // value-import the registry's schemas or zod — nothing in the exemption's rationale
     // reaches either, and a licence nobody granted is not a licence.
     const rules = ENGINE_DIRECT_WORKER.has(relative(FRONTEND, f))
       ? UNIVERSAL
@@ -216,6 +252,67 @@ test("frontend has no value imports of @furnace/core (project-first invariant)",
     return rules.some((re) => re.test(text));
   });
   expect(offenders).toEqual([]);
+});
+
+test("action-registry/ carries no engine EXCEPT in schemas.ts — the chrome value-imports the rest", () => {
+  // The other half of the narrowing above. These four files are the ones a chrome surface may
+  // value-import at runtime (`ACTION_DESCRIPTORS`, `keycap`, `matchBinding`, `ACTION_OK`), so
+  // an engine or zod import in any of them is a chrome-bundle import — held to the chrome's
+  // own rules, in the file that owns those rules.
+  const scanned = walk(ACTION_REGISTRY).filter(
+    (f) => !ZOD_LICENSED.has(relative(ACTION_REGISTRY, f)),
+  );
+  // WHAT WAS SCANNED, asserted before what was found. `ZOD_LICENSED` is a silent skip path
+  // and `toEqual([])` over an empty walk is a passing test that checked nothing — the
+  // vacuity `descriptors.test.ts` guards against with its own count, and the shape this case
+  // otherwise inherits from the `shared/` one below it. A file added here is a file this
+  // list has to name.
+  expect(scanned.map((f) => relative(ACTION_REGISTRY, f)).sort()).toEqual([
+    "descriptors.ts",
+    "index.ts",
+    "keys.ts",
+    "result.ts",
+  ]);
+  const offenders = scanned.filter((f) => {
+    const text = readFileSync(f, "utf8");
+    return [...valueImportRules(ENGINE), ...valueImportRules(ZOD)].some((re) =>
+      re.test(text),
+    );
+  });
+  expect(offenders).toEqual([]);
+});
+
+test("the chrome's action graph BUNDLES without zod — the constraint, not a proxy for it", async () => {
+  // THE ONLY CHECK IN THIS FILE THAT READS THE THING THE RULES ARE ABOUT. Every rule above is
+  // a specifier scan: a proxy, chosen because it is cheap and total over a directory. This
+  // builds `frontend/lib/actions.ts` — the chrome module that value-imports the registry, and
+  // therefore the door the narrowing above opened — and looks in the OUTPUT. A route the
+  // regexes cannot see (a dynamic import, a re-export chain through a module nobody thought
+  // to scan, a bundler resolving something unexpected) shows up here and nowhere else.
+  //
+  // Cheap enough to keep: 28 KB and ~16 ms at head.
+  const built = await Bun.build({
+    entrypoints: [join(FRONTEND, "lib", "actions.ts")],
+    target: "browser",
+  });
+  if (!built.success)
+    throw new Error(
+      `the chrome's action graph did not build:\n${built.logs.join("\n")}`,
+    );
+  const out = built.outputs[0];
+  if (out === undefined) throw new Error("the build produced no output");
+  const code = await out.text();
+  // A POSITIVE marker first, so a build that emitted nothing useful cannot pass by carrying
+  // none of the forbidden names either.
+  expect(code).toContain("view.snapNegZ");
+  // Zod's runtime class names, which appear in no prose of ours — unlike the word "zod",
+  // which several of these files spend paragraphs on. Searched in the built output, where
+  // comments are already gone, but chosen so the case does not DEPEND on that.
+  for (const marker of ["ZodObject", "$ZodType", "ZodString"])
+    expect({ marker, present: code.includes(marker) }).toEqual({
+      marker,
+      present: false,
+    });
 });
 
 test("shared/ carries no engine — the neutral layer stays neutral", () => {

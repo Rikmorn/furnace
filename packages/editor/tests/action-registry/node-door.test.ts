@@ -41,20 +41,21 @@ import { join } from "node:path";
 
 const PKG = join(import.meta.dir, "..", "..");
 
-/** Import `specifier` in a FRESH bun process and report what it found there.
+/** Import `specifier` in a FRESH bun process and report what `count` found there.
  *
- *  The child prints the ROW COUNT rather than exiting silently, so "imported cleanly" and
+ *  The child prints a COUNT rather than exiting silently, so "imported cleanly" and
  *  "imported cleanly and exported nothing" are distinguishable — a door that read only the
  *  exit code would pass on an empty module. `cwd` is the package root, so a bare specifier
  *  resolves the way the daemon will resolve it. */
 async function rowsSeenByABareRuntime(
   specifier: string,
+  count = "m.ACTION_DESCRIPTORS.length",
 ): Promise<{ ok: boolean; text: string }> {
   const proc = Bun.spawn(
     [
       "bun",
       "-e",
-      `const m = await import(${JSON.stringify(specifier)}); console.log(m.ACTION_DESCRIPTORS.length);`,
+      `const m = await import(${JSON.stringify(specifier)}); console.log(${count});`,
     ],
     { cwd: PKG, stdout: "pipe", stderr: "pipe" },
   );
@@ -84,4 +85,23 @@ test("the package export map reaches it — the daemon's route in", async () => 
   const r = await rowsSeenByABareRuntime("@furnace/editor/action-registry");
   if (!r.ok) throw new Error(`the export map did not resolve:\n${r.text}`);
   expect(Number(r.text)).toBeGreaterThan(0);
+});
+
+test("the input schemas open too — the zod half of the layer is Node-portable", () => {
+  // A SEPARATE DOOR because it is a separate module and a separate risk. `schemas.ts` is the
+  // one file under this directory the chrome may not value-import (it carries zod, and
+  // behind it `@furnace/core`), which means the barrel deliberately re-exports its TYPES
+  // only — so the door above imports it not at all and would stay green if this module could
+  // not load at all. It is also the only one whose graph reaches outside the package, which
+  // is the thing most likely to break in a bare runtime.
+  //
+  // No bare-specifier half: there is no export-map entry for it yet, and there should not be
+  // one until the projection that reads it exists (T4). This door is by path.
+  return rowsSeenByABareRuntime(
+    join(PKG, "src", "action-registry", "schemas.ts"),
+    "Object.keys(m.ACTION_INPUT_SCHEMAS).length",
+  ).then((r) => {
+    if (!r.ok) throw new Error(`a bare runtime refused the import:\n${r.text}`);
+    expect(Number(r.text)).toBe(6);
+  });
 });

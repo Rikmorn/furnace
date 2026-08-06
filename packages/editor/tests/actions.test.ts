@@ -5,17 +5,45 @@
 //
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
-import { expect, type mock, test } from "bun:test";
+import { afterEach, expect, type mock, test } from "bun:test";
 import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
   ACTION_GROUPS,
   ACTIONS,
   type ActionGroup,
+  type ActionId,
   byId,
+  capOf,
+  type GateEnv,
   groupTitle,
+  runAction,
   TOOL_FAMILIES,
 } from "../src/frontend/lib/actions.ts";
+import { notify } from "../src/frontend/lib/notify-store.ts";
+
+/** A keypress with nothing standing in its way, and a control activation. The two caller
+ *  classes, spelled once — `keybindings.test.ts` owns what each REFUSES; these cases are
+ *  about what the funnel does once one of them is through. */
+const KEY = {
+  caller: "key",
+  inTextInput: false,
+  confirmOpen: false,
+  looking: false,
+} as const satisfies GateEnv;
+const NAMED = {
+  caller: "named",
+  confirmOpen: false,
+} as const satisfies GateEnv;
+
 import { makeCtx, type makeHostSpy } from "./_actions-fixture.ts";
+
+// The notify store is a module singleton (one editor, one log), so a sentence raised by one
+// case would still be standing in the next — and half the funnel cases below assert that
+// NOTHING was said. Cleared between, the way `world-actions.test.ts` clears it.
+afterEach(() => notify.clear());
+
+/** Every sentence the store is holding, newest first. */
+const said = (): string[] => notify.getSnapshot().log.map((m) => m.text);
 
 const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
   ({
@@ -68,7 +96,10 @@ test("the two lookups THROW rather than answer nullably", () => {
   // round shipped `ACTIONS.find(...)?.keys` and `ACTION_GROUPS.find(...)?.title`, both of
   // which render blank on a miss.
   expect(byId("view.commandPalette").id).toBe("view.commandPalette");
-  expect(() => byId("view.nope")).toThrow(/no action "view.nope"/);
+  // The cast IS the scenario, exactly as the `groupTitle` half below says of its own: `byId`
+  // narrowed to `ActionId` in T3b2 Task 4, so the only caller that can still miss is one
+  // naming an id that is deliberately not there.
+  expect(() => byId("view.nope" as ActionId)).toThrow(/no action "view.nope"/);
   expect(groupTitle("tool")).toBe("Tools");
   // A group outside the union is the case the type system cannot reach and the array
   // cannot prove — the cast IS the scenario (a group added to `ActionGroup` and forgotten
@@ -82,7 +113,7 @@ test("the command palette is a registry action, not a surface with its own key",
   const def = byId("view.commandPalette");
   // ⌘K on the same `chord` gate as ⌘S and ⌘Z — live inside a text field, because the
   // palette is how you get out of a panel you are typing in.
-  expect({ keys: def.keys, gate: def.gate, group: def.group }).toEqual({
+  expect({ keys: capOf(def), gate: def.gate, group: def.group }).toEqual({
     keys: "⌘K",
     gate: "chord",
     group: "view",
@@ -109,7 +140,7 @@ test("the shortcuts overlay is a registry action on a bare key, in its own Help 
   // rule at the top of `lib/actions.ts` forbids outright.
   const def = byId("help.shortcuts");
   expect({
-    keys: def.keys,
+    keys: capOf(def),
     gate: def.gate,
     group: def.group,
     // Never refused: an overlay that lists every binding is most useful in the state where
@@ -153,15 +184,18 @@ test("Help is a group of its OWN, so the overlay and ⌘K head it rather than fi
 });
 
 test("every displayed chord is unique — one key, one action", () => {
-  const keys = ACTIONS.flatMap((a) => (a.keys === undefined ? [] : [a.keys]));
+  const keys = ACTIONS.flatMap((a) => {
+    const cap = capOf(a);
+    return cap === undefined ? [] : [cap];
+  });
   expect(new Set(keys).size).toBe(keys.length);
 });
 
-test("match and gate are declared together — a matcher with no gate could not be refused", () => {
+test("a binding and a gate are declared together — a binding with no gate could not be refused", () => {
   for (const a of ACTIONS)
     expect({
       id: a.id,
-      paired: (a.match === undefined) === (a.gate === undefined),
+      paired: (a.keys === undefined) === (a.gate === undefined),
     }).toEqual({ id: a.id, paired: true });
 });
 
@@ -169,13 +203,14 @@ test("every keyed action carries its keycap and its overlay sentence", () => {
   // The overlay renders `keys` + `hint`; an action reachable from the keyboard with
   // neither is a binding that cannot be discovered.
   for (const a of ACTIONS) {
-    if (a.match === undefined) continue;
-    expect({ id: a.id, keys: a.keys, hint: typeof a.hint }).toEqual({
+    const cap = capOf(a);
+    if (cap === undefined) continue;
+    expect({ id: a.id, keys: cap, hint: typeof a.hint }).toEqual({
       id: a.id,
-      keys: a.keys,
+      keys: cap,
       hint: "string",
     });
-    expect(a.keys).toBeTruthy();
+    expect(cap).toBeTruthy();
   }
 });
 
@@ -476,22 +511,25 @@ test("view.frameWorld runs the WORLD frame, not the selection frame beside it", 
 // --- the six axis views (F4.5c Task 5) ---------------------------------------
 
 /** Each view's id beside the pair it MUST pass, written out longhand. Named for what it is
- *  — the EXPECTED pairing — rather than after the table it checks: `AXIS_VIEWS` is the
- *  registry's own const, and one grep returning both would leave a reader deciding which is
+ *  — the EXPECTED pairing — rather than after the thing it checks: `axisView` is the
+ *  registry's own factory, and one grep returning both would leave a reader deciding which is
  *  the source and which the assertion.
  *
  *  Deliberately not derived from anything the registry derives from: a helper that got a
  *  sign backwards would hand this file a matching expectation, and disagreeing with the
  *  table when the table is wrong is the only thing these cases are for. */
-const EXPECTED_VIEWS: readonly (readonly [string, "x" | "y" | "z", 1 | -1])[] =
-  [
-    ["view.snapPosX", "x", 1],
-    ["view.snapNegX", "x", -1],
-    ["view.snapPosY", "y", 1],
-    ["view.snapNegY", "y", -1],
-    ["view.snapPosZ", "z", 1],
-    ["view.snapNegZ", "z", -1],
-  ];
+const EXPECTED_VIEWS: readonly (readonly [
+  ActionId,
+  "x" | "y" | "z",
+  1 | -1,
+])[] = [
+  ["view.snapPosX", "x", 1],
+  ["view.snapNegX", "x", -1],
+  ["view.snapPosY", "y", 1],
+  ["view.snapNegY", "y", -1],
+  ["view.snapPosZ", "z", 1],
+  ["view.snapNegZ", "z", -1],
+];
 
 test("each axis view snaps to ITS OWN axis and sign", () => {
   // The whole table in ONE expectation, one STRING per action. Six defs differing only by
@@ -501,7 +539,7 @@ test("each axis view snaps to ITS OWN axis and sign", () => {
   // reader to count rows to find out WHICH of the six fired wrong. Flattened, the id and
   // the bad pair land on the same diff line. Rendering the whole CALL LIST rather than its
   // first entry is what also reddens a def that snapped twice, or not at all.
-  const shows = (id: string, calls: unknown): string =>
+  const shows = (id: ActionId, calls: unknown): string =>
     `${id} → ${JSON.stringify(calls)}`;
   const observed = EXPECTED_VIEWS.map(([id]) => {
     const ctx = makeCtx();
@@ -521,11 +559,11 @@ test("the six axis views sit in the view group, always enabled, keyless, and nam
     // charter's binding table never allocated, on a keyboard this editor keeps sparse.
     // The menu (and the command palette, which reads this same table) is the route, and
     // that route is the whole reason the triad's undersized tips stop being the sole one.
-    expect({ id, group: def.group, keys: def.keys, match: def.match }).toEqual({
+    expect({ id, group: def.group, keys: def.keys, cap: capOf(def) }).toEqual({
       id,
       group: "view",
       keys: undefined,
-      match: undefined,
+      cap: undefined,
     });
     // Live with no engine at all, like `view.frame` beside it: a view verb needs no
     // selection and no world, and a menu row greyed for no visible reason reads as broken.
@@ -645,4 +683,234 @@ test("the ids the status chip names are in the table", () => {
       id,
       present: true,
     });
+});
+
+// --- what a run ANSWERS, and what it takes (T3b2 Task 4) ---------------------
+//
+// The result channel is NEW for all 39 — before this task every `run` was `(ctx) => void`
+// and nothing produced or read a verdict. These cases are what makes the two claims in
+// `action-registry/result.ts` true rather than described: which failures are the ACTION's
+// own (and are said, once, by the funnel), and which belong to a channel below it (and are
+// carried to the caller without a second toast).
+
+test("a hand-off verb answers ok — the host's own refusal is not this action's verdict", async () => {
+  // Most of the table is one call into the host or into a chrome funnel — the membership is
+  // greppable (`run: handOff(`) and is deliberately not counted here or in `handOff`'s own
+  // note. `frameSelection` with
+  // nothing selected is the sharp case: the host says "nothing to frame" on its OWN channel,
+  // asynchronously, and a run that reported that as its verdict would be guessing at an
+  // answer it never waited for.
+  const ctx = makeCtx();
+  expect(await byId("view.frame").run(ctx)).toEqual({ ok: true });
+  expect(
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).frameSelection.mock
+      .calls.length,
+  ).toBe(1);
+  expect(said()).toEqual([]);
+});
+
+test("the entity trio takes an entityId, and falls back to the SELECTION when it is not given", async () => {
+  // THE INPUT CHANNEL. The chrome dispatches with nothing and gets the selected stamp; a
+  // caller that names one acts on that instead. Both directions asserted on the same def,
+  // because a run that ignored its input would pass the fallback half alone.
+  const ctx = makeCtx({ selectedEntity: entity({ entityId: 12 }) });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(await byId("edit.duplicate").run(ctx)).toEqual({ ok: true });
+  expect(await byId("edit.duplicate").run(ctx, { entityId: 40 })).toEqual({
+    ok: true,
+  });
+  expect(host.duplicateEntity.mock.calls).toEqual([[12], [40]]);
+  expect(await byId("edit.grab").run(ctx, { entityId: 41 })).toEqual({
+    ok: true,
+  });
+  expect(host.beginMove.mock.calls).toEqual([[41]]);
+});
+
+test("with nothing selected and nothing named, the entity trio REFUSES with the sentence", async () => {
+  // A backstop: `enabled` already refuses all three with no selection, so the chrome never
+  // reaches it. What it is for is the caller that consults neither — which is the whole
+  // reason a verdict exists at all.
+  const ctx = makeCtx();
+  for (const id of ["edit.duplicate", "edit.delete", "edit.grab"] as const)
+    expect({ id, result: await byId(id).run(ctx) }).toEqual({
+      id,
+      result: {
+        ok: false,
+        kind: "refused",
+        message: "no stamp selected — select one, or name an entityId",
+      },
+    });
+});
+
+test("Delete refuses an entityId that is not the SELECTED one — the confirm describes the selection", async () => {
+  // The one entity verb that cannot act on an unselected id, and the limit is the confirm
+  // rather than the delete: the prompt names the generator and counts the ops, both off
+  // `ctx.selectedEntity`. Duplicate and Grab need the id alone and take any (above).
+  const ctx = makeCtx({ selectedEntity: entity({ entityId: 3 }) });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(await byId("edit.delete").run(ctx, { entityId: 99 })).toEqual({
+    ok: false,
+    kind: "refused",
+    message:
+      "select stamp #99 first — Delete confirms against the SELECTED stamp",
+  });
+  expect(ctx.run.openConfirm).not.toHaveBeenCalled();
+  expect(host.deleteEntity).not.toHaveBeenCalled();
+});
+
+test("Stamp takes a generatorId, and naming one does NOT move the ⇧S cursor", async () => {
+  // THE EXEMPLAR. The cursor is what the status bar advertises, so a caller opening a
+  // different generator must not silently re-aim the key a human is reading about.
+  const ctx = makeCtx({ stampCursor: "maze" });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(await byId("tool.stamp").run(ctx, { generatorId: "cave" })).toEqual({
+    ok: true,
+  });
+  expect(host.startStamp.mock.calls).toEqual([["cave"]]);
+  expect(ctx.run.setStampCursor).not.toHaveBeenCalled();
+  // …and with nothing named it is still the cursor's.
+  await byId("tool.stamp").run(ctx);
+  expect(host.startStamp.mock.calls).toEqual([["cave"], ["maze"]]);
+});
+
+test("Save as… opens the drawer with no name and WRITES with one", async () => {
+  // Two behaviours on one verb, which is what "name a copy" means — and the reason this row
+  // carries a `{name}` schema rather than staying the bare verb ⇧⌘S has always been.
+  const ctx = makeCtx();
+  expect(await byId("world.saveAs").run(ctx)).toEqual({ ok: true });
+  expect(ctx.run.world.openDrawer).toHaveBeenCalledWith("save-as");
+  expect(ctx.run.world.saveAs).not.toHaveBeenCalled();
+  await byId("world.saveAs").run(ctx, { name: "attic" });
+  expect(ctx.run.world.saveAs).toHaveBeenCalledWith("attic");
+});
+
+test("Make default names the OPEN world by default, and refuses an untitled one", async () => {
+  const named = makeCtx({
+    world: { name: "attic", dirty: false, busy: false },
+  });
+  expect(await byId("world.makeDefault").run(named)).toEqual({ ok: true });
+  expect(named.run.world.makeDefault).toHaveBeenCalledWith("attic");
+  await byId("world.makeDefault").run(named, { name: "cavern" });
+  expect(named.run.world.makeDefault).toHaveBeenCalledWith("cavern");
+  expect(await byId("world.makeDefault").run(makeCtx())).toEqual({
+    ok: false,
+    kind: "refused",
+    message: "name the world first (⌘S)",
+  });
+});
+
+// --- the ONE funnel (T3b2 Task 4) --------------------------------------------
+
+test("the funnel gates, claims, checks, runs and SAYS — in that order", async () => {
+  // `onClaim` is the key dispatcher's `preventDefault` seam and its position is the contract:
+  // after the gate ALLOWS and before `enabled`, because at that point the key is claimed. A
+  // disabled ⌘S must still suppress the browser's save-page dialog.
+  const claims: string[] = [];
+  const ctx = makeCtx();
+  const result = await runAction(byId("edit.undo"), ctx, KEY, undefined, () =>
+    claims.push("claimed"),
+  );
+  // `edit.undo` is DISABLED here (no undo depth), so the claim landed and the run did not.
+  expect({ claims, result }).toEqual({
+    claims: ["claimed"],
+    result: { ok: false, kind: "refused", message: "Undo" },
+  });
+  expect(
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).undo,
+  ).not.toHaveBeenCalled();
+  // INERT SAYS NOTHING, which is the existing three-way policy: the label already carries
+  // the reason on screen, so a toast would be a second wording of a sentence being read.
+  expect(said()).toEqual([]);
+});
+
+test("a REFUSED action never reaches the claim — the character the user is typing survives", async () => {
+  const claims: string[] = [];
+  const result = await runAction(
+    byId("view.frame"),
+    makeCtx(),
+    { ...KEY, inTextInput: true },
+    undefined,
+    () => claims.push("claimed"),
+  );
+  expect({ claims, refused: !result.ok }).toEqual({
+    claims: [],
+    refused: true,
+  });
+});
+
+test("the gate's refusal is SAID once, and a held key cannot stack it", async () => {
+  // `sayRefusal`'s de-duplication is against the LIVE toast stack, which is exactly the
+  // shape a key repeating at the OS rate needs.
+  const session = makeCtx({ session: { generator: "hall" } as never });
+  const hint = "finish the session first — ⏎ applies it, Esc discards it";
+  for (let i = 0; i < 3; i += 1)
+    expect(await runAction(byId("tool.brush"), session, KEY)).toEqual({
+      ok: false,
+      kind: "refused",
+      message: hint,
+    });
+  expect(said()).toEqual([hint]);
+});
+
+test("the funnel SAYS a `refused` run result and stays QUIET on a `failed` one", async () => {
+  // THE RECONCILIATION, as behaviour. A `refused` result is the action's own verdict and
+  // nobody has said it yet — this is the sentence that used to be a `notify.error` inside the
+  // verb. A `failed` result came from a layer that owns its own channel and has already said
+  // it (`world-actions.ts`'s "bake failed: ENOSPC"), so repeating it here would be the
+  // doubled toast the rule exists to prevent.
+  const refuse = makeCtx({ world: { name: null, dirty: false, busy: false } });
+  // Bake over an untitled world: `enabled` refuses it first, so reach the run's own backstop
+  // through the verb the action dispatches into.
+  (refuse.run.world.bake as unknown as ReturnType<typeof mock>).mockReturnValue(
+    Promise.resolve({
+      ok: false,
+      kind: "refused",
+      message: "name the world first (⌘S)",
+    }),
+  );
+  const named = {
+    ...refuse,
+    world: { name: "attic", dirty: false, busy: false },
+  };
+  expect(await runAction(byId("world.bake"), named, NAMED)).toEqual({
+    ok: false,
+    kind: "refused",
+    message: "name the world first (⌘S)",
+  });
+  expect(said()).toEqual(["name the world first (⌘S)"]);
+  notify.clear();
+
+  (refuse.run.world.bake as unknown as ReturnType<typeof mock>).mockReturnValue(
+    Promise.resolve({
+      ok: false,
+      kind: "failed",
+      message: "bake failed: ENOSPC",
+    }),
+  );
+  expect(await runAction(byId("world.bake"), named, NAMED)).toEqual({
+    ok: false,
+    kind: "failed",
+    message: "bake failed: ENOSPC",
+  });
+  expect(said()).toEqual([]);
+});
+
+test("a run that THROWS is surfaced, not thrown past the dispatcher", async () => {
+  // The whole of what `failed` means, and the one `failed` no layer below has said — so this
+  // is the one the funnel voices itself. Before it, a throw out of a run took its listener
+  // with it: a sync throw out of the keydown handler, and an unhandled rejection once the
+  // world verbs became async. Neither is visible and neither is answerable.
+  const ctx = makeCtx();
+  (
+    ctx.run.openCommandPalette as unknown as ReturnType<typeof mock>
+  ).mockImplementation(() => {
+    throw new Error("boom");
+  });
+  const result = await runAction(byId("view.commandPalette"), ctx, NAMED);
+  expect(result).toEqual({
+    ok: false,
+    kind: "failed",
+    message: "Find a command… failed: boom",
+  });
+  expect(said()).toEqual(["Find a command… failed: boom"]);
 });

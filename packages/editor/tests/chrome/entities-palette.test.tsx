@@ -26,7 +26,7 @@ import {
 	FieldHostStateProvider,
 	useFieldEntities,
 } from "../../src/frontend/hooks/useFieldHostState.tsx";
-import { byId } from "../../src/frontend/lib/actions.ts";
+import { byId, capOf } from "../../src/frontend/lib/actions.ts";
 import {
 	act,
 	cleanup,
@@ -466,7 +466,7 @@ test("the row's Delete tooltip shows the registry's own keycap, on the selected 
 	// literal "⌫" here would pass vacuously after a rebind — nothing named ⌫ would exist
 	// anywhere on screen, so the absence it claims to prove would be free — and that is
 	// precisely the drift the registry read exists to make impossible.
-	const keys = byId("edit.delete").keys;
+	const keys = capOf(byId("edit.delete"));
 	if (keys === undefined) throw new Error("edit.delete lost its keycap");
 
 	// Nothing selected: ⌫ deletes the SELECTED stamp, so a keycap on a row the key would

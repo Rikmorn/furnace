@@ -127,6 +127,7 @@ import {
 	GridRow,
 	useRowGrid,
 } from "../../hooks/useRovingList.tsx";
+import type { ActionId } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { CollapsibleSection } from "../CollapsibleSection.tsx";
 import { Button } from "../ui/button.tsx";
@@ -268,7 +269,7 @@ function RowVerb(
 		/** The registry action whose KEY does this same thing to this same row, when one
 		 *  does. Absent on a row the key would not reach — see the delete verb's call
 		 *  below. */
-		actionId?: string;
+		actionId?: ActionId;
 		/** Which grid column this verb occupies ({@link COLUMNS}). Passed per verb rather
 		 *  than counted, because the Δ cell is conditional — a counted index would report a
 		 *  different column for `freeze` depending on whether the row happened to drift. */

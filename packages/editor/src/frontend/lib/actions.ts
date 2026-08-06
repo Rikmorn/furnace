@@ -1,24 +1,33 @@
-// The editor's ONE action registry (D-10/D-11/D-12): every verb the chrome can run,
-// declared once, with the key that runs it, the label that names it and the rule that
-// refuses it. EIGHT surfaces read this table — the window key dispatcher
-// (`useGlobalKeybindings`), the burger menu, the Help▸Keyboard shortcuts overlay, the top
-// bar (Bake and the palette toggle), the status bar's selection chip, the tool rail
-// (through `TOOL_FAMILIES` at the foot of this file), the ⌘K command palette, which
-// renders the WHOLE table at once, and `ui/tips.tsx`'s `ActionTip`, which looks a keycap
-// up by id so a tooltip cannot print a chord this table has moved — so a binding cannot be
-// live and undocumented, or documented and dead, and no surface works out an enabled state
-// or a label of its own. `shell/SessionCard.tsx` and `shell/ToolStrip.tsx` import
-// `entityName` and nothing else; they are not readers of the table and are not in the count.
-// The count was three when this file was written and has been wrong at every re-count
-// since: it stayed three while five more readers arrived, then read seven, which missed
-// `ActionTip` — a control-library tooltip does not look like a surface, which is exactly
-// why it is named above rather than left to be re-derived. Checking it takes THREE numbers,
-// and only the last is the one written here: eleven files import this module, ten of those
-// value-import it (`hooks/useActionContext.tsx` takes `ActionCtx` as a type and reads
-// nothing), and eight of THOSE read the table. Adding a reader means editing this number
-// and `docs/reference/editor-architecture.md` §17.4, which lists the eight by file. Those
-// are the only two places the count is written down; §16.6 points at §17.4 rather than
-// carrying a third copy.
+// The editor's ONE action registry (D-10/D-11/D-12) — the CHROME half of it since
+// foundations T3b2. Every verb the chrome can run is DECLARED as a row in
+// `src/action-registry/descriptors.ts` (id, group, binding, hint, gate, the two flags), and
+// this file joins the five things a row cannot hold onto those rows by id: the contextual
+// label, the enabled predicate, the menu checkbox's checked state, and the `run` that does
+// it. A process with no DOM can hold the rows; only a browser can hold these.
+//
+// EIGHT SURFACES READ THIS TABLE — the window key dispatcher (`useGlobalKeybindings`), the
+// burger menu, the Help▸Keyboard shortcuts overlay, the top bar (Bake and the palette
+// toggle), the status bar's selection chip, the tool rail (through `TOOL_FAMILIES` at the
+// foot of this file), the ⌘K command palette, which renders the WHOLE table at once, and
+// `ui/tips.tsx`'s `ActionTip`, which looks a keycap up by id so a tooltip cannot print a
+// chord this table has moved — so a binding cannot be live and undocumented, or documented
+// and dead, and no surface works out an enabled state or a label of its own.
+// `shell/SessionCard.tsx` and `shell/ToolStrip.tsx` import `entityName` and nothing else;
+// they are not readers of the table and are not in the count. The count was three when this
+// file was written and has been wrong at every re-count since: it stayed three while five
+// more readers arrived, then read seven, which missed `ActionTip` — a control-library
+// tooltip does not look like a surface, which is exactly why it is named above rather than
+// left to be re-derived. Checking it takes THREE numbers, and only the last is the one
+// written here: FOURTEEN files import this module, TWELVE of those value-import it
+// (`hooks/useActionContext.tsx` and `components/field/EntitiesList.tsx` take `ActionCtx` and
+// `ActionId` as types and read nothing), and EIGHT of THOSE read the table. T3b2 Task 4 moved
+// the first two numbers and — in the commit that restated this very procedure — did not
+// re-derive them: `runNamed`/`sayResult` gave `shell/WorldDrawer.tsx` and `hooks/useWorld.tsx`
+// value imports, and `ActionId` gave `EntitiesList.tsx` a type-only one. The eight held.
+// Adding a reader means editing this number and
+// `docs/reference/editor-architecture.md` §17.4, which lists the eight by file. Those are
+// the only two places the count is written down; §16.6 points at §17.4 rather than carrying
+// a third copy.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
 // (`field-host/field-host.ts`) and this registry's, on `window`. The rule:
@@ -41,8 +50,25 @@
 // build). It type-imports the host types like every other chrome module — the chrome may
 // never VALUE-import anything under `field-host/` (machine-enforced by
 // `tests/frontend-no-engine-leakage.test.ts`), so every host verb here goes through the
-// `FieldHost` instance the context hook reads off `fieldHostRef`.
-import type { ActionGate, ActionGroup } from "../../action-registry/index.ts"; // type-only: erased
+// `FieldHost` instance the context hook reads off `fieldHostRef`. It DOES value-import
+// `src/action-registry/`, which is licensed: that barrel is the zod-free surface, and the
+// one module under it that carries zod (`schemas.ts`) is what the leakage guard bans the
+// chrome from reaching (editor-architecture §22.5).
+import {
+  ACTION_DESCRIPTORS,
+  ACTION_OK,
+  type ActionDescriptor,
+  type ActionGroup,
+  type ActionId,
+  type ActionInputs,
+  type ActionResult,
+  failed,
+  type InputOf,
+  type KeyFacts,
+  keycap,
+  matchBinding,
+  refused,
+} from "../../action-registry/index.ts";
 import type {
   FieldEntityInfo,
   FieldHost,
@@ -55,33 +81,29 @@ import type {
 // The two host LIMITS this table's hints state, value-imported off the neutral floor
 // (`shared/`, which the chrome may reach and `field-host/` may not be). The hints used to
 // spell "60 m" and "0.5 m" as prose and say so in a comment; a static sentence with no push
-// to read was the honest reason, not a good one.
-import { LATTICE } from "../../shared/field-brush.ts";
+// to read was the honest reason, not a good one. `MAX_SEGMENT_M` is still read here (the
+// Segment member's hint); `LATTICE` moved with `edit.grab`'s hint into the descriptor row.
 import { MAX_SEGMENT_M } from "../../shared/field-limits.ts";
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
 import type { WorldActions } from "../hooks/useWorld.tsx";
 // The triad's naming function, shared so the gizmo and the menu spell a view once
-// (see AXIS_VIEWS).
+// (see `axisView`).
 import { axisViewLabel } from "./axis-triad.ts";
+import { errorMessage } from "./humanize.ts";
+import { notify } from "./notify-store.ts";
 import type { PaletteId } from "./palette-store.ts";
 
-// MIGRATION (until T3b2 Task 4): the two DATA halves of an action's shape now live one layer
-// down, in `src/action-registry/`, where a process with no DOM can read them. Re-exported
-// from here rather than re-declared, so there is exactly ONE declaration of each and the
-// four files that already name `ActionGroup` off this module (`BurgerMenu`,
-// `CommandPalette`, `ShortcutsDialog`, `tests/actions.test.ts`) keep the import site they
-// have — re-pointing them would be churn against no ownership gap, which is what the
-// surface-membership rule asks us not to buy. Type-only, so nothing crosses into the
-// chrome's bundle. When Task 4 moves the table, the four importers move with it and this
-// line goes.
+// Re-exported rather than re-declared, so there is exactly ONE declaration of each and the
+// files that name them off this module keep the import site they have — re-pointing them
+// would be churn against no ownership gap, which is what the surface-membership rule asks
+// us not to buy. Type-only, so nothing crosses into the chrome's bundle.
 //
-// `ActionGate` is NOT re-exported: it has no consumer outside this file, and a re-export is
-// one line on the day one appears. `ACTION_GROUPS` below stays HERE: what a group is called
-// and in what order it renders is a chrome fact, and it is a VALUE the chrome imports —
-// which the layer forbids reaching into the registry for.
-export type { ActionGroup };
+// `ActionGate` is NOT re-exported: it has no consumer outside the registry, and a re-export
+// is one line on the day one appears. `ACTION_GROUPS` below stays HERE: what a group is
+// called and in what order it renders is a chrome fact.
+export type { ActionGroup, ActionId };
 
 /** Everything an action can read or call, assembled once per render by
  *  `useActionContext` and handed to every `label`/`enabled`/`run`.
@@ -167,28 +189,68 @@ export type ActionCtx = {
   };
 };
 
-/** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time. */
-export type GateEnv = {
-  /** `isTextInputTarget(e.target)` for this event. */
-  inTextInput: boolean;
-  /** A modal confirm is open (`confirmRef.current !== null`). */
-  confirmOpen: boolean;
-  /** The right button is down and driving the camera (`host.isLooking()`). Polled per
-   *  keypress and never stored on the ctx: the button goes down and up between renders,
-   *  so a snapshot would answer for a frame that has already gone. Only actions marked
-   *  {@link ActionDef.flyLetter} care. */
-  looking: boolean;
-};
+/** WHO is running this action. The third caller class the gate's env was never written for
+ *  (T3b2's S12 finding), now stated rather than implied.
+ *
+ *  - `key` — a window keypress. Everything the gate refuses a KEY for is about a key: a
+ *    character someone is typing, a letter the fly drag owns, a keycap on a menu-only verb.
+ *  - `named` — the user (or an agent) NAMED the verb: a burger item, a rail button, a ⌘K
+ *    row, a top-bar control, and tomorrow an MCP tool call. None of those is a character
+ *    and none of them holds the right button, so none of the key classes applies. */
+export type ActionCaller = "key" | "named";
+
+/** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time.
+ *
+ *  A UNION rather than one record with a `caller` field beside four facts, and that is the
+ *  whole of S12's fix. `clickGate` used to hard-code `inTextInput: false` on an argument —
+ *  *"the user typed to find it and then named it"* — that is true of a palette row and
+ *  UNTRUE of an agent, and a hard-coded fact defended by a caller-specific story is a fact
+ *  waiting to be wrong for the next caller. Split by caller, the two key-only facts are
+ *  simply not askable of a named call: there is no `false` left to write down, so nobody has
+ *  to justify one. */
+export type GateEnv =
+  | {
+      readonly caller: "key";
+      /** `isTextInputTarget(e.target)` for this event. */
+      readonly inTextInput: boolean;
+      /** The right button is down and driving the camera (`host.isLooking()`). Polled per
+       *  keypress and never stored on the ctx: the button goes down and up between renders,
+       *  so a snapshot would answer for a frame that has already gone. Only actions marked
+       *  {@link ActionDescriptor.flyLetter} care. */
+      readonly looking: boolean;
+      /** A modal confirm is open (`confirmRef.current !== null`). */
+      readonly confirmOpen: boolean;
+    }
+  | {
+      readonly caller: "named";
+      /** The one fact both callers state. A modal is modal whoever is asking — though a
+       *  chrome control activation cannot arrive while one covers the surface it sits on,
+       *  which is why {@link NAMED_CALL} says `false`. An agent caller is the case that
+       *  will have to answer this honestly, and it does not exist yet. */
+      readonly confirmOpen: boolean;
+    };
+
+/** The env a chrome control activation pins by construction: the user chose a named thing,
+ *  and a modal confirm covers the surface the press would land on. */
+const NAMED_CALL: GateEnv = { caller: "named", confirmOpen: false };
 
 /** Whether the key may fire, and what to tell the user when it may not. A `null` hint
  *  means refuse SILENTLY — the reason is already on screen (a modal dialog) or is the
  *  user's own hand (they are typing, they are holding the right button). */
 export type GateVerdict = { ok: true } | { ok: false; hint: string | null };
 
-export type ActionDef = {
-  /** Stable id, `group.verb`. Unique across the table (asserted). */
-  id: string;
-  group: ActionGroup;
+/** What a run may be handed beyond the ctx, as the DISPATCHER holds it.
+ *
+ *  Typed per id where it is written — `BEHAVIORS` below is keyed by {@link ActionId} and
+ *  each row's `run` states its own `InputOf<Id>`, so `edit.duplicate` reading a
+ *  `generatorId` does not compile. Widened here because a holder of 39 heterogeneous
+ *  actions cannot name 39 input types, and every chrome surface is such a holder: they
+ *  dispatch with no input at all and each run falls back to what the ctx has selected. */
+export type ActionInput = ActionInputs[keyof ActionInputs] | undefined;
+
+/** One action's chrome half — the five things a serializable row cannot carry, typed
+ *  against THIS action's input. */
+type ActionBehavior<Id extends ActionId> = {
   /** What to call it on a surface, given the current state — "Delete hall #7", "Undo
    *  dig". Contextual because the menu is where a user checks WHAT a verb will act on. */
   label: (ctx: ActionCtx) => string;
@@ -197,34 +259,47 @@ export type ActionDef = {
   enabled: (ctx: ActionCtx) => boolean;
   /** For the menu's checkbox items (the view toggles). Absent = a plain item. */
   checked?: (ctx: ActionCtx) => boolean;
-  /** The chord as the user reads it, in the editor's keycap vocabulary (⌘ ⇧ ⌃ ⌥ ⏎ ⌫).
-   *  Absent = menu-only. Unique across the table (asserted). */
-  keys?: string;
-  /** The ONE sentence an action's label has no room for — the CONDITION and the
-   *  consequence — wherever a surface has space to say it: the shortcuts overlay's `what`
-   *  column, the ⌘K palette's search keywords, the burger's item `title`, the tool rail's
-   *  tooltip, the status bar's selection chip.
-   *
-   *  This used to be two fields. `menuTitle` was the burger's half, described in its own
-   *  docblock as "the title for an item whose reason will not fit in its label" — the same
-   *  concept in different words, disjoint from this one by convention rather than by
-   *  anything enforcing it (0 actions ever set both; 21 set this, 4 set that). F4.5c
-   *  Task 8 falsified the split by rendering `menuTitle` on a non-menu surface, so the two
-   *  merged here: one concept, one name, one place a rewording has to happen. */
-  hint?: string;
-  /** Does this event run this action? Absent = menu-only, unreachable from the keyboard.
-   *  Declared together with `gate` (asserted). */
-  match?: (e: KeyboardEvent) => boolean;
-  gate?: ActionGate;
-  /** This action re-arms what LMB does, so it is refused while a session owns the
-   *  interaction — with a hint, because the key looking dead is the failure mode. */
-  armsTool?: boolean;
-  /** This keycap is ALSO one of the viewport's fly keys (w/a/s/d/q/e — `readFlyMove`),
-   *  so the look drag owns it: refused while the right button is down. `S` is the whole
-   *  membership today — fly-backward and the stamp family on one key — and the RMB gate
-   *  on fly travel is the other half of the same bargain. */
-  flyLetter?: boolean;
-  run: (ctx: ActionCtx) => void;
+  /** DO IT, and answer for it. See {@link ActionResult} for which failures are this
+   *  action's verdict and which belong to a channel below it. */
+  run: (ctx: ActionCtx, input: InputOf<Id>) => Promise<ActionResult>;
+};
+
+/** Every action's chrome half, keyed by id — EXHAUSTIVE BY TYPE, which is the whole reason
+ *  {@link ActionId} exists. A descriptor with no behavior and a behavior with no descriptor
+ *  are both compile errors, where the join this replaces was a runtime `find` that threw at
+ *  module init — the latest a missing verb can be found rather than the earliest. */
+type ActionBehaviors = { readonly [Id in ActionId]: ActionBehavior<Id> };
+
+/** One action as every surface holds it: the row and its behaviors, joined.
+ *
+ *  `keys` is the BINDING (data), not a printed cap — `keycap()` derives the cap wherever one
+ *  is drawn, which closes a gap `keybindings.test.ts` had already named in writing: *"a cap
+ *  edited to `⇧/` would leave every case here green while the menu advertised a key nothing
+ *  answers"*.
+ *
+ *  `run` is declared with METHOD syntax, deliberately and not as a style choice: method
+ *  parameters are checked bivariantly, which is what lets a behavior declared against its
+ *  own narrow `InputOf<Id>` sit in a table typed against the wide {@link ActionInput}.
+ *
+ *  BE EXACT ABOUT WHICH SITE THAT PROTECTS, because it is one of two. The DECLARATION site is
+ *  checked: `BEHAVIORS` is keyed by {@link ActionId} and each row's `run` states its own
+ *  `InputOf<Id>`, so `edit.duplicate` reading a `generatorId` does not compile. The DISPATCH
+ *  site is NOT: `runAction(byId("edit.duplicate"), ctx, env, { name: "x" })` compiles, and
+ *  degrades at runtime to the ctx fallback rather than doing anything with the `name`.
+ *
+ *  A generic (`runAction<Id extends ActionId>(def: ActionDef & { id: Id }, …,
+ *  input?: InputOf<Id>)`) was tried and does not close it: `byId` answers `ActionDef`, whose
+ *  `id` is `string`, so `Id` cannot be inferred from any call site the chrome actually
+ *  writes. Recovering it means `byId<Id>(id: Id): ActionDef & { id: Id }`, a narrowing
+ *  `ACTIONS.find`, and `ActionDef` becoming generic everywhere it is held — `ToolFamily.arm`,
+ *  `ACTIONS`, five surfaces. Not bought, because no chrome caller passes an input at all: the
+ *  gap is between a widened dispatcher and a future agent caller, and T4 is what will have a
+ *  reason to close it. */
+export type ActionDef = ActionDescriptor & {
+  label: (ctx: ActionCtx) => string;
+  enabled: (ctx: ActionCtx) => boolean;
+  checked?: (ctx: ActionCtx) => boolean;
+  run(ctx: ActionCtx, input?: ActionInput): Promise<ActionResult>;
 };
 
 /** The six groups in the order a user meets them, with what each is CALLED on a surface
@@ -246,41 +321,34 @@ export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
   { id: "help", title: "Help" },
 ];
 
-// --- matchers ---------------------------------------------------------------
+// --- results ------------------------------------------------------------------
 
-/** ⌘ on macOS, Ctrl everywhere else. */
-const mod = (e: KeyboardEvent): boolean => e.metaKey || e.ctrlKey;
-
-/** A ⌘-chord on `key`, with ⇧ stated rather than assumed — ⌘Z and ⇧⌘Z are two actions,
- *  so neither may match the other's event. ⌥ is excluded throughout: it is the viewport's
- *  eyedropper modifier and (on macOS) rewrites `e.key` anyway. */
-const chord = (e: KeyboardEvent, key: string, shift = false): boolean =>
-  mod(e) && !e.altKey && e.shiftKey === shift && e.key.toLowerCase() === key;
-
-/** A plain letter with no modifier at all. `toLowerCase` is what makes a CapsLocked or
- *  ⇧-held keyboard produce the same action — except where ⇧ is the binding, below. */
-const bare = (e: KeyboardEvent, key: string): boolean =>
-  !mod(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === key;
-
-/** ⇧ + a letter: the family CYCLE half of `B`/`M`/`S`. */
-const shifted = (e: KeyboardEvent, key: string): boolean =>
-  !mod(e) && !e.altKey && e.shiftKey && e.key.toLowerCase() === key;
-
-/** The `?` key, however this keyboard makes one — the ONE binding in the table whose
- *  modifier is the layout's business rather than ours.
+/** The run of a verb that HANDS OFF and cannot fail from here — every action whose whole
+ *  body is one call into the host or into one of the chrome's own funnels.
  *
- *  ⇧ is deliberately NOT stated, which makes this the exception to `bare` (which pins
- *  `shiftKey === false`) and to `shifted` (which pins it true). `?` is ⇧/ on a US layout,
- *  ⇧ß on a German one and ⇧, on a French one, and a layout that puts it unshifted is
- *  perfectly possible — what the user PRODUCED is a question mark, so that is the whole
- *  test. No `toLowerCase`: punctuation has no case to fold.
+ *  NO COUNT, deliberately. This file's own header records that the reader count "was three
+ *  when this file was written and has been wrong at every re-count since"; a second tally
+ *  nothing checks would rot the same way, and it did — the first draft of this line said 30
+ *  and `ACTION_OK`'s said 34 about the same set, where head has 31 (25 here plus the six
+ *  axis views, which reach this through `axisView`). The membership is greppable: it is
+ *  every `run: handOff(` in `BEHAVIORS`.
  *
- *  AltGr is the one keyboard this cannot reach, and it is a known cost rather than an
- *  oversight: Windows reports AltGr as ctrl+alt, which `mod` and `!altKey` both refuse. The
- *  project is macOS-primary; the residue is filed
- *  (`docs/backlog/editor-and-tooling/chrome-focus-and-dismissal-follow-ons.md` § *`?` cannot reach the shortcut overlay on a layout that needs AltGr for it*). */
-const question = (e: KeyboardEvent): boolean =>
-  !mod(e) && !e.altKey && e.key === "?";
+ *  It is not optimism. A host verb that refuses reports on the host's OWN channel
+ *  (`reportToolError` → `subscribeToolError` → a toast), later and asynchronously, and that
+ *  refusal is not this action's verdict to give — see {@link ActionResult}'s module header
+ *  for the three provenances and the rule that keeps them from doubling a toast. */
+const handOff =
+  (effect: (ctx: ActionCtx) => void) =>
+  (ctx: ActionCtx): Promise<ActionResult> => {
+    effect(ctx);
+    return Promise.resolve(ACTION_OK);
+  };
+
+/** The same hand-off where the run has already had to compute something first. */
+const handedOff = (effect: () => void): Promise<ActionResult> => {
+  effect();
+  return Promise.resolve(ACTION_OK);
+};
 
 // --- families ---------------------------------------------------------------
 
@@ -421,6 +489,12 @@ function stampMember(ctx: ActionCtx): { id: string; name: string } | null {
 export const entityName = (e: FieldEntityInfo): string =>
   `${e.generator} #${e.entityId}`;
 
+/** The one sentence the three entity verbs share when they have nothing to act on. A
+ *  BACKSTOP: `enabled` already refuses each of them with no selection, so the chrome never
+ *  reaches it — what it is for is the caller that does not consult `enabled` and does not
+ *  name an `entityId` either. */
+const NO_ENTITY = "no stamp selected — select one, or name an entityId";
+
 // --- the six axis views (F4.5c Task 5) ---------------------------------------
 
 type Axis = "x" | "y" | "z";
@@ -431,125 +505,91 @@ type AxisViewId<
   S extends 1 | -1,
 > = `view.snap${S extends 1 ? "Pos" : "Neg"}${Uppercase<A>}`;
 
-/** One axis view, with its id CHECKED against the pair it snaps to.
+/** One axis view's behaviors, with its id CHECKED against the pair it snaps to.
  *
- *  Six defs differing only by two arguments is exactly the shape a copy-paste slip survives
- *  in — a `NegZ` that passes `+1` reads perfectly in review and sends the camera to the far
- *  side of the world. Generating the six from a loop would rule that out, but at the cost of
- *  the registry's own premise: this table is meant to be GREPPABLE (`TopBar` and
- *  `keybindings.test.ts` both look actions up by id literal), and a template-built id leaves
+ *  Six behaviors differing only by two arguments is exactly the shape a copy-paste slip
+ *  survives in — a `NegZ` that passes `+1` reads perfectly in review and sends the camera to
+ *  the far side of the world. Generating the six from a loop would rule that out, but at the
+ *  cost of the registry's own premise: this table is meant to be GREPPABLE (`TopBar` and the
+ *  suites both look actions up by id literal), and a template-built id leaves
  *  `grep view.snapNegZ` returning prose and no definition.
  *
  *  So the ids stay literal and the type does the pairing: `AxisViewId` computes the id from
  *  `axis` and `sign`, so `axisView("view.snapNegZ", "z", 1)` is a compile error (TS2345),
- *  and so is a mismatched axis. Same guarantee, still greppable. */
+ *  and so is a mismatched axis — and since the return is `ActionBehavior<AxisViewId<A,S>>`,
+ *  so is filing it under the wrong key in `BEHAVIORS`. Same guarantee, still greppable.
+ *
+ *  THE SIX SHARE THIS ONE RUNNER and carry NO input schema of their own, which is the
+ *  settled reading of "the axis views need input": their axis and sign ARE the id, so a
+ *  `{axis, sign}` schema on `view.snapNegZ` would let a caller hand it `x` and make the id a
+ *  lie. What they carry instead is `mcpProjection` — the record that the six collapse onto
+ *  one `view.snap {axis, sign}` agent tool. Recorded here, built in T4.
+ *
+ *  WHY THEY EXIST AT ALL — an accessibility remedy, not a convenience. `AxisTriad`'s six
+ *  tips are hit targets below WCAG 2.2 SC 2.5.8's minimum, and unfixably so at that size;
+ *  the measurements live on `HIT`/`NEG_HIT` there. That SC does not apply to a control whose
+ *  function is reachable another way on the same page — these rows are that other way.
+ *  Delete this list and the finding re-opens (`docs/reference/editor-architecture.md`
+ *  §18.5). The labels come from `axisViewLabel`, which is also what each TIP is called — one
+ *  spelling, so the gizmo and the menu cannot name one view two ways (D-12). That is not
+ *  tidiness: two differently-worded controls are two controls to a screen reader rather than
+ *  one reachable twice, which is the exception above failing. */
 const axisView = <A extends Axis, S extends 1 | -1>(
+  // biome-ignore lint/correctness/noUnusedFunctionParameters: the id is the PAIRING CHECK — `AxisViewId<A,S>` is what makes a mismatched axis/sign a compile error, and the key it is filed under agree with it
   id: AxisViewId<A, S>,
   axis: A,
   sign: S,
-): ActionDef => ({
-  id,
-  group: "view",
+): ActionBehavior<AxisViewId<A, S>> => ({
   label: () => axisViewLabel(axis, sign),
   // Live with no selection and no engine, like `view.frame` beside it: a view verb needs
   // neither, and a row greyed with no visible reason reads as broken.
   enabled: () => true,
-  run: (ctx) => ctx.host?.snapView(axis, sign),
+  run: handOff((ctx) => ctx.host?.snapView(axis, sign)),
 });
 
-/** The corner triad's six tips, as registry rows.
- *
- *  WHY THEY EXIST — this is an accessibility remedy, not a convenience. `AxisTriad`'s six
- *  tips are hit targets below WCAG 2.2 SC 2.5.8's minimum, and unfixably so at that size;
- *  the measurements and the arithmetic live on `HIT`/`NEG_HIT` there, and restating them
- *  here would be a second copy to keep true. That SC does not apply to a control whose
- *  function is reachable another way on the same page — these rows are that other way, so
- *  the tips are a redundant affordance rather than a violation. Delete this list and the
- *  finding re-opens (the F4 gate's target-size item, closed by these rows;
- *  `docs/reference/editor-architecture.md` §18.5).
- *
- *  BEHIND THE VIEW SUBMENU since the holistic gate's ruling 3, and the paragraph this
- *  replaces argued the opposite ("FLAT rather than behind a submenu … the stand-in route
- *  would itself become two-step"). It is overruled on its own terms. SC 2.5.8's
- *  equivalent-affordance exception asks that the function be reachable through a control
- *  that MEETS the size minimum — it says nothing about how many steps away it is, and every
- *  submenu row is a full-size target. What the old arrangement actually delivered was these
- *  six rows sitting in a 33-item menu whose last eight rows were below the fold on the window
- *  the gate was walked in: for the user this exception exists for, a row you scroll a menu to
- *  find is not a better stand-in than a row behind a chevron. And the flat run cost the six a
- *  second thing — nothing named them as a set, where a submenu trigger does.
- *
- *  NO `keys`, and that is a decision rather than an omission: six chords would be six claims
- *  on a keyboard this editor keeps sparse, and the charter's binding table allocates none of
- *  them. The menu is the route. It follows — and reads like an oversight otherwise — that
- *  these six are absent from the REGISTRY-RENDERED part of the shortcuts overlay, which
- *  lists only actions carrying a `keys`; that overlay's static triad-tips row names the View
- *  menu instead, so a keyboard user still learns the alternative exists. The command palette
- *  Task 7 adds reads this same table, and reaches all six by NAME in one chord — which is the
- *  route that makes the submenu's extra step cheap.
- *
- *  The labels come from `axisViewLabel`, which is also what each TIP is called — one
- *  spelling, so the gizmo and the menu cannot name one view two ways (D-12). That is not
- *  tidiness: two differently-worded controls are two controls to a screen reader rather than
- *  one reachable twice, which is the exception above failing. */
-const AXIS_VIEWS: readonly ActionDef[] = [
-  axisView("view.snapPosX", "x", 1),
-  axisView("view.snapNegX", "x", -1),
-  axisView("view.snapPosY", "y", 1),
-  axisView("view.snapNegY", "y", -1),
-  axisView("view.snapPosZ", "z", 1),
-  axisView("view.snapNegZ", "z", -1),
-];
+// --- the behaviors ------------------------------------------------------------
+//
+// In the descriptors' own order, which is the order every surface renders. A row and its
+// behaviors are one action read two ways; keeping the two files in step is what the
+// exhaustive keying above enforces, and reading them side by side is what the shared order
+// is for.
 
-// --- the table --------------------------------------------------------------
-
-export const ACTIONS: readonly ActionDef[] = [
+const BEHAVIORS: ActionBehaviors = {
   // ——— world ———————————————————————————————————————————————————————————————
-  {
-    id: "world.new",
-    group: "world",
+  "world.new": {
     label: () => "New",
     // New empties the host's world SYNCHRONOUSLY, so a New landing mid-save writes the
     // freshly-emptied world over the named target.
     enabled: (ctx) => !ctx.world.busy,
-    run: (ctx) => ctx.run.world.reset(),
+    run: handOff((ctx) => ctx.run.world.reset()),
   },
-  {
-    id: "world.open",
-    group: "world",
+  "world.open": {
     label: () => "Open…",
     enabled: () => true,
-    run: (ctx) => ctx.run.world.openDrawer("browse"),
+    run: handOff((ctx) => ctx.run.world.openDrawer("browse")),
   },
-  {
-    id: "world.save",
-    group: "world",
+  "world.save": {
     label: () => "Save",
     enabled: (ctx) => !ctx.world.busy,
-    keys: "⌘S",
-    hint: "Save the world — an untitled one opens the drawer to be named first",
-    match: (e) => chord(e, "s"),
-    gate: "chord",
+    // ONE OF THE TWO THAT GENUINELY AWAIT. `save` used to be fired into the void
+    // (`void write(...)` inside `useWorld`), so a rejection out of the upload became an
+    // unhandled promise rejection and a caller could not tell a save from a refusal. The
+    // verb now answers, and the funnel says whatever it answers.
     run: (ctx) => ctx.run.world.save(),
   },
-  {
-    id: "world.saveAs",
-    group: "world",
+  "world.saveAs": {
     label: () => "Save as…",
     enabled: () => true,
-    // ⇧⌘S is the platform convention, and binding it here closes a regression as well
-    // as adding a shortcut: `world.save` pins `shiftKey === false`, so without this row
-    // nothing claims ⇧⌘S — and nothing calls `preventDefault`, which on macOS hands
-    // muscle-memory Save As straight to the browser's Save-Page dialog.
-    keys: "⇧⌘S",
-    hint: "Name a copy — opens the drawer with the name form ready",
-    match: (e) => chord(e, "s", true),
-    gate: "chord",
-    run: (ctx) => ctx.run.world.openDrawer("save-as"),
+    // TWO BEHAVIOURS ON ONE VERB, which is what "name a copy" means: with no name, ask for
+    // one (the drawer, which is what ⇧⌘S has always done); with one, write it. That is the
+    // whole reason this row carries a `{name}` schema — a human names the copy in a form,
+    // an agent names it in the call.
+    run: (ctx, input) =>
+      input === undefined
+        ? handedOff(() => ctx.run.world.openDrawer("save-as"))
+        : ctx.run.world.saveAs(input.name),
   },
-  {
-    id: "world.bake",
-    group: "world",
+  "world.bake": {
     // The reason rides IN the label: a disabled menu item swallows the tooltip that
     // would otherwise carry it. TWO reasons now, most specific first.
     label: (ctx) => {
@@ -571,9 +611,7 @@ export const ACTIONS: readonly ActionDef[] = [
       !ctx.world.busy && ctx.world.name !== null && ctx.session === null,
     run: (ctx) => ctx.run.world.bake(),
   },
-  {
-    id: "world.makeDefault",
-    group: "world",
+  "world.makeDefault": {
     label: (ctx) =>
       ctx.world.name === null
         ? "Make default — name the world first (⌘S)"
@@ -582,61 +620,47 @@ export const ACTIONS: readonly ActionDef[] = [
     // Shown only when the item is ENABLED (a disabled one has pointer-events-none), which
     // is the case this sentence is for: it distinguishes Make default from Bake, and the
     // label has no room for that.
-    hint: "point the game at the SAVED copy of this world — Bake if you want the edits in this session to go with it",
-    run: (ctx) => {
-      const name = ctx.world.name;
-      if (name !== null) ctx.run.world.makeDefault(name);
+    //
+    // NOT ONE OF THE AWAITING TWO, and the digest that said it was had the shape wrong:
+    // this verb opens a MODAL and returns. The promise it is said to fire lives two hops
+    // down, inside the confirm's `onConfirm` (`useWorld`'s `runVerb`), and awaiting it from
+    // here would mean awaiting a human decision — and leaking the promise on every cancel.
+    // The verdict answers for the DISPATCH: the confirm was raised.
+    run: (ctx, input) => {
+      const name = input?.name ?? ctx.world.name;
+      if (name === null)
+        return Promise.resolve(refused("name the world first (⌘S)"));
+      return handedOff(() => ctx.run.world.makeDefault(name));
     },
   },
 
   // ——— edit ————————————————————————————————————————————————————————————————
-  {
-    id: "edit.undo",
-    group: "edit",
+  "edit.undo": {
     // The field's op log IS the editor's history — there is no second document to step.
     label: (ctx) =>
       ctx.history.undoLabel === null ? "Undo" : `Undo ${ctx.history.undoLabel}`,
     enabled: (ctx) => (ctx.stats?.undoDepth ?? 0) > 0,
-    keys: "⌘Z",
-    hint: "Undo the last field op — the field's op log is the editor's ONE history",
-    match: (e) => chord(e, "z"),
-    gate: "chord",
-    run: (ctx) => ctx.host?.undo(),
+    run: handOff((ctx) => ctx.host?.undo()),
   },
-  {
-    id: "edit.redo",
-    group: "edit",
+  "edit.redo": {
     label: (ctx) =>
       ctx.history.redoLabel === null ? "Redo" : `Redo ${ctx.history.redoLabel}`,
     enabled: (ctx) => (ctx.stats?.redoDepth ?? 0) > 0,
-    keys: "⇧⌘Z",
-    hint: "Redo",
-    match: (e) => chord(e, "z", true),
-    gate: "chord",
-    run: (ctx) => ctx.host?.redo(),
+    run: handOff((ctx) => ctx.host?.redo()),
   },
-  {
-    id: "edit.duplicate",
-    group: "edit",
+  "edit.duplicate": {
     label: (ctx) =>
       ctx.selectedEntity === null
         ? "Duplicate"
         : `Duplicate ${entityName(ctx.selectedEntity)}`,
     enabled: (ctx) => ctx.selectedEntity !== null,
-    // ⌘J, not the mock's ⌘D: ⌘D is Safari's Add-bookmark and is not interceptable
-    // there (charter §5). ⌘J is Downloads in Chrome, which IS interceptable.
-    keys: "⌘J",
-    hint: "Duplicate the selected stamp beside itself — a fresh commit from its own recipe",
-    match: (e) => chord(e, "j"),
-    gate: "chord",
-    run: (ctx) => {
-      if (ctx.selectedEntity !== null)
-        ctx.host?.duplicateEntity(ctx.selectedEntity.entityId);
+    run: (ctx, input) => {
+      const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
+      if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
+      return handedOff(() => ctx.host?.duplicateEntity(entityId));
     },
   },
-  {
-    id: "edit.delete",
-    group: "edit",
+  "edit.delete": {
     label: (ctx) =>
       ctx.selectedEntity === null
         ? "Delete"
@@ -644,32 +668,37 @@ export const ACTIONS: readonly ActionDef[] = [
     // Refused during a session: the session may BE the selected entity's reconfigure,
     // and deleting the entity under it cancels the session the user is still editing.
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
-    keys: "⌫",
-    hint: "Delete the selected stamp and the ops it committed, behind a confirm (⌘Z puts it back)",
-    match: (e) =>
-      !mod(e) &&
-      !e.altKey &&
-      !e.shiftKey &&
-      (e.key === "Backspace" || e.key === "Delete"),
-    gate: "typed",
-    run: (ctx) => {
+    run: (ctx, input) => {
       const entity = ctx.selectedEntity;
-      if (entity === null) return;
+      if (entity === null) return Promise.resolve(refused(NO_ENTITY));
+      // THE ONE ENTITY VERB THAT CANNOT ACT ON AN UNSELECTED ID, and the limit is the
+      // confirm rather than the delete: the prompt below names the generator and counts the
+      // ops, and both come off `ctx.selectedEntity` — the only entity the chrome can
+      // describe. Duplicate and Grab need the id alone, so they take any. A caller naming
+      // another entity gets told what to do about it rather than a prompt describing the
+      // wrong stamp. (T4's projection is where a host-side lookup would change this.)
+      const entityId = input?.entityId ?? entity.entityId;
+      if (entityId !== entity.entityId)
+        return Promise.resolve(
+          refused(
+            `select stamp #${entityId} first — Delete confirms against the SELECTED stamp`,
+          ),
+        );
       // The same prompt the palette row raises, with the op count in it: a row reads
       // "3 ops" but a scatter reads "1 ops" and takes every prop it placed with it.
       const ops = entity.opSpan[1] - entity.opSpan[0] + 1;
-      ctx.run.openConfirm({
-        title: `Delete stamp #${entity.entityId}?`,
-        message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
-        confirmLabel: "Delete",
-        destructive: true,
-        onConfirm: () => ctx.host?.deleteEntity(entity.entityId),
-      });
+      return handedOff(() =>
+        ctx.run.openConfirm({
+          title: `Delete stamp #${entity.entityId}?`,
+          message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
+          confirmLabel: "Delete",
+          destructive: true,
+          onConfirm: () => ctx.host?.deleteEntity(entity.entityId),
+        }),
+      );
     },
   },
-  {
-    id: "edit.grab",
-    group: "edit",
+  "edit.grab": {
     label: (ctx) =>
       ctx.selectedEntity === null
         ? "Move"
@@ -677,18 +706,13 @@ export const ACTIONS: readonly ActionDef[] = [
     // No session, for `edit.delete`'s reason plus its own: `beginMove` REPLACES the live
     // session, so a G during a reconfigure would discard the params being edited.
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
-    keys: "G",
-    hint: `Grab the selected stamp — the cursor moves its ghost in ${LATTICE} m steps until ⏎ drops it or Esc discards it`,
-    match: (e) => bare(e, "g"),
-    gate: "typed",
-    run: (ctx) => {
-      if (ctx.selectedEntity !== null)
-        ctx.host?.beginMove(ctx.selectedEntity.entityId);
+    run: (ctx, input) => {
+      const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
+      if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
+      return handedOff(() => ctx.host?.beginMove(entityId));
     },
   },
-  {
-    id: "edit.clearSelection",
-    group: "edit",
+  "edit.clearSelection": {
     label: (ctx) =>
       ctx.selection === null
         ? "Clear selection"
@@ -697,165 +721,91 @@ export const ACTIONS: readonly ActionDef[] = [
     // most recent thing, so it is never refused, but a named menu item over an empty
     // selection is a verb with no object.
     enabled: (ctx) => ctx.selection !== null,
-    // Deliberately NO chord. Esc already clears the cell selection (its ladder's last
-    // rung) and a second key for the same verb is a second thing to keep true; this
-    // exists so the status chip's popover and the menu can name it.
-    hint: "drop the cell selection — the ops that were masked by it stop being masked",
-    run: (ctx) => ctx.host?.clearSelection(),
+    run: handOff((ctx) => ctx.host?.clearSelection()),
   },
-  {
-    id: "edit.reselect",
-    group: "edit",
+  "edit.reselect": {
     label: () => "Reselect",
     // ALWAYS live, and the asymmetry with Clear above is the point: Reselect matters
     // exactly when there is NO selection, because what it restores is what the last
     // Clear (or replace) displaced. The host no-ops on an empty slot.
     enabled: () => true,
-    hint: "restore the selection the last Clear or replace displaced",
-    run: (ctx) => ctx.host?.reselect(),
+    run: handOff((ctx) => ctx.host?.reselect()),
   },
-  {
-    id: "edit.history",
-    group: "edit",
+  "edit.history": {
     // Named for the surface it opens, and ALWAYS enabled: an empty history is something
     // the palette SAYS ("nothing yet"), not a reason to grey out the way to it. The other
     // disabled items in this menu are gated on a missing INPUT (a world name, a selected
     // stamp, something to step); a summon has none.
     label: () => "History…",
     enabled: () => true,
-    hint: "the field's ONE history as a list — every step, newest first; click a row to step back to it",
-    // Deliberately NO chord. ⌘Y is redo on Windows and would teach the wrong thing here,
-    // and every bare letter in the editor is a tool family (D-10). The burger's own
-    // palette checkbox is the other way in, and the status bar's `undo N` chip the third.
-    run: (ctx) => ctx.run.summonPalette("history"),
+    run: handOff((ctx) => ctx.run.summonPalette("history")),
   },
 
   // ——— tool ————————————————————————————————————————————————————————————————
-  {
-    id: "tool.pointer",
-    group: "tool",
+  "tool.pointer": {
     label: () => "Select",
     enabled: () => true,
-    keys: "V",
-    hint: "Arm Select — click a stamp, a prop or a marker to select it; the wheel travels the camera",
-    match: (e) => bare(e, "v"),
-    gate: "typed",
-    armsTool: true,
-    run: (ctx) => ctx.run.setGesture("pointer"),
+    run: handOff((ctx) => ctx.run.setGesture("pointer")),
   },
-  {
-    id: "tool.brush",
-    group: "tool",
+  "tool.brush": {
     label: () => "Brush",
     enabled: () => true,
-    keys: "B",
-    hint: "Arm the brush family — press again with ⇧ to cycle Dig → Fill → Paint → Smooth → Segment",
-    match: (e) => bare(e, "b"),
-    gate: "typed",
-    armsTool: true,
-    run: (ctx) => armFamily(BRUSH_FAMILY, ctx),
+    run: handOff((ctx) => armFamily(BRUSH_FAMILY, ctx)),
   },
-  {
-    id: "tool.brushCycle",
-    group: "tool",
+  "tool.brushCycle": {
     label: () => "Next brush",
     enabled: () => true,
-    keys: "⇧B",
-    hint: "Cycle the brush family: Dig → Fill → Paint → Smooth → Segment",
-    match: (e) => shifted(e, "b"),
-    gate: "typed",
-    armsTool: true,
-    run: (ctx) => cycleFamily(BRUSH_FAMILY, ctx),
+    run: handOff((ctx) => cycleFamily(BRUSH_FAMILY, ctx)),
   },
-  {
-    id: "tool.select",
-    group: "tool",
+  "tool.select": {
     label: () => "Cell select",
     enabled: () => true,
-    keys: "M",
-    hint: "Arm the cell-selection family — press again with ⇧ to cycle Box → Wand → Room",
-    match: (e) => bare(e, "m"),
-    gate: "typed",
-    armsTool: true,
-    run: (ctx) => armFamily(SELECT_FAMILY, ctx),
+    run: handOff((ctx) => armFamily(SELECT_FAMILY, ctx)),
   },
-  {
-    id: "tool.selectCycle",
-    group: "tool",
+  "tool.selectCycle": {
     label: () => "Next cell select",
     enabled: () => true,
-    keys: "⇧M",
-    hint: "Cycle the cell-selection family: Box → Wand → Room",
-    match: (e) => shifted(e, "m"),
-    gate: "typed",
-    armsTool: true,
-    run: (ctx) => cycleFamily(SELECT_FAMILY, ctx),
+    run: handOff((ctx) => cycleFamily(SELECT_FAMILY, ctx)),
   },
-  {
-    id: "tool.stamp",
-    group: "tool",
+  "tool.stamp": {
     label: (ctx) => {
       const member = stampMember(ctx);
       return member === null ? "Stamp" : `Stamp ${member.name}`;
     },
     enabled: (ctx) => ctx.generators.length > 0,
-    keys: "S",
-    hint: "Open a stamp session for the family's generator — into the current cell selection, or drag a region for it when there is none",
-    match: (e) => bare(e, "s"),
-    gate: "typed",
-    armsTool: true,
-    // `S` IS fly-backward. This is the one collision in the table, and the RMB gate on
-    // fly travel is the other half of the same bargain.
-    flyLetter: true,
-    run: (ctx) => {
-      const member = stampMember(ctx);
-      if (member !== null) ctx.host?.startStamp(member.id);
+    // THE EXEMPLAR of the input channel. The chrome dispatches with nothing and gets the
+    // `S` family's cursor; a caller that names a generator opens that one instead, without
+    // moving the cursor a human is reading off the status bar.
+    run: (ctx, input) => {
+      const generatorId = input?.generatorId ?? stampMember(ctx)?.id;
+      if (generatorId === undefined)
+        return Promise.resolve(
+          refused("nothing to stamp — this project registers no generators"),
+        );
+      return handedOff(() => ctx.host?.startStamp(generatorId));
     },
   },
-  {
-    id: "tool.stampCycle",
-    group: "tool",
+  "tool.stampCycle": {
     label: () => "Next stamp",
     enabled: (ctx) => ctx.generators.length > 1,
-    keys: "⇧S",
-    // The ONLY family whose cycle does not also arm, because a stamp has nothing to arm
-    // until it is opened: `S` opens a SESSION. The status bar's keymap line names the
-    // member this points at, which is what keeps the cursor from being invisible state.
-    hint: "Point the S key at the next generator — it opens nothing by itself",
-    match: (e) => shifted(e, "s"),
-    gate: "typed",
-    armsTool: true,
-    // ⇧S reaches the same keycap, and ⇧ is the fly BOOST — so it collides too.
-    flyLetter: true,
-    run: (ctx) => {
+    run: handOff((ctx) => {
       const current = stampMember(ctx);
       if (current === null) return;
       const i = ctx.generators.findIndex((g) => g.id === current.id);
       const next = ctx.generators[(i + 1) % ctx.generators.length];
       if (next !== undefined) ctx.run.setStampCursor(next.id);
-    },
+    }),
   },
-  {
-    id: "tool.swapEffect",
-    group: "tool",
+  "tool.swapEffect": {
     label: () => "Swap dig ↔ fill",
     enabled: (ctx) => ctx.tool.effect === "dig" || ctx.tool.effect === "fill",
-    keys: "X",
-    hint: "Swap Dig ↔ Fill and STAY there — ⌃ is the same swap while held",
-    match: (e) => bare(e, "x"),
-    gate: "typed",
-    // The brush is SUSPENDED while a session stands (D-F4.5-7), so a swap there
-    // changes only what a click that cannot happen would have done. It joined the
-    // `armsTool` set when the suspension landed, which is what the flag has always
-    // meant: this key re-arms LMB, and LMB is not the user's right now.
-    armsTool: true,
-    run: (ctx) => ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
+    run: handOff((ctx) =>
+      ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
+    ),
   },
 
   // ——— session —————————————————————————————————————————————————————————————
-  {
-    id: "session.confirm",
-    group: "session",
+  "session.confirm": {
     label: (ctx) =>
       ctx.session?.moving === true ? "Drop the move" : "Apply session",
     // Live for a MOVE too, and that is load-bearing: `beginMove` does not focus the
@@ -863,45 +813,23 @@ export const ACTIONS: readonly ActionDef[] = [
     // focused has no canvas listener to answer ⏎ — while the status bar advertises
     // "⏎ drop". `confirmSession` is the move-aware verb both keys route through.
     enabled: (ctx) => ctx.session !== null,
-    keys: "⏎",
-    hint: "Commit the ready ghost, apply a reconfigure, or drop a grab",
-    match: (e) => !mod(e) && !e.altKey && e.key === "Enter",
-    gate: "typed",
-    run: (ctx) => ctx.host?.confirmSession(),
+    run: handOff((ctx) => ctx.host?.confirmSession()),
   },
-  {
-    id: "session.rotate",
-    group: "session",
+  "session.rotate": {
     label: () => "Rotate a quarter turn",
     enabled: (ctx) => ctx.session !== null,
-    keys: "R",
-    hint: "Quarter-turn the live ghost — refused, with a reason, on a generator that has no rotation",
-    match: (e) => bare(e, "r"),
-    gate: "typed",
-    run: (ctx) => ctx.host?.rotateStamp(),
+    run: handOff((ctx) => ctx.host?.rotateStamp()),
   },
-  {
-    id: "session.escape",
-    group: "session",
+  "session.escape": {
     label: () => "Cancel",
     // Never disabled: the ladder decides what there is to cancel, and an Esc with
     // nothing to cancel is a no-op rather than a refusal.
     enabled: () => true,
-    keys: "Esc",
-    hint: "Cancel one thing, most recent first: a half-drawn region, then the live session, then the selected stamp, then the cell selection",
-    match: (e) => !mod(e) && !e.altKey && e.key === "Escape",
-    gate: "typed",
-    run: (ctx) => ctx.host?.escape(),
+    run: handOff((ctx) => ctx.host?.escape()),
   },
 
   // ——— view ————————————————————————————————————————————————————————————————
-  // FIRST in the group, because this is the answer to how long the group has become: View
-  // is the longest of the burger's three submenus at thirteen rows, and random access by name
-  // is what stops that depth from being a ceiling (D-12). A user who opens the submenu meets
-  // the way out of the menu entirely before the thirteen.
-  {
-    id: "view.commandPalette",
-    group: "view",
+  "view.commandPalette": {
     // Named for what it DOES rather than for what it is. "Command palette" is jargon a
     // first-time user has to already know; "Find a command…" is the question they have.
     // The ellipsis is the menu convention for "opens a surface" (View options…, History…).
@@ -910,107 +838,62 @@ export const ACTIONS: readonly ActionDef[] = [
     // useless is one where nothing at all can run — and in that state the palette SHOWING
     // every verb greyed with its reason is the most useful screen in the editor.
     enabled: () => true,
-    keys: "⌘K",
-    hint: "Every verb in the editor by name — type, arrow, ⏎; the row says why when one is refused",
-    // A `chord`, so it is live inside a text field too: the palette is how you escape a
-    // panel you are typing in. ⌘K is UNVERIFIED in Safari (the charter's binding table
-    // marks it provisional) — `mod` accepts Ctrl as well as ⌘, so ⌃K is already the
-    // fallback if the browser gate finds ⌘K claimed.
-    match: (e) => chord(e, "k"),
-    gate: "chord",
-    run: (ctx) => ctx.run.openCommandPalette(),
+    run: handOff((ctx) => ctx.run.openCommandPalette()),
   },
-  {
-    id: "view.frame",
-    group: "view",
+  "view.frame": {
     label: () => "Frame selection",
     // The host reports "nothing to frame" itself, so this stays live with neither
     // selection: a key that swallows the press and says nothing reads as broken.
     enabled: () => true,
-    keys: "F",
-    hint: "Frame what is selected — the selected stamp, else the cell selection; with neither it says so",
-    match: (e) => bare(e, "f"),
-    gate: "typed",
-    run: (ctx) => ctx.host?.frameSelection(),
+    run: handOff((ctx) => ctx.host?.frameSelection()),
   },
-  {
-    id: "view.frameWorld",
-    group: "view",
+  "view.frameWorld": {
     label: () => "Frame world",
     // Same stance as `view.frame` beside it: the host says "nothing to frame yet"
     // itself, so this stays live on an empty world rather than going quiet.
     enabled: () => true,
-    // NO KEYCAP, deliberately. `F` is taken by the selection frame and the two verbs
-    // are one letter apart in meaning, so ⇧F would be the obvious cap — and ⇧ is the
-    // tool rail's own modifier (⇧ + a letter arms a brush family), which is a
-    // collision the gate has already paid for once. This verb is reached by name
-    // (⌘K) or from the View submenu; it is the verb you want when you have just
-    // opened a world, and the chrome's Open (`hooks/useWorld.tsx`) already runs it
-    // for you then — unless you have aimed the camera yourself, which is the one
-    // case that leaves reaching for it by hand. `host.loadWorld` frames NOTHING; it
-    // is a data primitive and every headless suite's fixture loader.
-    hint: "Fit the camera to the whole world — runs itself after Open unless you have aimed the camera",
-    run: (ctx) => ctx.host?.frameWorld(),
+    run: handOff((ctx) => ctx.host?.frameWorld()),
   },
-  // HERE, between the other camera verb and the display toggles, because the burger renders
-  // a group in table order: eight camera rows then read as one run, where appending them
-  // would file six of them behind two workspace verbs. Their placement BEHIND the View
-  // submenu, and the accessibility argument that placement had to answer, are on
-  // `AXIS_VIEWS` above.
-  ...AXIS_VIEWS,
-  {
-    id: "view.normals",
-    group: "view",
+  "view.snapPosX": axisView("view.snapPosX", "x", 1),
+  "view.snapNegX": axisView("view.snapNegX", "x", -1),
+  "view.snapPosY": axisView("view.snapPosY", "y", 1),
+  "view.snapNegY": axisView("view.snapNegY", "y", -1),
+  "view.snapPosZ": axisView("view.snapPosZ", "z", 1),
+  "view.snapNegZ": axisView("view.snapNegZ", "z", -1),
+  "view.normals": {
     label: () => "Normals shading",
     enabled: () => true,
     checked: (ctx) => ctx.view.shading === "normals",
-    run: (ctx) =>
+    run: handOff((ctx) =>
       ctx.run.view.setShading(
         ctx.view.shading === "normals" ? "studio" : "normals",
       ),
+    ),
   },
-  {
-    id: "view.grid",
-    group: "view",
+  "view.grid": {
     label: () => "Grid",
     enabled: () => true,
     checked: (ctx) => ctx.view.layers.grid,
-    run: (ctx) =>
+    run: handOff((ctx) =>
       ctx.run.view.setLayers({
         ...ctx.view.layers,
         grid: !ctx.view.layers.grid,
       }),
+    ),
   },
-  {
-    id: "view.togglePalettes",
-    group: "view",
+  "view.togglePalettes": {
     label: (ctx) => (ctx.workspace.hidden ? "Show palettes" : "Hide palettes"),
     enabled: () => true,
-    keys: "⌘\\",
-    hint: "Hide every palette, or restore the exact arrangement",
-    // Through `chord` like every other ⌘-binding rather than hand-rolled, so ⇧ means the
-    // same thing across the whole table: a hand-rolled matcher here is what let ⇧⌘\
-    // toggle palettes while ⇧⌘S did nothing at all. Matched on `key`, not `code`: on a
-    // layout where `\` is not its own physical key the code would be wrong, whereas the
-    // key is whatever the user actually produced. UNVERIFIED in Safari — that ⌘\ arrives
-    // as `key === "\\"` is the standard reading, not something measured here; if the
-    // browser gate finds it silent, an `e.code === "Backslash"` fallback is the fix.
-    match: (e) => chord(e, "\\"),
-    gate: "chord",
-    run: (ctx) => ctx.run.workspace.toggleHidden(),
+    run: handOff((ctx) => ctx.run.workspace.toggleHidden()),
   },
-  {
-    id: "view.resetWorkspace",
-    group: "view",
+  "view.resetWorkspace": {
     label: () => "Reset workspace",
     enabled: () => true,
-    run: (ctx) => ctx.run.workspace.reset(),
+    run: handOff((ctx) => ctx.run.workspace.reset()),
   },
 
   // ——— help ————————————————————————————————————————————————————————————————
-  {
-    id: "help.shortcuts",
-    group: "help",
+  "help.shortcuts": {
     // NO ellipsis, unlike every other surface-opener in this table (Open…, Save as…,
     // History…, View options…, Find a command…). That is this row inheriting the burger
     // item's existing wording rather than a considered exception — four test sites and a
@@ -1019,16 +902,73 @@ export const ACTIONS: readonly ActionDef[] = [
     // Never refused. The state where a user cannot work out which key does what is exactly
     // the state this overlay is for, so there is nothing to gate it on.
     enabled: () => true,
-    keys: "?",
-    hint: "Every binding this build answers to, in one list — including the viewport keys the canvas owns, which no menu can show",
-    // A `typed` gate like every other bare key: refused while the user is in a text field,
-    // where `?` is a character they meant to type, and nowhere else. Not a `chord` — there
-    // is no browser default here worth stealing a text field's punctuation for.
-    match: question,
-    gate: "typed",
-    run: (ctx) => ctx.run.openShortcuts(),
+    run: handOff((ctx) => ctx.run.openShortcuts()),
   },
-];
+};
+
+// --- the table --------------------------------------------------------------
+
+/** Every action, in the descriptors' order, with its chrome half joined on.
+ *
+ *  Boundary cast: `BEHAVIORS` is keyed by {@link ActionId} and the exported
+ *  `ACTION_DESCRIPTORS` is widened to `ActionDescriptor` (so its readers can touch the
+ *  optional fields the shape declares), which leaves the compiler unable to see that `d.id`
+ *  is one of the 39 keys — a fact the two are declared from the SAME literal array to
+ *  guarantee. Read back through a `Record<string, …>` and asserted non-undefined rather than
+ *  index-asserted, so a rename that somehow escaped the exhaustive keying still fails loudly
+ *  at import rather than shipping a dead row. */
+export const ACTIONS: readonly ActionDef[] = ACTION_DESCRIPTORS.map((d) => {
+  const behavior: ActionBehavior<ActionId> | undefined = (
+    BEHAVIORS as Readonly<Record<string, ActionBehavior<ActionId>>>
+  )[d.id];
+  if (behavior === undefined)
+    throw new Error(`actions: no behavior for "${d.id}"`);
+  return { ...d, ...behavior };
+});
+
+/** The action with this id, THROWING on a miss — so an id renamed in the table above
+ *  cannot leave a control wired to nothing.
+ *
+ *  NARROWED to {@link ActionId} in T3b2 Task 4, which is what Task 3 said the union would
+ *  buy the day something could use it: every one of the dozen `byId("…")` literals in the
+ *  chrome is now checked at compile time, and the throw is the backstop for the one caller
+ *  that cannot be (a test naming an id that is deliberately not there).
+ *
+ *  Exported because every surface that names ONE action needs it and the alternative is
+ *  `ACTIONS.find(...)` returning `ActionDef | undefined`, which reads as a nullable and gets
+ *  papered over with `?.`: a renamed action then renders a blank keycap instead of failing.
+ *  `TOOL_FAMILIES` calls it at MODULE INIT, where the throw takes the whole editor down at
+ *  import rather than shipping a dead column; a caller reaching for it during render gets
+ *  the same guarantee one render later. */
+export function byId(id: ActionId): ActionDef {
+  const def = ACTIONS.find((a) => a.id === id);
+  if (def === undefined) throw new Error(`actions: no action "${id}"`);
+  return def;
+}
+
+/** What this group is called, THROWING on a group missing from {@link ACTION_GROUPS}.
+ *
+ *  The list is an array (its ORDER is data), so TypeScript cannot prove it covers the
+ *  union the way a `Record<ActionGroup, string>` would. This is that proof, moved to
+ *  runtime: without it a group added to `ActionGroup` and forgotten here renders an EMPTY
+ *  heading — a menu section with rows and no name — instead of failing.
+ *  `tests/actions.test.ts` asserts the covering case, so this throw is the backstop rather
+ *  than the first thing to notice. */
+export function groupTitle(group: ActionGroup): string {
+  const found = ACTION_GROUPS.find((g) => g.id === group);
+  if (found === undefined)
+    throw new Error(`actions: group "${group}" is not in ACTION_GROUPS`);
+  return found.title;
+}
+
+/** The keycap a surface prints for this action, or `undefined` for a menu-only verb.
+ *
+ *  A thin read of the registry's `keycap()` over `def.keys`, here so every surface that
+ *  prints one spells it once (six files do, and the number is not written down — see the
+ *  note on `handOff` for why this file states no counts it does not have to). What it replaces is a `keys: "⇧⌘S"` STRING on every row, declared beside a
+ *  matcher it had to agree with by review; the cap is now a view of the binding. */
+export const capOf = (def: ActionDef): string | undefined =>
+  def.keys === undefined ? undefined : keycap(def.keys);
 
 // --- the tool families, as the RAIL renders them -----------------------------
 
@@ -1049,8 +989,8 @@ export type ToolFamilyMember = {
 /** A rail column entry: one family, its arming action, and its members.
  *
  *  The rail does not re-implement any of this — it renders `TOOL_FAMILIES` and dispatches
- *  `arm.run`, so a click and the family's key are the same code path. That is what stops
- *  the rail and the keyboard from meaning different things, which is the defect class this
+ *  `arm`, so a click and the family's key are the same code path. That is what stops the
+ *  rail and the keyboard from meaning different things, which is the defect class this
  *  slice has closed four times. */
 export type ToolFamily = {
   id: "pointer" | "brush" | "select" | "stamp";
@@ -1081,36 +1021,6 @@ export type ToolFamily = {
   /** Is this the family LMB is currently doing? Exactly one is true at a time. */
   armed: (ctx: ActionCtx) => boolean;
 };
-
-/** The action with this id, THROWING on a miss — so an id renamed in the table above
- *  cannot leave a control wired to nothing.
- *
- *  Exported because every surface that names ONE action needs it and the alternative is
- *  `ACTIONS.find(...)` returning `ActionDef | undefined`, which reads as a nullable and gets
- *  papered over with `?.`: a renamed action then renders a blank keycap instead of failing.
- *  `TOOL_FAMILIES` calls it at MODULE INIT, where the throw takes the whole editor down at
- *  import rather than shipping a dead column; a caller reaching for it during render gets
- *  the same guarantee one render later. */
-export function byId(id: string): ActionDef {
-  const def = ACTIONS.find((a) => a.id === id);
-  if (def === undefined) throw new Error(`actions: no action "${id}"`);
-  return def;
-}
-
-/** What this group is called, THROWING on a group missing from {@link ACTION_GROUPS}.
- *
- *  The list is an array (its ORDER is data), so TypeScript cannot prove it covers the
- *  union the way a `Record<ActionGroup, string>` would. This is that proof, moved to
- *  runtime: without it a group added to `ActionGroup` and forgotten here renders an EMPTY
- *  heading — a menu section with rows and no name — instead of failing.
- *  `tests/actions.test.ts` asserts the covering case, so this throw is the backstop rather
- *  than the first thing to notice. */
-export function groupTitle(group: ActionGroup): string {
-  const found = ACTION_GROUPS.find((g) => g.id === group);
-  if (found === undefined)
-    throw new Error(`actions: group "${group}" is not in ACTION_GROUPS`);
-  return found.title;
-}
 
 /** Turn a static family into resolved members. `armed` comes from the same `armedIndex`
  *  the ⇧ cycle uses, so the flyout's tick and the cycle's starting point are one answer. */
@@ -1215,34 +1125,22 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
   },
 ];
 
+// --- the gate ---------------------------------------------------------------
+
 /** May a CONTROL for this action run it, and what to say when it may not?
  *
- *  The same {@link gateAction} the keyboard uses, with the env a control ACTIVATION pins by
- *  construction — a rail button clicked, a palette row picked with ⏎: the press lands on
- *  the control (the user chose a named thing, they were not typing a character), a modal
- *  confirm covers the surface it would land on, and the fly gate is about a HELD right
- *  button while this is a left-button press. Routed through the one gate rather than
- *  re-spelled, because a button that arms what its own key refuses is the
- *  two-surfaces-disagree defect — and the refusal SENTENCE has to be the same one too.
+ *  The same {@link gateAction} the keyboard uses, under the `named` caller class — routed
+ *  through the one gate rather than re-spelled, because a button that arms what its own key
+ *  refuses is the two-surfaces-disagree defect, and the refusal SENTENCE has to be the same
+ *  one too.
  *
- *  `inTextInput: false` is the one line worth pausing on, now that the command palette
- *  activates rows from INSIDE a text field. It is still right, and for the reason the
- *  `typed` class exists at all: that class refuses a BARE LETTER that could be a character
- *  someone is typing. A palette row is not a letter — the user typed to find it and then
- *  named it. Passing `true` here would refuse every letter-keyed verb (V B M S X G F ⌫ ⏎)
- *  from the one surface whose whole job is reaching verbs by name. */
+ *  A MENU-ONLY action (no `gate`) IS runnable from a control, and that is the class's whole
+ *  content: the no-gate refusal is a rule about KEYCAPS, and a control has none. The burger
+ *  has always run those straight from its items; the rail never had to ask (every family it
+ *  renders is keyed); the command palette renders the whole table, half of which is
+ *  menu-only, so it does. */
 export function clickGate(def: ActionDef, ctx: ActionCtx): GateVerdict {
-  // A MENU-ONLY action (no `gate`) IS runnable from a control. `gateAction` refuses those
-  // because no KEY may fire them — a rule about keycaps, and a control has none; the
-  // burger has always run them straight from its items. The rail never had to ask (every
-  // family it renders is keyed); the command palette renders the whole table, half of
-  // which is menu-only, so it does.
-  if (def.gate === undefined) return sessionRefusal(def, ctx);
-  return gateAction(def, ctx, {
-    inTextInput: false,
-    confirmOpen: false,
-    looking: false,
-  });
+  return gateAction(def, ctx, NAMED_CALL);
 }
 
 /** Whether a CONTROL for this action may run it, and what to say when it may not.
@@ -1277,8 +1175,9 @@ export function controlVerdict(def: ActionDef, ctx: ActionCtx): ControlVerdict {
 }
 
 /** The one refusal that is about STATE rather than about keys: an action that re-arms what
- *  LMB does cannot run while a session owns the interaction. Shared by {@link gateAction}
- *  and by {@link clickGate}'s menu-only path so the sentence has exactly one home. */
+ *  LMB does cannot run while a session owns the interaction. It binds BOTH caller classes —
+ *  a rail button that armed what its own key refuses is the defect the shared gate exists
+ *  for — which is why it is the tail of {@link gateAction} rather than a key-only clause. */
 function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
   if (def.armsTool === true && ctx.session !== null)
     return {
@@ -1288,29 +1187,154 @@ function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
   return { ok: true };
 }
 
-/** May this action's key fire right now? PURE — everything that changes between renders
- *  arrives in `env`, polled at dispatch time by the caller.
+/** May this action run right now, for THIS caller? PURE — everything that changes between
+ *  renders arrives in `env`, polled at dispatch time by the caller.
  *
- *  A menu-only action (no `gate`) can never fire: it has no `match` either, so the
- *  dispatcher never reaches it, and this refuses it as a backstop. */
+ *  Three of the four clauses are about a KEY and say so by living inside the `key` branch:
+ *  a menu-only action can never be fired by a keycap it does not have; a `typed` gate is
+ *  about a character someone is typing; the fly refusal is about a letter the look drag owns
+ *  while the right button is HELD. None of the three has anything to say to a palette row, a
+ *  menu item or an agent — which is precisely what `clickGate` used to assert with a
+ *  hard-coded `inTextInput: false` and a caller-specific story to justify it (S12).
+ *
+ *  The two that bind every caller are the modal suppression (a second `openConfirm` would
+ *  strand the first, whose `onCancel` then never runs) and {@link sessionRefusal}. */
 export function gateAction(
   def: ActionDef,
   ctx: ActionCtx,
   env: GateEnv,
 ): GateVerdict {
-  // A confirm is MODAL, and it suppresses every class: a second openConfirm would strand
-  // the first, whose onCancel then never runs.
   if (env.confirmOpen) return { ok: false, hint: null };
-  if (def.gate === undefined) return { ok: false, hint: null };
-  // A chord is never a character someone is typing; everything else can be.
-  if (def.gate === "typed" && env.inTextInput) return { ok: false, hint: null };
-  // While the right button is down the fly owns its own letters.
-  if (def.flyLetter === true && env.looking) return { ok: false, hint: null };
+  if (env.caller === "key") {
+    // A menu-only action has no `match` either, so the dispatcher never reaches it; this
+    // refuses it as a backstop, so a binding added without a gate cannot slip through
+    // ungated.
+    if (def.gate === undefined) return { ok: false, hint: null };
+    // A chord is never a character someone is typing; everything else can be.
+    if (def.gate === "typed" && env.inTextInput)
+      return { ok: false, hint: null };
+    // While the right button is down the fly owns its own letters.
+    if (def.flyLetter === true && env.looking) return { ok: false, hint: null };
+  }
   return sessionRefusal(def, ctx);
 }
 
-/** The action this event runs, or null. First match wins; the matchers are written so
+// --- dispatch ---------------------------------------------------------------
+
+/** The four facts a matcher is allowed to know, read off a DOM event. The ONE translation
+ *  in the editor, which is what lets `matchBinding` — and the whole registry behind it —
+ *  never name a `KeyboardEvent`. */
+export const keyFacts = (e: KeyboardEvent): KeyFacts => ({
+  key: e.key,
+  mod: e.metaKey || e.ctrlKey,
+  shift: e.shiftKey,
+  alt: e.altKey,
+});
+
+/** The action this event runs, or null. First match wins; the bindings are written so
  *  that no two can claim one event (asserted in `tests/keybindings.test.ts`). */
 export function matchAction(e: KeyboardEvent): ActionDef | null {
-  return ACTIONS.find((a) => a.match?.(e) === true) ?? null;
+  const facts = keyFacts(e);
+  return (
+    ACTIONS.find((a) => a.keys !== undefined && matchBinding(a.keys, facts)) ??
+    null
+  );
+}
+
+/** Say an action's verdict out loud — the funnel's voice, and the whole of it.
+ *
+ *  ONLY `refused` is spoken. That is the reconciliation stated in {@link ActionResult}'s
+ *  module header, read from the speaking end: a `refused` result is the action's OWN verdict
+ *  and nobody has said it yet, so this is the sentence that used to be a `notify.error` call
+ *  inside the verb (`useWorld`'s bake backstop; `write`'s invalid-name). A `failed` result
+ *  came from a layer that owns its own channel and has already said it — the host's
+ *  `reportToolError` toast, `world-actions.ts`'s "bake failed: ENOSPC" — and repeating it
+ *  would be the doubled toast this rule exists to prevent; the Result carries it to a caller
+ *  who is not looking at the screen.
+ *
+ *  THE ONE `failed` NOBODY BELOW SAID is the one {@link runAction} builds itself out of a
+ *  caught throw, and it is voiced AT THE CATCH rather than here — same rule read the other
+ *  way round: the funnel says what the funnel owns.
+ *
+ *  DO NOT PIPE A {@link runAction} RESULT THROUGH THIS. It has already said everything it was
+ *  going to say, and the `refused` it returns for a GATE refusal was said through
+ *  `sayRefusal` on the way out — so `runNamed(def, ctx).then(sayResult)` would print every
+ *  session refusal twice, once quietly and once as an error. The idiom is for a caller of a
+ *  verb that ANSWERS but does not dispatch (`WorldActions.save`/`saveAs`/`bake`, whose two
+ *  live callers are `WorldDrawer`'s name form and `write`'s own confirm re-entry); everything
+ *  that goes through the funnel is already spoken for.
+ *
+ *  `notify.error` and not `sayRefusal`, deliberately: both sentences it can say were
+ *  `notify.error` before this task moved them, and a refusal that used to hold the screen
+ *  until dismissed must not quietly become a four-second info toast. The gate's refusals —
+ *  the other kind, and the noisy one, since a held key repeats at the OS rate — still go
+ *  through `sayRefusal` below, which is where the de-duplication is needed and lives. */
+export function sayResult(result: ActionResult): void {
+  if (result.ok || result.kind !== "refused") return;
+  notify.error(result.message);
+}
+
+/** RUN IT: gate, claim, check, do, say. The one funnel every surface dispatches through.
+ *
+ *  `onClaim` fires the instant the gate ALLOWS and before `enabled` is consulted, because at
+ *  that point the key has been claimed: a disabled ⌘S must still suppress the browser's
+ *  save-page dialog, and a ⌫ over the canvas with nothing selected must still not navigate.
+ *  It is the key dispatcher's `preventDefault` seam and nothing else passes one — a REFUSED
+ *  action never reaches it, so the character the user is typing still lands in their field.
+ *
+ *  The INERT case (`enabled` false, gate open) returns a refusal carrying the action's LABEL
+ *  and says nothing, which is the existing three-way policy made answerable: those labels
+ *  already state the reason on screen ("Bake — name the world first (⌘S)"), so a toast would
+ *  be a second wording of a sentence the user is looking at — while a caller who cannot see
+ *  the screen gets that same sentence as the message.
+ *
+ *  A THROW OUT OF A RUN IS SURFACED, NOT THROWN PAST — which is the whole of what `failed`
+ *  means. Before this funnel a run that threw took its listener with it (a sync throw out of
+ *  the keydown handler; an unhandled rejection once one of them became async), which is
+ *  neither visible nor answerable. Caught here it becomes a Result the caller can read AND a
+ *  toast, because this is the one `failed` no layer below has said: the funnel says what the
+ *  funnel owns. */
+export async function runAction(
+  def: ActionDef,
+  ctx: ActionCtx,
+  env: GateEnv,
+  input?: ActionInput,
+  onClaim?: () => void,
+): Promise<ActionResult> {
+  const verdict = gateAction(def, ctx, env);
+  if (!verdict.ok) {
+    // A refusal with a reason the user cannot see gets said out loud; the rest (a modal is
+    // open, they are typing, they are holding the right button) are already visible and a
+    // toast would be noise. `sayRefusal` also stops a HELD key, which repeats at the OS
+    // rate, from stacking one sentence three deep.
+    notify.sayRefusal(verdict.hint);
+    // THE LABEL AS A FALLBACK IS A T4 PROBLEM, and it is left here rather than guessed at.
+    // The three SILENT gate classes carry `hint: null` — a modal is open, the user is typing,
+    // the right button is down — and a caller who cannot see the screen still needs a
+    // message, so it gets the label. For a human that path is unreachable and the label is
+    // never read. For an AGENT it will not be: `NAMED_CALL` hard-codes `confirmOpen: false`
+    // today, and the day the daemon answers that honestly an agent's "a modal is open"
+    // refusal will read `"Frame selection"`. Whoever wires that answers this.
+    return refused(verdict.hint ?? def.label(ctx));
+  }
+  onClaim?.();
+  if (!def.enabled(ctx)) return refused(def.label(ctx));
+  try {
+    const result = await def.run(ctx, input);
+    sayResult(result);
+    return result;
+  } catch (err) {
+    const message = `${def.label(ctx)} failed: ${errorMessage(err)}`;
+    notify.error(message);
+    return failed(message);
+  }
+}
+
+/** {@link runAction} for a surface that NAMED the verb — every control in the chrome. */
+export function runNamed(
+  def: ActionDef,
+  ctx: ActionCtx,
+  input?: ActionInput,
+): Promise<ActionResult> {
+  return runAction(def, ctx, NAMED_CALL, input);
 }
