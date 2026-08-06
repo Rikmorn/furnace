@@ -120,6 +120,7 @@ import {
   withPreviewResult,
   withRegion,
 } from "./field-stamp.ts";
+import { createStatsMeter } from "./field-stats.ts";
 import { createVoidCast } from "./field-voidcast.ts";
 import {
   type Axis,
@@ -376,7 +377,10 @@ export type FieldStats = {
    *  {@link FieldHost.redo} (both are what a chrome Undo/Redo control reads to
    *  know whether it has anything to do).
    *  Recomputed only when the log changed (an O(ops) scan is not a per-frame
-   *  cost) — see the tick's log-signature gate. */
+   *  cost) — see the log-signature gate in `field-stats.ts`, which since T3b1
+   *  sits inside the publish guard rather than on every tick. Only
+   *  `liveGenerators` and `compactableOps` depend on that cache being fresh; the
+   *  other three ARE the signature, so they cannot disagree with it. */
   totalOps: number;
   liveGenerators: number;
   compactableOps: number;
@@ -2008,32 +2012,12 @@ export function createFieldHost(deps?: {
   // remesh completion so the panel's entity refresh has an event-driven
   // trigger that Safari's ~1 ms performance.now() clamp can't alias.
   let remeshVersion = 0;
-  // No snapshot: the readout is pushed every rAF, so the longest a subscriber
-  // waits for its first one is a frame — and building an idle one at subscribe
-  // would be the only place this payload is assembled off the tick.
-  const statsChannel = createViewChannel<[FieldStats]>();
   // Snapshot (the selection seam's remount rationale): the camera does not move
   // on its own, so a triad that waited for the first WASD step would draw the
   // wrong orientation for as long as the user sat still.
   const cameraPoseChannel = createViewChannel<[CameraPose]>({
     snapshot: () => [{ yaw: orbitState.yaw, pitch: orbitState.pitch }],
   });
-  // Last LANDED applyReconfigure wall-clock (ms); 0 until the first one lands.
-  let lastReconfigureMs = 0;
-  // logStats cache: recomputing it every rAF is an O(ops) scan that allocates
-  // per frame, but the readout only moves when the LOG does. The signature is
-  // the three lengths logStats reads structurally (ops + both undo stacks) —
-  // every log mutation (a stroke, a commit/reconfigure, freeze/bake, ⌘Z/⇧⌘Z, a
-  // load-time compaction) moves at least one of them, so a matched signature
-  // proves the numbers are unchanged. The one gap it tolerates — several
-  // mutations within ONE frame that net all three lengths back (undo, then a
-  // fresh op) — is unreachable from single-event-per-frame input and self-heals
-  // on the next mutation; a hint meter can carry that. Trackers start at -1 to
-  // force the first read to compute.
-  let cachedLogStats: field.LogStats = field.logStats(log);
-  let statsOpsLen = -1;
-  let statsUndoLen = -1;
-  let statsRedoLen = -1;
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
@@ -3696,8 +3680,8 @@ export function createFieldHost(deps?: {
   // entity per click), not the constant. Recomputed once per log mutation
   // instead, which is a discrete user action.
   //
-  // The signature is `currentLogStats`' three lengths plus TWO more, each
-  // closing a gap that is reachable:
+  // The signature is `currentLogStats`' three lengths (`field-stats.ts`) plus
+  // TWO more, each closing a gap that is reachable:
   //   - `nextId`, because a reconfigure can splice out N ops and back in N,
   //     moving no length — but it always allocates fresh ids.
   //   - `worldEpoch`, because a world swap CLEARS the log (resetWorld empties
@@ -3712,9 +3696,10 @@ export function createFieldHost(deps?: {
   // What remains uncovered is several mutations within ONE frame that net all
   // the log numbers back, unreachable from single-event-per-frame input; a stale
   // box mis-aims a click and self-heals on the next mutation, it corrupts
-  // nothing. (`currentLogStats` at the op-cost meter has the world-swap exposure
-  // too — filed rather than fixed here: `docs/backlog/editor-and-tooling/
-  // field-tool-follow-ons.md` § *Log-signature caches can miss a world swap*.)
+  // nothing. (`currentLogStats` at the op-cost meter — `field-stats.ts` since
+  // T3b1 — has the world-swap exposure too, filed rather than fixed here:
+  // `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Log-signature
+  // caches can miss a world swap*.)
   let footprintCache: Map<number, { min: Vec3T; max: Vec3T }> | null = null;
   let footprintSig = "";
   const entityFootprints = (): Map<number, { min: Vec3T; max: Vec3T }> => {
@@ -5381,7 +5366,7 @@ export function createFieldHost(deps?: {
       reportToolError(`reconfigure failed: ${message}`);
       return;
     }
-    lastReconfigureMs = performance.now() - reconfigureStart;
+    stats.noteReconfigureMs(performance.now() - reconfigureStart);
     markDirtyWithNeighbors(result.dirty);
     // The region is an editable field of this session (the nudge cluster), so
     // the footprint box this entity may be wearing can be stale as of now.
@@ -5857,22 +5842,41 @@ export function createFieldHost(deps?: {
     if (layers.ghost) renderCursorAffordance(c, view);
   };
 
-  // logStats, recomputed only when the log signature moved (see the cache
-  // decls) — called once per tick to feed the op-cost meter without a per-frame
-  // full-log scan.
-  const currentLogStats = (): field.LogStats => {
-    if (
-      log.ops.length !== statsOpsLen ||
-      log.undoStack.length !== statsUndoLen ||
-      log.redoStack.length !== statsRedoLen
-    ) {
-      cachedLogStats = field.logStats(log);
-      statsOpsLen = log.ops.length;
-      statsUndoLen = log.undoStack.length;
-      statsRedoLen = log.redoStack.length;
-    }
-    return cachedLogStats;
-  };
+  // The live stats readout, lifted out whole (`field-stats.ts`): its channel, its
+  // reconfigure timing, its four cache bindings and `currentLogStats` all left,
+  // and NOTHING of it stayed — unlike the three clusters before it, this one
+  // shared no state with the substrate, because nothing outside it ever read its
+  // state directly.
+  //
+  // The assembly sits where `currentLogStats` was, which is the only function
+  // this cluster owned (`createSegmentBrush`'s precedent: a cluster's remaining
+  // footprint marks where the cluster was) — and, conveniently, directly above
+  // the `tick` that is now its one per-frame caller.
+  //
+  // Its work, though, did NOT live here: twenty lines inside `tick` built and
+  // pushed the payload, which is why this cluster could not travel as a record of
+  // functions and had to be given a verb (`publishIfWatched`) instead. See the
+  // module header.
+  //
+  // All four payload deps name bindings declared ABOVE this line, so nothing here
+  // is forced: `lastRemeshMs` and `remeshVersion` are `world` `let`s and ride as
+  // thunks; `voidcast.jobGen` and `analyzerPendingCount` are `const`s this closure
+  // never reassigns, so the bindings pass by reference and are read eagerly by
+  // this object literal — which is the only reason their declaration order
+  // matters at all.
+  //
+  // The one FORWARD reference runs the other way: `applyReconfigureSession`, ~500
+  // lines up, calls `stats.noteReconfigureMs`. That is safe for the reason spelled
+  // out at the `createVoidCast` assembly above — nothing between this closure's
+  // brace and its `return {` ever RUNS, so a function body cannot be evaluated
+  // before the declaration it names. No hoist was needed.
+  const stats = createStatsMeter({
+    substrate,
+    lastRemeshMs: () => lastRemeshMs,
+    remeshVersion: () => remeshVersion,
+    voidCastJobGen: voidcast.jobGen,
+    analyzerPendingCount,
+  });
 
   // The canvas cursor for what the viewport is armed to do (D-F4.5-8's third
   // arming channel). Driven from the FRAME rather than from the eight places
@@ -5918,27 +5922,11 @@ export function createFieldHost(deps?: {
       lastFrameT = now;
       applyFlyMove(dt);
       drainDirty();
-      const ls = currentLogStats();
-      // Guarded on the count rather than published unconditionally: this is the
-      // ONE per-frame publish, and `statsCb?.({…})` never built the payload
-      // with the slot empty (an optional call does not evaluate its arguments).
-      // A bare `publish` would allocate an eleven-field record and poll the
-      // analyzer once per rAF on every host nobody is watching — which is every
-      // headless test that runs the loop.
-      if (statsChannel.size() > 0)
-        statsChannel.publish({
-          chunks: store.chunks.size,
-          lastRemeshMs,
-          remeshVersion,
-          totalOps: ls.totalOps,
-          liveGenerators: ls.liveGenerators,
-          compactableOps: ls.compactableOps,
-          undoDepth: ls.undoDepth,
-          redoDepth: ls.redoDepth,
-          lastReconfigureMs,
-          analyzerPending: analyzerPendingCount(),
-          voidCastPending: voidcast.jobGen() !== null,
-        });
+      // The frame's whole involvement with the readout: it ASKS, and the meter
+      // decides whether anyone is listening and what to say (`field-stats.ts`).
+      // The twenty lines this replaced read four other clusters, which is why
+      // they were never `tick`'s to own.
+      stats.publishIfWatched();
       renderScene(c, cam);
     }
     raf = requestAnimationFrame(tick);
@@ -7213,7 +7201,7 @@ export function createFieldHost(deps?: {
       });
     },
     subscribeStats(cb) {
-      return statsChannel.subscribe(cb);
+      return stats.subscribe(cb);
     },
     isLooking() {
       return look !== null;

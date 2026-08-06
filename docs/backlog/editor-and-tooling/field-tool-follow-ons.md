@@ -407,8 +407,9 @@ looks like in the palette row and the session card.
 ## Log-signature caches can miss a world swap
 
 **Context.** `FieldHost` memoizes derived state on a *signature* built from the op log's
-own numbers. `currentLogStats` (`packages/editor/src/viewport-host/field-host.ts`, the
-op-cost meter's cache) uses `(ops.length, undoStack.length, redoStack.length)`. A world
+own numbers. `currentLogStats` (`packages/editor/src/viewport-host/field-stats.ts` since
+foundations T3b1, 2026-08-06; `field-host.ts` before that — the op-cost meter's cache) uses
+`(ops.length, undoStack.length, redoStack.length)`. A world
 swap goes through `resetWorld`, which empties `log.ops` and both stacks and resets
 `log.nextId` — so two worlds whose logs agree on those numbers produce the SAME signature,
 and the incoming world reads the outgoing world's cached values.
@@ -422,14 +423,38 @@ and drew its box where nothing was). **That one is FIXED** — its signature now
 
 `currentLogStats` has the same shape of exposure and was left alone as out of scope. Its
 consequence is milder — a stale op-cost READOUT (totalOps / undo depth / compactable) for
-one frame — because it is recomputed every rAF and the next tick after any log mutation
-corrects it. It is only wrong in the window where the two worlds' three lengths agree AND
-nothing has mutated the new log yet, which for a freshly loaded world is the frame right
-after the load.
+one frame — because it is recomputed every WATCHED rAF and the next tick after any log
+mutation corrects it. It is only wrong in the window where the two worlds' three lengths
+agree AND nothing has mutated the new log yet, which for a freshly loaded world with the
+status bar mounted is the frame right after the load.
+
+**T3b1 widened that window on an UNWATCHED host — in LIKELIHOOD, not in duration.** The
+extraction moved the recompute inside the stats publish guard, so a host with no
+`subscribeStats` subscriber does not scan the log at all (the point: an O(ops) scan per rAF
+for a payload nobody receives). The mutations that can alias the signature now have that
+whole span to net in rather than a single frame. What did NOT change is how long an alias
+lasts once entered: nothing re-signs on a match — the trackers advance only inside the
+recompute branch — so a stale reading is carried by every subsequent publish until a length
+genuinely differs, under the old shape exactly as much as the new one. The paragraph above
+saying it "corrects on the next tick" is loose in the same way: it corrects on the next tick
+whose signature MOVED.
+
+Two facts bound the whole thing, and both were missed on the first pass. Only
+`liveGenerators` and `compactableOps` can be wrong — `totalOps`, `undoDepth` and `redoDepth`
+ARE the three signature lengths, so a matched signature makes them correct by construction.
+And in production the unwatched span is empty of editing: the chrome subscribes in a
+provider-level effect keyed `[engineReady, host]`
+(`packages/editor/src/frontend/hooks/useFieldHostState.tsx`), not per status-bar mount, so an
+unwatched production host exists only before `engineReady` and after chrome teardown. None of
+this changes the fix below; it is one more reason to prefer the explicit-signal option to a
+second hand-rolled signature.
 
 **The fix, when it is worth doing:** the same one token — put `worldEpoch` at the front of
 the `currentLogStats` signature. Cheap; not done at the time only because the task's
-boundary was the pick.
+boundary was the pick, and not done at T3b1 either because that task's boundary was the
+extraction and a signature change is a behaviour change. `worldEpoch` is a host `let` and
+`field-stats.ts` does not read it today, so the fix now also costs one thunk on
+`StatsMeterDeps`.
 
 **Worth considering instead:** both caches invalidating on an explicit signal rather than
 each inventing a signature. `resetWorld` is the ONE place a world goes away; a
@@ -440,8 +465,9 @@ point at which that starts paying.
 **Trigger to revisit:** a third log-signature cache being added, or the first report of a
 stale meter reading after a world load.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`currentLogStats`, and
-`entityFootprints` for the fixed version + its comment);
+**Reference:** `packages/editor/src/viewport-host/field-stats.ts` (`currentLogStats` and the
+module header's note on the widened window); `packages/editor/src/viewport-host/field-host.ts`
+(`entityFootprints`, the fixed version + its comment);
 `packages/editor/tests/field-host-pointer.gpu.test.ts` (the world-swap case).
 
 ---

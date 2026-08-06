@@ -2506,6 +2506,31 @@ a subscriber wanting the current tool has `setTool`'s own funnel), `subscribeToo
 dismissed) and `subscribeStats` — pushed every rAF, so the longest a subscriber waits is a
 frame, and a snapshot would be the only place that payload was assembled off the tick.
 
+`subscribeStats`' channel, its payload and its log-signature cache live in
+`viewport-host/field-stats.ts` since foundations T3b1 (2026-08-06), not in the host; the
+facade member is unchanged. The frame now ASKS the meter (`stats.publishIfWatched()`) rather
+than assembling the readout inside `tick`, and one behaviour moved with it: the payload's
+op-cost scan is now INSIDE the "is anyone subscribed" guard, where the host ran it just
+outside. An unwatched host therefore no longer runs an O(ops) log scan per rAF — every
+headless test that drives the loop *without subscribing* is such a host (four editor suites
+do subscribe).
+
+**What that costs is narrower than it first sounds, and the narrowing is the argument.** The
+cache signs on the log's three lengths, and nothing re-signs on a MATCH — the trackers advance
+only inside the recompute branch, which is both why skipping calls is safe and why an alias,
+once entered, is carried by every later payload until a length genuinely differs. That
+duration is identical to the shape it replaces: a recompute on a matched signature was a no-op
+on every tick too. **What moved is the PROBABILITY of entering the stale state — the netting
+sequence had to land within one frame, and now has the whole unwatched span — not how long it
+lasts.** And the blast radius is two fields: `totalOps`, `undoDepth` and `redoDepth` ARE the
+three signature lengths (core's `field/maintenance.ts`), so a matched signature makes them
+correct by construction, leaving only `liveGenerators` and `compactableOps` exposed; the other
+six payload fields never touch the cache. In production the span is empty of editing anyway —
+the chrome subscribes in a provider-level effect keyed `[engineReady, host]`
+(`frontend/hooks/useFieldHostState.tsx`), not per status-bar mount, so an unwatched production
+host exists only before `engineReady` and after chrome teardown. Published payloads are
+unchanged outside that window.
+
 **Three things are observable, and only three.** Everything else about the seams is
 byte-identical from the chrome's side.
 
@@ -2628,6 +2653,9 @@ T3a with no consumer on purpose, and **constructed in `createFieldHost` since T3
 (`viewport-host/field-voidcast.ts`). `viewport-host/field-props.ts` is the second, the same
 day, and it needed no new member: `log`, `propMeshes`, `ctx()` and `archetypeById()` were
 already declared. That is the record earning its keep — the second consumer paid nothing.
+`viewport-host/field-stats.ts` is the third and paid nothing either, reading `store` and
+`log` off the value side; it is also the first consumer to leave NOTHING behind in the
+record, because no other cluster ever read its state directly.
 
 **A single-consumer dependency does NOT earn a member.** Both extracted modules carry one:
 the void cast takes `voidCastMaterial()` and the prop layer takes `kitMat()`, each a host

@@ -8,16 +8,19 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Three clusters have since left.** `segment` was extracted to
+**Four clusters have since left.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
 `packages/editor/src/viewport-host/field-voidcast.ts`, taking two of its three state
 bindings and all five of its functions (§6's `voidcast` row records what stayed and why).
 `props` went the same day, to `packages/editor/src/viewport-host/field-props.ts`, taking one
-of its two state bindings and all three of its functions. Every count below still includes
-all three. They are left as measured because they are what the remaining 20 clusters were
-sized against; subtract those three rows from §4 when reading them as current.
+of its two state bindings and all three of its functions. `stats` went the same day too, to
+`packages/editor/src/viewport-host/field-stats.ts`, taking **all six** of its state bindings
+and its one function — plus twenty lines of `tick` that the map attributes to `lifecycle`
+(§6's `stats` row explains why that matters more than the count does). Every count below
+still includes all four. They are left as measured because they are what the remaining 19
+clusters were sized against; subtract those four rows from §4 when reading them as current.
 
 **And foundations T3a changed three things the map names.** §2.2 records exactly what, and
 which numbers below are consequently stale. Read it before trusting a site list.
@@ -31,11 +34,11 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,228 lines** (re-measured 2026-08-06 after `props` left; was 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−48** this time, against 241 lines now standing in `field-props.ts`. Same shape as `voidcast`'s −71: a module pays for a header the closure did not need, moving prose out of a shared file is not the same as deleting it, and the wiring left behind carries new prose of its own. |
-| Code / comment / blank | **3,454 / 3,537 / 237** (re-measured 2026-08-06 after `props`; was 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). The CODE figure is again the one that moved for a structural reason: **−42** code against **−4** comment, because a cluster that leaves takes its prose with it and then earns some of it back at the seam. |
-| `export function createFieldHost` | **line 1647** → end of file (**5,582 lines**) *(re-measured 2026-08-06 after `props`)* |
-| `return { … }` object literal | **line 6470** *(re-measured 2026-08-06 after `props`)* |
-| Closure-level bindings | **281** (re-measured 2026-08-06 after `props` by §2's rule; was 284 after `voidcast`, 289 at T3a, 293 originally. `props` took three functions and one `let` out and put `props` back, which is the whole −3. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
+| File total | **7,216 lines** (re-measured 2026-08-06 after `stats` left; was 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−12** this time — the smallest of the four — against **282** lines now standing in `field-stats.ts`. The shape the other three showed, at its most extreme: a module pays for a header the closure did not need, moving prose out of a shared file is not deleting it, and the wiring left behind carries new prose of its own. This cluster's own prose was small (14 comment lines across the whole state block, most of them the cache's) and the seam it needed was not, so the file barely moved while the closure lost seven bindings. |
+| Code / comment / blank | **3,429 / 3,550 / 237** (re-measured 2026-08-06 after `stats`; was 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). The clearest instance yet of why the two columns must be read apart: **−25** code and **+13** comment. The closure lost seven bindings and a twenty-line publish block, and GAINED prose — the assembly comment explaining what a meter is and why this cluster could not be lifted as a record of functions. |
+| `export function createFieldHost` | **line 1651** → end of file (**5,566 lines**) *(re-measured 2026-08-06 after `stats`; the +4 on the start line is the new module's import plus three lines of corrected `FieldStats` TSDoc)* |
+| `return { … }` object literal | **line 6458** *(re-measured 2026-08-06 after `stats`)* |
+| Closure-level bindings | **275** (re-measured 2026-08-06 after `stats` by §2's rule; was 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. `stats` took one function, one `const` and five `let`s out and put `stats` back, which is the whole −6 — the largest single-cluster drop of the four, and the reason the FILE barely moved is that six of those seven bindings were one line each. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
@@ -46,31 +49,34 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines now OUTNUMBER code lines — 3,537 to 3,454, i.e. **50.6%** of every non-blank
+Comment lines now OUTNUMBER code lines — 3,550 to 3,429, i.e. **50.9%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
-code alone is 3,454 lines, still ~8.6× the ~400-line file guideline in
-`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~112× the ~50-line function
+code alone is 3,429 lines, still ~8.6× the ~400-line file guideline in
+`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~111× the ~50-line function
 guideline.
 
-**Three clusters out and those ratios have not visibly moved**, which is the honest scale of
+**Four clusters out and those ratios have not visibly moved**, which is the honest scale of
 the problem. Two different reductions, worth keeping apart because they answer different
 questions. Per cluster: `voidcast` took **0.97%** off the FILE (71 of 7,347 lines) but
 **1.63%** off the CODE (58 of 3,554); `props` took **0.66%** off the FILE (48 of 7,276) and
-**1.20%** off the CODE (42 of 3,496). Cumulatively T3b1 stands at **−1.6%** of the file and
-**−2.8%** of the code. The gap between the two figures is the point — a cluster's prose
+**1.20%** off the CODE (42 of 3,496); `stats` took **0.17%** off the FILE (12 of 7,228) and
+**0.72%** off the CODE (25 of 3,454). Cumulatively T3b1 stands at **−1.8%** of the file and
+**−3.5%** of the code. The gap between the two figures is the point — a cluster's prose
 leaves with it, and then the wiring left behind earns prose of its own, so the FILE shrinks
 more slowly than the logic in it does. The code figure is the one that speaks to the
-~400-line guideline, and at ~1.2–1.6% per cluster that guideline is not reachable by
-extraction of this kind.
+~400-line guideline, and at ~0.7–1.6% per cluster that guideline is not reachable by
+extraction of this kind. `stats` is the case that says so most plainly: it removed the most
+BINDINGS of the four and the fewest lines, because a cluster's size in bindings and its size
+in lines are not the same measurement.
 
 The easy extractions are already done. These sibling modules in the same directory are
 already pure and are **not** part of the closure: `field-ghost`, `field-stamp`,
 `field-placements`, `field-pick`, `field-move`, `field-flags`, `field-history`,
 `field-selection-cells`, `field-camera`, `viewport-cursor`, `input-map`, `gizmo`,
-`camera-control`, `box-edges`, `reference-grid`, and now `field-segment`, `field-voidcast`
-and `field-props` — the last three lifted out STATEFUL rather than discovered to be pure.
-What remains inside the closure is the stateful residue.
+`camera-control`, `box-edges`, `reference-grid`, and now `field-segment`, `field-voidcast`,
+`field-props` and `field-stats` — the last four lifted out STATEFUL rather than discovered to
+be pure. What remains inside the closure is the stateful residue.
 
 ## 2. How this map was produced
 
@@ -94,9 +100,9 @@ What remains inside the closure is the stateful residue.
   assignment, and container mutation (`.set` `.add` `.delete` `.clear` `.push` `.pop`
   `.shift` `.unshift` `.splice` `.sort` `.fill` `.copyWithin`) on a `const` binding.
 
-### 2.1 Three corrections, from extracting `segment` and `voidcast` against this map
+### 2.1 Four corrections, from extracting `segment`, `voidcast`, `props` and `stats` against this map
 
-All three were found by doing the work; all three would mislead the next extraction if left
+All four were found by doing the work; all four would mislead the next extraction if left
 only in the map's original terms.
 
 - **`let`-vs-`const` decides what may be passed by value — NOT the read/MUTATION split.**
@@ -135,6 +141,20 @@ only in the map's original terms.
   `view`, `drift`, `gesture`, `selection`) may be one of these, so **verify a single-site
   edge by grepping the named function before sizing a cluster off it**. Multi-site edges and
   edges on non-word names (`voidCastJobGen`, `analyzerDirty`) are unaffected.
+- **A cluster's reads are MISFILED whenever its work lives in another cluster's function.**
+  §2's method attributes every occurrence to the enclosing function's owner, which is right
+  for a map of the file and wrong as a map of a cluster — the two differ exactly when a
+  cluster's job is performed somewhere else. Worked example, found by extracting `stats`: its
+  row records **2** inbound read edges, both `log`. The module needs **7**. The missing five
+  are all in the stats payload, which was assembled inside `tick`, and four of them are IN the
+  map — under `lifecycle`, with `tick` as their site (`store`, `lastRemeshMs`, `remeshVersion`,
+  `voidCastJobGen`). The fifth, `analyzerPendingCount()`, is a call and so falls to the
+  correction above. This is the mirror of that one: there, a cluster's coupling is invisible
+  because calls are not edges; here, it is visible but **filed under the wrong cluster**, so
+  grepping the row cannot find it either. The tell is a cluster with few functions and a
+  public seam — `stats` owned ONE function and one `subscribe*` member, and its actual work
+  was twenty lines in someone else's loop. **Before sizing such a cluster, grep for its state
+  in every other cluster's site list**, not just its own row.
 
 ### 2.2 Changed since the measurement pass — foundations T3a, 2026-08-05
 
@@ -219,7 +239,7 @@ whose state it touches).
 | `history` | 2 | 2 | 3 | 4 | 7 | 1 |
 | `segment` | 6 | 6 | 1 | 3 | 8 | 1 |
 | `drift` | 2 | 3 | 2 | 3 | 5 | 3 |
-| `stats` | 6 | 1 | 1 | 3 | 5 | 1 |
+| `stats` | 6 | 1 | 1 | 3 → **5** | 5, of which 2 are inbound reads — the module needs **7** (§2.1's fourth correction) | 1 |
 
 ## 5. The cross-cluster mutation register
 
@@ -343,7 +363,23 @@ and includes the occurrences inside the deleted function; it has not been re-der
 
 **Owns (functions) — 1:** `tick`@5995
 
-**Reads from other clusters** (31 edges):
+**Reads from other clusters** (31 edges → **26**, and the six bullets that changed are §2.1's
+fourth correction in one place):
+
+`tick`'s stats publish left with `stats` on 2026-08-06, and six of the reads below went with
+it — `lastReconfigureMs` and `statsChannel` (into `field-stats.ts` as module state) plus
+`lastRemeshMs`, `remeshVersion`, `voidCastJobGen` and the `tick` half of `store` (into that
+module's `deps`). All six are marked `‡` below. **They were never `lifecycle`'s dependencies
+in any sense but the syntactic one**: `tick` named them only to fill a `stats` payload, and
+the map filed them here because the map attributes a read to whoever owns the enclosing
+function. `tick` now calls `stats.publishIfWatched()` and names none of them.
+
+The delta is **−5, not −6**: `store` is the one bullet with a second site (`ret.init`), which
+is a real `lifecycle` read and survives. Caveat on the base figure, noted and deliberately not
+chased: 31 is the 2026-08-03 pass's number and this list holds 29 bullets over 48 occurrences,
+so the three counts do not reconcile and never did. That is pre-existing map slack (§2.2's
+"re-deriving the totals is a real pass"), not this move's. Trust the bullets, not the header.
+
   - `analyzerIdle` (owned by `analyzer`) — 2 sites: `ret.dispose`
   - `analyzer` (owned by `analyzer`) — 1 site: `ret.dispose`
   - `cam` (owned by `camera`) — 3 sites: `ret.init`, `tick`
@@ -357,20 +393,20 @@ and includes the occurrences inside the deleted function; it has not been re-der
   - `ghostMat` (owned by `materials`) — 2 sites: `ret.dispose`
   - `kitBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `kitMat` (owned by `materials`) — 2 sites: `ret.dispose`
-  - `lastReconfigureMs` (owned by `stats`) — 1 site: `tick`
-  - `lastRemeshMs` (owned by `world`) — 1 site: `tick`
+  - `lastReconfigureMs` (owned by `stats`) — 1 site: `tick` ‡
+  - `lastRemeshMs` (owned by `world`) — 1 site: `tick` ‡
   - `layers` (owned by `view`) — 1 site: `ret.init`
   - `normalsMat` (owned by `materials`) — 2 sites: `ret.dispose`
-  - `remeshVersion` (owned by `world`) — 1 site: `tick`
+  - `remeshVersion` (owned by `world`) — 1 site: `tick` ‡
   - `selectionCellBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `selectionCellMat` (owned by `materials`) — 2 sites: `ret.dispose`
   - `stampGhostBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `stampGhostMat` (owned by `materials`) — 2 sites: `ret.dispose`
-  - `statsChannel` (owned by `stats`) — 1 site: `tick`
-  - `store` (owned by `world`) — 2 sites: `ret.init`, `tick`
+  - `statsChannel` (owned by `stats`) — 1 site: `tick` ‡
+  - `store` (owned by `world`) — 2 sites: `ret.init`, ~~`tick`~~ ‡
   - `unbindCamera` (owned by `camera`) — 1 site: `ret.dispose`
   - `voidCastBind` (owned by `materials`) — 2 sites: `ret.dispose`
-  - `voidCastJobGen` (owned by `voidcast`) — 1 site: `tick`
+  - `voidCastJobGen` (owned by `voidcast`) — 1 site: `tick` ‡
   - `voidCastMat` (owned by `materials`) — 2 sites: `ret.dispose`
   - `worker` (owned by `world`) — 1 site: `ret.dispose`
 
@@ -863,7 +899,9 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 
 **MUTATES other clusters** (5 edges):
   - `drift` (owned by `drift`) — 1 site: `applyReconfigureSession`
-  - `lastReconfigureMs` (owned by `stats`) — 1 site: `applyReconfigureSession`
+  - `lastReconfigureMs` (owned by `stats`) — 1 site: `applyReconfigureSession`. Still one
+    site, now a named CALL: `stats.noteReconfigureMs(…)` (`field-stats.ts`, extracted
+    2026-08-06).
   - `moveCommitPending` (owned by `move`) — 2 sites: `sendPreviewJob`
   - `suspendReported` (owned by `gesture`) — 2 sites: `openEntitySession`, `openStampSession`
 
@@ -1270,26 +1308,80 @@ these three are struck at neither, because they still do.
 **Public members (1):** `escape`
 
 
-### Cluster: stats
+### Cluster: stats — **EXTRACTED 2026-08-06**
+
+Lives in `packages/editor/src/viewport-host/field-stats.ts`. The row below is the measurement
+it was sized against, annotated with what the move actually cost. **This is the row §2.1's
+fourth correction was found on** — read that bullet before trusting any small row in this
+document.
 
 **Owns (state) — 6:** `statsChannel`@2026 · `cachedLogStats`@2003 · `statsOpsLen`@2004 · `statsUndoLen`@2005 · `statsRedoLen`@2006 · `lastReconfigureMs`@1992
 
+All six left, and **nothing stayed** — the first extraction of which that is true. The three
+before it each left a container behind as a `HostSubstrate` value member because `renderScene`
+draws from it; this cluster renders nothing, and no other cluster read its state except
+through `tick`, which now calls instead.
+
 **Owns (functions) — 1:** `currentLogStats`@5949
 
-**Reads from other clusters** (2 edges):
+It moved verbatim and kept its name inside the module. **But one function is not what this
+cluster was**: the payload assembly and the `size() > 0` publish guard — twenty lines at
+`tick`@5921–5941 — are the cluster's actual job and were attributed to `lifecycle`, which owns
+`tick`. So this is the first cluster that could not travel as a record of functions. It was
+given a verb the closure never had, `publishIfWatched()`, and `tick` trades its twenty lines
+for one call. The closure now holds one `const stats = createStatsMeter({…})`, at the line
+`currentLogStats` used to start on.
+
+**Reads from other clusters** (2 edges → **7** in the module's `deps`):
   - `log` (owned by `world`) — 8 sites: `cachedLogStats`, `currentLogStats`
+  - **+ `store`** (owned by `world`) — the payload's `chunks`. Filed under `lifecycle`'s read
+    list, site `tick`.
+  - **+ `lastRemeshMs`, `remeshVersion`** (owned by `world`) — two payload fields. Both filed
+    under `lifecycle`, site `tick`.
+  - **+ `voidCastJobGen`** (owned by `voidcast`) — the payload's `voidCastPending`, a boolean
+    derived `!== null`. Filed under `lifecycle`, site `tick`; since 2026-08-06 it is
+    `field-voidcast.ts`'s `jobGen`, which makes this the first dep in the tranche naming
+    another extracted MODULE rather than a host binding.
+  - **+ `analyzerPendingCount()`** (owned by `analyzer`) — the payload's `analyzerPending`. A
+    CALL, so counted nowhere at all (§2.1's second correction).
+
+`store` and `log` are `HostSubstrate` value members and needed no addition to the record.
+`lastRemeshMs` and `remeshVersion` are host `let`s with exactly one extracted reader each, so
+they ride as single-consumer thunks on the module's own record; `analyzerPendingCount` and
+`voidCastJobGen` are `const` bindings and pass by reference.
 
 **MUTATES other clusters** (0 edges):
   - none
 
-**Read by other clusters** (2 edges):
-  - `lastReconfigureMs` (read in `lifecycle`) — 1 site: `tick`
-  - `statsChannel` (read in `lifecycle`) — 1 site: `tick`
+**Read by other clusters** (2 edges → **0**):
+  - ~~`lastReconfigureMs` (read in `lifecycle`) — 1 site: `tick`~~ — the binding moved INTO the
+    module; `tick` no longer names it.
+  - ~~`statsChannel` (read in `lifecycle`) — 1 site: `tick`~~ — likewise. `tick` calls
+    `stats.publishIfWatched()`, and `FieldHost.subscribeStats` delegates to
+    `stats.subscribe(cb)` with its signature and behaviour unchanged.
 
-**MUTATED BY other clusters** (1 edge):
-  - `lastReconfigureMs` (mutated by `stamp`) — 1 site: `applyReconfigureSession`
+**MUTATED BY other clusters** (1 edge → **1 named call**):
+  - `lastReconfigureMs` (mutated by `stamp`) — 1 site: `applyReconfigureSession`. Now
+    `stats.noteReconfigureMs(performance.now() - reconfigureStart)`, on `field-segment.ts`'s
+    `armMaskDropReport` precedent. Same one site, same one condition (a reconfigure core
+    REJECTED still does not update it — the assignment sat, and the call sits, below the
+    `catch`'s early return).
 
-**Public members (1):** `subscribeStats`
+**Public members (1):** `subscribeStats` — a plain delegate before the move and after it.
+
+**One behaviour changed, deliberately.** `currentLogStats()` now runs INSIDE the publish
+guard; `tick` ran it one line above, unconditionally, and used the result only in the payload.
+The guard's own comment already described the stricter shape, so the code now does what the
+comment says. `field.logStats` is a pure query and the cache's trackers advance only inside
+its recompute branch, so a skipped call cannot make a later one wrong. What changes: an
+unwatched host no longer runs an O(ops) log scan per rAF — every headless test driving the
+loop *without subscribing* is such a host, though four editor suites do subscribe — and the
+cache's one documented signature-aliasing window widens. **Widens in likelihood, not in
+duration**: because nothing re-signs on a MATCH, an alias persists until a length genuinely
+differs under either shape; what moved is that the netting sequence now has the unwatched span
+to land in rather than one frame. Only `liveGenerators` and `compactableOps` can be wrong when
+it does — the other three `LogStats` fields ARE the signature.
+`packages/editor/tests/viewport-host/field-stats.test.ts` pins both halves of the guard.
 
 ---
 
@@ -1303,7 +1395,7 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 
 | Cluster | External edges | Boundary mutations | Partners |
 |---|---|---|---|
-| `stats` | 5 | 1 in (`lastReconfigureMs` ← `stamp`) | 3 |
+| `stats` | 5 → **8** (7 in-reads + 1 in-mutation; the 2 read-by edges went to 0) **+1 uncounted call** | 1 in (`lastReconfigureMs` ← `stamp`) → **1 named call** | 3 → 5 — **EXTRACTED 2026-08-06** |
 | `history` | 7 | 1 out (`drift.drift`) | 4 |
 | `segment` | 8 | 1 out (`tool.maskDropReported`) | 3 |
 | `voidcast` | ~~**9**~~ **8** | **0** | ~~4~~ 3 — **EXTRACTED 2026-08-06** |
@@ -1312,6 +1404,16 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 
 All six read the same small substrate — `world.store`, `world.log`, `lifecycle.ctx`,
 `lifecycle.disposed`, `catalogs.table` — and nothing else of consequence.
+
+**The ranking's own top row was the wrong number**, which is worth stating because the column
+it ranks on is what this section recommends acting on. `stats` sat at the head as the cheapest
+separation at 5 edges; doing it found 8. Its 2 listed reads were really 7 — four of the five
+missing ones had been filed under `lifecycle` all along and the fifth was a call nothing
+counted (§2.1's fourth and second corrections) — while its 2 read-by edges went to zero,
+because both were `tick` naming state that left with the module. It is still a clean
+separation: every one of those reads is a thunk or a value member and the single mutation is
+one named call. But it was never the cheapest, and a row can only ever understate. Treat every
+figure in this column as a floor.
 
 **Three of those five may not be held by value**, which the original phrasing here did not
 say. `ctx`, `disposed` and `table` are `let`s the host REPLACES (`init`/`dispose`,
