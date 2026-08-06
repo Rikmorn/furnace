@@ -23,7 +23,6 @@ import {
 import type {
   EntityArchetype,
   EntityCatalog,
-  EntityCollision,
 } from "../frontend/lib/catalog.ts";
 import {
   type BrushEffect,
@@ -91,20 +90,18 @@ import { type PickCandidate, pickNearest } from "./field-pick.ts";
 import {
   ARCHETYPE_PARAM,
   FALLBACK_COLLISION,
-  FALLBACK_TINT,
   groupPlacements,
   type PlacedArchetype,
-  PROXY_PRIMITIVE,
   placementGhostBatch,
   placementOwners,
   placementsByEntity,
   placesProps,
-  proxyRecords,
   proxyScale,
   seedArchetypeParams,
   touchedParamKeys,
   withArchetypeOptions,
 } from "./field-placements.ts";
+import { createProps } from "./field-props.ts";
 import { createSegmentBrush } from "./field-segment.ts";
 import {
   SELECTION_DISPLAY_CAP,
@@ -1820,14 +1817,10 @@ export function createFieldHost(deps?: {
   let archetypes: readonly EntityArchetype[] = [];
   let archetypeById: ReadonlyMap<string, EntityArchetype> = new Map();
   // The committed prop layer: one instanced draw per archetype, rebuilt from the
-  // op log's placement records by rebuildProps.
+  // op log's placement records by `field-props.ts`. Stays in the closure as a
+  // `HostSubstrate` value member because `renderScene` draws it — the module
+  // empties and refills the host's own array rather than a copy of it.
   const propMeshes: PropRender[] = [];
-  // The layer's per-archetype instance counts as of the last rebuildProps — the
-  // ONE observable fact about a layer that is otherwise write-only GPU state
-  // (see propInstanceCounts). Recorded even when there is no context, because
-  // rebuildProps' whole job is to decide these numbers and only then upload
-  // them; init() replays the upload from the same source.
-  let propCounts = new Map<string, number>();
 
   // The walkability advisor's findings store (what the analyzer found, what the
   // filters admit, what stage 2 has since proved). Declared HERE, ahead of the
@@ -1839,9 +1832,9 @@ export function createFieldHost(deps?: {
 
   // The walkability advisor's marker layer: ONE instanced unit cube for every
   // VISIBLE finding, its per-instance tint the severity/verdict colour. Null
-  // when nothing is visible or before GPU init. `markerCount` is its
-  // propCounts twin — decided by every rebuild, uploaded only when a context
-  // exists.
+  // when nothing is visible or before GPU init. `markerCount` is the twin of
+  // `field-props.ts`'s private prop counts — decided by every rebuild, uploaded
+  // only when a context exists.
   let flagMarkers: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
     null;
   let flagMarkerMat: material.Material | null = null;
@@ -2433,79 +2426,36 @@ export function createFieldHost(deps?: {
     return { im, g };
   };
 
-  // The unit-sized proxy primitive for a collision kind — cube `size: 1`,
-  // sphere/cylinder ⌀1 — so `proxyRecords`' folded scale IS the world extent.
-  // Do NOT change these sizes without changing proxyScale: the two are one
-  // formula split across the CPU/GPU boundary.
-  const proxyGeometry = (
-    c: Context,
-    collision: EntityCollision,
-  ): geometry.Geometry => {
-    const primitive = PROXY_PRIMITIVE[collision.kind];
-    if (primitive === "sphere") return geometry.sphere(c, { radius: 0.5 });
-    if (primitive === "cylinder")
-      return geometry.cylinder(c, { radius: 0.5, height: 1 });
-    return geometry.cube(c, { size: 1 });
-  };
-
-  const destroyProps = (c: Context): void => {
-    for (const p of propMeshes) {
-      mesh.destroyInstanced(c, p.im);
-      geometry.destroy(c, p.g);
-    }
-    propMeshes.length = 0;
-  };
-
-  // Rebuild the committed prop layer from the op log: one instanced proxy draw
-  // per archetype, its instance count the archetype's record count, its matrices
-  // core's packPlacementMatrices over records re-scaled to the catalog collision
-  // primitive, its tint the archetype's catalog colour. Called by every path that
-  // can change which placement ops are in the log (commit, reconfigure apply,
-  // ⌘Z/⇧⌘Z, world new/load) plus the two that change how they DRAW (init,
-  // setEntityCatalog). Whole-layer teardown-and-rebuild, like a chunk remesh:
-  // instance counts are fixed at creation, and a placement op is a whole
-  // generator's worth of props at once, so there is no partial update to make.
-  // Silent no-op before GPU init — init() rebuilds once the materials exist, so
-  // a world loaded pre-init still gets its props.
-  const rebuildProps = (): void => {
-    // The prop layer and the analyzer's collider set are derived from the SAME
-    // log, so one call site keeps them in step. Whole-world, not incremental:
-    // props rasterize into the solidity stage 1 reads, and there is no
-    // incremental placement-sync path — `voxelizePlacements` is whole-map
-    // replacement by construction.
-    analyzerPlacementsStale = true;
-    analyzerWholeWorld = true;
-    analyzePump.request();
-    const groups = groupPlacements(log.ops);
-    // The counts settle FIRST and unconditionally: they are what the layer IS,
-    // and recording them before the GPU guard keeps them honest for a host that
-    // has not initialized yet (init replays the upload from this same log).
-    propCounts = new Map([...groups].map(([id, r]) => [id, r.length]));
-    const c = ctx;
-    if (!c || !kitMat) return;
-    destroyProps(c);
-    for (const [archetypeId, records] of groups) {
-      const archetype = archetypeById.get(archetypeId);
-      const collision = archetype?.collision ?? FALLBACK_COLLISION;
-      const g = proxyGeometry(c, collision);
-      const im = mesh.createInstanced(c, {
-        geometry: g,
-        material: kitInstancedMat(),
-        count: records.length,
-      });
-      mesh.setInstanceMatrices(
-        c,
-        im,
-        field.packPlacementMatrices(proxyRecords(records, collision)),
-      );
-      const tint: [number, number, number, number] =
-        archetype === undefined
-          ? FALLBACK_TINT
-          : [archetype.color[0], archetype.color[1], archetype.color[2], 1];
-      records.forEach((_, i) => mesh.setInstanceTint(c, im, i, tint));
-      propMeshes.push({ im, g });
-    }
-  };
+  // The committed prop layer, lifted out whole (`field-props.ts`): its three
+  // functions and its instance-count map left, `propMeshes` stayed as a
+  // substrate value member because `renderScene` draws it. The assembly sits
+  // where the functions were, on `createSegmentBrush`'s precedent — a cluster's
+  // remaining footprint marks where the cluster was.
+  //
+  // The two arrows below FORWARD-REFERENCE bindings declared hundreds of lines
+  // down (`kitMat` is above, but `analyzerPlacementsStale`, `analyzerWholeWorld`
+  // and `analyzePump` are not). That is safe for the reason spelled out at the
+  // `createVoidCast` assembly below — nothing between this closure's brace and
+  // its `return {` ever RUNS, so an arrow body cannot be evaluated before the
+  // declarations it names. The object literal itself is eager, which is why
+  // `substrate` and `kitInstancedMat` are both declared above this line.
+  const props = createProps({
+    substrate,
+    kitMat: () => kitMat,
+    kitInstancedMat,
+    // The two analyzer flags AND the pump request, as ONE named act. The three
+    // lines were one statement of intent inside `rebuildProps` and they stay
+    // one here: the prop layer and the analyzer's collider set are derived from
+    // the SAME log, so a rebuild of the layer IS a change to what stage 1 must
+    // re-run over. Whole-world, not incremental — props rasterize into the
+    // solidity stage 1 reads, and `voxelizePlacements` is whole-map replacement
+    // by construction, so there is no incremental placement-sync path.
+    markPlacementsStale: () => {
+      analyzerPlacementsStale = true;
+      analyzerWholeWorld = true;
+      analyzePump.request();
+    },
+  });
 
   const destroyChunkRender = (c: Context, cm: ChunkRender): void => {
     for (const e of cm.entries) {
@@ -4686,17 +4636,19 @@ export function createFieldHost(deps?: {
   // Rebuild the marker layer from a settled summary: ONE instanced unit cube,
   // scaled to FLAG_MARKER_SIZE_M, at each visible finding's floor surface raised
   // half a cell (so the marker sits in the AIR cell the flag anchors on, not
-  // sunk into the floor under it). Whole-layer teardown-and-rebuild, like
-  // rebuildProps: instance counts are fixed at creation and a response replaces
-  // whole chunks at a time, so there is no partial update to make. Silent no-op
-  // before GPU init — init() rebuilds once the materials exist.
+  // sunk into the floor under it). Whole-layer teardown-and-rebuild, like the
+  // prop layer (`field-props.ts`): instance counts are fixed at creation and a
+  // response replaces whole chunks at a time, so there is no partial update to
+  // make. Silent no-op before GPU init — init() rebuilds once the materials
+  // exist.
   //
   // The SELECTED finding's instance is drawn bigger (flagMarkerStyle) and keeps
   // its own colour; the `--primary` half of D-F4.5-15's emphasis is the cell
   // outline `rebuildFlagSelection` builds beside this.
   const rebuildFlagMarkers = (summary: FlagsSummary): void => {
     // The count settles FIRST and unconditionally: it is what the layer IS
-    // (rebuildProps' rule), and a host with no context has still decided it.
+    // (the prop layer's rule, `field-props.ts`), and a host with no context has
+    // still decided it.
     markerCount = summary.visible.length;
     const c = ctx;
     if (!c || !flagMarkerMat) return;
@@ -5176,7 +5128,7 @@ export function createFieldHost(deps?: {
     syncSessionCapture();
     destroyStampGhosts();
     // The commit's placement ops (a scatter's props) are new prop-layer content.
-    rebuildProps();
+    props.rebuild();
     notifyStamp();
     notifyEntities();
   };
@@ -5445,7 +5397,7 @@ export function createFieldHost(deps?: {
     destroyStampGhosts();
     // A re-cooked scatter replaces its own placement op's records, and any
     // reconfigure re-splices the log the prop layer is derived from.
-    rebuildProps();
+    props.rebuild();
     // The three notifications LAST, once every piece of host state the apply
     // moved has settled: a subscriber may read the host back synchronously from
     // inside any of them (the chrome does — subscribeEntities' callback calls
@@ -5527,7 +5479,7 @@ export function createFieldHost(deps?: {
     // A step can add or remove placement ops (a scatter commit, a reconfigure
     // splice) and dirties NO chunk for them — placements write no cells — so the
     // prop layer cannot ride the remesh drain the way chunk state does.
-    rebuildProps();
+    props.rebuild();
     // A standing drift report describes the LAST reconfigure's replay against
     // a log this step just rewrote — stale in either direction (F3a gate
     // finding: ⌘Z left the list up). Cleared, never recomputed; the load-path
@@ -6446,10 +6398,10 @@ export function createFieldHost(deps?: {
     const c = ctx;
     if (c) for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
     chunkMeshes.clear();
-    // rebuildProps, not destroyProps: the log was emptied above, so this both
-    // frees the outgoing draws AND resets the counts — a bare destroy would
-    // leave propInstanceCounts describing the world that just went away.
-    rebuildProps();
+    // `props.rebuild()`, not `props.destroy()`: the log was emptied above, so
+    // this both frees the outgoing draws AND resets the counts — a bare destroy
+    // would leave propInstanceCounts describing the world that just went away.
+    props.rebuild();
     setBoxAnchor(null);
     // The segment anchor is a point in the OLD field — a capsule swept from it
     // into the new one would start somewhere the user never clicked.
@@ -6532,12 +6484,12 @@ export function createFieldHost(deps?: {
       unbindCamera = camera.bindToCanvas(ctx, cam);
       await initMaterials(ctx);
       // A world can be loaded BEFORE the GPU exists (the panel's Load races
-      // init, and every headless caller never inits at all), and rebuildProps
-      // no-ops without a context — so build the layer once here from whatever
-      // the log already holds. Same for the advisor's markers: findings can
-      // arrive before the GPU does, and the counts they settled are replayed
-      // into draws here.
-      rebuildProps();
+      // init, and every headless caller never inits at all), and
+      // `props.rebuild()` no-ops without a context — so build the layer once
+      // here from whatever the log already holds. Same for the advisor's
+      // markers: findings can arrive before the GPU does, and the counts they
+      // settled are replayed into draws here.
+      props.rebuild();
       rebuildFlagMarkers(flagStore.summary());
       // The selection survives a dispose (it is CPU state), so its CELL display
       // has to be rebuilt here too or a re-init — the AA switch, which never
@@ -6582,7 +6534,7 @@ export function createFieldHost(deps?: {
       analyzerResync = true;
       // DEFENCE IN DEPTH, and its independent effect is deliberately UNCOVERED:
       // every path that can reach the analyzer after a dispose goes through
-      // `rebuildProps` (via `init`, `loadWorld` or `newWorld`) or through
+      // `props.rebuild()` (via `init`, `loadWorld` or `newWorld`) or through
       // `setAgentProfile` WITH a profile (its null answer reaches nothing — it
       // requests no pass, and no pass can run without a capsule), and all of
       // those set this flag themselves — so
@@ -6600,7 +6552,7 @@ export function createFieldHost(deps?: {
       if (c) {
         for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
         chunkMeshes.clear();
-        destroyProps(c);
+        props.destroy(c);
         destroyFlagMarkers(c);
         destroySelectionCells(c);
         destroyStampGhosts();
@@ -6714,8 +6666,8 @@ export function createFieldHost(deps?: {
       // loaded world's entities, not the empty log the reset left behind — and
       // the prop layer must be built from the loaded placement ops, not the
       // empty log (resetWorld tore the previous world's props down).
-      rebuildProps();
-      // Explicit rather than left to rebuildProps' own request: a load's
+      props.rebuild();
+      // Explicit rather than left to `props.rebuild()`'s own request: a load's
       // analyzer work (full re-sync, placements, whole-world pass) must not
       // depend on the prop layer happening to rebuild on the same path.
       analyzePump.request();
@@ -6870,7 +6822,7 @@ export function createFieldHost(deps?: {
       // the parsed object the chrome keeps.
       archetypes = catalog === null ? [] : [...catalog.archetypes];
       archetypeById = new Map(archetypes.map((a) => [a.id, a]));
-      rebuildProps(); // the catalog decides proxy geometry + tint
+      props.rebuild(); // the catalog decides proxy geometry + tint
     },
     listGenerators() {
       const ids = archetypes.map((a) => a.id);
@@ -6884,7 +6836,7 @@ export function createFieldHost(deps?: {
       }));
     },
     propInstanceCounts() {
-      return new Map(propCounts);
+      return props.instanceCounts();
     },
     startStamp(generator) {
       let def: field.GeneratorDef;
@@ -7072,7 +7024,7 @@ export function createFieldHost(deps?: {
       // in as many words: a placements-only entity (a scatter) writes no cells,
       // so deleting it dirties NOTHING while every prop it placed leaves the log
       // with it. Props are derived from the LOG, never from the dirty set.
-      rebuildProps();
+      props.rebuild();
       // The record left the log, so a selection on it has to go with it — an
       // outline over a stamp that no longer exists. Surviving entities' spans do
       // not move (core locates spans by id), so nothing else re-outlines. It
@@ -7146,7 +7098,7 @@ export function createFieldHost(deps?: {
         return;
       }
       markDirtyWithNeighbors(committed.dirty);
-      rebuildProps(); // a duplicated scatter is new prop-layer content
+      props.rebuild(); // a duplicated scatter is new prop-layer content
       // The copy is what the user is now working on — and this is also what
       // re-outlines: setSelectedEntity rebuilds the emphasis box off the new
       // record. AFTER the commit, so the footprint memo it reads is rebuilt from

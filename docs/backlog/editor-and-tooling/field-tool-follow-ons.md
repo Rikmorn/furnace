@@ -4,9 +4,13 @@ Tracker for the field-editor tool items deferred out of F2b/F3a/F3b: each is a k
 gap, cost, or divergence in the field tools that was filed rather than fixed because it
 needed a design call, a measurement, or a scope the shipping task did not have. They are
 merged so there is **one place to check whenever you touch
-`packages/editor/src/viewport-host/field-host.ts`, `field-placements.ts`, or
-`packages/core/src/field/{ops,kit-render,reconfigure}.ts`**. Nothing here blocks; every
+`packages/editor/src/viewport-host/field-host.ts`, `field-props.ts`, `field-placements.ts`,
+or `packages/core/src/field/{ops,kit-render,reconfigure}.ts`**. Nothing here blocks; every
 section keeps its own trigger. Sections keep their original content.
+
+`field-props.ts` joined that list at foundations T3b1 (2026-08-06), when the prop layer was
+lifted out of `field-host.ts`; three of the sections below point at it, and the host now
+holds only the nine call sites and the `propInstanceCounts` facade.
 
 **Not in here:** the F2b/F3a/F3b gate-UX finding SETS were separate files until the F4.5
 seal (2026-08-03) consumed them into the charter and deleted them. What survived them lives
@@ -17,8 +21,9 @@ in `box-select-is-two-clicks-not-a-drag.md`, `create-session-ghost-cannot-be-dra
 ## Editor props render as collision PROXIES, not the archetype's actual meshes
 
 **Context.** F3b Task 10 gave the field editor its placed-prop layer: after a scatter
-commits, `FieldHost` rebuilds one instanced draw per archetype from the op log's
-`PlacementOp` records (`rebuildProps` → `groupPlacements` → `packPlacementMatrices`). What
+commits, the prop layer `FieldHost` delegates to (`field-props.ts` since T3b1) rebuilds one
+instanced draw per archetype from the op log's `PlacementOp` records (`rebuildProps` →
+`groupPlacements` → `packPlacementMatrices`). What
 each instance DRAWS is a unit primitive sized from the catalog's **collision** block — a
 cube for `box`, a sphere for `sphere`, a cylinder for `capsule` — tinted with the
 archetype's `material.litColor`. The stamp ghost does the same thing in wireframe.
@@ -48,8 +53,9 @@ point), OR the first time a silhouette mismatch actually misleads a placement de
 e.g. props read as well-spaced in the editor and visibly interpenetrate in the game.
 
 **Reference:** `packages/editor/src/viewport-host/field-placements.ts` (the proxy
-mapping + the shading constraint); `packages/editor/src/viewport-host/field-host.ts`
-(`rebuildProps`, `proxyGeometry`); `packages/editor/src/frontend/lib/catalog.ts`
+mapping + the shading constraint); `packages/editor/src/viewport-host/field-props.ts`
+(`rebuildProps`, `proxyGeometry` — both were in `field-host.ts` until foundations T3b1,
+2026-08-06); `packages/editor/src/frontend/lib/catalog.ts`
 (`parseEntityCatalog` — deliberately does not carry the catalog's `meshes` paths);
 `packages/dungeon/src/field-world.ts` (`buildArchetypeGroups` — the mesh-accurate loader
 this would converge on); `docs/reference/dungeon-architecture.md` (the placement artifact).
@@ -102,7 +108,7 @@ parses the catalog the dungeon actually ships).
 
 ## The editor's prop layer rebuilds unconditionally, and re-creates proxy geometry every time
 
-**Context.** `rebuildProps` in `packages/editor/src/viewport-host/field-host.ts` tears the
+**Context.** `rebuildProps` in `packages/editor/src/viewport-host/field-props.ts` tears the
 whole placed-prop layer down and rebuilds it from the op log on every path that could have
 changed it — commit, reconfigure apply, ⌘Z/⇧⌘Z, world new/load, `setEntityCatalog`. Two
 costs ride along, and they are one fix:
@@ -134,8 +140,10 @@ prop layer lands on a per-frame path — e.g. slice-clipping the props
 (the *Placed props ignore the slice plane* section below), whose most likely implementation
 rebuilds the layer on every slice-slider tick, which is a drag, which is a hot path.
 
-**Reference:** `packages/editor/src/viewport-host/field-host.ts` (`rebuildProps`,
-`proxyGeometry`, `destroyProps`, and the seven call sites);
+**Reference:** `packages/editor/src/viewport-host/field-props.ts` (`rebuildProps`,
+`proxyGeometry`, `destroyProps` — the whole cluster, lifted out of `field-host.ts` at
+foundations T3b1, 2026-08-06; the call sites stayed behind and there are NINE of them, not
+seven — see `docs/reference/field-host-clusters.md` §6's `props` row);
 `packages/editor/src/viewport-host/field-placements.ts` (`groupPlacements` — the grouping a
 signature would be taken over; `PROXY_PRIMITIVE` — the three-primitive ceiling);
 the *Placed props ignore the slice plane* section below (the sibling that would
@@ -144,7 +152,7 @@ make this a hot path).
 ## Placed props ignore the slice plane — they draw full-height over a sliced field
 
 **Context.** F3b Task 10 added the editor's committed prop layer (`rebuildProps` in
-`packages/editor/src/viewport-host/field-host.ts`), gated by the `props` layer flag alone.
+`packages/editor/src/viewport-host/field-props.ts`), gated by the `props` layer flag alone.
 `setSlice(y)` clips the FIELD and the KIT by re-meshing every chunk through the worker's
 apron clamp (samples at/above the plane read as air), and it makes every gesture raycast
 slice-coherent. Props get none of that: turn the slice on and the cave's floor is cut away

@@ -8,15 +8,16 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Two clusters have since left.** `segment` was extracted to
+**Three clusters have since left.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
 `packages/editor/src/viewport-host/field-voidcast.ts`, taking two of its three state
 bindings and all five of its functions (§6's `voidcast` row records what stayed and why).
-Every count below still includes both. They are left as measured because they are what the
-remaining 21 clusters were sized against; subtract those two rows from §4 when reading them
-as current.
+`props` went the same day, to `packages/editor/src/viewport-host/field-props.ts`, taking one
+of its two state bindings and all three of its functions. Every count below still includes
+all three. They are left as measured because they are what the remaining 20 clusters were
+sized against; subtract those three rows from §4 when reading them as current.
 
 **And foundations T3a changed three things the map names.** §2.2 records exactly what, and
 which numbers below are consequently stale. Read it before trusting a site list.
@@ -30,11 +31,11 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,276 lines** (re-measured 2026-08-06 after `voidcast` left; was 7,347 at T3a, 7,410 at the original pass). Net **−71**, against 318 lines now standing in `field-voidcast.ts`: a module pays for a header the closure did not need, moving prose out of a shared file is not the same as deleting it, and the wiring left behind carries new prose of its own (the forward-reference invariant every later extraction inherits). |
-| Code / comment / blank | **3,496 / 3,541 / 239** (re-measured 2026-08-06; was 3,554 / 3,554 / 239 at T3a and 3,620 / 3,551 / 239 originally). The CODE figure is the one that moved for a structural reason — comments were added back by this same tranche. |
-| `export function createFieldHost` | **line 1650** → end of file (**5,627 lines**) *(re-measured 2026-08-06)* |
-| `return { … }` object literal | **line 6518** *(re-measured 2026-08-06)* |
-| Closure-level bindings | **284** (re-measured 2026-08-06 by §2's rule; was 289 at T3a, 293 originally. `voidcast` took five functions and two `let`s out and put `substrate` and `voidcast` back, which is the whole −5. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
+| File total | **7,228 lines** (re-measured 2026-08-06 after `props` left; was 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−48** this time, against 241 lines now standing in `field-props.ts`. Same shape as `voidcast`'s −71: a module pays for a header the closure did not need, moving prose out of a shared file is not the same as deleting it, and the wiring left behind carries new prose of its own. |
+| Code / comment / blank | **3,454 / 3,537 / 237** (re-measured 2026-08-06 after `props`; was 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). The CODE figure is again the one that moved for a structural reason: **−42** code against **−4** comment, because a cluster that leaves takes its prose with it and then earns some of it back at the seam. |
+| `export function createFieldHost` | **line 1647** → end of file (**5,582 lines**) *(re-measured 2026-08-06 after `props`)* |
+| `return { … }` object literal | **line 6470** *(re-measured 2026-08-06 after `props`)* |
+| Closure-level bindings | **281** (re-measured 2026-08-06 after `props` by §2's rule; was 284 after `voidcast`, 289 at T3a, 293 originally. `props` took three functions and one `let` out and put `props` back, which is the whole −3. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
@@ -45,28 +46,31 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines now OUTNUMBER code lines — 3,541 to 3,496, i.e. **50.3%** of every non-blank
+Comment lines now OUTNUMBER code lines — 3,537 to 3,454, i.e. **50.6%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
-code alone is 3,496 lines, still ~9× the ~400-line file guideline in
-`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~113× the ~50-line function
+code alone is 3,454 lines, still ~8.6× the ~400-line file guideline in
+`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~112× the ~50-line function
 guideline.
 
-**Two clusters out and those ratios have not visibly moved**, which is the honest scale of
+**Three clusters out and those ratios have not visibly moved**, which is the honest scale of
 the problem. Two different reductions, worth keeping apart because they answer different
-questions: T3b1 took **0.97%** off the FILE (71 of 7,347 lines) but **1.63%** off the CODE
-(58 of 3,554). The gap between them is the point — a cluster's prose leaves with it, and
-then the wiring left behind earns prose of its own, so the FILE shrinks more slowly than
-the logic in it does. The code figure is the one that speaks to the ~400-line guideline,
-and at 1.63% per cluster that guideline is not reachable by extraction of this kind.
+questions. Per cluster: `voidcast` took **0.97%** off the FILE (71 of 7,347 lines) but
+**1.63%** off the CODE (58 of 3,554); `props` took **0.66%** off the FILE (48 of 7,276) and
+**1.20%** off the CODE (42 of 3,496). Cumulatively T3b1 stands at **−1.6%** of the file and
+**−2.8%** of the code. The gap between the two figures is the point — a cluster's prose
+leaves with it, and then the wiring left behind earns prose of its own, so the FILE shrinks
+more slowly than the logic in it does. The code figure is the one that speaks to the
+~400-line guideline, and at ~1.2–1.6% per cluster that guideline is not reachable by
+extraction of this kind.
 
 The easy extractions are already done. These sibling modules in the same directory are
 already pure and are **not** part of the closure: `field-ghost`, `field-stamp`,
 `field-placements`, `field-pick`, `field-move`, `field-flags`, `field-history`,
 `field-selection-cells`, `field-camera`, `viewport-cursor`, `input-map`, `gizmo`,
-`camera-control`, `box-edges`, `reference-grid`, and now `field-segment` and
-`field-voidcast` — the last two lifted out STATEFUL rather than discovered to be pure. What
-remains inside the closure is the stateful residue.
+`camera-control`, `box-edges`, `reference-grid`, and now `field-segment`, `field-voidcast`
+and `field-props` — the last three lifted out STATEFUL rather than discovered to be pure.
+What remains inside the closure is the stateful residue.
 
 ## 2. How this map was produced
 
@@ -113,7 +117,13 @@ only in the map's original terms.
   and you will be reading half its coupling. (Calls are cheaper to satisfy than data —
   all three of `segment`'s are `const` arrows, so they pass safely by reference — but they
   are still boundary surface, and a cluster whose neighbours' functions are numerous is more
-  entangled than its row suggests.)
+  entangled than its row suggests.) **`props` is the loudest instance and it runs the other
+  way**: its single INBOUND edge (`render.renderScene` reading `propMeshes`) understates a
+  cluster that nine functions across six other clusters call `rebuildProps` on, plus a tenth
+  calling `destroyProps`. Read as data, it is something the host occasionally looks at; read
+  as calls, it is something half the host asks to run. So the understatement is not confined
+  to a cluster's own dependencies — it applies to what depends on IT, and the outbound column
+  is the one a reader is most likely to trust as a size.
 - **STRING LITERALS were not stripped, so a few read edges are phantoms.** The method note
   above says comments were stripped before matching; nothing says the same of strings, and
   nothing did it. Worked example, found by extracting `voidcast`: the map recorded
@@ -201,7 +211,7 @@ whose state it touches).
 | `camera` | 8 | 10 | 4 | 8 | 25 | 10 |
 | `targeting` | 1 | 6 | 0 | 7 | 14 | 2 |
 | `picking` | 0 | 4 | 0 | 7 | 9 | 1 |
-| `props` | 2 | 3 | 1 | 6 | 8 | 2 |
+| `props` | 2 | 3 | 1 | 6 | 8 → **7** as `deps` (+**9** uncounted calls — §6) | 2 |
 | `view` | 2 | 1 | 2 | 6 | 8 | 1 |
 | `move` | 3 | 7 | 1 | 5 | 20 | 5 |
 | `gesture` | 4 | 2 | 2 | 5 | 17 | 2 |
@@ -573,30 +583,85 @@ and includes the occurrences inside the deleted function; it has not been re-der
 **Public members (3):** `setMaterialTable`, `setEntityCatalog`, `listGenerators`
 
 
-### Cluster: props
+### Cluster: props — **EXTRACTED 2026-08-06**
+
+Lives in `packages/editor/src/viewport-host/field-props.ts`. The row below is the measurement
+it was sized against, annotated with what the move actually cost.
 
 **Owns (state) — 2:** `propMeshes`@1798 · `propCounts`@1804
 
+`propCounts` left as a module-private `let`. `propMeshes` **stayed in the closure** and is
+already a `HostSubstrate` value member (it was one before this move — the substrate declared
+it at T3a): `render.renderScene` draws from it, and an ARRAY rebuilt by `length = 0` and
+re-push is exactly what the substrate's value side is for.
+
 **Owns (functions) — 3:** `proxyGeometry`@2369 · `destroyProps`@2380 · `rebuildProps`@2399
 
-**Reads from other clusters** (5 edges):
-  - `analyzePump` (owned by `analyzer`) — 1 site: `rebuildProps`
+All three moved verbatim and kept their names inside the module. The closure now holds one
+`const props = createProps({…})`, at the line the three functions used to start on
+(`createSegmentBrush`'s precedent), and calls `props.rebuild()`, `props.destroy(c)` and
+`props.instanceCounts()`.
+
+**Reads from other clusters** (5 edges → **4** in the module's `deps`):
+  - ~~`analyzePump` (owned by `analyzer`) — 1 site: `rebuildProps`~~ — **RELOCATED, not
+    deleted.** The pump request was the third line of one three-line act, so it travelled
+    into `markPlacementsStale` with the two flag writes rather than becoming a fourth dep:
+    `field-props.ts` never names the pump, but `field-host.ts`'s `markPlacementsStale` arrow
+    — the host side of this cluster's seam — still does. The edge is gone from the MODULE
+    and still present in the CLOSURE, which is why `analyzer`'s totals below do not move.
   - `archetypeById` (owned by `catalogs`) — 1 site: `rebuildProps`
   - `ctx` (owned by `lifecycle`) — 1 site: `rebuildProps`
   - `kitMat` (owned by `materials`) — 1 site: `rebuildProps`
   - `log` (owned by `world`) — 1 site: `rebuildProps`
 
-**MUTATES other clusters** (2 edges):
-  - `analyzerPlacementsStale` (owned by `analyzer`) — 1 site: `rebuildProps`
-  - `analyzerWholeWorld` (owned by `analyzer`) — 1 site: `rebuildProps`
+`archetypeById`, `ctx` and `log` are `HostSubstrate` members, each on the side the
+substrate's doc header predicts: `log` by value, `archetypeById` and `ctx` as thunks.
+`kitMat` is NOT in the record, and with exactly ONE extracted reader it rides as a
+single-consumer function dep (`voidCastMaterial`'s shape) rather than widening the substrate
+— the two-reader bar.
 
-**Read by other clusters** (1 edge):
-  - `propMeshes` (read in `render`) — 1 site: `renderScene`
+**But the bar governs ADDING a member, not declining one already declared**, and this row is
+where the difference first shows: `archetypeById()` also has exactly one extracted reader —
+this cluster — and rides in the substrate regardless, because T3a declared it there ahead of
+any consumer. `ctx()` is the one with two (`voidcast` and `props`). Reading a declared member
+costs nothing new; widening the record for a single consumer charges every future cluster's
+assembly. Stated because a later extraction reading only the `kitMat` sentence would conclude
+that one reader always means a private dep, and pull `archetypeById` back out.
+
+**MUTATES other clusters** (2 edges, now **1 named call**):
+  - `analyzerPlacementsStale` (owned by `analyzer`) — 1 site: ~~`rebuildProps`~~ →
+    `field-host.ts`'s `markPlacementsStale`
+  - `analyzerWholeWorld` (owned by `analyzer`) — 1 site: ~~`rebuildProps`~~ →
+    `field-host.ts`'s `markPlacementsStale`
+
+Both still happen and both still cross a cluster line; what changed is that they cross it as
+ONE named write-thunk, `PropsDeps.markPlacementsStale` (`field-segment.ts`'s
+`armMaskDropReport` precedent), whose body is an arrow at the `createProps` call site. It
+covers the pump request too — the three lines were one statement of intent under one comment,
+and a module that set two flags and left the scheduling to a separate dep could set them and
+have nothing happen.
+
+**Read by other clusters** (1 edge — and **nine calls the count does not name**):
+  - `propMeshes` (read in `render`) — 1 site: `renderScene` — unchanged; the array is shared
+    substrate, not a returned value.
+
+**This is the map's loudest instance of §2.1's second correction.** `rebuildProps` has NINE
+inbound call sites, in nine functions across six clusters: `commitStampSession` and
+`applyReconfigureSession` (`stamp`), `stepHistory` (`history`), `resetWorld` and
+`ret.loadWorld` (`world`), `ret.init` (`lifecycle`), `ret.setEntityCatalog` (`catalogs`), and
+`ret.deleteEntity` and `ret.duplicateEntity` (`entities`). `destroyProps` adds a tenth caller,
+`ret.dispose` (`lifecycle`). None of them is an edge, because edges are over DATA bindings —
+so the row above reads as a layer something occasionally looks at, and the truth is a layer
+half the host asks to run. Sizing this cluster by its single inbound edge would have been
+wrong by 9×; sizing it by its `Partners: 6` figure in §4 happens to land on the right number
+for the wrong reason (six clusters, but through calls, not the six data edges counted there).
 
 **MUTATED BY other clusters** (0 edges):
   - none
 
-**Public members (1):** `propInstanceCounts`
+**Public members (1):** `propInstanceCounts` — unchanged in signature and in behaviour; the
+facade now returns `props.instanceCounts()`, which makes the defensive copy the facade used
+to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 
 
 ### Cluster: tool
@@ -1003,8 +1068,11 @@ state block, ahead of the substrate assembly it is a value member of) · `flagsC
 **MUTATES other clusters** (0 edges):
   - none
 
-**Read by other clusters** (10 edges):
-  - `analyzePump` (read in `props`) — 1 site: `rebuildProps`
+**Read by other clusters** (10 edges — **total unchanged by the `props` extraction**):
+  - `analyzePump` (read in `props`) — 1 site: ~~`rebuildProps`~~ → `field-host.ts`'s
+    `markPlacementsStale` (**re-sited 2026-08-06**; `rebuildProps` left the closure for
+    `field-props.ts`, which does NOT name the pump — the read moved into the host-side arrow
+    that is this seam's write-thunk. Still one site, still `props`, still in the closure.)
   - `analyzePump` (read in `world`) — 3 sites: `markDirtyWithNeighbors`, `ret.loadWorld`, `ret.newWorld`
   - `analyzerIdle` (read in `lifecycle`) — 2 sites: `ret.dispose`
   - `analyzer` (read in `lifecycle`) — 1 site: `ret.dispose`
@@ -1013,18 +1081,31 @@ state block, ahead of the substrate assembly it is a value member of) · `flagsC
   - `flagStore` (read in `lifecycle`) — 1 site: `ret.init`
   - `flagStore` (read in `picking`) — 1 site: `pickCandidates`
 
-**MUTATED BY other clusters** (14 edges):
+**MUTATED BY other clusters** (14 edges — **total unchanged by the `props` extraction**; two
+sites are re-named below, both relocations rather than deletions):
   - `analyzerDirty` (mutated by `world`) — 2 sites: `markDirtyWithNeighbors`, `resetWorld`
   - `analyzerIdle` (mutated by `lifecycle`) — 1 site: `ret.dispose`
   - `analyzerPlacementsStale` (mutated by `lifecycle`) — 1 site: `ret.dispose`
-  - `analyzerPlacementsStale` (mutated by `props`) — 1 site: `rebuildProps`
+  - `analyzerPlacementsStale` (mutated by `props`) — 1 site: ~~`rebuildProps`~~ →
+    `field-host.ts`'s `markPlacementsStale` (**re-sited 2026-08-06**)
   - `analyzerResync` (mutated by `lifecycle`) — 1 site: `ret.dispose`
   - `analyzerResync` (mutated by `world`) — 2 sites: `resetWorld`, `ret.loadWorld`
   - `analyzerSeeds` (mutated by `world`) — 2 sites: `resetWorld`, `ret.loadWorld`
   - `analyzerStale` (mutated by `world`) — 1 site: `resetWorld`
-  - `analyzerWholeWorld` (mutated by `props`) — 1 site: `rebuildProps`
+  - `analyzerWholeWorld` (mutated by `props`) — 1 site: ~~`rebuildProps`~~ →
+    `field-host.ts`'s `markPlacementsStale` (**re-sited 2026-08-06**)
   - `analyzerWholeWorld` (mutated by `world`) — 1 site: `ret.loadWorld`
   - `flagStore` (mutated by `world`) — 1 site: `resetWorld`
+
+**Why `analyzer`'s `Edges: 39` in §4 does NOT move**, though the `props` row above re-counts
+itself `5 → 4`: the two counts answer different questions. The props row counts what
+`field-props.ts`'s `deps` record carries — four, because the pump and the two flags all
+arrive behind one `markPlacementsStale()`. This row counts what crosses a cluster line
+inside the closure, and all three still do; they simply do it from a named arrow at the
+`createProps` call site instead of from inside `rebuildProps`. **Nothing about the analyzer's
+coupling improved** — the extraction gave that coupling a name, and a name is not a
+reduction. The `voidcast` phantom (§2.1) was struck at both ends because it never existed;
+these three are struck at neither, because they still do.
 
 **Public members (6):** `setAgentProfile`, `subscribeFlags`, `setFlagFilters`, `verifyFlag`, `selectFlag`, `flagMarkerCount`
 
@@ -1226,7 +1307,7 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 | `history` | 7 | 1 out (`drift.drift`) | 4 |
 | `segment` | 8 | 1 out (`tool.maskDropReported`) | 3 |
 | `voidcast` | ~~**9**~~ **8** | **0** | ~~4~~ 3 — **EXTRACTED 2026-08-06** |
-| `props` | 8 | 2 out (analyzer staleness flags) | 6 |
+| `props` | 8 → **7** | 2 out (analyzer staleness flags) → **1 call** | 6 — **EXTRACTED 2026-08-06** |
 | `view` | 8 | 1 out (`world.dirty`) | 6 |
 
 All six read the same small substrate — `world.store`, `world.log`, `lifecycle.ctx`,
@@ -1333,6 +1414,13 @@ change that proves out the context-record mechanism in §7.3 before anything loa
 depends on it.
 
 `segment` and `history` are close seconds (one boundary mutation each).
+
+**And `props` went second the same day**, ahead of both — not because this section ranked it
+there (it did not; two boundary mutations put it below them here) but because T3b1 ordered
+its tasks by MEASURED extraction cost against the as-built, and the two staleness flags turn
+out to be one named write-thunk rather than two problems. What the ranking above could not
+see is the thing that made `props` interesting: nine inbound CALLS, which no column here
+counts (§2.1's second correction). See §6's `props` row.
 
 ### 7.5 Honest assessment: extracting the stamp session
 

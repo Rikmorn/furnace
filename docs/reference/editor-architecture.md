@@ -553,7 +553,10 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   `placements` reach the session as `placementCount` and the ghost as ONE merged
   hologram-blue wireframe batch of oriented proxy boxes (`placementGhostBatch`,
   `occlude:false`, under the `ghost` layer gate). No mesh loading in the ghost (v0).
-- **Committed prop layer** — `rebuildProps` rebuilds one instanced draw per archetype from
+- **Committed prop layer** — the cluster (`rebuildProps`, `proxyGeometry`, `destroyProps`
+  and the per-archetype instance counts) lives in `viewport-host/field-props.ts` since
+  foundations T3b1, not in the host; behaviour unchanged by the move (§20.3), and the nine
+  call sites below stayed behind. It rebuilds one instanced draw per archetype from
   the op log's `PlacementOp` records: `groupPlacements` (group size = instance count) →
   core `packPlacementMatrices` over `proxyRecords` (the collision primitive's extents folded
   into each record's scale) on a unit cube / sphere / cylinder, tinted per archetype on the
@@ -882,7 +885,8 @@ mind.
   filling it), lifted `cellSize / 2` so it occupies the AIR cell its flag anchors on.
   UNLIT instanced (`shader.unlitInstanced`, white base), deliberately: a marker that dims when
   the camera-following key light looks away is a marker that stops doing its job in the
-  shading mode meant for mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule. Colour is the stage-2
+  shading mode meant for mood. Whole-layer teardown-and-rebuild, the `rebuildProps` rule
+  (`viewport-host/field-props.ts`). Colour is the stage-2
   verdict if there is one, else the triage band — `CANDIDATE_TINT` red, `INFO_TINT` the
   selection amber (shared with `SELECTION_COLOR` rather than restated: both mean CONTEXT),
   `VERIFIED_TRAPPED_TINT` the candidate red darkened, `VERIFIED_CLEAR_TINT` a muted green. An
@@ -2621,7 +2625,23 @@ handed, plus `createHostSubstrate` — an identity function whose entire value i
 single named place where the host states the split and the compiler checks it. Declared at
 T3a with no consumer on purpose, and **constructed in `createFieldHost` since T3b1
 (2026-08-06)**, when the void-cast extraction became the first thing to hand it to
-(`viewport-host/field-voidcast.ts`).
+(`viewport-host/field-voidcast.ts`). `viewport-host/field-props.ts` is the second, the same
+day, and it needed no new member: `log`, `propMeshes`, `ctx()` and `archetypeById()` were
+already declared. That is the record earning its keep — the second consumer paid nothing.
+
+**A single-consumer dependency does NOT earn a member.** Both extracted modules carry one:
+the void cast takes `voidCastMaterial()` and the prop layer takes `kitMat()`, each a host
+`let` reached through a function on the module's own deps record rather than through the
+substrate. The bar is TWO extracted readers, because widening the record for one consumer
+charges every future cluster's assembly for that consumer's convenience — and the thing that
+keeps a `let` honest is the CALL, not whose record it sits on.
+
+**That bar governs ADDING a member, never declining one already declared**, and the
+distinction is load-bearing rather than pedantic. `archetypeById()` also has exactly one
+extracted reader today (`field-props.ts`) and stays in the record, because T3a declared it
+ahead of any consumer and reading a declared member costs nothing new. Only `ctx()` has two.
+Read the bar as "one reader ⇒ private dep" and the next extraction pulls `archetypeById` back
+out of the substrate for no gain and one more bespoke dep.
 
 The split is not a style preference and it is not about mutability. **Eleven members are held
 BY VALUE** because they are `const` in the host — the binding never moves, so every write
