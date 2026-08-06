@@ -2568,17 +2568,26 @@ single-slot era failed LOUDLY when a subscription leaked (the second subscriber 
 the first and something visibly stopped updating), whereas a Set just grows. A count that
 only climbs across mount/unmount cycles is a missing cleanup.
 
-**`subscribeHistory` is the one seam that is not a bare delegate**, and the reason is worth
-keeping. Its body used to CLEAR the shared echo signature (`historySig`) to force an
-unconditional push to its one subscriber; it now RECORDS it (`historySig = historySignature()`)
-and lets the channel's snapshot do the arriving subscriber's initial push. Clearing was
-correct for one subscriber and wrong for N — it would re-broadcast the current history to
-everybody on the next notify that moved nothing. Recording says something true of every live
-subscriber instead: the arrival was just handed this history, and the ones already here were
-pushed it when it landed. It is written BEFORE the subscribe so a callback that reads the
-host back synchronously cannot provoke a duplicate of its own first push. `notifyHistory`
-still asks "is anybody listening" first, as `historyChannel.size() === 0`, and still leaves
-the signature alone when the answer is no.
+**`subscribeHistory` WAS the one seam that is not a bare delegate**, and the reason is worth
+keeping even though the seam no longer shows it. Its body used to CLEAR the shared echo
+signature (`historySig`) to force an unconditional push to its one subscriber; it then
+RECORDED it (`historySig = historySignature()`) and let the channel's snapshot do the
+arriving subscriber's initial push. Clearing was correct for one subscriber and wrong for N —
+it would re-broadcast the current history to everybody on the next notify that moved nothing.
+Recording says something true of every live subscriber instead: the arrival was just handed
+this history, and the ones already here were pushed it when it landed. It is written BEFORE
+the subscribe so a callback that reads the host back synchronously cannot provoke a duplicate
+of its own first push. The `notify` verb still asks "is anybody listening" first, as
+`historyChannel.size() === 0`, and still leaves the signature alone when the answer is no.
+
+**Since foundations T3b1 (2026-08-06) all thirteen seams are bare delegates**, because that
+whole body moved into `viewport-host/field-history-feed.ts` — the channel, the signature and
+both verbs — and `FieldHost.subscribeHistory` now reads `return historyFeed.subscribe(cb)`
+with its signature and observable behaviour unchanged. The ordering above is therefore a
+property of one function in one file rather than an agreement between the facade and the
+state it reaches past; `tests/viewport-host/field-history-feed.test.ts` pins it, which
+nothing did before. The module is deliberately NOT `field-history.ts` — that file is the pure
+label-derivation module and its header rules state out.
 
 ### 20.2 The input router — Esc becomes a capture stack
 

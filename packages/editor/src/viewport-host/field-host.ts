@@ -75,7 +75,8 @@ import {
   generatorFootprint,
   sphereGhostSegments,
 } from "./field-ghost.ts";
-import { type FieldHistory, fieldHistory } from "./field-history.ts";
+import type { FieldHistory } from "./field-history.ts";
+import { createHistoryFeed } from "./field-history-feed.ts";
 import {
   advanceMove,
   type MoveDrag,
@@ -1902,17 +1903,6 @@ export function createFieldHost(deps?: {
   // carries no value, and its snapshot is the initial catch-up (the world may
   // already hold entities) rather than a payload.
   const entitiesChannel = createViewChannel<[]>({ snapshot: () => [] });
-  // The named-history seam, plus the signature that decides whether a
-  // republish would say anything new (see notifyHistory).
-  const historyChannel = createViewChannel<[FieldHistory]>({
-    snapshot: () => [fieldHistory(log.undoStack, log.redoStack)],
-  });
-  let historySig: {
-    undoLen: number;
-    redoLen: number;
-    undoTop: field.LogEntry | undefined;
-    redoTop: field.LogEntry | undefined;
-  } | null = null;
   // Ghost render state: one entry per previewed chunk, every bucket drawn with
   // the ONE translucent stamp-ghost material. Rebuilt per preview response;
   // destroyed on cancel/commit/re-preview/world-reset + dispose.
@@ -2666,11 +2656,11 @@ export function createFieldHost(deps?: {
       reportToolError(`tool apply failed: ${message}`);
     }
     // The ONE log-mutating path that rewrites no entity record, so it is the one
-    // that cannot reach `notifyHistory` through `notifyEntities` (see there).
+    // that cannot reach the history feed through `notifyEntities` (see there).
     // OUTSIDE the try: a refused op leaves the log untouched and the push is a
     // guarded no-op, and putting it in the `catch` as well would be two spellings
     // of one call.
-    notifyHistory();
+    historyFeed.notify();
   };
 
   // Whether the active tool fills a kit class — its ghost + op use the snapped
@@ -3523,61 +3513,31 @@ export function createFieldHost(deps?: {
     stampChannel.publish(stamp === null ? null : structuredClone(stamp));
   };
 
-  // The NAMED history push (D-F4.5-11), and the guard that decides whether
-  // there is anything to say.
+  // The named-history feed (`field-history-feed.ts`): its channel, its change
+  // signature and two of its three functions left, and no state stayed behind —
+  // the second extraction of which that is true, after `stats`. The assembly sits
+  // where those two functions were, on `createSegmentBrush`'s precedent — a
+  // cluster's remaining footprint marks where the cluster was — rather than where
+  // its channel was declared, which is above the `substrate` this record needs.
   //
-  // IDEMPOTENT BY DESIGN, and that is what makes its call sites cheap: it
-  // compares a signature of the two entry stacks first and returns without
-  // publishing when nothing moved. So calling it from a path that sometimes
-  // mutates the log and sometimes does not costs a handful of reads, and a
-  // future path can call it defensively without thinking about whether it needs
-  // to. **Any new path that pushes to, pops from or clears either stack must
-  // call this** — nothing in the type system enforces that, so it is written
-  // here rather than assumed.
+  // The third function, `stepHistory`, STAYED and is untouched by this move. It
+  // wears the cluster's name and belongs to none of it: it calls into five other
+  // clusters and never names the history seam at all — its push arrives through
+  // `notifyEntities`. See the module header.
   //
-  // The signature is (length, TOP ENTRY IDENTITY) per side, and the identity
-  // term is load-bearing rather than defensive. Lengths alone are blind to the
-  // commonest sequence in an editor: undo once, then do something new. The new
-  // mutation clears the redo stack and pushes one entry, landing on exactly the
-  // (undo, redo) lengths the history had before the undo — with a different
-  // entry on top. A length-only guard would swallow that push and leave the menu
-  // offering "Undo dig" over a log whose last act was a fill. Under LIFO those
-  // two terms are also SUFFICIENT: entries only ever enter and leave at the top,
-  // so a change below it implies one of them moved. (`redo` re-pushes the very
-  // object it popped for splice/entity-update entries — which is correct, since
-  // the resulting history really is the one already published.)
+  // What left with it that the closure cannot get back: `FieldHost.subscribeHistory`
+  // was the LAST of the host's thirteen `subscribe*` members that did work before
+  // delegating. It recorded the change signature ahead of the channel's snapshot;
+  // that line now lives inside `historyFeed.subscribe`, and the facade seam is a
+  // one-line delegate like the other twelve.
   //
-  // No `worldEpoch` term, unlike the footprint memo one screen down. That memo
-  // reads `log.ops`, which a world swap replaces wholesale while the numbers
-  // agree; this reads ONLY the two stacks, and `resetWorld` empties both — so a
-  // load that leaves them empty when they were already empty publishes nothing
-  // because there is genuinely nothing new to publish.
-  const historySignature = (): NonNullable<typeof historySig> => ({
-    undoLen: log.undoStack.length,
-    redoLen: log.redoStack.length,
-    undoTop: log.undoStack.at(-1),
-    redoTop: log.redoStack.at(-1),
-  });
-
-  const notifyHistory = (): void => {
-    // "Nobody is listening" is still the first question, and the answer still
-    // leaves the signature alone: a mutation made with the palette unmounted
-    // must not be recorded as published, or the next mount's own arrival would
-    // be the only thing that ever said so.
-    if (historyChannel.size() === 0) return;
-    const prev = historySig;
-    const sig = historySignature();
-    if (
-      prev !== null &&
-      prev.undoLen === sig.undoLen &&
-      prev.redoLen === sig.redoLen &&
-      prev.undoTop === sig.undoTop &&
-      prev.redoTop === sig.redoTop
-    )
-      return;
-    historySig = sig;
-    historyChannel.publish(fieldHistory(log.undoStack, log.redoStack));
-  };
+  // The forward reference here is the one that was already there:
+  // `commitToolOp` (~900 lines up) calls `historyFeed.notify()` where it called
+  // `notifyHistory()`, which was declared on this same line. Safe for the reason
+  // spelled out at the `createVoidCast` assembly below — nothing between this
+  // closure's brace and its `return {` ever RUNS. No hoist was needed: the one dep
+  // is `substrate`, assembled ~1,500 lines above.
+  const historyFeed = createHistoryFeed({ substrate });
 
   // The entity-list tick. Fired by every path that can add, remove or rewrite
   // an entity RECORD — including the two (freeze, bake) that dirty no chunk and
@@ -3588,11 +3548,11 @@ export function createFieldHost(deps?: {
   // record and therefore already funnel through here by this seam's own contract
   // (commit, apply, freeze, unfreeze, bake, delete, duplicate, ⌘Z/⇧⌘Z, world
   // new/load). The tenth is the brush stroke, which touches no entity — so
-  // `commitToolOp` calls `notifyHistory` itself, and those two are the ONLY
-  // sites. Spelling it out at all ten would be ten chances to forget.
+  // `commitToolOp` calls the feed itself, and those two are the ONLY sites.
+  // Spelling it out at all ten would be ten chances to forget.
   const notifyEntities = (): void => {
     entitiesChannel.publish();
-    notifyHistory();
+    historyFeed.notify();
   };
 
   // Which committed entities the findings TOUCH — the palette's drift badges.
@@ -7121,18 +7081,7 @@ export function createFieldHost(deps?: {
       return entitiesChannel.subscribe(cb);
     },
     subscribeHistory(cb) {
-      // The channel's own snapshot is the initial push, and it goes to the
-      // ARRIVING subscriber alone — which is what this body has to record here
-      // rather than CLEAR. Clearing the signature was how a single slot forced
-      // an unconditional push for its one subscriber; with N of them it would
-      // re-broadcast the current history to everybody on the next notify that
-      // moved nothing. Recording it says something true of every live
-      // subscriber instead: the arrival was just handed this history, and the
-      // ones already here were pushed it (or an equal-signature one) when it
-      // landed. Written BEFORE the subscribe so a callback that reads the host
-      // back synchronously cannot provoke a duplicate of its own first push.
-      historySig = historySignature();
-      return historyChannel.subscribe(cb);
+      return historyFeed.subscribe(cb);
     },
     listEntities() {
       // One attribution pass for the whole list, not one scan per row: the

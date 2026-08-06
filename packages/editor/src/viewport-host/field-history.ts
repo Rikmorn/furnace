@@ -212,7 +212,7 @@ export function entryLabel(entry: LogEntry): string {
 
 /** The named history for a pair of log stacks — the {@link FieldHistory} payload the
  *  host publishes. Reads the stacks and nothing else, which is what makes the host's
- *  change-signature (see `notifyHistory`) able to be a fact about them alone. */
+ *  change-signature (see `field-history-feed.ts`) able to be a fact about them alone. */
 export function fieldHistory(
   undoStack: readonly LogEntry[],
   redoStack: readonly LogEntry[],

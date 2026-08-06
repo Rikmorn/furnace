@@ -650,7 +650,7 @@ test.skipIf(!bunWebGpuAvailable())(
 // cannot live there: `commitToolOp` is reached only from a pointer over a live context
 // (both arms resolve their world point through `cursorRay`, which needs the camera
 // `init` builds). It is also the ONE log-mutating host path that rewrites no entity
-// record, so it is the one that does not reach `notifyHistory` through `notifyEntities`
+// record, so it is the one that does not reach the history feed through `notifyEntities`
 // — i.e. exactly the branch a test on the other side of the seam cannot see. The rAF
 // stub in this fixture is a no-op, so nothing but the explicit push can deliver these.
 test.skipIf(!bunWebGpuAvailable())(

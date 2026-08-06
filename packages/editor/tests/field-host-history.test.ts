@@ -139,7 +139,7 @@ test("the seam is MULTICAST, and each release frees only its own subscriber", ()
   expect(first.pushes.length).toBe(2);
   expect(second.pushes.length).toBe(3);
   // …and the seam goes quiet when the LAST one leaves, which is also where the echo
-  // signature stops advancing (notifyHistory's `size() === 0` guard).
+  // signature stops advancing (the feed's `size() === 0` guard).
   second.off();
   host.setEntityFrozen(id, true);
   expect(second.pushes.length).toBe(3);
@@ -165,7 +165,7 @@ test("a subscriber that arrives mid-world is pushed the history the others hold"
 
 // --- every log-mutating host verb publishes ---------------------------------
 //
-// Table-driven, and that is the point rather than a style choice: `notifyHistory` is
+// Table-driven, and that is the point rather than a style choice: the feed's `notify` is
 // reached from TWO chokepoints (inside `notifyEntities`, which every entity-record path
 // funnels through by its own contract, and `commitToolOp`), so what has to be pinned is
 // that each verb really does reach one of them. A per-verb `test` block would make each
@@ -273,7 +273,7 @@ test("undo, redo, undo, then a NEW op — the top is renamed at every step", () 
 // DISCLOSED AS UNPINNED, rather than left to look covered: the signature's TOP-ENTRY
 // identity terms cannot be made to fire from this API, and an earlier version of the
 // test above claimed they could. They cannot because the property they would catch is
-// unreachable while the discipline holds — `notifyHistory` runs after every single log
+// unreachable while the discipline holds — the feed's `notify` runs after every single log
 // mutation, and every single mutation moves at least one stack LENGTH (a push clears
 // redo and grows undo; an undo trades one for the other), so two consecutive signatures
 // can never agree on both lengths while disagreeing on content. Removing both identity

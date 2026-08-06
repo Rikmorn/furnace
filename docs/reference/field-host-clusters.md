@@ -8,7 +8,7 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Four clusters have since left.** `segment` was extracted to
+**Four clusters have since left, and a fifth left in half.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
@@ -18,9 +18,13 @@ bindings and all five of its functions (§6's `voidcast` row records what stayed
 of its two state bindings and all three of its functions. `stats` went the same day too, to
 `packages/editor/src/viewport-host/field-stats.ts`, taking **all six** of its state bindings
 and its one function — plus twenty lines of `tick` that the map attributes to `lifecycle`
-(§6's `stats` row explains why that matters more than the count does). Every count below
-still includes all four. They are left as measured because they are what the remaining 19
-clusters were sized against; subtract those four rows from §4 when reading them as current.
+(§6's `stats` row explains why that matters more than the count does). Then `history` went,
+**but only as its FEED** — to `packages/editor/src/viewport-host/field-history-feed.ts`,
+taking both of its state bindings and two of its three functions. `stepHistory` stayed, and
+§6's `history` row explains why that is a finding rather than an omission (it also corrects
+that row's function count, 2 → 3). Every count below still includes all five. They are left as
+measured because they are what the remaining 18 clusters were sized against; subtract those
+rows from §4 when reading them as current.
 
 **And foundations T3a changed three things the map names.** §2.2 records exactly what, and
 which numbers below are consequently stale. Read it before trusting a site list.
@@ -34,11 +38,11 @@ its date.
 
 | Fact | Value |
 |---|---|
-| File total | **7,216 lines** (re-measured 2026-08-06 after `stats` left; was 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−12** this time — the smallest of the four — against **282** lines now standing in `field-stats.ts`. The shape the other three showed, at its most extreme: a module pays for a header the closure did not need, moving prose out of a shared file is not deleting it, and the wiring left behind carries new prose of its own. This cluster's own prose was small (14 comment lines across the whole state block, most of them the cache's) and the seam it needed was not, so the file barely moved while the closure lost seven bindings. |
-| Code / comment / blank | **3,429 / 3,550 / 237** (re-measured 2026-08-06 after `stats`; was 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). The clearest instance yet of why the two columns must be read apart: **−25** code and **+13** comment. The closure lost seven bindings and a twenty-line publish block, and GAINED prose — the assembly comment explaining what a meter is and why this cluster could not be lifted as a record of functions. |
-| `export function createFieldHost` | **line 1651** → end of file (**5,566 lines**) *(re-measured 2026-08-06 after `stats`; the +4 on the start line is the new module's import plus three lines of corrected `FieldStats` TSDoc)* |
-| `return { … }` object literal | **line 6458** *(re-measured 2026-08-06 after `stats`)* |
-| Closure-level bindings | **275** (re-measured 2026-08-06 after `stats` by §2's rule; was 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. `stats` took one function, one `const` and five `let`s out and put `stats` back, which is the whole −6 — the largest single-cluster drop of the four, and the reason the FILE barely moved is that six of those seven bindings were one line each. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived) |
+| File total | **7,165 lines** (re-measured 2026-08-06 after the `history` feed left; was 7,216 after `stats`, 7,228 after `props`, 7,276 after `voidcast`, 7,347 at T3a, 7,410 at the original pass). Net **−51** this time, against **203** lines now standing in `field-history-feed.ts`. The same shape as the other four — a module pays for a header the closure did not need — but a better ratio than `stats` or `props`, because this cluster's prose was dense (a 29-line signature/guard comment travelled wholesale) and its wiring is one line. |
+| Code / comment / blank | **3,400 / 3,529 / 236** (re-measured 2026-08-06 after the `history` feed; was 3,429 / 3,550 / 237 after `stats`, 3,454 / 3,537 / 237 after `props`, 3,496 / 3,541 / 239 after `voidcast`, 3,554 / 3,554 / 239 at T3a, 3,620 / 3,551 / 239 originally). **−29** code and **−21** comment — the first extraction in the tranche where the comment column fell too. It is the mirror of `stats`: there the assembly prose the closure GAINED outweighed the prose that left, because the wiring needed explaining. Here two dense blocks travelled (a 29-line signature/guard comment, plus the 10-line facade comment that went with the line it defends — the ordering is now a property of one function in one file rather than an agreement between two) and the 25-line assembly note replacing them does not cover the difference. |
+| `export function createFieldHost` | **line 1652** → end of file (**5,514 lines**) *(re-measured 2026-08-06 after the `history` feed; the +1 on the start line is the `field-history.ts` import splitting into a type-only import plus the new module's)* |
+| `return { … }` object literal | **line 6418** *(re-measured 2026-08-06 after the `history` feed)* |
+| Closure-level bindings | **272** (re-measured 2026-08-06 after the `history` feed by §2's rule; was 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. The feed took two functions, one `const` channel and one `let` out and put `historyFeed` back: −3. The arrow-function/data split — 161/132 as originally measured — has still **not** been re-derived, and §6's per-cluster counts must not be summed to stand in for it: those rows are mixed-epoch, so the two figures are only comparable at the epoch each was taken. §6's `history` row works the example) |
 | `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
 | Clusters below | 23 *(2026-08-03)* |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
@@ -49,34 +53,41 @@ its first non-space characters are `//` or if it lies inside a `/* … */` block
 everything else as code. The blank count reproduces the original pass exactly, which is the
 evidence that the two methods agree.
 
-Comment lines now OUTNUMBER code lines — 3,550 to 3,429, i.e. **50.9%** of every non-blank
+Comment lines still OUTNUMBER code lines — 3,529 to 3,400, i.e. **50.9%** of every non-blank
 line in the file is prose (they were exactly level at T3a, and code led at the original
 pass). That density is why the file reads as documented rather than merely large — but the
-code alone is 3,429 lines, still ~8.6× the ~400-line file guideline in
-`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~111× the ~50-line function
+code alone is 3,400 lines, still ~8.5× the ~400-line file guideline in
+`.claude/rules/clean-code.md`, and `createFieldHost` alone is ~110× the ~50-line function
 guideline.
 
-**Four clusters out and those ratios have not visibly moved**, which is the honest scale of
+**Five clusters out and those ratios have not visibly moved**, which is the honest scale of
 the problem. Two different reductions, worth keeping apart because they answer different
 questions. Per cluster: `voidcast` took **0.97%** off the FILE (71 of 7,347 lines) but
 **1.63%** off the CODE (58 of 3,554); `props` took **0.66%** off the FILE (48 of 7,276) and
 **1.20%** off the CODE (42 of 3,496); `stats` took **0.17%** off the FILE (12 of 7,228) and
-**0.72%** off the CODE (25 of 3,454). Cumulatively T3b1 stands at **−1.8%** of the file and
-**−3.5%** of the code. The gap between the two figures is the point — a cluster's prose
-leaves with it, and then the wiring left behind earns prose of its own, so the FILE shrinks
-more slowly than the logic in it does. The code figure is the one that speaks to the
+**0.72%** off the CODE (25 of 3,454); the `history` feed took **0.71%** off the FILE (51 of
+7,216) and **0.85%** off the CODE (29 of 3,429). Cumulatively T3b1 stands at **−2.5%** of the
+file and **−4.3%** of the code. The gap between the two figures is the point — a cluster's
+prose leaves with it, and then the wiring left behind earns prose of its own, so the FILE
+shrinks more slowly than the logic in it does. The code figure is the one that speaks to the
 ~400-line guideline, and at ~0.7–1.6% per cluster that guideline is not reachable by
 extraction of this kind. `stats` is the case that says so most plainly: it removed the most
-BINDINGS of the four and the fewest lines, because a cluster's size in bindings and its size
-in lines are not the same measurement.
+BINDINGS of the five and the fewest lines, because a cluster's size in bindings and its size
+in lines are not the same measurement. The `history` feed is the one case where the two
+figures nearly agree (0.71 / 0.85), and the reason is instructive: it is the only extraction
+whose comment column fell as well, because the prose it moved was dense and the wiring note
+that replaced it did not have a new shape to explain.
 
 The easy extractions are already done. These sibling modules in the same directory are
 already pure and are **not** part of the closure: `field-ghost`, `field-stamp`,
 `field-placements`, `field-pick`, `field-move`, `field-flags`, `field-history`,
 `field-selection-cells`, `field-camera`, `viewport-cursor`, `input-map`, `gizmo`,
 `camera-control`, `box-edges`, `reference-grid`, and now `field-segment`, `field-voidcast`,
-`field-props` and `field-stats` — the last four lifted out STATEFUL rather than discovered to
-be pure. What remains inside the closure is the stateful residue.
+`field-props`, `field-stats` and `field-history-feed` — the last five lifted out STATEFUL
+rather than discovered to be pure. The newest is the sharpest illustration of the difference:
+`field-history` was already in the pure list, and the feed had to become a SEPARATE file
+because that module's header rules state out. What remains inside the closure is the stateful
+residue.
 
 ## 2. How this map was produced
 
@@ -236,7 +247,7 @@ whose state it touches).
 | `move` | 3 | 7 | 1 | 5 | 20 | 5 |
 | `gesture` | 4 | 2 | 2 | 5 | 17 | 2 |
 | `voidcast` | 3 | 5 | 0 | 4 → **3** | 9 → **8** | **0** |
-| `history` | 2 | 2 | 3 | 4 | 7 | 1 |
+| `history` | 2 | 2 → **3** (§6) | 3 | 4 | 7 — the module takes **1** (`log`); `stepHistory` stays and keeps the other 6 | 1 |
 | `segment` | 6 | 6 | 1 | 3 | 8 | 1 |
 | `drift` | 2 | 3 | 2 | 3 | 5 | 3 |
 | `stats` | 6 | 1 | 1 | 3 → **5** | 5, of which 2 are inbound reads — the module needs **7** (§2.1's fourth correction) | 1 |
@@ -1006,20 +1017,81 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 **Public members (1):** `beginMove`
 
 
-### Cluster: history
+### Cluster: history — **the FEED EXTRACTED 2026-08-06; `stepHistory` stayed**
+
+The feed lives in `packages/editor/src/viewport-host/field-history-feed.ts` — **not** in
+`field-history.ts`, which is the pure label-derivation module next door and whose header
+rules state out as a contract. The row below is the measurement it was sized against,
+annotated with what the move actually cost. It is the only row here that a cluster **half**
+left, and the only one whose original function count was wrong.
 
 **Owns (state) — 2:** `historyChannel`@1910 · `historySig`@1868
 
-**Owns (functions) — 2:** `notifyHistory`@3617 · `stepHistory`@5550
+Both left; nothing stayed. This row's own "Read by other clusters: none" is why there was
+nothing for the substrate to hold — the second extraction after `stats` that added no
+member and left no container behind.
 
-**Reads from other clusters** (6 edges):
-  - `drift` (owned by `drift`) — 1 site: `stepHistory`
-  - `log` (owned by `world`) — 8 sites: `notifyHistory`, `stepHistory`
-  - `stamp` (owned by `stamp`) — 1 site: `stepHistory`
-  - `store` (owned by `world`) — 2 sites: `stepHistory`
-  - `table` (owned by `catalogs`) — 1 site: `stepHistory`
+**Owns (functions) — 2 at the original pass, 3 as built:** `historySignature`@3555 (a T3b1-BASE
+line) · `notifyHistory`@3617 · `stepHistory`@5550 (both original-pass lines; at BASE they are
+3562 and 5447). **The three line numbers are MIXED-EPOCH**, which is the shape of the
+correction below rather than an untidiness in it.
 
-**MUTATES other clusters** (1 edge):
+`historySignature` is absent from the original list because **it did not exist at the original
+pass.** At the map's production commit `b507d3f6`, `notifyHistory` built the signature INLINE
+(`const sig = { undoLen: …, redoLen: …, undoTop: …, redoTop: … }`, `b507d3f6:field-host.ts`
+:3617–3636) against a single-slot `historyCb`. The named `const historySignature` arrived later,
+in `83097df2` ("the thirteen subscribe seams go multicast"), when the seam became a channel and
+the facade needed to compute a signature of its own. Two callers from that day on —
+`notifyHistory` and `subscribeHistory` — **which is exactly why that seam was not a delegate.**
+The row is updated to the as-built count of 3.
+
+**No inference about the map's completeness follows, and the arithmetic that looks like it does
+is a trap.** §6's function counts sum to **160** today against §1's **161** arrow-valued
+bindings, but that gap is not an omission: the `input` row was decremented **13 → 12** post-hoc
+for `escapeLadder`'s deletion (§2.2), and summing §6 at the ORIGINAL epoch — `input` 13,
+`history` 2 — gives **161 exactly**, matching §1. The state columns sum to 132 at both epochs,
+so they are not a control for the function side: state rows survived their renames, the function
+side carries a real deletion. **The map's function lists were complete and self-consistent when
+measured.**
+
+What this row actually exposes is more useful than a miscount: **§6 is a MIXED-EPOCH record.**
+Some rows have been updated for later changes (`input`'s 13 → 12, the seam bindings' re-measured
+lines, the four EXTRACTED annotations) and some have not, and nothing marks which is which. A
+reader re-deriving from this document — §7's follow-on work does exactly that — must date each
+row before trusting it, and must not reconcile a §6 total against a §1 figure without checking
+that the two were measured at the same epoch. That is the standing hazard; this row is one
+instance of it, not the discovery of a gap.
+
+Two of the three left — `historySignature` (still module-private, now typed by a named
+`HistorySignature` because `NonNullable<typeof historySig>` cannot cross a file boundary) and
+`notifyHistory` (as `HistoryFeed.notify`).
+
+**`stepHistory` STAYED, and that is a finding rather than an omission.** It wears the
+cluster's name and belongs to none of it: its body calls into FIVE other clusters —
+`markDirtyWithNeighbors` (`world`), `cancelStampSession` (`stamp`),
+`revalidateEntitySelection` AND `notifyEntities` (`entities`), `props.rebuild()` (the
+extracted prop layer) and `notifyDrift` (`drift`) — and it does not name the history seam at
+all. Its push arrives through `notifyEntities`, which carries it by that seam's own contract,
+so `stepHistory` needed **no edit whatsoever** in this move. It is a lifecycle verb wearing a
+history name: what it owns is "everything one undo/redo step can move", of which the history
+push is the smallest part. §2.1's second correction (calls are not edges) is what hid this —
+five of its six outbound couplings are calls, so the row's 7 edges size the wrong thing.
+
+**Reads from other clusters** (6 edges → the module's `deps` takes **1**):
+  - `drift` (owned by `drift`) — 1 site: `stepHistory` — **stays in the closure**
+  - `log` (owned by `world`) — 8 sites: `notifyHistory`, `stepHistory` — **SPLIT**: the
+    `notifyHistory` sites left with the feed (as `deps.substrate.log`, a value member that
+    needed no addition to the record); the `stepHistory` sites stayed. The only binding in
+    this document an extraction has read from both sides of the boundary.
+  - `stamp` (owned by `stamp`) — 1 site: `stepHistory` — **stays**
+  - `store` (owned by `world`) — 2 sites: `stepHistory` — **stays**
+  - `table` (owned by `catalogs`) — 1 site: `stepHistory` — **stays**
+
+So the module's whole dependency record is `{ substrate }` — the shortest in the tranche, and
+the first with nothing beside the substrate in it. Nothing rides as a private thunk because
+nothing this half reads is a `let`.
+
+**MUTATES other clusters** (1 edge — **unchanged, and in the closure**):
   - `drift` (owned by `drift`) — 1 site: `stepHistory`
 
 **Read by other clusters** (0 edges):
@@ -1028,7 +1100,22 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 **MUTATED BY other clusters** (0 edges):
   - none
 
-**Public members (3):** `undo`, `redo`, `subscribeHistory`
+**Public members (3):** `undo`, `redo`, `subscribeHistory`. The first two call `stepHistory`
+and are untouched. **`subscribeHistory` is the point of the extraction**: it was the LAST of
+the host's thirteen `subscribe*` members that did work before delegating — it wrote the
+change signature ahead of the channel's snapshot — and that line now lives inside
+`HistoryFeed.subscribe`, so the facade seam is a one-line delegate like the other twelve.
+Same signature, same observable behaviour; `tests/field-host-history.test.ts` (9 tests) and
+`tests/chrome/history-palette.test.tsx` (14) both ran with their ASSERTIONS unmodified (three
+comment lines in the former were later re-pointed at the feed's new name).
+
+**A coverage hole was found and closed at the seam.** The record-before-subscribe ORDERING was
+pinned by nothing in the PRE-EXISTING suite: reversing the two statements left it entirely green
+(1,363/0 either way, verified by sabotage), because no test there subscribes a callback that
+calls back into the host from inside its own first push. The record-rather-than-CLEAR half *is*
+pinned (clearing reddens two tests in `field-host-history.test.ts`). One unit,
+`tests/viewport-host/field-history-feed.test.ts`, now covers the ordering alone — with it in
+place the same reversal reddens exactly that one test.
 
 
 ### Cluster: voidcast — **EXTRACTED 2026-08-06**
@@ -1396,7 +1483,7 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 | Cluster | External edges | Boundary mutations | Partners |
 |---|---|---|---|
 | `stats` | 5 → **8** (7 in-reads + 1 in-mutation; the 2 read-by edges went to 0) **+1 uncounted call** | 1 in (`lastReconfigureMs` ← `stamp`) → **1 named call** | 3 → 5 — **EXTRACTED 2026-08-06** |
-| `history` | 7 | 1 out (`drift.drift`) | 4 |
+| `history` | 7 — the feed took **1** | 1 out (`drift.drift`) — stayed, it is `stepHistory`'s | 4 — **FEED EXTRACTED 2026-08-06**; the other 6 edges belong to `stepHistory`, which stayed (§6) |
 | `segment` | 8 | 1 out (`tool.maskDropReported`) | 3 |
 | `voidcast` | ~~**9**~~ **8** | **0** | ~~4~~ 3 — **EXTRACTED 2026-08-06** |
 | `props` | 8 → **7** | 2 out (analyzer staleness flags) → **1 call** | 6 — **EXTRACTED 2026-08-06** |
@@ -1489,7 +1576,8 @@ handle passed by value cannot fork but a reassigned `let` silently can.
    Passing them by value forks; passing them as sub-hosts means every sub-host needs a
    reference to every other. A single subscribable store with named slots is the shape that
    matches how the code already behaves, since `notifyStamp` / `notifySelection` /
-   `notifyTool` / `notifyEntities` / `notifyHistory` / `notifyDrift` are already exactly
+   `notifyTool` / `notifyEntities` / `notifyHistory` (now `historyFeed.notify`) /
+   `notifyDrift` are already exactly
    that pattern hand-rolled six times. **Half of that is now shared rather than hand-rolled:**
    T3a's `ViewChannel` (§2.2) owns the subscribe/publish/deliver half for all thirteen seams,
    so what a store would still add is the SLOTS and their change detection, not the
@@ -1515,7 +1603,12 @@ by `lifecycle.tick` and `voidCastMeshes` read by `render.renderScene`. It is the
 change that proves out the context-record mechanism in §7.3 before anything load-bearing
 depends on it.
 
-`segment` and `history` are close seconds (one boundary mutation each).
+`segment` and `history` are close seconds (one boundary mutation each). **`history` went
+fifth, and split** — the ranking treats a cluster as one movable thing, and this one was two:
+a feed with a single dependency and a lifecycle verb with six. The boundary mutation the row
+scores it on belongs entirely to the half that stayed, which is the ranking's blind spot
+worth naming: a row that mixes a trivially separable seam with an inseparable verb averages
+them into a number that describes neither.
 
 **And `props` went second the same day**, ahead of both — not because this section ranked it
 there (it did not; two boundary mutations put it below them here) but because T3b1 ordered
