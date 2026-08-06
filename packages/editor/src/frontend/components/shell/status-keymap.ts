@@ -145,9 +145,14 @@ export function armedKeymap({
  *  static line it replaced. `click ×2` does not survive: with a point down only one
  *  click is left.
  *
- *  The ONE branch that can set `overCap`, and the only place that predicate is spelled.
- *  Strictly `>`, matching the host's own refusal (`len > MAX_SEGMENT_M`): a segment of
- *  exactly the cap COMMITS, so `>=` here would paint a legal click as a doomed one. */
+ *  The ONE branch that can set `overCap`. Strictly `>`, matching the host's own refusal
+ *  (`len > MAX_SEGMENT_M`): a segment of exactly the cap COMMITS, so `>=` here would paint
+ *  a legal click as a doomed one.
+ *
+ *  MIGRATION (until T3b2 Task 5): no longer the only place that predicate is spelled —
+ *  `shared/action-table.ts`'s `overSegmentCap` spells it too, and carries the matching
+ *  note. `tests/shared/action-table.test.ts` holds the two equal until Task 5 deletes
+ *  this one. */
 function segmentLine(segment: SegmentHud | null): Keymap {
   if (segment === null)
     return plain(

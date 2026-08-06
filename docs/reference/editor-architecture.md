@@ -180,14 +180,14 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Three entrypoints, because a worker is reached by URL and not by an import graph.** `src/frontend/index.html` is the chrome; `src/frontend/field-worker.ts` (§11) and `src/frontend/analyzer-worker.ts` (§15) each ship as their own module bundle, since the chrome spawns them with `new Worker("/<name>.js", { type: "module" })` and neither can ride the html entry's graph. Both run engine code (`@furnace/core/field`) **directly**, not through `/engine.js` — the analyzer worker additionally loads `/engine.js` at runtime for its stage-2 verify, which drives the project's own mover (§3a).
 
-**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why every host constant the chrome needs is restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
+**Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why a host constant the chrome needs is normally restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7) — with three exceptions since T3b2: `MAX_SEGMENT_M`, `SELECTION_UI_BUDGET` and the `LATTICE` step now live in `src/shared/` (`field-limits.ts`, `field-brush.ts`), where BOTH layers value-import the same number instead of agreeing by review (§22), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**The import arrow runs one way — `frontend/ → field-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, and `src/shared/` the neutral floor. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing of the editor's at all. Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+**The import arrow runs one way — `frontend/ → field-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, and `src/shared/` the neutral floor. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
-- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
+- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. T3b2 added two more (`field-limits.ts`, value-imported by both layers; `action-table.ts`, whose chrome consumers arrive in that slice's Task 5 — §22). `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
 
-The guard scans `src/shared/` with no exemptions precisely because those three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `field-host` specifier. That specifier rule ends the segment (`field-host/` or the end of the specifier) so it does not also catch `frontend/lib/field-host-mirrors.ts`, a chrome-internal helper that shares the prefix and nothing else.
+The guard scans `src/shared/` with no exemptions precisely because the original three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `field-host` specifier. That specifier rule ends the segment (`field-host/` or the end of the specifier) so it does not also catch `frontend/lib/field-host-mirrors.ts`, a chrome-internal helper that shares the prefix and nothing else.
 
 **Both directions are machine-enforced.** `tests/no-chrome-leakage.test.ts` is the mirror of the engine guard: it scans `src/field-host/` for React imports and for any specifier reaching back into `frontend/`, and `src/shared/` for React imports — closing the React-free half of the `shared/` rule, which was prose until T3b1's last task. It is stricter than the engine guard in one respect: `import type` counts, because the question is which layer a module belongs to rather than what reaches a bundle.
 
@@ -2891,7 +2891,8 @@ map's `history` row.
 authority on it — what moved, which five modules could not sit in `shared/` because they
 value-import core, and why the split was decided by the leakage guard rather than by taste.
 Two facts belong here: `src/field-host/` imports **nothing** out of `src/frontend/` at HEAD,
-and `src/shared/` imports nothing of the editor's at all. Both are pinned by
+and `src/shared/` imports nothing ABOVE it (it grew its first intra-layer edges in T3b2 —
+§22 — which the guard was written to allow). Both are pinned by
 `tests/no-chrome-leakage.test.ts`, which closed the React-free half of the `shared/` rule
 that had been prose since Task 6.
 
@@ -2983,3 +2984,98 @@ specifier — so that `field-host/…` and `"@furnace/editor/field-host"` are ca
 `field-host-mirrors.ts` is not. Renamed to the old spelling's pattern, the guard would have
 matched a legitimate chrome import and been loosened to make the suite pass, which is the
 shape the bug would have taken.
+
+## 22. Foundations T3b2 — one table to state a tool fact (2026-08-06)
+
+### 22.1 The six tables, and what they cost
+
+The editor stated each tool **six times**, keyed on **two** discriminators with no join
+between them:
+
+| # | table | home | keyed on | states |
+|---|-------|------|----------|--------|
+| 1 | `POINTER_FAMILY` / `BRUSH_FAMILY` / `SELECT_FAMILY` + `TOOL_FAMILIES` | `frontend/lib/actions.ts` | both | member label, per-member hint, cycle order, arm/cycle actions |
+| 2 | `TOOL_OPTIONS` | `frontend/components/shell/tool-params.tsx` | effect | param list + strip capacity |
+| 3 | `armedKeymap` | `frontend/components/shell/status-keymap.ts` | both | the status line + its `overCap` tone |
+| 4 | `modifierParts` | same file | effect | which momentary/sticky keys are live |
+| 5 | `SELECT_MODES` | `frontend/components/shell/ToolStrip.tsx` | gesture | strip name + the bounding note |
+| 6 | `STRIP_PARAMS_MIN` | same file | effect | the container-query breakpoint |
+
+Three name **registers** for one thing (`"Box"` the member, `"BOX"` the strip name,
+`"Cell select"` the family) and eight free-prose restatements of the Box/Wand/Room triple
+across five source files. Adding an effect meant **five** edits (`SELECT_MODES` is gesture-keyed and the only one
+of the six an effect never reaches); forgetting one meant a control that renders, arms, and
+then says the wrong thing.
+
+### 22.2 The FULL-derivation decision, and the two written objections it overrules
+
+Two of the six declared their non-derivation **in writing**. `status-keymap.ts`: *"Enumerated
+here rather than derived from the action table, and deliberately so: the registry knows what
+a key RUNS, not which four of two dozen bindings matter in a given mode — and the
+canvas-owned keys (`[`/`]`, ⇧, ⌃, the arrows) are half of what belongs on this line and are
+not in the table at all"* — restated at `ToolRail.tsx`.
+
+Both are overruled (2026-08-06), and the answer to both is one move: **the canvas-owned key
+vocabulary goes INTO the table.** The objection was correct about the *action registry* — a
+binding table really does not know which four bindings matter in a mode — and wrong only
+about whether a *tool* table has to be one. A row states its own status line, so the line
+stops being a projection of the bindings and becomes a fact carried beside the label.
+
+`src/shared/action-table.ts` is that source: `EFFECT_ROWS` (4), `GESTURE_ROWS` (5),
+`FAMILY_ROWS` (4), and the two transient states that belong to no row. A status line is a
+`" · "`-joined list of **two** fragment kinds — constant text, or one runtime value with a
+constant lead-in — and there is deliberately no third shape. Five slots name every value no
+table can hold (the two session verbs, which stay `SESSION_VERBS`' to own; the armed
+generator's name; the live measurement; the one branch on `moving`). The
+`session ▸ pendingStamp ▸ gesture ▸ effect` precedence is a table-level constant that
+`deriveArmedKeymap` **walks**, so the written order is the order that runs.
+
+### 22.3 The derive-and-diff gate
+
+`tests/shared/action-table.test.ts` derives all six tables from the rows and asserts each
+deep-equal to the literal **still standing in its own home** — taken before any consumer
+switched, which is what makes it a proof rather than a check on a transcription. Six
+derivations, **zero** mismatches on the first run: `deriveArmedKeymap` reproduced
+`armedKeymap` string-for-string and tone-for-tone across 36 armed states, including the
+strictly-`>` cap boundary and the session-over-a-pending-point case that put the tone in the
+same branch as the text. So the FULL-derivation decision's premise held: the canvas-key
+vocabulary CAN live as row data.
+
+Two joins the module does NOT make are held by the gate instead, and both are worth naming
+because the module reads as if it made them: `deriveSelectModes` is keyed on `CellSelectId`
+rather than on the select family's member refs (drop `{gesture:"box"}` and the strip would
+still render a mode `M` can no longer reach), and the momentary/sticky split in a
+`ModifierClause` is carried by the KEY rather than by a discriminant field — `deriveMomentary`
+is a closure inside `createFieldHost` and cannot be asserted against, so only the sticky half
+(`tool.swapEffect.enabled`) is groundable, and a `hold` field would have restated what the
+key already says.
+
+One assertion outlives the literals. `shared/` sits below both other layers, so the table
+cannot import the unions it keys on (`ViewportGesture` is `field-host/`'s, `ParamId` is the
+chrome's) — it declares its own, and a **bidirectional assignability pin** in the test makes
+a member added to one side alone a `bun run typecheck` failure. `BrushEffect` needs none of
+this: it already lives on the floor, which is what the gesture union should eventually look
+like.
+
+### 22.4 The three restated host constants
+
+`MAX_SEGMENT_M` (with `DIG_RANGE_M`, which it is twice by construction) and
+`SELECTION_UI_BUDGET` moved out of `field-host.ts` into **`src/shared/field-limits.ts`**;
+`LATTICE` was already on the floor (`field-brush.ts`) and stays there, because the module
+that computes with it owns it. `field-host/` imports all three back — arrow-legal. Six
+chrome sites stopped hardcoding them: the rail's Segment hint (`max 60 m`), the grab hint
+(`0.5 m steps`), `FLOOD_BUDGET_LABEL` (`budget 200k`), the box gesture's note
+(`snaps to 0.5 m`) and the session card's two nudge tooltips. Each had carried a comment
+saying it agreed with the host *by review* — the honest name for a fact with no single home,
+not a fix.
+
+The bar for `field-limits.ts`: a number belongs there only if it is **both** enforced by the
+host **and** stated to a user. A host-private clamp with no affordance stays beside its
+enforcement.
+
+**Measured, not assumed:** Tailwind v4's automatic source detection **does** scan
+`src/shared/`. With `STRIP_PARAMS_MIN`'s four container-query classes present only in
+`action-table.ts`, a frontend build still emitted all four `@container strip (width<Nrem)`
+rules. This is why the breakpoints are carried as literal class strings rather than as rem
+numbers: a templated `@max-[${n}rem]/strip:hidden` is not class-shaped text and would emit
+no rule at all.

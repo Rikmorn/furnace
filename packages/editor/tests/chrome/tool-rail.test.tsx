@@ -626,8 +626,11 @@ test("each flyout member carries its OWN sentence — including the 60 m segment
 	expect(named(/^Dig — .*hold ⌃/)).toBeTruthy();
 	expect(named(/^Smooth — .*hold ⇧/)).toBeTruthy();
 	expect(named(/^Paint — .*organic classes only/)).toBeTruthy();
-	// `field-host.ts`'s MAX_SEGMENT_M doc names this as its restating site. Between the
-	// deletion of ToolPalette and this hint the cap had NO affordance at all — a user met
-	// it only as a refusal after drawing too far.
+	// The cap, spelled out where a user meets it BEFORE drawing. Between the deletion of
+	// ToolPalette and this hint it had no affordance at all — a user met it only as a
+	// refusal after drawing too far. It was the host's number RESTATED here until T3b2
+	// moved `MAX_SEGMENT_M` to `shared/field-limits.ts`; the hint reads it now, and the
+	// literal `60` below is deliberate — this case is what would notice the constant
+	// changing under the affordance.
 	expect(named(/^Segment — .*max 60 m/)).toBeTruthy();
 });

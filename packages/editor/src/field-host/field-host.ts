@@ -27,6 +27,16 @@ import {
   spanCells,
 } from "../shared/field-brush.ts";
 import { openBlockedReason } from "../shared/field-entity.ts";
+// The limits the host ENFORCES and the chrome has to STATE — plus `DIG_RANGE_M`, which is
+// neither but is what `MAX_SEGMENT_M` is twice of. They live one layer down (`shared/`,
+// which the chrome may value-import and this directory may not be) so the number a user
+// reads and the number a click is refused by are ONE number rather than two that agree by
+// review — see `field-limits.ts`' header for what that used to cost.
+import {
+  DIG_RANGE_M,
+  MAX_SEGMENT_M,
+  SELECTION_UI_BUDGET,
+} from "../shared/field-limits.ts";
 import {
   type AnalyzeInput,
   AnalyzerWorkerClient,
@@ -1388,31 +1398,6 @@ const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
  *  the cadence was tuned. Deliberately NOT re-exported from `index.ts`: the chrome has
  *  no business with it, and everything behind that barrel value-imports core. */
 export const STROKE_MIN_MS = 40;
-const DIG_RANGE_M = 30;
-/** The longest capsule the segment gesture will sweep (D-F4-16). A segment's
- *  cost is linear in its length — every chunk on the line is dirtied, remeshed
- *  and re-analysed — and the two clicks are independent, so an orbit between
- *  them can pair points across the whole world by accident. The cap refuses that
- *  op and keeps the anchor armed, making the fix one nearer click.
- *
- *  Twice DIG_RANGE_M is not a round number, it is the geometry: each endpoint
- *  lands within DIG_RANGE_M of the eye that resolved it, so two clicks from ONE
- *  camera can never be more than 2·30 m apart. The cap therefore admits every
- *  segment a stationary user can draw and refuses only the ones that needed the
- *  camera to move between clicks — which is exactly the accident it is for.
- *
- *  CARRIED to the chrome at runtime as {@link SegmentHud}'s `capM` (D-25), which
- *  is the only place the number reaches a user while it still matters — the
- *  status bar's segment line counts against it as the cursor moves. The chrome
- *  cannot value-import anything under `field-host/`, so a seam is the one way
- *  the two can be the same number rather than two numbers that agree.
- *
- *  Still RESTATED, once, in the tool rail's Segment member hint (`BRUSH_FAMILY`
- *  in `frontend/lib/actions.ts`): that hint is a static sentence describing the
- *  gesture before it starts, with no push to read, so it agrees by review (the
- *  FlagsSection tint-palette precedent). It lived on `ToolPalette`'s Segment
- *  tooltip until F4.5b Task 8 deleted that file. */
-const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
 /** How far a `pointer` pick reaches — the DIG reach, deliberately the same
  *  number rather than an independent one: "you can select what you could dig" is
  *  one rule to hold in the head, and the same range bounds the pick's occlusion
@@ -1509,10 +1494,6 @@ const clampIntRange = (v: number, lo: number, hi: number): number =>
 // the UI's step + the kit lattice.
 const HOLLOW_MIN_M = 0.5;
 
-// Selection flood budget for the click gestures — under core's
-// MAX_SELECTION_BUDGET (262144) so a UI selection never rides the op-replay
-// ceiling exactly; truncation at this cap surfaces via SelectionInfo.
-const SELECTION_UI_BUDGET = 200_000;
 // Selection overlay colour — amber, deliberately distinct from the
 // hologram-blue brush ghost (GHOST_COLOR). Shared with the advisor's INFO_TINT
 // rather than restated: both mark CONTEXT the user is not being asked to act on,
@@ -1531,7 +1512,7 @@ const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
 // here rather than eyeballed — the two surfaces are meant to be the same colour,
 // and a hand-picked approximation is how that quietly stops being true. The
 // chrome cannot value-import anything under `field-host/`, so the two agree
-// by review (the MAX_SEGMENT_M / FlagsSection tint-palette precedent): if the
+// by review (the FlagsSection tint-palette precedent): if the
 // token moves, this moves.
 const SELECTED_COLOR: [number, number, number, number] = [
   0.048, 0.271, 0.536, 1,

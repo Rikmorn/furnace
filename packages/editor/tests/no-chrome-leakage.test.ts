@@ -29,10 +29,13 @@ import { join } from "node:path";
 //     binds the floor twice over. Task 8's review proved this one was guarded by nothing:
 //     see the measurement note below.
 //
-// §7 states `shared/`'s arrow more widely still — it "imports nothing of the editor's at
-// all", which is true today (its only imports are two type-only `@furnace/core/field`
-// lines). Asserting THAT literally means forbidding any `../` specifier, and the wider rule
-// is deliberately not what this file pins. Three measurements decided it:
+// §7 states `shared/`'s arrow more widely still — it imports nothing ABOVE it. It used to
+// import nothing AT ALL (two type-only `@furnace/core/field` lines and no more), and that
+// stopped being true in foundations T3b2: `action-table.ts` value-imports `field-brush.ts`
+// and `field-limits.ts`, both siblings. Asserting the older, wider reading literally means
+// forbidding any `../` specifier — which would have failed on those two the day they
+// landed. The wider rule is deliberately not what this file pins, and three measurements
+// (taken before T3b2, when the wider reading was still true) decided it:
 //   - `shared/ → frontend/` was guarded by nothing at all. Planting a real value import of
 //     `../frontend/lib/notify-store.ts` into `field-brush.ts` left all five tests across
 //     both guard files green. That is the hole, and the `CHROME` rule below closes it.
@@ -43,6 +46,8 @@ import { join } from "node:path";
 //   - A blanket `../` rule false-positives the day `shared/` grows a subdirectory: a file
 //     at `shared/sub/x.ts` importing `../field-brush.ts` — a legitimate intra-layer
 //     import — trips it. Verified, not assumed. A guard that cries wolf gets weakened.
+//     T3b2 collected on this one sooner than a subdirectory would have: `./field-brush.ts`
+//     from a sibling is the same legitimate import with a shorter specifier.
 // So the wider rule's only real gain over what is now enforced is an erased type-only
 // import, bought at the price of a false positive on a plausible refactor. `CHROME` is
 // written to survive that refactor instead.

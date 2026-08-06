@@ -51,12 +51,18 @@ import type {
   StampSession,
   ViewportGesture,
 } from "../../field-host/index.ts"; // type-only: erased
+// The two host LIMITS this table's hints state, value-imported off the neutral floor
+// (`shared/`, which the chrome may reach and `field-host/` may not be). The hints used to
+// spell "60 m" and "0.5 m" as prose and say so in a comment; a static sentence with no push
+// to read was the honest reason, not a good one.
+import { LATTICE } from "../../shared/field-brush.ts";
+import { MAX_SEGMENT_M } from "../../shared/field-limits.ts";
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
 import type { WorldActions } from "../hooks/useWorld.tsx";
-// The one VALUE import here, and it stays inside `frontend/lib` — the triad's naming
-// function, shared so the gizmo and the menu spell a view once (see AXIS_VIEWS).
+// The triad's naming function, shared so the gizmo and the menu spell a view once
+// (see AXIS_VIEWS).
 import { axisViewLabel } from "./axis-triad.ts";
 import type { PaletteId } from "./palette-store.ts";
 
@@ -339,12 +345,12 @@ const BRUSH_FAMILY: readonly FamilyMember[] = [
   },
   {
     label: "Segment",
-    // The 60 m is FieldHost's MAX_SEGMENT_M, RESTATED (that constant's doc names this as
-    // the restating site): the chrome cannot value-import anything under `field-host/`,
-    // so the two agree by review. It was `ToolPalette`'s Segment tooltip until F4.5b Task 8
-    // deleted that file, and for one commit the cap had no affordance at all — a user met
-    // it only as a post-hoc refusal.
-    hint: "two clicks sweep the brush between them — max 60 m; Esc drops the point",
+    // The cap is the HOST's number, read rather than restated (foundations T3b2 moved it to
+    // `shared/field-limits.ts` for exactly this): the chrome cannot value-import anything
+    // under `field-host/`, and until that move the two agreed by review. It was
+    // `ToolPalette`'s Segment tooltip until F4.5b Task 8 deleted that file, and for one
+    // commit the cap had no affordance at all — a user met it only as a post-hoc refusal.
+    hint: `two clicks sweep the brush between them — max ${MAX_SEGMENT_M} m; Esc drops the point`,
     gesture: "segment",
   },
 ];
@@ -690,7 +696,7 @@ export const ACTIONS: readonly ActionDef[] = [
     // session, so a G during a reconfigure would discard the params being edited.
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
     keys: "G",
-    hint: "Grab the selected stamp — the cursor moves its ghost in 0.5 m steps until ⏎ drops it or Esc discards it",
+    hint: `Grab the selected stamp — the cursor moves its ghost in ${LATTICE} m steps until ⏎ drops it or Esc discards it`,
     match: (e) => bare(e, "g"),
     gate: "typed",
     run: (ctx) => {

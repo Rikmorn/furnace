@@ -1,5 +1,8 @@
 import type { MergePolicy } from "@furnace/core/field"; // type-only: erased
 import type { NudgeSteps } from "../../../../field-host/index.ts"; // type-only: erased
+// The kit lattice, READ rather than restated (foundations T3b2): these tooltips state the
+// step the nudge actually takes, and a hand-written "0.5 m" beside it is a second number.
+import { LATTICE } from "../../../../shared/field-brush.ts";
 import { CollapsibleSection } from "../../CollapsibleSection.tsx";
 import { SELECT_CLASS } from "../../field/form-bits.tsx";
 import { Button } from "../../ui/button.tsx";
@@ -103,7 +106,7 @@ export function AdvancedSection({
 							))}
 						</select>
 					</label>
-					{/* Placement: the region moves, the params don't — one 0.5 m lattice step
+					{/* Placement: the region moves, the params don't — one lattice step
 					    per press, both corners, so the size never changes. */}
 					{/* biome-ignore lint/a11y/useSemanticElements: role="group" is the intended ARIA grouping for this control row; a native <fieldset>/<legend> would force the boxed-card look this flat UI deliberately avoids */}
 					<div
@@ -120,7 +123,7 @@ export function AdvancedSection({
 						    duplication problem in a second spelling. */}
 						{NUDGE_AXES.map(({ axis, minus, plus }) => (
 							<span key={axis} className="flex items-center gap-1">
-								<ActionTip hint={`move the region 0.5 m along −${axis}`}>
+								<ActionTip hint={`move the region ${LATTICE} m along −${axis}`}>
 									<Button
 										type="button"
 										size="sm"
@@ -132,7 +135,7 @@ export function AdvancedSection({
 										−{axis}
 									</Button>
 								</ActionTip>
-								<ActionTip hint={`move the region 0.5 m along +${axis}`}>
+								<ActionTip hint={`move the region ${LATTICE} m along +${axis}`}>
 									<Button
 										type="button"
 										size="sm"

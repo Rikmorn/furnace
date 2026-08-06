@@ -25,10 +25,11 @@ import {
 /** How many cell cubes the selection display will draw, at most.
  *
  *  65 536 is a budget, not a property of the selection: the UI flood budget is
- *  `SELECTION_UI_BUDGET` (200 000, field-host.ts) and every one of these is a
- *  blended, depth-write-free instance, so the full flood would be ~2.4 M triangles
- *  of overdraw for a display. Above the cap the shell is truncated and the host
- *  SAYS so through {@link SelectionInfo.displayed} — never silently. */
+ *  `SELECTION_UI_BUDGET` (200 000, `shared/field-limits.ts` since T3b2) and
+ *  every one of these is a blended, depth-write-free instance, so the full flood
+ *  would be ~2.4 M triangles of overdraw for a display. Above the cap the shell
+ *  is truncated and the host SAYS so through {@link SelectionInfo.displayed} —
+ *  never silently. */
 export const SELECTION_DISPLAY_CAP = 65_536;
 
 /** The cells to draw, already ordered.

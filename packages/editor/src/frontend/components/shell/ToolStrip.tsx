@@ -18,6 +18,11 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { ViewportGesture } from "../../../field-host/index.ts"; // type-only: erased
+// The two host limits this strip STATES, off the neutral floor rather than restated: the
+// chrome cannot value-import `field-host/`, and before T3b2 both were prose that agreed by
+// review.
+import { LATTICE } from "../../../shared/field-brush.ts";
+import { SELECTION_UI_BUDGET } from "../../../shared/field-limits.ts";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import {
 	useFieldEntities,
@@ -62,27 +67,32 @@ import { availableParams, Param, TOOL_OPTIONS } from "./tool-params.tsx";
  * to hold. That is D-6 satisfied rather than skipped: the rule is "content stays reachable
  * under width pressure", and content that never hides is never unreachable.
  */
-const STRIP_PARAMS_MIN: Record<BrushEffect, string> = {
+// MIGRATION (until T3b2 Task 5): exported ONLY so `tests/shared/action-table.test.ts` can
+// diff it against `deriveStripParamsMin()` while both exist. Task 5 deletes the literal and
+// this strip reads the derivation; nothing but that gate imports it.
+export const STRIP_PARAMS_MIN: Record<BrushEffect, string> = {
 	dig: "@max-[32rem]/strip:hidden",
 	fill: "@max-[46rem]/strip:hidden",
 	paint: "@max-[38rem]/strip:hidden",
 	smooth: "@max-[41rem]/strip:hidden",
 };
 
-/** The host's flood budget (SELECTION_UI_BUDGET), restated: the chrome cannot value-import
- *  the host, so the two agree by review. It is what `SelectionInfo.truncated` reports
- *  hitting — and it bounds the two FLOOD gestures only. */
-const FLOOD_BUDGET_LABEL = "budget 200k";
+/** The host's flood budget, READ rather than restated since foundations T3b2 moved it onto
+ *  the neutral floor (`shared/field-limits.ts`). It is what `SelectionInfo.truncated`
+ *  reports hitting — and it bounds the two FLOOD gestures only. */
+const FLOOD_BUDGET_LABEL = `budget ${SELECTION_UI_BUDGET / 1000}k`;
 
 /** What the strip calls each cell-selection gesture, and the one static fact that bounds
  *  it. The two FLOOD modes are budgeted; a box span is snapped instead — `truncated` is
  *  "always false for regions" (field-host.ts), so a budget note on Box would name a limit
  *  that cannot fire, which is the dead-control defect in prose form. */
-const SELECT_MODES: Record<
+// MIGRATION (until T3b2 Task 5): exported ONLY for the derive-and-diff gate — see
+// `STRIP_PARAMS_MIN` above.
+export const SELECT_MODES: Record<
 	"box" | "material" | "void",
 	{ name: string; note: string }
 > = {
-	box: { name: "BOX", note: "snaps to 0.5 m" },
+	box: { name: "BOX", note: `snaps to ${LATTICE} m` },
 	material: { name: "WAND", note: FLOOD_BUDGET_LABEL },
 	void: { name: "ROOM", note: FLOOD_BUDGET_LABEL },
 };

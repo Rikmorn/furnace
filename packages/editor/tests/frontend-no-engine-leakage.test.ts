@@ -5,11 +5,14 @@ import { join, relative } from "node:path";
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
 // `src/shared/` is the neutral layer both arrows point at (`frontend/ → field-host/ →
 // shared/`, editor-architecture §7). It is scanned by the SAME rules and with NO
-// exemptions, and that is not decoration: its three modules (`catalog.ts`,
-// `field-brush.ts`, `field-entity.ts`) are VALUE-imported by chrome components, so a core
-// value-import added to one of them lands in the main bundle exactly like a direct one —
-// and the chrome's own import (`../../shared/catalog.ts`) matches none of the three
-// specifier rules below, so nothing else would catch it. This scan is what keeps the
+// exemptions, and that is not decoration: FOUR of its five modules (`catalog.ts`,
+// `field-brush.ts`, `field-entity.ts` and — since T3b2 — `field-limits.ts`) are
+// VALUE-imported by chrome components, so a core value-import added to one of them lands in
+// the main bundle exactly like a direct one — and the chrome's own import
+// (`../../shared/catalog.ts`) matches none of the three specifier rules below, so nothing
+// else would catch it. (`action-table.ts` is the fifth and has no chrome consumer YET;
+// T3b2 Task 5 gives it four, and the scan covers it either way — which is the point of
+// scanning the DIRECTORY rather than a list.) This scan is what keeps the
 // "engine-free" half of the `shared/` rule a fact rather than a comment. (Its React-free
 // half is enforced by this file's mirror, `no-chrome-leakage.test.ts`, which keeps the
 // chrome out of the layers below it the way this one keeps the engine out of the chrome.)

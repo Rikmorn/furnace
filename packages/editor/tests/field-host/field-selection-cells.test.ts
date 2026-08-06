@@ -23,6 +23,7 @@ import {
   SELECTION_DISPLAY_CAP,
   selectionDisplayCells,
 } from "../../src/field-host/field-selection-cells.ts";
+import { SELECTION_UI_BUDGET } from "../../src/shared/field-limits.ts";
 
 type Cell = [number, number, number];
 
@@ -176,13 +177,13 @@ test("the cap cuts, and it cuts the INTERIOR first", () => {
 // this slice alone (STEPPER_MAX_STEPS, HISTORY_TAIL, MAX_SEGMENT_M).
 //
 // Both halves are the claim. The literal catches drift; the RELATION is what the
-// number means — the cap has to sit strictly below the host's flood budget
-// (SELECTION_UI_BUDGET = 200 000, field-host.ts), or it could never fire and the
-// whole shell-first ordering would be dead code. That constant is host-private, so
-// it is restated here as the plain integer it is, with its home named.
+// number means — the cap has to sit strictly below the host's flood budget, or it
+// could never fire and the whole shell-first ordering would be dead code. That
+// budget used to be host-private and was restated here as a plain integer with its
+// home named in a comment; T3b2 moved it to `shared/field-limits.ts`, so the
+// relation is now asserted against the constant itself.
 test("the display cap is 65 536, and it is strictly below the flood budget", () => {
   expect(SELECTION_DISPLAY_CAP).toBe(65_536);
-  const SELECTION_UI_BUDGET = 200_000; // field-host.ts, host-private
   expect(SELECTION_DISPLAY_CAP).toBeLessThan(SELECTION_UI_BUDGET);
 });
 
