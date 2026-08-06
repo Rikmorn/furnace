@@ -6,11 +6,14 @@
 //
 // WHAT MAKES IT DIFFERENT FROM `field-voidcast.ts` is the interesting fact about
 // this move, and it is FAN-IN. The void cast has zero `FieldHost` members and
-// seven host call sites spread over FOUR of its six verbs — three of the seven
-// are `discard`, and `destroy` and `apply` have no host caller at all, so no
-// single entry point carries that cluster. This one has one facade member
-// (`propInstanceCounts`) and NINE call sites on a SINGLE verb, `rebuildProps()`,
-// in nine functions across six of the map's clusters: `commitStampSession` and
+// seven host call sites spread over EVERY member its seam has left (three verbs
+// and the one fact) — three of the seven are `discard`, and `destroy` and
+// `apply`, the two members with no host caller at all, came off the seam at T3b2
+// (it read four-of-six before that trim) — so no single entry point carries that
+// cluster.
+// This one has one facade member (`propInstanceCounts`) and NINE call sites on a
+// SINGLE verb, `rebuildProps()`, in nine functions across six of the map's
+// clusters: `commitStampSession` and
 // `applyReconfigureSession` (stamp), `stepHistory` (history), `resetWorld` and
 // `loadWorld` (world), `init` (lifecycle), `setEntityCatalog` (catalogs), and
 // `deleteEntity` and `duplicateEntity` (entities). A tenth caller, `dispose`,
@@ -117,20 +120,19 @@ export type PropsDeps = {
   markPlacementsStale(): void;
 };
 
-/** The prop layer's three verbs and the one fact the host publishes off it.
+/** The prop layer's two verbs and the one fact the host publishes off it.
  *
  *  No state is exposed. The meshes live in the substrate because `renderScene`
  *  draws them; the per-archetype counts are private because the only thing that
  *  ever read them is `FieldHost.propInstanceCounts`, which
- *  {@link Props.instanceCounts} now is. */
+ *  {@link Props.instanceCounts} now is.
+ *
+ *  It was THREE verbs until foundations T3b2. `proxyGeometry` was put here on
+ *  the argument that the layer's geometry choice is its contract with the
+ *  catalog, and no reader outside this module ever arrived — so the seam gave
+ *  it back. The function is unchanged and `rebuild` still calls it; what went
+ *  is the claim that anyone else may. */
 export type Props = {
-  /** The unit-sized proxy primitive for a collision kind.
-   *
-   *  Exposed, and honestly: {@link Props.rebuild} is its only caller today,
-   *  repo-wide. It is on the seam because the layer's geometry choice is the
-   *  layer's contract with the catalog, not because anything outside has
-   *  needed it yet. */
-  proxyGeometry(c: Context, collision: EntityCollision): geometry.Geometry;
   /** Free every instanced prop draw and empty the layer. Takes the context
    *  rather than reading it, because its one external caller (`dispose`) has
    *  already proved the context non-null for the whole teardown block. */
@@ -233,7 +235,6 @@ export function createProps(deps: PropsDeps): Props {
   };
 
   return {
-    proxyGeometry,
     destroy: destroyProps,
     rebuild: rebuildProps,
     instanceCounts: () => new Map(propCounts),

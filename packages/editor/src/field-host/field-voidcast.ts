@@ -108,22 +108,24 @@ export type VoidCastDeps = {
   voidCastMaterial(): material.Material;
 };
 
-/** The X-ray layer's five verbs and the one fact the host still reads off it.
+/** The X-ray layer's three verbs and the one fact the host still reads off it.
  *
  *  No state is exposed. The meshes live in the substrate because `renderScene`
  *  draws them, and the two generations are private because nothing outside ever
  *  had a use for either — the map's whole outbound surface was `voidCastJobGen`
- *  read by `tick`, which {@link VoidCast.jobGen} is. */
+ *  read by `tick`, which {@link VoidCast.jobGen} is.
+ *
+ *  It was FIVE verbs until foundations T3b2: `destroy` and `apply` were lifted
+ *  onto the seam with the rest of the cluster and never acquired a caller
+ *  outside this module, so they came back off it. Both internals are unchanged
+ *  and still run — `destroy` under `discard`, `apply` under `request`'s
+ *  resolution — which is the whole difference between trimming a seam and
+ *  deleting behaviour. */
 export type VoidCast = {
-  /** Free the cast's GPU meshes and empty the map. No generation bump — a caller
-   *  that wants the in-flight job stranded too wants {@link VoidCast.discard}. */
-  destroy(): void;
   /** Free the cast AND strand whatever job is in flight for it. Silent. */
   discard(): void;
   /** Age the cast out because the field changed, and SAY so. */
   invalidate(): void;
-  /** Build the cast's render state from a void-cast response. */
-  apply(chunks: { key: string; buckets: WireBucket[] }[]): void;
   /** Cast the void of the CURRENT field: one worker job over a snapshot of every
    *  allocated chunk. Four refusals; see the body for the order. */
   request(): void;
@@ -308,10 +310,8 @@ export function createVoidCast(deps: VoidCastDeps): VoidCast {
   };
 
   return {
-    destroy: destroyVoidCast,
     discard: discardVoidCast,
     invalidate: invalidateVoidCast,
-    apply: applyVoidCast,
     request: requestVoidCast,
     jobGen: () => voidCastJobGen,
   };

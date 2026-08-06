@@ -1397,9 +1397,12 @@ action, and a one-row submenu is a chevron guarding one row.
 
 **Since F4.5b Task 7 the bindings are DECLARED ONCE, in `frontend/lib/actions.ts`.** That
 table is the editor's action registry: per action, an id, a group, a contextual `label`,
-an `enabled` predicate, the display chord, a `match` predicate and a `gate`. Three
-surfaces read it — the window key dispatcher (`hooks/useGlobalKeybindings.ts`), the
-burger's World/Edit/View groups, and `shell/ShortcutsDialog.tsx` — so a binding cannot be
+an `enabled` predicate, the display chord, a `match` predicate and a `gate`. It was three
+readers when this section was written — the window key dispatcher
+(`hooks/useGlobalKeybindings.ts`), the burger's World/Edit/View groups and
+`shell/ShortcutsDialog.tsx` — and more have arrived since; **§17.4 carries the current count
+and lists the readers by file**, and is the only place in this document that does. Either
+way a binding cannot be
 live and undocumented, or documented and dead. `hooks/useActionContext.tsx` assembles the
 `ActionCtx` those predicates read (host, armed tool/gesture, session, selections, world,
 view, workspace) and owns the listener. The overlay's one remaining hand-maintained group
@@ -1742,17 +1745,31 @@ item raise the same App-owned prompt, though the sentence is spelled in both
 
 **`frontend/lib/actions.ts` is the editor's one action registry** (D-10/D-11/D-12): per action
 an id, a group, a contextual `label`, an `enabled` predicate, the display chord, a one-sentence
-`hint`, a `match` predicate, a `gate`, the `armsTool` / `flyLetter` flags and a `menuTitle` for
-a reason that will not fit in a label. The module is pure and DOM-free (`KeyboardEvent` appears
-as a type only), and it type-imports the host like every other chrome module.
+`hint`, a `match` predicate, a `gate`, and the `armsTool` / `flyLetter` flags. The module is
+pure and DOM-free (`KeyboardEvent` appears as a type only), and it type-imports the host like
+every other chrome module. There was one field more, `menuTitle` — the burger's half of the
+same "the reason will not fit in the label" concept — until F4.5c Task 8 rendered it on a
+non-menu surface and merged it into `hint`: one concept, one name, one place a rewording
+happens.
 
-Six surfaces render from it, which is what stops a binding from being live and undocumented or
-documented and dead: the window key dispatcher (`hooks/useGlobalKeybindings.ts`), the burger's
-World/Edit/View groups (`shell/BurgerMenu.tsx`), the shortcuts overlay
-(`shell/ShortcutsDialog.tsx`), the tool rail through `TOOL_FAMILIES` (§17.8), the top bar's
-Bake button, and the status bar's selection-chip popover. The `tool` and `session` groups are
-deliberately absent from the menu — arming a brush and ending a session are the rail's and the
-viewport's, and the overlay is where they are discovered.
+**Eight surfaces render from it** (measured at foundations T3b2), which is what stops a
+binding from being live and undocumented or documented and dead: the window key dispatcher
+(`hooks/useGlobalKeybindings.ts`), the burger's World/Edit/View groups
+(`shell/BurgerMenu.tsx`), the shortcuts overlay (`shell/ShortcutsDialog.tsx`), the ⌘K command
+palette (`shell/CommandPalette.tsx`, which renders the whole table at once), the tool rail
+through `TOOL_FAMILIES` (§17.8), the top bar (Bake and the palette toggle,
+`shell/TopBar.tsx`), the status bar's selection-chip popover (`shell/StatusBar.tsx`), and
+`ActionTip` (`components/ui/tips.tsx`), which looks a keycap up by id so a tooltip cannot
+print a stale chord. Two further modules value-import `entityName` alone and are NOT readers
+of the table (`shell/SessionCard.tsx`, `shell/ToolStrip.tsx`) — the distinction is what the
+count means, and it is why re-deriving the eight takes three numbers, not one: **eleven**
+files import `lib/actions.ts`, **ten** of those value-import it (`hooks/useActionContext.tsx`
+takes `ActionCtx` as a type and reads nothing), and **eight** of those read the table. The
+number has been wrong at every re-count so far, so it is written in exactly two places — here
+and at the head of `lib/actions.ts` — and adding a reader means editing both. §16.6 points
+here rather than carrying a third copy. The
+`tool` and `session` groups are deliberately absent from the menu — arming a brush and ending
+a session are the rail's and the viewport's, and the overlay is where they are discovered.
 
 **`hooks/useActionContext.tsx`** assembles the `ActionCtx` those predicates read (host, armed
 tool/gesture, session, both selections, stats, world, view, workspace, the generator registry,
@@ -2810,9 +2827,12 @@ the slice's eight commits, and its CODE column — comments and blanks stripped 
 **3,554 → 3,394 (−160, −4.5%)**. (This documentation pass then added 13 lines to it, all
 comment, correcting the seam preamble in §21.3; the file stands at **7,188 / 3,394 code**.)
 Five clusters, and the file is still ~8.5× the ~400-line guideline. The five new modules are
-**1,265 lines** between them (1,258 as committed; the same docs pass added 7 comment lines to
-`field-stats.ts`), which is the real measure of what moved: a cluster's prose travels
-with it, and the wiring left behind earns prose of its own.
+**1,262 lines** between them (1,258 as committed; the same docs pass added 7 comment lines to
+`field-stats.ts`, and foundations T3b2 then netted 3 off by trimming four seam members
+nothing outside their modules ever called — the eight declaration and return lines out, five
+lines of comment back in saying why they went — see §21.1's table, which is measured at
+HEAD), which is the real measure of what moved: a cluster's prose travels with it, and the
+wiring left behind earns prose of its own.
 `docs/reference/field-host-clusters.md` §1 carries the per-cluster breakdown and the one row
 that breaks the metric (`view` — the most invasive diff in the tranche, and zero lines off
 the code column).
@@ -2822,8 +2842,8 @@ the code column).
 | Module | Lines | Beside `substrate`, its deps record takes |
 | --- | --- | --- |
 | `field-voidcast.ts` | 318 | `reportToolError`, `snapshotAllChunks()`, `chunkOrigin()`, `voidCastMaterial()` |
-| `field-props.ts` | 241 | `kitMat()`, `kitInstancedMat()`, `markPlacementsStale()` |
-| `field-stats.ts` | 289 | `lastRemeshMs()`, `remeshVersion()`, `voidCastJobGen()`, `analyzerPendingCount()` |
+| `field-props.ts` | 242 | `kitMat()`, `kitInstancedMat()`, `markPlacementsStale()` |
+| `field-stats.ts` | 285 | `lastRemeshMs()`, `remeshVersion()`, `voidCastJobGen()`, `analyzerPendingCount()` |
 | `field-history-feed.ts` | 203 | — nothing |
 | `field-view.ts` | 214 | `discardVoidCast()`, `requestVoidCast()` |
 

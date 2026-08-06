@@ -1,14 +1,24 @@
 // The editor's ONE action registry (D-10/D-11/D-12): every verb the chrome can run,
 // declared once, with the key that runs it, the label that names it and the rule that
-// refuses it. SEVEN surfaces read this table — the window key dispatcher
+// refuses it. EIGHT surfaces read this table — the window key dispatcher
 // (`useGlobalKeybindings`), the burger menu, the Help▸Keyboard shortcuts overlay, the top
 // bar (Bake and the palette toggle), the status bar's selection chip, the tool rail
-// (through `TOOL_FAMILIES` at the foot of this file) and the ⌘K command palette, which
-// renders the WHOLE table at once — so a binding cannot be live and undocumented, or
-// documented and dead, and no surface works out an enabled state or a label of its own.
-// The count was three when this file was written and stayed written down as three through
-// F4.5b, which added three readers; F4.5c added the seventh. It has drifted twice, so:
-// adding a reader means editing this number.
+// (through `TOOL_FAMILIES` at the foot of this file), the ⌘K command palette, which
+// renders the WHOLE table at once, and `ui/tips.tsx`'s `ActionTip`, which looks a keycap
+// up by id so a tooltip cannot print a chord this table has moved — so a binding cannot be
+// live and undocumented, or documented and dead, and no surface works out an enabled state
+// or a label of its own. `shell/SessionCard.tsx` and `shell/ToolStrip.tsx` import
+// `entityName` and nothing else; they are not readers of the table and are not in the count.
+// The count was three when this file was written and has been wrong at every re-count
+// since: it stayed three while five more readers arrived, then read seven, which missed
+// `ActionTip` — a control-library tooltip does not look like a surface, which is exactly
+// why it is named above rather than left to be re-derived. Checking it takes THREE numbers,
+// and only the last is the one written here: eleven files import this module, ten of those
+// value-import it (`hooks/useActionContext.tsx` takes `ActionCtx` as a type and reads
+// nothing), and eight of THOSE read the table. Adding a reader means editing this number
+// and `docs/reference/editor-architecture.md` §17.4, which lists the eight by file. Those
+// are the only two places the count is written down; §16.6 points at §17.4 rather than
+// carrying a third copy.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
 // (`field-host/field-host.ts`) and this registry's, on `window`. The rule:

@@ -35,7 +35,7 @@
 // depend on the control library?". Do not read this file as evidence that `ui/` is
 // dependency-free.
 //
-// The `byId` edge is the one to watch: it is a VALUE import out of the ~1225-line action
+// The `byId` edge is the one to watch: it is a VALUE import out of the ~1,300-line action
 // registry, the only value import into `ui/` that is not `cn`. It closes no cycle today —
 // `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and
 // `actions.ts`'s edges back into `components/` and `hooks/` are all `import type` (erased)

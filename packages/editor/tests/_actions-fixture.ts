@@ -8,6 +8,30 @@ import { mock } from "bun:test";
 import type { FieldHost } from "../src/field-host/index.ts";
 import type { ActionCtx } from "../src/frontend/lib/actions.ts";
 
+/** The FOURTEEN host verbs the action table runs (`grep -o 'ctx\.host?\.[a-zA-Z]*'
+ *  src/frontend/lib/actions.ts | sort -u`), plus `isLooking`, which no `run` calls — the
+ *  window dispatcher polls it per keypress to build `GateEnv.looking`. Every one of them,
+ *  and NOTHING else. Both halves are load-bearing, and foundations T3b2 found this list
+ *  failing both.
+ *
+ *  A MISSING verb makes its action untestable through `run`: the spy is cast to `FieldHost`,
+ *  so an absent key is `undefined` at the call and `ctx.host?.frameWorld()` throws instead of
+ *  recording. `confirmSession` and `frameWorld` were both absent, so neither `session.confirm`
+ *  nor `view.frameWorld` could be run directly off the table. Neither was uncovered, and both
+ *  were uncovered in the same PLACE — the routing. `session.confirm` was already reached
+ *  END-TO-END through the window dispatcher (`chrome/native-select-key-gate.test.tsx`);
+ *  `view.frameWorld` had only its View-submenu row pinned (`chrome/shell.test.tsx`), which
+ *  says the row exists, not where it goes. Nothing ran either def.
+ *
+ *  A SPARE verb is worse than dead weight — it is a mock that reads like coverage. This list
+ *  carried `commitSession`, which no action has ever called; `session.confirm` routes through
+ *  the move-aware `confirmSession` (`actions.ts`' own comment says so). `tests/chrome/
+ *  _stub-host.ts` carries both, correctly — it stubs the whole `FieldHost` facade, and
+ *  `commitSession` is a member of it — and two chrome suites were still caught reaching for
+ *  the wrong one of its two and passing vacuously
+ *  (`chrome/native-select-key-gate.test.tsx`, `chrome/shell.test.tsx`). This list is not a
+ *  facade stub and has no such excuse: what is here is what the table calls, so the wrong
+ *  mock is not reachable to begin with. */
 export function makeHostSpy() {
   return {
     undo: mock(),
@@ -16,8 +40,9 @@ export function makeHostSpy() {
     duplicateEntity: mock(),
     beginMove: mock(),
     frameSelection: mock(),
+    frameWorld: mock(),
     startStamp: mock(),
-    commitSession: mock(),
+    confirmSession: mock(),
     rotateStamp: mock(),
     escape: mock(),
     snapView: mock(),

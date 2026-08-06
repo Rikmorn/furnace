@@ -166,22 +166,19 @@ export type StatsMeterDeps = {
   analyzerPendingCount(): number;
 };
 
-/** The meter's two verbs, its one query, and the seam the facade delegates to.
+/** The meter's two verbs and the seam the facade delegates to.
  *
  *  No state is exposed and none is shared: unlike the first three extractions,
  *  this cluster left nothing behind in the substrate, because nothing outside it
  *  ever read its state directly — `tick` read the channel and the reconfigure
- *  timing, and both of those are now calls. */
+ *  timing, and both of those are now calls.
+ *
+ *  It also carried a QUERY, `currentLogStats`, until foundations T3b2. T3b1 put
+ *  it here as "a deletion candidate if no second reader appears" — none did, so
+ *  it is module-private again. The cache and its signature are unchanged;
+ *  {@link StatsMeter.publishIfWatched} was already its only caller repo-wide,
+ *  and is now its only possible one. */
 export type StatsMeter = {
-  /** The op-cost numbers, recomputed only when the log's signature moved.
-   *
-   *  Exposed, and honestly: {@link StatsMeter.publishIfWatched} is its only
-   *  caller today, repo-wide, and it became so in this very move — the host's
-   *  `tick` was the previous one. It is on the seam because the cache is the
-   *  cluster's one non-obvious asset and a second reader of the op-cost numbers
-   *  would want it rather than a second `field.logStats` call, not because
-   *  anything outside has needed it yet. A deletion candidate if none appears. */
-  currentLogStats(): field.LogStats;
   /** Record how long a LANDED `applyReconfigure` took (ms).
    *
    *  THE cluster's one boundary mutation, and a call rather than a shared `let`
@@ -279,7 +276,6 @@ export function createStatsMeter(deps: StatsMeterDeps): StatsMeter {
   };
 
   return {
-    currentLogStats,
     noteReconfigureMs: (ms) => {
       lastReconfigureMs = ms;
     },

@@ -344,6 +344,28 @@ test("delete asks first — the confirm carries the op count, and only its onCon
   expect(host.deleteEntity.mock.calls).toEqual([[3]]);
 });
 
+test("⏎ confirms through the MOVE-AWARE host verb, and the spy no longer offers the other one", () => {
+  // `commitSession` ends a session BY MODE (`commitStamp` for a stamp, `applyReconfigure` for
+  // a reconfigure) and has no production caller left at head — even the session card's footer
+  // routes ⏎ through `confirmSession` (`SessionCard.tsx`'s `onConfirm`), because the button
+  // wears the ⏎ keycap and must mean what the key means. `confirmSession` is that verb: it
+  // adds `dropMove`'s rules, and a grab started from the Edit menu or by `G` has no canvas
+  // listener to answer ⏎ any other way.
+  //
+  // The routing is pinned HERE, at the table where it is decided, and not only downstream:
+  // two chrome suites were caught asserting on `_stub-host.ts`'s `commitSession` mock — a
+  // verb ⏎ never touches — and passing vacuously
+  // (`chrome/native-select-key-gate.test.tsx`, `chrome/shell.test.tsx`).
+  //
+  // There is no `not.toHaveBeenCalled()` half and there cannot be: `makeHostSpy` stopped
+  // carrying `commitSession` in the same change, so the vacuous assertion is now a type
+  // error rather than a green test. That is the stronger form of the same claim.
+  const ctx = makeCtx({ session: { generator: "hall" } as never });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("session.confirm").run(ctx);
+  expect(host.confirmSession.mock.calls).toEqual([[]]);
+});
+
 test("the brush family arms on a bare press and steps on ⇧, in the binding table's order", () => {
   // Armed elsewhere (the pointer): the bare press returns LMB to the brush it remembers.
   const fromPointer = makeCtx({ gesture: "pointer" });
@@ -433,6 +455,22 @@ test("the view toggles report their own checked state and flip it", () => {
     (ctx.run.view.setLayers as unknown as ReturnType<typeof mock>).mock
       .calls[0]?.[0],
   ).toMatchObject({ grid: false });
+});
+
+test("view.frameWorld runs the WORLD frame, not the selection frame beside it", () => {
+  // ROUTING only — what the camera then does with the world's box is
+  // `tests/field-host-camera.test.ts`'s, and this file cannot see it. The two camera verbs are
+  // adjacent in the table, one letter apart in meaning, and only `view.frame` has a keycap, so
+  // a run wired to the wrong host verb reads correctly in the View submenu and in ⌘K and is
+  // wrong only on screen. BOTH calls are asserted because the failure that matters is the
+  // SWAP: "frameWorld was called" alone stays green on a def that called both, and
+  // `frameSelection` on an empty selection says "nothing to frame" — a sentence a user would
+  // read as the world being empty.
+  const ctx = makeCtx();
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("view.frameWorld").run(ctx);
+  expect(host.frameWorld.mock.calls).toEqual([[]]);
+  expect(host.frameSelection).not.toHaveBeenCalled();
 });
 
 // --- the six axis views (F4.5c Task 5) ---------------------------------------

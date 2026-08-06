@@ -407,9 +407,10 @@ looks like in the palette row and the session card.
 ## Log-signature caches can miss a world swap
 
 **Context.** `FieldHost` memoizes derived state on a *signature* built from the op log's
-own numbers. `currentLogStats` (`packages/editor/src/field-host/field-stats.ts` since
-foundations T3b1, 2026-08-06; `field-host.ts` before that — the op-cost meter's cache) uses
-`(ops.length, undoStack.length, redoStack.length)`. A world
+own numbers. The op-cost meter's cache — in `packages/editor/src/field-host/field-stats.ts`
+since foundations T3b1, 2026-08-06 (`field-host.ts` before that), and module-private behind
+`StatsMeter.publishIfWatched` since T3b2 trimmed the unused `currentLogStats` seam member —
+uses `(ops.length, undoStack.length, redoStack.length)`. A world
 swap goes through `resetWorld`, which empties `log.ops` and both stacks and resets
 `log.nextId` — so two worlds whose logs agree on those numbers produce the SAME signature,
 and the incoming world reads the outgoing world's cached values.
@@ -421,7 +422,7 @@ and drew its box where nothing was). **That one is FIXED** — its signature now
 `worldEpoch`, the counter `resetWorld` already bumps for the analyzer, and
 `tests/field-host-pointer.gpu.test.ts` pins it.
 
-`currentLogStats` has the same shape of exposure and was left alone as out of scope. Its
+The op-cost cache has the same shape of exposure and was left alone as out of scope. Its
 consequence is milder — a stale op-cost READOUT (totalOps / undo depth / compactable) for
 one frame — because it is recomputed every WATCHED rAF and the next tick after any log
 mutation corrects it. It is only wrong in the window where the two worlds' three lengths
@@ -458,7 +459,7 @@ destructure `stats`, which is exactly the "correct-if-the-author-remembered" fai
 is one more reason to prefer the explicit-signal option to a second hand-rolled signature.
 
 **The fix, when it is worth doing:** the same one token — put `worldEpoch` at the front of
-the `currentLogStats` signature. Cheap; not done at the time only because the task's
+the op-cost cache's signature. Cheap; not done at the time only because the task's
 boundary was the pick, and not done at T3b1 either because that task's boundary was the
 extraction and a signature change is a behaviour change. `worldEpoch` is a host `let` and
 `field-stats.ts` does not read it today, so the fix now also costs one thunk on
@@ -475,8 +476,9 @@ stale meter reading after a world load; or **any of the three stats readers abov
 its `useFieldHostState()` call** — that is now the event that turns the widened unwatched
 window from theoretical into a real production editing span.
 
-**Reference:** `packages/editor/src/field-host/field-stats.ts` (`currentLogStats` and the
-module header's note on the widened window); `packages/editor/src/field-host/field-host.ts`
+**Reference:** `packages/editor/src/field-host/field-stats.ts`
+(`StatsMeter.publishIfWatched`, the private cache it reads, and the module header's note on
+the widened window); `packages/editor/src/field-host/field-host.ts`
 (`entityFootprints`, the fixed version + its comment);
 `packages/editor/tests/field-host-pointer.gpu.test.ts` (the world-swap case).
 
