@@ -133,6 +133,9 @@ import {
 import { arrowNudgeSteps } from "./input-map.ts";
 import { type CaptureHandle, createInputRouter } from "./input-router.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
+// The render-bookkeeping shapes live with the rest of the substrate an extracted
+// cluster is handed, so the host and its clusters name them from one place.
+import type { ChunkRender, PropRender } from "./substrate.ts";
 import { createViewChannel } from "./view-channel.ts";
 import {
   cursorAffordance,
@@ -1360,23 +1363,6 @@ type SelectionState = {
 
 /** A prebuilt drawLines batch (vertices + per-vertex colors). */
 type LineBatch = { vertices: Float32Array; colors: Float32Array };
-
-/** One chunk's GPU render state: per-class surface/backing bucket meshes plus an
- *  optional instanced kit mesh (one draw call for all its kit pieces). */
-type ChunkRender = {
-  entries: {
-    m: mesh.Mesh;
-    g: geometry.Geometry;
-    classId: number;
-    backing: boolean;
-  }[];
-  kit: mesh.InstancedMesh | null;
-  kitGeo: geometry.Geometry | null;
-};
-
-/** One archetype's committed prop draw: an instanced proxy primitive + the
- *  geometry it owns (one draw call for every placed record of that archetype). */
-type PropRender = { im: mesh.InstancedMesh; g: geometry.Geometry };
 
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 /** The pointer-rate cadence: how often a drag applies the brush, and (since D-25) how

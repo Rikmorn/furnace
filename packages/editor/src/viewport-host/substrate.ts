@@ -13,9 +13,11 @@
 // `view-channel.ts` and `input-router.ts` this is a seam between the host and
 // the clusters lifted out of it, not surface the chrome may reach for.
 //
-// UNCONSUMED TODAY, and that is the plan. `createFieldHost` adopts the record
-// when T3b's first cluster extraction has something to hand it; constructing
-// one before there is a consumer would be dead code claiming to be a boundary.
+// The RECORD is unconsumed today, and that is the plan: `createFieldHost` adopts
+// it when T3b's first cluster extraction has something to hand it, and
+// constructing one before there is a consumer would be dead code claiming to be
+// a boundary. The two render-bookkeeping types below are already live — the host
+// reads them from here.
 import type * as binding from "@furnace/core/binding";
 import type * as field from "@furnace/core/field";
 import type * as geometry from "@furnace/core/geometry";
@@ -27,15 +29,13 @@ import type { EntityArchetype } from "../frontend/lib/catalog.ts";
 import type { FieldWorkerClient } from "../frontend/lib/field-client.ts";
 import type { FlagStore } from "./field-flags.ts";
 
-// MIGRATION (until T3b): the two render-state aliases below MIRROR private
-// `type` declarations in field-host.ts (`ChunkRender`, `PropRender`) that no
-// module can currently name. They are declared here rather than exported from
-// there because the dependency arrow has to point from the host being taken
-// apart TO the substrate its pieces share, never back — T3b deletes the host's
-// copies and imports these. Until then TypeScript's structural typing keeps the
-// two spellings interchangeable, with one gap worth knowing about: a field ADDED
-// to the host's copy still assigns to this one, so drift in that direction is
-// silent. Change one, change both.
+// The two render-bookkeeping shapes below are declared HERE, not in the host
+// that has always built them, because this module owns the vocabulary of what
+// the host's extracted clusters share — and a per-chunk render entry is shared
+// substrate by definition, being half of what a rendering cluster would be
+// lifted out to own. `field-host.ts` type-imports them from here, so the host
+// and the first cluster to arrive read one declaration rather than two
+// structurally identical ones the compiler could never tell apart.
 
 /** One chunk's GPU render state: per-class surface/backing bucket meshes plus an
  *  optional instanced kit mesh (one draw call for all its kit pieces). */
