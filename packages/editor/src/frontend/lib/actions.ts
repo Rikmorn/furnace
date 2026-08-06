@@ -42,6 +42,7 @@
 // never VALUE-import anything under `field-host/` (machine-enforced by
 // `tests/frontend-no-engine-leakage.test.ts`), so every host verb here goes through the
 // `FieldHost` instance the context hook reads off `fieldHostRef`.
+import type { ActionGate, ActionGroup } from "../../action-registry/index.ts"; // type-only: erased
 import type {
   FieldEntityInfo,
   FieldHost,
@@ -65,6 +66,22 @@ import type { WorldActions } from "../hooks/useWorld.tsx";
 // (see AXIS_VIEWS).
 import { axisViewLabel } from "./axis-triad.ts";
 import type { PaletteId } from "./palette-store.ts";
+
+// MIGRATION (until T3b2 Task 4): the two DATA halves of an action's shape now live one layer
+// down, in `src/action-registry/`, where a process with no DOM can read them. Re-exported
+// from here rather than re-declared, so there is exactly ONE declaration of each and the
+// four files that already name `ActionGroup` off this module (`BurgerMenu`,
+// `CommandPalette`, `ShortcutsDialog`, `tests/actions.test.ts`) keep the import site they
+// have — re-pointing them would be churn against no ownership gap, which is what the
+// surface-membership rule asks us not to buy. Type-only, so nothing crosses into the
+// chrome's bundle. When Task 4 moves the table, the four importers move with it and this
+// line goes.
+//
+// `ActionGate` is NOT re-exported: it has no consumer outside this file, and a re-export is
+// one line on the day one appears. `ACTION_GROUPS` below stays HERE: what a group is called
+// and in what order it renders is a chrome fact, and it is a VALUE the chrome imports —
+// which the layer forbids reaching into the registry for.
+export type { ActionGroup };
 
 /** Everything an action can read or call, assembled once per render by
  *  `useActionContext` and handed to every `label`/`enabled`/`run`.
@@ -150,20 +167,6 @@ export type ActionCtx = {
   };
 };
 
-/** When an action's key is allowed to fire.
- *
- *  - `chord` — a ⌘/Ctrl chord. Live everywhere, INCLUDING inside a text input, because
- *    the browser default it replaces (save-page, the input's own undo stack) is worse.
- *  - `typed` — a key someone could be TYPING: every bare letter, plus ⌫, Esc and ⏎.
- *    Refused when the focus is in a text input, and nowhere else.
- *
- *  There is deliberately no third class for "refused during a look drag". That refusal
- *  is not a property of being bare — it exists for exactly one reason, a keycap that is
- *  ALSO a fly key, and it is declared per action ({@link ActionDef.flyLetter}). A blanket
- *  class would take `R` and `F` down with it for no collision at all: turning a ghost
- *  while orbiting round it is a normal gesture, and `readFlyMove` reads only w/a/s/d/q/e. */
-export type ActionGate = "chord" | "typed";
-
 /** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time. */
 export type GateEnv = {
   /** `isTextInputTarget(e.target)` for this event. */
@@ -223,27 +226,6 @@ export type ActionDef = {
   flyLetter?: boolean;
   run: (ctx: ActionCtx) => void;
 };
-
-/** `world`, `edit` and `view` are the burger's SUBMENUS — one each, rendered from this
- *  table (the holistic gate's ruling 3). `tool` and `session` are the keyboard's, and reach
- *  the user through the tool rail, the status bar's keymap line and the shortcuts overlay
- *  rather than through a menu: arming a brush is the rail's job and ending a session is the
- *  viewport's, so filing them in the burger would be a second, worse route to both.
- *
- *  `help` is the odd one and says so here rather than reading as an oversight: it carries a
- *  single action, and the burger renders that action DIRECTLY rather than as a fourth
- *  submenu. Two reasons, both structural. A one-row submenu is a chevron guarding one row.
- *  And that row's select hands focus to the dialog it opens (`BurgerMenu`'s `handingOff`),
- *  which a generic registry row cannot express — so the menu item is hand-written, and its
- *  label, keycap and verb are read off this table through `byId` so there is still exactly
- *  one spelling of each. */
-export type ActionGroup =
-  | "world"
-  | "edit"
-  | "view"
-  | "tool"
-  | "session"
-  | "help";
 
 /** The six groups in the order a user meets them, with what each is CALLED on a surface
  *  that shows headings.

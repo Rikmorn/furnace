@@ -182,7 +182,7 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why a host constant the chrome needs is normally restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7) — with three exceptions since T3b2: `MAX_SEGMENT_M`, `SELECTION_UI_BUDGET` and the `LATTICE` step now live in `src/shared/` (`field-limits.ts`, `field-brush.ts`), where BOTH layers value-import the same number instead of agreeing by review (§22), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**The import arrow runs one way — `frontend/ → field-host/ → shared/`** (foundations T3b1). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, and `src/shared/` the neutral floor. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+**The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes are SIBLINGS, not a chain: neither imports the other, and `tests/no-chrome-leakage.test.ts` pins that direction explicitly because nothing else would — the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
 - **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. T3b2 added two more (`field-limits.ts`, value-imported by both layers; `action-table.ts`, whose chrome consumers arrive in that slice's Task 5 — §22). `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
@@ -2894,7 +2894,8 @@ Two facts belong here: `src/field-host/` imports **nothing** out of `src/fronten
 and `src/shared/` imports nothing ABOVE it (it grew its first intra-layer edges in T3b2 —
 §22 — which the guard was written to allow). Both are pinned by
 `tests/no-chrome-leakage.test.ts`, which closed the React-free half of the `shared/` rule
-that had been prose since Task 6.
+that had been prose since Task 6. T3b2 added a fourth node beside `field-host/` rather than
+a fourth rung under it (§22.5) — §7 carries the current shape.
 
 ### 21.3 The chrome collapse — ten contexts become latches
 
@@ -3079,3 +3080,127 @@ enforcement.
 rules. This is why the breakpoints are carried as literal class strings rather than as rem
 numbers: a templated `@max-[${n}rem]/strip:hidden` is not class-shaped text and would emit
 no rule at all.
+
+### 22.5 `src/action-registry/` — the editor's verbs as rows, and the layer's fourth node
+
+`frontend/lib/actions.ts` declares 39 actions with 12 fields each. **Five** of those fields
+are closures — `label`, `enabled`, `checked`, `run` over a live React context, and `match`
+over a `KeyboardEvent` — and they are the whole reason the one action table cannot leave the
+browser. The other **seven** are data. `src/action-registry/` is those seven, for all 39.
+
+The blocker was never the DOM. `actions.ts` is already DOM-free (`KeyboardEvent` appears as
+a type only, erased at build) and its only value imports are neutral-floor modules. What was
+missing: **one export-map entry** (`packages/editor/package.json` carried exactly one,
+`./field-host`, and the daemon bundles from the CONSUMER's root, so it names editor modules
+by bare specifier), the five closures, and **nothing machine-enforcing Node-importability**
+at all. All three are now addressed or scheduled.
+
+**The layer.** `action-registry/` sits BESIDE `field-host/` under the chrome, not under it.
+It may value-import `@furnace/core` and `shared/`; it may import React, the DOM,
+`field-host/` or `frontend/` not at all. Four rules, deliberately split across the two guard
+files **by mechanism rather than by subject**, so each stays provable the way its file
+proves things:
+
+| rule | where | how |
+|---|---|---|
+| no React | `no-chrome-leakage.test.ts` | specifier scan |
+| nothing out of `frontend/` | same | specifier scan |
+| nothing out of `field-host/` | same | specifier scan (the file's first host rule — the two nodes are siblings, so nothing else would stop the registry taking a `FieldHost` with it) |
+| the chrome may reach it **type-only** | `frontend-no-engine-leakage.test.ts` | that file's `valueImportRules`, which already knows `import type` is erased |
+
+The fourth is that file's rule because it is that file's *reason*: the registry is licensed
+to value-import core (an action that takes input carries a zod schema built from core's `z`
+re-export — the single-instance contract), so a chrome VALUE-import would pull zod and
+behind it core into the main bundle, the same second instance the other three rules exist to
+prevent, arriving by a fourth door.
+
+**The DOM half is not a regex, and could not usefully be one** — `KeyboardEvent` in a type
+position is erased, and `window`/`document` are ordinary English words in files this dense
+with prose. `tests/action-registry/node-door.test.ts` imports the module in a bare runtime
+instead, twice: by relative path, and by the new `@furnace/editor/action-registry` bare
+specifier (the daemon's actual route in, and the failure mode `bundle.test.ts`'s note
+describes). Both doors were sabotage-verified — a module-scope `document.title` fails them,
+and removing the export-map entry fails the second alone.
+
+**Bindings become data.** Five matcher helpers (`mod`, `chord`, `bare`, `shifted`,
+`question`) plus three hand-rolled inline ones (⌫/⌦, ⏎, Esc) collapse into five `KeyBinding`
+kinds and one pure `matchBinding(binding, facts)`. *(Counted at head. The planning digest
+said "six matcher shapes … plus 4 hand-rolled inline" — it listed five under the six, and
+counted `question` again among the four; `match: question` is a bare reference to the helper,
+not a fourth inline matcher.)* The facts are
+`{ key, mod, shift, alt }` — four, not five: `e.key` IS the produced character for a
+printable press and the key's NAME otherwise, which is exactly the distinction the `char` and
+`named` kinds draw, so carrying it twice would be two fields to keep equal. The dispatcher
+becomes the only place a `KeyboardEvent` is read. **The keycap is derived** (`keycap()`)
+rather than stated beside the binding, which closes a gap `keybindings.test.ts` had already
+named in writing — *"a cap edited to `⇧/` would leave every case here green while the menu
+advertised a key nothing answers"* — and which it had closed for exactly one row.
+
+The union's one real axis is **what each kind does about ⇧**. `chord`/`bare`/`shifted` state
+it (that is what makes ⌘Z and ⇧⌘Z two actions); `char` cannot, because the character is what
+the layout produced and which modifier produced it is the layout's business; `named` chooses
+per binding, for the reason below. `char` and `named: "any"` reach the same predicate and are
+still separate kinds, because `{ kind: "named", keys: ["?"] }` would read as a claim that `?`
+is a key name, which is the thing `char` exists to deny.
+
+**One binding did not map cleanly, and the SCHEMA bent rather than the behaviour.** Three
+actions match named keys, and the source carries **two** ⇧ policies across them with no
+comment on either side: `session.confirm` (⏎) and `session.escape` (Esc) ignore ⇧, while
+`edit.delete`'s inline matcher pins `!e.shiftKey` — so ⇧⏎ commits, ⇧Esc cancels, and ⇧⌫ does
+nothing. A single-policy `named` kind could express one group or the other, never both. The
+kind therefore carries a **required** `ShiftPolicy` (`"up"` | `"any"`), and all three
+bindings keep exactly what they do today.
+
+Three things about that field are deliberate. It is **required**, because a silent default is
+precisely how the disagreement arrived — every named binding now states its own. It is
+**named apart from `chord`'s `shift`**, which is a boolean that STATES the modifier and has
+no don't-care member; one name for two vocabularies would be a reader's trap. And `char` has
+**no** policy field at all: pinning ⇧ up would kill `?` on a layout that puts it unshifted
+and pinning it down would kill it on the one this editor is developed against, so there is
+nothing to choose.
+
+**The disagreement itself is a filed question, not a resolved one**
+(`docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md`). *Should ⇧⌫
+delete?* is a product decision about the editor's one destructive keycap, and it might go
+either way — tighten ⏎/Esc, loosen ⌫, or document both. What settles that it is a real
+question rather than an artefact: this codebase *does* write down a deliberate
+shift-agnostic binding when it makes one — `?` spends eleven lines of TSDoc on it and files
+its AltGr residue — and none of these three carries a word. A declarative table is allowed to
+force that question and is not allowed to answer it.
+
+**The rows stand beside the literals for one commit**, exactly as `shared/action-table.ts`
+did in Task 2 and for the same reason. The gate asserts all seven fields (order included)
+against the live table, and the 22 binding rows against the 22 live `match` closures over a
+**640-press cross-product** (40 keys × all 16 modifier combinations, with meta and ctrl
+enumerated separately so "the two sides collapse them the same way" is checked rather than
+assumed) — **zero** divergences, **no exception list**, and at most one claimant per press
+throughout. A second case pins the two ⇧ policies as DATA, so unifying them cannot happen as
+a side effect of a tidy-up. `ActionGroup` and `ActionGate` **moved** down rather than being duplicated
+and pinned: they are types, the chrome may type-import them, and `actions.ts` re-exports
+them so its four importers keep one import site. `ACTION_GROUPS` stays in the chrome — a
+group's title and render order are rendering facts, and it is a value the chrome
+value-imports.
+
+**`mcpProjection` is recorded, not built.** Six rows carry it, and they are the whole
+membership: the axis views project onto one `view.snap {axis, sign}` MCP tool while the
+chrome keeps six literal greppable ids (the WCAG 2.5.8 equivalent affordance of §18.5 —
+delete them and the finding re-opens). Both facts, stated once each.
+
+**The chrome-type-only rule closes the `shared/` route, so Task 4's schemas get their own
+module.** Four chrome surfaces render `hint`, `keys` and `group` at RUNTIME, which needs a
+VALUE import; the rule bars the chrome from value-importing anything under
+`action-registry/`. The plan's escape hatch was to flow that data through
+`shared/action-table.ts` — but the same rule is applied to the `shared/` walk, correctly,
+since the floor sits BELOW the registry and an upward import is not available at all. Today
+nothing bites, because `descriptors.ts` carries no zod at value level; the moment Task 4
+populates `input:` rows with `z.object(...)`, it does, and the only remaining options are a
+chrome value-import of a schema-bearing module (the STOP condition) or restating the labels
+in `shared/` (the duplication this slice exists to remove). **Decision, recorded here so T4
+inherits it rather than discovers it: `descriptors.ts` stays plain, zod-free,
+chrome-value-importable data, and the input schemas move to a separate
+`action-registry/schemas.ts` as an id-keyed map — with the chrome value-import rule narrowed
+to THAT module plus bare `zod`.** It honours the hard constraint machine-checkably rather
+than by review, keeps the chrome reading one source instead of restating it, and is what
+spec §3.3's "zod never crosses a boundary" actually asks for. Not implemented in T3b2: with
+no zod values in the directory there is nothing to split yet, and a seam built before its
+first schema would be guessing at the map's shape.

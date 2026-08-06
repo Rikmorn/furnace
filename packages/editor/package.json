@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./action-registry": "./src/action-registry/index.ts",
     "./field-host": "./src/field-host/index.ts"
   },
   "scripts": {

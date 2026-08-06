@@ -55,9 +55,38 @@ const PROTOCOL = `["'][^"']*(field|analyzer)-protocol`;
 // a documented edge, not a gap to widen the rule for. Widening it back to unanchored would
 // re-break the mirrors file for a spelling nothing uses.
 const FIELD_HOST = `["'][^"']*field-host(/|["'])`;
+// `src/action-registry/` (foundations T3b2 Task 3) is licensed to value-import
+// `@furnace/core` — it holds the editor's verbs as rows, and an action that takes input
+// carries a zod schema built from core's `z` re-export (the single-instance contract). That
+// licence is exactly why the chrome may reach it TYPE-ONLY and no further: a chrome
+// value-import would pull zod, and behind it core, into the main bundle — the same second
+// instance the three rules above exist to prevent, arriving by a fourth door.
+//
+// It is enforced HERE rather than in `no-chrome-leakage.test.ts` (which owns the registry's
+// other three rules) because the reason is this file's reason and the mechanism is this
+// file's mechanism: `valueImportRules` already knows that `import type` / `export type` are
+// erased and therefore fine, which is the whole shape of the permission. The same anchor as
+// the host rule, for the same reason — a future `frontend/lib/action-registry-mirrors.ts`
+// must not trip it.
+//
+// This rule binds `shared/` too, and correctly: the floor sits BELOW the registry, so a
+// value-import there would point the arrow backwards as well as carry core.
+const ACTION_REGISTRY = `["'][^"']*action-registry(/|["'])`;
+// zod's FRONT DOOR. `zod` is a direct dependency of this package (`package.json`) —
+// legitimately, for the daemon, which validates every command with it. Nothing stops a
+// chrome file writing `import { z } from "zod"` and putting the whole library in the main
+// bundle: `ENGINE` matches `@furnace/core` and not its re-export's origin. The registry rule
+// above closes the INDIRECT route (a chrome value-import of a schema-bearing module) and
+// left this one open, which is half a rule. The constraint is that the chrome bundle gains
+// neither zod NOR `@furnace/core`; this is the other half.
+//
+// Bare specifier only, anchored at both ends: `zod/v4` or a local `./zod-helpers.ts` are not
+// this dependency and must not be swept up by a rule aimed at it.
+const ZOD = `["']zod["']`;
 
-// All three rule-sets (@furnace/core, *-protocol, field-host) exempt the SAME
-// files: each dedicated worker is its OWN bundle (/field-worker.js,
+// THE TWO WORKER ENTRIES ARE EXEMPT FROM THE ENGINE RULES ONLY — three of the five
+// rule-sets below (@furnace/core, *-protocol, field-host), not all five. Each dedicated
+// worker is its OWN bundle (/field-worker.js,
 // /analyzer-worker.js), spawned by URL into an isolated Worker realm. They consume
 // stock engine code (@furnace/core/field) directly. What must never happen is core
 // entering the CHROME's bundle, which is what every rule below is about.
@@ -103,6 +132,17 @@ const FIELD_HOST = `["'][^"']*field-host(/|["'])`;
 // `../field-host/`, and both of those protocol modules still value-import core
 // themselves (the mesher; the advisor passes).
 //
+// WHAT THE EXEMPTION DOES NOT COVER, and the split below is what makes that machine-true
+// rather than a sentence. Every word of the rationale above is about ENGINE code in a
+// worker realm; none of it reaches `action-registry` or `zod`, and a worker has no business
+// with either (measured: the two entries import the two protocol modules and nothing else).
+// When `action-registry` was added to a single flat `FORBIDDEN` list, the exemption widened
+// over it silently — harmless, since neither entry imports it, but this file is the
+// authority on its own rule set and an accidental licence is not one anybody granted. So
+// the rules are two sets: EXEMPTABLE (the three engine rules, which the two entries may
+// break) and UNIVERSAL (the registry and zod, which nothing under `frontend/` may break).
+// If a worker ever genuinely needs one of those, that is a conversation, not a default.
+//
 // THE PROTOCOL PAIR LEFT THIS SCAN, deliberately, and the coverage arithmetic is exactly
 // zero (foundations T3b1): `field-protocol.ts` and `analyzer-protocol.ts` moved from
 // `frontend/lib/` into `src/field-host/`, where they sit beside their main-thread
@@ -139,11 +179,22 @@ const valueImportRules = (specifier: string): RegExp[] => [
   new RegExp(String.raw`^export\s+(?!type\b)[^;]*?from\s+${specifier}`, "m"), // value re-export
 ];
 
-const FORBIDDEN = [
+/** The three ENGINE rules, which the two worker entries are exempt from — they are those
+ *  bundles, and the long note above is the whole of why that is safe. */
+const EXEMPTABLE = [
   ...valueImportRules(ENGINE),
   ...valueImportRules(PROTOCOL),
   ...valueImportRules(FIELD_HOST),
 ];
+
+/** The two rules NOTHING under `frontend/` may break, worker entries included. Neither is an
+ *  engine rule, so neither is covered by the engine exemption's reasoning. */
+const UNIVERSAL = [
+  ...valueImportRules(ACTION_REGISTRY),
+  ...valueImportRules(ZOD),
+];
+
+const FORBIDDEN = [...EXEMPTABLE, ...UNIVERSAL];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -155,9 +206,14 @@ function walk(dir: string): string[] {
 
 test("frontend has no value imports of @furnace/core (project-first invariant)", () => {
   const offenders = walk(FRONTEND).filter((f) => {
-    if (ENGINE_DIRECT_WORKER.has(relative(FRONTEND, f))) return false;
     const text = readFileSync(f, "utf8");
-    return FORBIDDEN.some((re) => re.test(text));
+    // The exemption is applied to the ENGINE rules only. A worker entry still may not
+    // value-import the action registry or zod — nothing in the exemption's rationale
+    // reaches either, and a licence nobody granted is not a licence.
+    const rules = ENGINE_DIRECT_WORKER.has(relative(FRONTEND, f))
+      ? UNIVERSAL
+      : FORBIDDEN;
+    return rules.some((re) => re.test(text));
   });
   expect(offenders).toEqual([]);
 });
