@@ -10,7 +10,9 @@ running system.
 **Read it in two halves.** §1–§8 are the DAEMON and the serving contract — the parts that
 have been stable since M3/M4 and that no chrome rewrite touches. §9–§18 are the FIELD
 authoring tool: the inspector module, the field host and its workers, and the three F4.5
-slices that made the chrome what it is. §19 lists what is deferred.
+slices that made the chrome what it is. §19 lists what is deferred, and **§20 is foundations
+T3a** — the framework primitives the field host's decomposition is being built on. §20 sits
+after Deferred rather than before it because section numbers here are append-only.
 
 **What was cut, and where it went.** The editor once had a dockview chrome, a
 scene-document surface (entities panel / inspector panel / GPU-id picking / translate gizmo
@@ -1248,8 +1250,10 @@ the world chip reads it, ⌘S drives it, the drawer lists against it. That place
 point: a control stack that owns the save verb cannot be dissolved into palettes, and
 closing the palette holding it would take ⌘S with it. It sits *under*
 `FieldHostStateProvider` because the dirty bit derives from the stats that provider
-already owns (`subscribeStats` is a single slot — a second subscription here would
-silently steal the status bar's).
+already owns. (The original reason was that `subscribeStats` was a single slot and a second
+subscription here would have silently stolen the status bar's. Foundations T3a made every
+seam multicast, so that hazard is gone — the placement stands on the rule it always also
+served: ONE subscription point per seam, §16.7.)
 
 - `name` is `null` for an untitled scratch and **never prefilled** — the W3/W4
   gate-clobber lesson: a stale default silently overwrites the game's world at the first
@@ -1269,7 +1273,7 @@ silently steal the status bar's).
 - **The long-job readout (D-19)** is the bar's one non-interactive chip, driven by two
   facts and no store of its own: `world.job` for a write or read, and
   `FieldStats.voidCastPending` for the X-ray's whole-world worker job. The cast rides the
-  existing per-frame stats push rather than a thirteenth single-slot seam — every reader of
+  existing per-frame stats push rather than a thirteenth seam — every reader of
   that fact already reads stats, and `analyzerPending` beside it had already established
   job-in-flight-ness as a member of that type. What it buys is legibility for a refusal
   that already shipped: "a void cast is still building" names a state nothing on screen
@@ -1407,10 +1411,12 @@ is no second document to step, so ⌘Z/⇧⌘Z call `FieldHost.undo()`/`redo()` 
 else. The canvas binds the same chord itself and stops propagation, so a ⌘Z with the
 viewport focused steps once, not twice.
 
-**Esc is a LADDER** (`FieldHost.escape()`), not a single verb: it cancels exactly one
-thing, most recent intent first — a half-drawn box/segment anchor, then the live session
-(a move included), then the selected entity, then the cell selection. The canvas's Esc and
-the registry's run the same function, so they cannot disagree about the order.
+**Esc cancels ONE THING per press** (`FieldHost.escape()`), not everything at once: a
+half-drawn box/segment anchor, the pending stamp arm, the live session (a move included),
+the selected entity, the cell selection. **Most recent intent first** — which was a fixed
+five-rung order at the seal and is the acquisition order of a capture stack since
+foundations T3a (§17.4, §20). The canvas's Esc and the registry's run the same
+implementation, so they cannot disagree about it.
 
 **⏎ is `FieldHost.confirmSession()`**, which drops a live grab (the zero-step rule, the
 pending-preview latch) and otherwise ends the session by mode. Both keys route through it.
@@ -1446,9 +1452,16 @@ swatches, the brush inspector, the stamp inspector and the advisor's flags — r
 entirely from the provider's contexts, with **no host subscription of its own**.
 
 **`hooks/useFieldHostState.tsx` is the ONE subscription point for the seams the chrome
-reads**, and the reason is a real failure mode: every `FieldHost.subscribe*` seam is a
-**single slot** (`statsCb = cb`), so a second subscriber silently steals the first's —
-the earlier consumer just stops updating, with nothing thrown and nothing logged. All
+reads.** The reason it was written was a real failure mode: every `FieldHost.subscribe*`
+seam was a **single slot**, so a second subscriber silently stole the first's — the earlier
+consumer just stopped updating, with nothing thrown and nothing logged. **Foundations T3a
+retired that hazard** (§20): the seams are multicast now, and a second subscriber costs
+nothing but a second delivery. The rule outlived its enforcement and is kept on its own
+merits — one mirror per seam rather than N copies of the same state drifting apart, one
+place where a comparator decides whether a push re-renders anything, and one place to look
+when a surface stops updating. What changed is that the rule no longer holds itself up:
+`tests/chrome/host-seams-and-catalogs.test.tsx` is now the only thing that detects a
+violation, where before the bug reported itself as a dead surface. All
 **eleven** seams live there (stats, tool-error, camera-pose, entities, drift,
 entity-selection, tool, selection, stamp, pending-stamp, flags), published through
 **eight** contexts split by CADENCE — a
@@ -1603,10 +1616,12 @@ standing report touches; membership is the HOST's answer, pushed as
 `FieldDriftReport.entityIds` and turned into a `ReadonlySet` by the provider, so a badge
 cannot outlive the geometry it points at.
 
-Esc's third rung clears the entity selection, and `F` (`view.frame` →
-`FieldHost.frameSelection`) frames the selected entity's footprint, else the cell selection's
-AABB, else reports "nothing selected to frame" — a FIXED priority rather than a recency
-rule, because an object selection names one thing and a cell selection names a volume.
+Esc clears the entity selection when it is the most recently acquired capture (§17.4), and
+`F` (`view.frame` → `FieldHost.frameSelection`) frames the selected entity's footprint, else
+the cell selection's AABB, else reports "nothing selected to frame" — a FIXED priority rather
+than a recency rule, because an object selection names one thing and a cell selection names a
+volume. The two keys deliberately disagree about ordering, and that is the reason: `F` asks
+"which of these is the subject?", Esc asks "what did you just do?".
 
 ### 17.3 Move, delete, duplicate — and a move IS a reconfigure session
 
@@ -1743,12 +1758,16 @@ family, and the button is what decides which. `isLooking()` is a POLL rather tha
 — the button goes down and up between renders, so a mirrored boolean would answer for a frame
 that has already gone.
 
-**Esc is a five-rung LADDER**, one shared `escapeLadder()` behind both entry points so they
-cannot disagree about the order: a half-drawn box/segment anchor, then the pending stamp arm
-(§17.8), then the live session (a move included), then the selected entity, then the cell
-selection — which is PARKED in the Reselect slot, so an Esc that went one rung too far has the
-same way back a Clear does. It returns whether it acted, which is how the canvas branch knows
-whether it has claimed the event.
+**Esc cancels ONE thing per press, and the thing it picks is the most recent.** Both entry
+points — the canvas keydown branch and the public `FieldHost.escape()` verb — still share one
+implementation so they cannot disagree, but that implementation is a **capture stack**
+(`viewport-host/input-router.ts`) rather than the five fixed rungs it was at the seal. Six
+states can be captured: a half-drawn box anchor, the segment anchor, the pending stamp arm
+(§17.8), the live session (a move included), the selected entity, and the cell selection —
+which is PARKED in the Reselect slot, so an Esc that went one press too far has the same way
+back a Clear does. It returns whether it acted, which is how the canvas branch knows whether
+it has claimed the event. **The ORDER is acquisition order, not a declared priority**, which
+changes behaviour in three reachable cases — see §20.
 
 **Undo/redo go straight to the host: the field's op log IS the editor's history** (§17.6). ⏎ is
 `FieldHost.confirmSession()`, public precisely because `beginMove` does not focus the canvas — a
@@ -2109,11 +2128,14 @@ gesture could have expressed. Without it a too-narrow cell inverted the tie-brea
 permanently docked a free palette RIGHT on its next drag.
 
 `hooks/useFieldHostState.tsx` remains the ONE subscription point — **thirteen seams through
-ten contexts** at the seal (§18.6 adds the thirteenth): every `FieldHost.subscribe*` seam is a
-single slot, so a second subscriber silently steals the first's, and no surface below the
-provider may re-subscribe to anything it owns. That rule is a claim about the SET rather than
-about any one surface, which is why its test outlived the panel it used to live in
-(`tests/chrome/host-seams-and-catalogs.test.tsx`).
+ten contexts** at the seal (§18.6 adds the thirteenth): no surface below the provider may
+re-subscribe to anything it owns. At the seal the rule was self-enforcing — every
+`FieldHost.subscribe*` seam was a single slot, so a second subscriber silently stole the
+first's — and foundations T3a made the seams multicast, which retired the hazard and left
+the rule standing on cost and single-source-of-truth instead (§16.7, §20). That rule is a
+claim about the SET rather than about any one surface, which is why its test outlived the
+panel it used to live in (`tests/chrome/host-seams-and-catalogs.test.tsx`) — and why that
+test is now the rule's only detector.
 
 ## 18. F4.5c — the finish (2026-08-03)
 
@@ -2355,8 +2377,10 @@ the real radius without going through the chrome, so the strip readout kept the 
 the chrome itself had set and drifted from the brush the viewport was drawing. It is pushed
 from `applyRadius` — the ONE funnel all three call sites already land in — rather than from
 the sites, on the same argument the clamp there already makes. It rides `subscribeTool`
-alongside the tool rather than taking a fourteenth single-slot seam, and rather than riding
-the frame-paced stats push, because a radius is USER-paced. It is two fields rather than a
+alongside the tool rather than taking a fourteenth seam, and rather than riding
+the frame-paced stats push, because a radius is USER-paced. (The seam-count argument is
+unchanged by T3a's multicast rewrite — a seam is still public surface on `FieldHost`, and
+what made a fourteenth not worth it was the surface, not the slot.) It is two fields rather than a
 member of `FieldTool` for a precise reason: `deriveMomentary` spreads the saved tool on
 press but assigns it WHOLESALE on release, so a radius inside `FieldTool` would be silently
 reverted when the user let go of ⇧.
@@ -2439,3 +2463,203 @@ allowed to stand:
 - **Everything else** lives in `docs/backlog/editor-and-tooling/`, one file per entry, each
   with the trigger that would make it actionable. The F4.5 seal filed the charter's whole
   capability-sweep backlog column there.
+
+## 20. Foundations T3a — the host's framework primitives (2026-08-05)
+
+Three mechanisms the field host had hand-rolled became named modules beside it, and two
+core additions landed as their enablers. The slice is a **substrate** slice: it changes how
+the host says things, not what it can do, and two of the three modules have no consumer in
+this slice at all — T3b and T3c are the readers. It is documented here rather than left to
+the seal because two of the changes are observable, and one of them changes a behaviour a
+user can feel.
+
+`view-channel.ts`, `input-router.ts` and `substrate.ts` are all **package-internal**:
+deliberately not re-exported from `viewport-host/index.ts`. They are seams between the host
+and the clusters being lifted out of it, not surface the chrome may reach for. The map of
+what is being lifted, and what is left, is `docs/reference/field-host-clusters.md`.
+
+### 20.1 The view channel — thirteen seams, N subscribers each
+
+`viewport-host/view-channel.ts` is the multicast push seam behind every
+`FieldHost.subscribe*` member. It is the push-direction sibling of
+`frontend/lib/notify-store.ts` and framework-free for the same reason: subscribe returns an
+unsubscribe and nothing more, so who hears a publish, what a late mount sees, and what a
+throwing subscriber costs its siblings are all decided in one place a bare test drives
+without a DOM or a React tree. **All thirteen seams moved in one commit and every signature
+is unchanged** — `subscribeSegmentHud` delegates to `field-segment.ts`'s own channel, the
+other twelve are channels the host holds.
+
+Ten of the thirteen **push the current value on subscribe** — the (re)mount rule: a surface
+that mounts mid-state must not render empty beside an overlay already showing that state.
+The snapshot is a closure re-read **per subscribe**, not captured once, so a late mount is
+pushed the state as it is then. Three seams deliberately have no snapshot, because their
+payload is an EVENT rather than a state: `subscribeTool` (a change the chrome did not make;
+a subscriber wanting the current tool has `setTool`'s own funnel), `subscribeToolError`
+(re-pushing the last refusal to a remounting toast stack would resurrect one the user
+dismissed) and `subscribeStats` — pushed every rAF, so the longest a subscriber waits is a
+frame, and a snapshot would be the only place that payload was assembled off the tick.
+
+**Three things are observable, and only three.** Everything else about the seams is
+byte-identical from the chrome's side.
+
+1. **Slot-steal is dead.** A second subscriber no longer disconnects the first. This is the
+   hazard §16.7's ONE-subscription-point rule was written against; the rule survives it on
+   other merits, but it no longer holds itself up.
+2. **A throwing subscriber no longer severs its siblings.** Delivery is isolated
+   per-subscriber: an exception is `console.error`ed and the pass continues, and `publish`
+   itself never throws. This is safe precisely because notifications go LAST — host state is
+   already committed when they fire (the field-host ordering rule), so isolation cannot leave
+   the host half-written. It converts a sibling-severing throw into a log line. Subscriber
+   exceptions are programmer errors, not user-facing refusals: `subscribeToolError` is the
+   seam for those, and a surface's bug must not silence the surface behind it.
+3. **A callback that throws on its INITIAL push now gets a working unsubscribe** — the
+   corollary of (2), and the easiest of the three to miss. Under a single slot that throw
+   propagated out of `subscribe`, which therefore never returned; the caller had a live
+   registration it could not remove. It is logged now and the unsubscribe comes back.
+
+Two implementation rules are load-bearing enough to state. **`publish` iterates a COPY of
+the membership**: a subscriber is free to (un)subscribe from inside its own delivery — a
+React commit provoked by one push can tear down the surface holding another — and a live Set
+mutated mid-iteration would let one subscriber's bookkeeping decide whether its siblings
+hear this pass. Someone removed mid-pass is still delivered to; someone added mid-pass waits
+for the next one. And **`snapshot()` runs OUTSIDE the per-subscriber try/catch**: reading the
+host's own state is not the subscriber's code, so a snapshot provider that throws is a host
+bug that must surface at the mount that provoked it rather than be papered over with a
+subscriber that silently never got its first push.
+
+**A pushed value is cloned once per publish and SHARED by every subscriber.** It is
+immutable by contract — the seams pushed clones before, and with N readers a mutation by one
+would now be visible to the others.
+
+`size()` is the leak-detection seam, and it exists because the failure mode inverted: the
+single-slot era failed LOUDLY when a subscription leaked (the second subscriber displaced
+the first and something visibly stopped updating), whereas a Set just grows. A count that
+only climbs across mount/unmount cycles is a missing cleanup.
+
+**`subscribeHistory` is the one seam that is not a bare delegate**, and the reason is worth
+keeping. Its body used to CLEAR the shared echo signature (`historySig`) to force an
+unconditional push to its one subscriber; it now RECORDS it (`historySig = historySignature()`)
+and lets the channel's snapshot do the arriving subscriber's initial push. Clearing was
+correct for one subscriber and wrong for N — it would re-broadcast the current history to
+everybody on the next notify that moved nothing. Recording says something true of every live
+subscriber instead: the arrival was just handed this history, and the ones already here were
+pushed it when it landed. It is written BEFORE the subscribe so a callback that reads the
+host back synchronously cannot provoke a duplicate of its own first push. `notifyHistory`
+still asks "is anybody listening" first, as `historyChannel.size() === 0`, and still leaves
+the signature alone when the answer is no.
+
+### 20.2 The input router — Esc becomes a capture stack
+
+`viewport-host/input-router.ts` replaces the five-rung `escapeLadder()` with a stack of
+captures. **A gesture or a selection ACQUIRES a capture when its state goes live and
+RELEASES it in the same canonical setter that clears the state**, so membership IS liveness:
+the stack cannot hold an entry for a state that is gone, and Esc cannot miss one that is
+standing. Esc cancels the TOP and returns whether it acted — the claimed-event contract the
+canvas branch reads to decide whether to `stopPropagation`, and the reason a press with
+nothing captured still travels on to the app-level registry.
+
+That is the whole law, and it is why **every mutation of a captured state must go through
+its setter**: a bare assignment that skips the reconcile leaves a capture behind, and the
+next Esc spends itself cancelling something that already ended. A shared `escRung` helper
+owns the discipline rather than five copies of it — acquire on the first live read, release
+on the first dead one, and do NOTHING while it stays live, which is what makes a REPLACE (a
+selection displacing another, an entity pick displacing another) keep the position its first
+acquisition took. `cancel` runs AFTER the entry is removed, so a cancel that re-acquires (an
+arm whose drawn corner is cancelled goes back to asking for a region) pushes a fresh entry at
+the top rather than resurrecting the one the press just spent.
+
+**Three paths write a captured slot without going through its setter, and each reconciles in
+the same breath** rather than being rewritten to use one — the write is deliberate in all
+three:
+
+- `resetWorld`'s `selection = null` (a `setSelection(null)` would PARK the outgoing selection
+  in the Reselect slot, and a Reselect across a world swap restores cells describing a field
+  that is gone),
+- `reselect()`'s manual swap, for the same reason from the other side,
+- the `stamp` / `moveDrag` pair, which share **one** capture whose liveness is
+  `stamp !== null || moveDrag !== null`. It reconciles at the seven writes that CROSS
+  null↔non-null (two opens, three closes, `endMove`'s clear and `beginMoveSession`'s arm) and
+  deliberately not at the transform writes that keep a live session live — a reconcile there
+  would be a no-op with a cost, and worse, it would imply that a slider drag re-acquires and
+  moves the session's stack position every time a param changed.
+
+**The behaviour change: recency replaces a declared priority.** The old ladder's order was
+fixed, but every rung's own comment argued from recency ("an arm is by definition more recent
+than any session still standing beside it"), and the fixed order held only because the common
+flows happen to acquire in that order. Making it structural costs the cases where the two
+disagree, and there are exactly **three reachable ones** — two independent states that can be
+acquired in either order:
+
+| Both live | Old ladder cancelled | The stack cancels |
+| --- | --- | --- |
+| an entity picked, THEN a cell selection drawn | the entity | the selection |
+| a session live, THEN a cell selection drawn | the session | the selection |
+| a session live, THEN an entity picked | the session | the entity |
+
+The common flow is unchanged: draw a region, then pick something in it, and Esc still takes
+the pick first — in that order recency and the ladder agree. In all three rows above the
+stack is the one obeying the ladder's own stated principle. It is pinned by
+`tests/field-host-escape.gpu.test.ts` ("a selection drawn AFTER an entity pick is cancelled
+first — recency, not a fixed order"), which is the equivalence record for the swap as a
+whole: the router's unit tests pin the stack, that suite pins that the HOST still wires every
+state to it, with the scenarios the old rung comments argued from.
+
+**The segment brush is the pilot** and owns its own anchor capture — the router is passed
+into `SegmentDeps` whole rather than the host reconciling on the extracted module's behalf,
+which is the shape every later extraction will take. **What the router does NOT take yet**:
+the nine DOM listeners and pointer capture stay in the host. T3c's gesture machine takes
+them, and finishes the same bug class for pointer capture that this finishes for Esc.
+
+### 20.3 The substrate record — declared, not yet wired
+
+`viewport-host/substrate.ts` declares `HostSubstrate`, the record an extracted cluster will
+be handed, plus `createHostSubstrate` — an identity function whose entire value is being a
+single named place where the host states the split and the compiler checks it. **It is not
+constructed in `createFieldHost`**: T3b's first cluster extraction is the consumer, and
+building one before there is a consumer would be dead code claiming to be a boundary.
+
+The split is not a style preference and it is not about mutability. **Eleven members are held
+BY VALUE** because they are `const` in the host — the binding never moves, so every write
+lands through the identity already handed out (`chunkMeshes.set`, `propMeshes.length = 0`,
+`flagStore.applyFlags`) and a holder sees all of them. **Five are THUNKS** — `table()`,
+`archetypeById()`, `ctx()`, `disposed()`, `canvasEl()` — because the host REPLACES those
+values rather than writing into them, and a snapshot is a permanent fork that throws nothing:
+`setMaterialTable` assigns a whole new `table`, and a module holding the old one goes on
+meshing, validating and baking against a perfectly well-formed table describing a project the
+user has already changed. `disposed` is the same bug with the volume up — snapshot it and
+every `if (disposed) return` guard in an extracted module waves the teardown through. This
+generalises `field-segment.ts`'s `SegmentDeps` lesson from one cluster to sixteen members,
+at which point it stops being a per-cluster judgement call and becomes a type.
+
+`ChunkRender` and `PropRender` **moved here** from `field-host.ts`, which now type-imports
+them, so the dependency arrow points host → substrate and the host and the first extracted
+cluster read one declaration rather than two structurally identical ones the compiler could
+never tell apart. The record itself is not frozen or copied by the factory, deliberately: the
+shared identity IS the contract on the value side.
+
+Two claims in `field-host-clusters.md` §7.1/§7.3 were wrong and this record corrects them —
+`table` and `archetypeById` were called `const` and are not.
+
+### 20.4 The two core enablers
+
+Neither has a consumer in this slice. Both are named here because the editor is the reader
+that motivated them, and a core addition with no caller is exactly the kind of thing that
+gets deleted as dead by someone who does not know what it is for.
+
+- **`logApplyGroup(store, log, ops, table)`** (`@furnace/core/field`) — the plural
+  `logApply`. A whole `BrushOp[]` lands as ONE `ops` undo entry, so a gesture that commits
+  several ops undoes with a single ⌘Z. Four clauses: every op validates BEFORE the first is
+  applied, so a mid-list rejection mutates nothing; ids stamp in list order onto COPIES,
+  leaving the caller's records alone, from a LOCAL counter committed only after the apply pass
+  (the `commitGenerator` posture, so a throw leaves the log's id space gapless); the inverse
+  keeps each chunk's FIRST pre-image, so undo restores pre-group bytes even where ops overlap;
+  and an empty list is free — no entry, and the redo stack survives rather than being cleared
+  by a phantom step. **It is NOT a transaction**, and says so in its own TSDoc: all-or-nothing
+  covers validation only, and an op that validates and then throws out of the applier leaves
+  earlier writes in the store with no entry describing them
+  (`docs/backlog/engine-architecture/oplog-group-apply-is-not-a-transaction.md`). T3c's
+  gesture machine is the caller.
+- **`Registry.entries()`** (`@furnace/core/registry`) — `[name, entry]` pairs in registration
+  order (Map insertion order), a fresh array per call so mutating it never touches the
+  registry. Re-added after T2 removed it as unused; T3b's ToolManager is the ordered
+  enumeration pass that was the removal note's stated trigger.

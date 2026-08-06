@@ -310,8 +310,12 @@ that CAN report, and names the one that cannot.
 ### `FieldStats` at a third boolean wants a `jobs: {}` sub-object
 
 `FieldStats` carries one job flag today (`voidCastPending`) beside eight numbers. It rides
-the stats push deliberately — the seams are single-slot, and this fact has no consumer that
-does not already read stats — and that reasoning holds for a second and third flag too. What
+the stats push deliberately — a seam is public surface on `FieldHost` and a context in the
+chrome's one subscription point, and this fact has no consumer that does not already read
+stats — and that reasoning holds for a second and third flag too. (The original wording gave
+the reason as "the seams are single-slot". Foundations T3a made every seam multicast, which
+retired the slot-steal hazard but not the surface cost; the argument was always the surface.)
+What
 does NOT hold at three is the flat shape: `voidCastPending`, `<x>Pending`, `<y>Pending` as
 siblings of `chunks` and `undoDepth` reads as a bag.
 
@@ -364,9 +368,16 @@ The rationale lives in source; what lives ONLY here is the trigger, which is the
 source comment cannot carry.
 
 The cost is not the arithmetic. It is a new worker→host progress message on the protocol,
-plus a new single-slot `FieldHost.subscribe*` seam for the host to publish it on — and the
-host's seams are deliberately single-slot and deliberately few. That is real surface for a
-1.3 s job.
+plus a new `FieldHost.subscribe*` seam for the host to publish it on — and the host's seams
+are deliberately **few**: each one is public surface on the `FieldHost` type and another
+context in the chrome's single subscription point. That is real surface for a 1.3 s job.
+
+**The stated reason changed at foundations T3a, the conclusion did not.** The seams were
+"deliberately single-slot and deliberately few" when this was filed; T3a made all thirteen
+multicast (`viewport-host/view-channel.ts`, `editor-architecture.md` §20). A fourteenth is
+therefore cheaper to *implement* than it was — the primitive exists and a seam is now three
+lines — but the deferral never rested on the implementation. It rests on the surface, and
+that is unchanged.
 
 ### Trigger to revisit
 

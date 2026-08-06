@@ -5,33 +5,46 @@ A factual map of the state held inside `createFieldHost` in
 closure is assigned to exactly one owning cluster, and every read and write that crosses a
 cluster line is listed.
 
-This is a **description, not a proposal**. §6 is the one forward-looking section and is
+This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
 **One cluster has since left.** `segment` was extracted to
 `packages/editor/src/viewport-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
-the closure, and the file is 7,248 lines rather than 7,410. Every count below still includes
-it. They are left as measured because they are what the remaining 22 clusters were sized
-against; subtract `segment`'s row from §4 when reading them as current.
+the closure. Every count below still includes it. They are left as measured because they are
+what the remaining 22 clusters were sized against; subtract `segment`'s row from §4 when
+reading them as current.
+
+**And foundations T3a changed three things the map names.** §2.2 records exactly what, and
+which numbers below are consequently stale. Read it before trusting a site list.
 
 ## 1. The shape of the file
 
+Re-measured 2026-08-05 where the row says so. The rows marked *(2026-08-03)* are the
+original pass and have **not** been re-derived — re-deriving them is a full attribution
+sweep, not a `wc -l`, and a number that looks fresh but isn't is worse than one that admits
+its date.
+
 | Fact | Value |
 |---|---|
-| File total | 7,410 lines |
-| Code / comment / blank | 3,620 / 3,551 / 239 |
-| `export function createFieldHost` | line 1659 → end of file (~5,750 lines) |
-| `return { … }` object literal | line 6589 |
-| Closure-level bindings | **293** (161 arrow-function values, 132 data) |
-| `FieldHost` public members | **66** (63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
-| Clusters below | 23 |
-| Cross-cluster **read** edges | 244 |
-| Cross-cluster **mutation** edges | **70** |
+| File total | **7,347 lines** (re-measured 2026-08-05; was 7,410) |
+| Code / comment / blank | **3,554 / 3,554 / 239** (re-measured 2026-08-05; was 3,620 / 3,551 / 239) |
+| `export function createFieldHost` | **line 1658** → end of file (**~5,690 lines**) |
+| `return { … }` object literal | **line 6590** |
+| Closure-level bindings | **289** (re-measured 2026-08-05 by §2's rule; was 293. The arrow-function/data split — 161/132 as measured — was **not** re-derived) |
+| `FieldHost` public members | **66** (re-verified 2026-08-05: 63 defined in the return literal, 3 shorthand re-exports of closure functions: `frameSelection`, `frameWorld`, `snapView`) |
+| Clusters below | 23 *(2026-08-03)* |
+| Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2)* |
+| Cross-cluster **mutation** edges | **70** *(2026-08-03)* |
+
+The line-count method behind the second row: strip blank lines, count a line as a comment if
+its first non-space characters are `//` or if it lies inside a `/* … */` block, and count
+everything else as code. The blank count reproduces the original pass exactly, which is the
+evidence that the two methods agree.
 
 Nearly half the file is prose. The comment density is why the file reads as documented
-rather than merely large — but the code alone is 3,620 lines, still ~9× the ~400-line file
-guideline in `.claude/rules/clean-code.md`, and `createFieldHost` alone is ~115× the
+rather than merely large — but the code alone is 3,554 lines, still ~9× the ~400-line file
+guideline in `.claude/rules/clean-code.md`, and `createFieldHost` alone is ~114× the
 ~50-line function guideline.
 
 The easy extractions are already done. These sibling modules in the same directory are
@@ -88,6 +101,39 @@ the map's original terms.
   are still boundary surface, and a cluster whose neighbours' functions are numerous is more
   entangled than its row suggests.)
 
+### 2.2 Changed since the measurement pass — foundations T3a, 2026-08-05
+
+Three changes land inside the closure the map describes. Each is recorded here rather than
+smeared across §6, because the honest correction for most of the affected rows is "this
+site no longer exists", not a re-count nobody has done.
+
+- **`escapeLadder` is DELETED**, and its reads moved. The five-rung chain became a capture
+  STACK (`packages/editor/src/viewport-host/input-router.ts`): a state acquires an entry
+  when it goes live and releases it in the same canonical setter that clears it, so the Esc
+  reads that used to sit inside one `input`-cluster function now sit inside each state's own
+  setter — `setBoxAnchor`, `setPendingStamp`, `setSelection`, `setSelectedEntity` and
+  `cancelStampSession`, plus the segment brush's own capture in `field-segment.ts`.
+  `input.onKeyDown`'s Esc branch reads exactly one thing now, `router.escape()`.
+  **Consequences for the map:** the `input` cluster owns **12** functions, not 13; every
+  site list in §6 that names `escapeLadder` is marked `†` below and its count includes
+  occurrences inside a function that is gone; and `input`'s 59-edge row in §4 is high by
+  however many of those there were. The reads did not disappear from the closure — they
+  moved to a different cluster's function — so this redistributes edges rather than
+  removing them, which is exactly why re-deriving the totals is a real pass and not an
+  arithmetic fix.
+- **The thirteen `subscribe*` seams are `ViewChannel`s.** Each `let …Cb: ((…) => void) | null`
+  slot became a `const …Channel = createViewChannel(…)`
+  (`packages/editor/src/viewport-host/view-channel.ts`). The §6 state lists name the new
+  bindings, with declaration lines re-measured at T3a. This matters to §2.1's rule and to
+  §7.3's mechanism: a seam is now a `const` whose identity never moves, so it is safe to
+  pass BY VALUE to an extracted module — thirteen bindings crossed from the `let` column to
+  the `const` one, and an extracted cluster can hold its own channel directly instead of
+  taking a `() => cb` thunk. No mutation edge in §5 targets a seam, so the 58-`let`/12-`const`
+  split there is unaffected.
+- **Line numbers have drifted.** The file grew from 7,248 (post-`segment`) to 7,347. Every
+  `@line` in §6 is the 2026-08-03 measurement **except** the thirteen seam bindings, which
+  were re-measured with their rename. Treat the rest as ±100 and grep by name.
+
 ## 3. Where the public-surface hypothesis was wrong
 
 The clusters were first hypothesised from the `FieldHost` type. Following the code changed
@@ -120,7 +166,7 @@ whose state it touches).
 | `stamp` | 7 | 19 | 12 | **13** | 45 | 6 |
 | `render` | 5 | 5 | 0 | 13 | 30 | 0 |
 | `lifecycle` | 5 | 1 | 2 | 11 | 76 | 24 |
-| `input` | 2 | 13 | 1 | 10 | 59 | 20 |
+| `input` | 2 | 13 → **12** | 1 | 10 | 59 (high — §2.2) | 20 |
 | `catalogs` | 3 | 0 | 3 | 10 | 26 | 2 |
 | `entities` | 8 | 9 | 8 | 9 | 28 | 0 |
 | `selection` | 9 | 17 | 4 | 9 | 21 | 2 |
@@ -251,6 +297,11 @@ Each section lists the bindings the cluster owns with their declaration line, wh
 and mutates across cluster lines, what reads and mutates it, and its public members.
 "Sites" counts occurrences, not distinct functions.
 
+**`escapeLadder`** — every site marked with the dagger names a function DELETED on
+2026-08-05 (§2.2). The read still happens; it happens in that state's own canonical setter
+now, which is a different cluster's function. The count beside it is the 2026-08-03 figure
+and includes the occurrences inside the deleted function; it has not been re-derived.
+
 ### Cluster: lifecycle
 
 **Owns (state) — 5:** `requestContext`@1664 · `ctx`@1665 · `disposed`@2009 · `raf`@2007 · `lastFrameT`@2008
@@ -280,7 +331,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
   - `selectionCellMat` (owned by `materials`) — 2 sites: `ret.dispose`
   - `stampGhostBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `stampGhostMat` (owned by `materials`) — 2 sites: `ret.dispose`
-  - `statsCb` (owned by `stats`) — 1 site: `tick`
+  - `statsChannel` (owned by `stats`) — 1 site: `tick`
   - `store` (owned by `world`) — 2 sites: `ret.init`, `tick`
   - `unbindCamera` (owned by `camera`) — 1 site: `ret.dispose`
   - `voidCastBind` (owned by `materials`) — 2 sites: `ret.dispose`
@@ -525,7 +576,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: tool
 
-**Owns (state) — 10:** `tool`@1706 · `momentarySaved`@1712 · `momentaryShift`@1713 · `momentaryCtrl`@1714 · `toolCb`@1716 · `toolErrorCb`@1718 · `maskDropReported`@1726 · `digRadius`@1957 · `digging`@1958 · `lastStroke`@1959
+**Owns (state) — 10:** `tool`@1706 · `momentarySaved`@1712 · `momentaryShift`@1713 · `momentaryCtrl`@1714 · `toolChannel`@1717 · `toolErrorChannel`@1721 · `maskDropReported`@1726 · `digRadius`@1957 · `digging`@1958 · `lastStroke`@1959
 
 **Owns (functions) — 12:** `reportToolError`@2551 · `sphereShape`@2539 · `toolMask`@2569 · `toolOp`@2599 · `strokeShape`@2632 · `commitToolOp`@2656 · `isKitFillTool`@2674 · `eyedropper`@2764 · `applyTool`@2812 · `applyRadius`@3276 · `notifyTool`@5587 · `deriveMomentary`@5599
 
@@ -614,7 +665,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: selection
 
-**Owns (state) — 9:** `selection`@1748 · `lastSelection`@1750 · `selectionCb`@1751 · `selectionBatch`@1756 · `anchorBatch`@1757 · `boxPreviewBatch`@1761 · `boxAnchor`@1742 · `selectionCells`@1823 · `selectionCellsCount`@1827
+**Owns (state) — 9:** `selection`@1748 · `lastSelection`@1750 · `selectionChannel`@1790 · `selectionBatch`@1756 · `anchorBatch`@1757 · `boxPreviewBatch`@1761 · `boxAnchor`@1742 · `selectionCells`@1823 · `selectionCellsCount`@1827
 
 **Owns (functions) — 17:** `currentSelectionSpec`@2563 · `selectionAabb`@2823 · `cloneSelectionSpec`@2839 · `selectionInfo`@2852 · `notifySelection`@2876 · `aabbEdgeBatch`@2882 · `rebuildSelectionBatch`@2895 · `destroySelectionCells`@2901 · `rebuildSelectionCells`@2917 · `setBoxAnchor`@2960 · `refreshSelectionDisplay`@3012 · `setSelection`@3017 · `boxRegionSpec`@3048 · `updateBoxPreview`@3061 · `commitSelectionSpec`@3151 · `boxCorner`@3352 · `selectionClick`@3367
 
@@ -628,13 +679,13 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 **Read by other clusters** (12 edges):
   - `anchorBatch` (read in `render`) — 3 sites: `renderScene`
-  - `boxAnchor` (read in `input`) — 2 sites: `escapeLadder`, `onPointerMove`
+  - `boxAnchor` (read in `input`) — 2 sites: `escapeLadder`†, `onPointerMove`
   - `boxAnchor` (read in `render`) — 1 site: `renderCursorAffordance`
   - `boxPreviewBatch` (read in `render`) — 3 sites: `renderScene`
   - `selectionBatch` (read in `render`) — 3 sites: `renderScene`
   - `selectionCells` (read in `render`) — 2 sites: `renderScene`
   - `selection` (read in `camera`) — 2 sites: `frameTargetBox`
-  - `selection` (read in `input`) — 1 site: `escapeLadder`
+  - `selection` (read in `input`) — 1 site: `escapeLadder`†
   - `selection` (read in `stamp`) — 1 site: `ret.startStamp`
   - `selection` (read in `tool`) — 5 sites: `toolMask`
   - `selection` (read in `view`) — 1 site: `layers`
@@ -648,7 +699,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: segment
 
-**Owns (state) — 6:** `segmentAnchor`@1747 · `segmentAnchorBatch`@1766 · `segmentPreviewBatch`@1767 · `segmentPreviewEnd`@1773 · `segmentHudCb`@1975 · `lastSegmentHud`@1990
+**Owns (state) — 6:** `segmentAnchor`@1747 · `segmentAnchorBatch`@1766 · `segmentPreviewBatch`@1767 · `segmentPreviewEnd`@1773 · `segmentHudChannel` (extracted: `field-segment.ts`@170) · `lastSegmentHud`@1990
 
 **Owns (functions) — 6:** `publishSegmentHud`@3181 · `publishSegmentHudThrottled`@3203 · `setSegmentAnchor`@3219 · `rebuildSegmentPreview`@3255 · `updateSegmentPreview`@3263 · `segmentClick`@3309
 
@@ -660,7 +711,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 **Read by other clusters** (5 edges):
   - `segmentAnchorBatch` (read in `render`) — 3 sites: `renderScene`
-  - `segmentAnchor` (read in `input`) — 2 sites: `escapeLadder`, `onPointerMove`
+  - `segmentAnchor` (read in `input`) — 2 sites: `escapeLadder`†, `onPointerMove`
   - `segmentAnchor` (read in `render`) — 1 site: `renderCursorAffordance`
   - `segmentPreviewBatch` (read in `render`) — 3 sites: `renderScene`
 
@@ -672,7 +723,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: gesture
 
-**Owns (state) — 4:** `gesture`@1740 · `pendingStamp`@1780 · `pendingStampCb`@1781 · `suspendReported`@1786
+**Owns (state) — 4:** `gesture`@1740 · `pendingStamp`@1780 · `pendingStampChannel`@1813 · `suspendReported`@1786
 
 **Owns (functions) — 2:** `setPendingStamp`@2992 · `suspendedByStamp`@6045
 
@@ -687,7 +738,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
   - `gesture` (read in `entities`) — 1 site: `gizmoVisible`
   - `gesture` (read in `input`) — 8 sites: `onPointerDown`, `onPointerMove`, `onWheel`, `syncCursor`
   - `gesture` (read in `render`) — 2 sites: `renderCursorAffordance`, `renderScene`
-  - `pendingStamp` (read in `input`) — 5 sites: `escapeLadder`, `onPointerDown`, `onPointerMove`, `syncCursor`
+  - `pendingStamp` (read in `input`) — 5 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `syncCursor`
   - `pendingStamp` (read in `render`) — 2 sites: `renderCursorAffordance`
   - `pendingStamp` (read in `stamp`) — 1 site: `stampRegionClick`
 
@@ -699,7 +750,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: stamp
 
-**Owns (state) — 7:** `stamp`@1845 · `stampGen`@1850 · `stampTouched`@1855 · `stampCb`@1857 · `ghostMeshes`@1877 · `placementGhost`@1886 · `previewCoalescer`@4951
+**Owns (state) — 7:** `stamp`@1845 · `stampGen`@1850 · `stampTouched`@1855 · `stampChannel`@1893 · `ghostMeshes`@1877 · `placementGhost`@1886 · `previewCoalescer`@4951
 
 **Owns (functions) — 19:** `randomStampSeed`@3576 · `notifyStamp`@3584 · `destroyStampGhosts`@4088 · `applyStampGhost`@4156 · `sendPreviewJob`@4851 · `previewStamp`@4970 · `nudgeStampRegion`@4982 · `rotationOptions`@4994 · `rotateStampSession`@5017 · `cancelStampSession`@5038 · `reseedForArchetype`@5066 · `openStampSession`@5088 · `stampRegionClick`@5135 · `reportEmptyPreview`@5176 · `commitStampSession`@5196 · `openEntitySession`@5246 · `applyReconfigureSession`@5436 · `commitActiveSession`@5512 · `confirmActiveSession`@5532
 
@@ -730,7 +781,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
   - `stamp` (read in `entities`) — 4 sites: `gizmoVisible`, `ret.bakeEntity`, `ret.deleteEntity`, `ret.setEntityFrozen`
   - `stamp` (read in `gesture`) — 1 site: `suspendedByStamp`
   - `stamp` (read in `history`) — 1 site: `stepHistory`
-  - `stamp` (read in `input`) — 5 sites: `escapeLadder`, `onKeyDown`, `syncCursor`
+  - `stamp` (read in `input`) — 5 sites: `escapeLadder`†, `onKeyDown`, `syncCursor`
   - `stamp` (read in `materials`) — 1 site: `stampGhostMaterial`
   - `stamp` (read in `move`) — 8 sites: `beginMoveSession`, `cancelMoveInFlight`, `dropMove`, `updateMove`
   - `stamp` (read in `render`) — 1 site: `renderScene`
@@ -743,7 +794,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: drift
 
-**Owns (state) — 2:** `drift`@1860 · `driftCb`@1861
+**Owns (state) — 2:** `drift`@1860 · `driftChannel`@1900
 
 **Owns (functions) — 3:** `driftedEntities`@3667 · `driftPayload`@3698 · `notifyDrift`@3703
 
@@ -766,7 +817,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: entities
 
-**Owns (state) — 8:** `selectedEntityId`@1896 · `entitySelectionBatch`@1897 · `entitySelectionCb`@1898 · `gizmo`@1905 · `gizmoBatch`@1906 · `footprintCache`@3758 · `footprintSig`@3759 · `entitiesCb`@1864
+**Owns (state) — 8:** `selectedEntityId`@1896 · `entitySelectionBatch`@1897 · `entitySelectionChannel`@1946 · `gizmo`@1905 · `gizmoBatch`@1906 · `footprintCache`@3758 · `footprintSig`@3759 · `entitiesChannel`@1907
 
 **Owns (functions) — 9:** `entityRecord`@3710 · `entityFootprints`@3760 · `rebuildEntitySelectionBatch`@3789 · `gizmoVisible`@3823 · `activeGizmoAxis`@3833 · `gizmoAxisAt`@3838 · `setSelectedEntity`@4064 · `revalidateEntitySelection`@4073 · `notifyEntities`@3649
 
@@ -788,7 +839,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
   - `gizmoBatch` (read in `render`) — 3 sites: `renderScene`
   - `gizmo` (read in `camera`) — 2 sites: `orbitPivot`
   - `selectedEntityId` (read in `camera`) — 2 sites: `frameTargetBox`
-  - `selectedEntityId` (read in `input`) — 1 site: `escapeLadder`
+  - `selectedEntityId` (read in `input`) — 1 site: `escapeLadder`†
   - `selectedEntityId` (read in `picking`) — 3 sites: `pointerPress`
 
 **MUTATED BY other clusters** (0 edges):
@@ -813,7 +864,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 **Read by other clusters** (10 edges):
   - `moveCommitPending` (read in `stamp`) — 1 site: `sendPreviewJob`
   - `moveDrag` (read in `entities`) — 2 sites: `activeGizmoAxis`, `gizmoVisible`
-  - `moveDrag` (read in `input`) — 7 sites: `escapeLadder`, `onPointerDown`, `onPointerMove`, `onPointerUp`, `syncCursor`
+  - `moveDrag` (read in `input`) — 7 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `onPointerUp`, `syncCursor`
   - `moveDrag` (read in `stamp`) — 1 site: `confirmActiveSession`
   - `pendingMove` (read in `input`) — 2 sites: `onPointerMove`
 
@@ -827,7 +878,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: history
 
-**Owns (state) — 2:** `historyCb`@1867 · `historySig`@1868
+**Owns (state) — 2:** `historyChannel`@1910 · `historySig`@1868
 
 **Owns (functions) — 2:** `notifyHistory`@3617 · `stepHistory`@5550
 
@@ -878,7 +929,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: analyzer
 
-**Owns (state) — 19:** `analyzer`@4370 · `flagStore`@4371 · `flagsCb`@4372 · `agentProfile`@4376 · `agentProfileAnswered`@4387 · `profileMissingReported`@4392 · `analyzerDirty`@4398 · `analyzerStale`@4402 · `analyzerResync`@4405 · `analyzerPlacementsStale`@4408 · `analyzerWholeWorld`@4410 · `analyzerSeeds`@4416 · `analyzerBusy`@4419 · `analyzerIdle`@4420 · `verifyInFlight`@4637 · `flagMarkers`@1811 · `markerCount`@1815 · `flagSelectionBatch`@1933 · `analyzePump`@4605
+**Owns (state) — 19:** `analyzer`@4370 · `flagStore`@4371 · `flagsChannel`@4363 · `agentProfile`@4376 · `agentProfileAnswered`@4387 · `profileMissingReported`@4392 · `analyzerDirty`@4398 · `analyzerStale`@4402 · `analyzerResync`@4405 · `analyzerPlacementsStale`@4408 · `analyzerWholeWorld`@4410 · `analyzerSeeds`@4416 · `analyzerBusy`@4419 · `analyzerIdle`@4420 · `verifyInFlight`@4637 · `flagMarkers`@1811 · `markerCount`@1815 · `flagSelectionBatch`@1933 · `analyzePump`@4605
 
 **Owns (functions) — 14:** `reportAnalyzerFailure`@4424 · `analyzerPlacementGroups`@4434 · `analyzerHasWork`@4452 · `postMirrorSync`@4461 · `analyzerFire`@4496 · `publishFlags`@4565 · `setSelectedFlag`@4576 · `selectFlagImpl`@4584 · `scheduleWholeWorldPass`@4622 · `verifyFlagImpl`@4646 · `analyzerPendingCount`@4752 · `destroyFlagMarkers`@4758 · `rebuildFlagMarkers`@4776 · `rebuildFlagSelection`@4829
 
@@ -923,7 +974,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: camera
 
-**Owns (state) — 8:** `cam`@1666 · `orbitState`@2016 · `cameraAimed`@2024 · `cameraPoseCb`@1974 · `keys`@2050 · `look`@2057 · `dollyPixels`@2061 · `unbindCamera`@1668
+**Owns (state) — 8:** `cam`@1666 · `orbitState`@2016 · `cameraAimed`@2024 · `cameraPoseChannel`@2030 · `keys`@2050 · `look`@2057 · `dollyPixels`@2061 · `unbindCamera`@1668
 
 **Owns (functions) — 10:** `aimCamera`@2040 · `placeCamera`@2047 · `cameraEye`@2080 · `applyOrbit`@2093 · `orbitPivot`@3875 · `frameTargetBox`@3884 · `frameSelection`@3893 · `frameWorld`@4008 · `snapView`@4040 · `applyFlyMove`@5630
 
@@ -1033,10 +1084,10 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 **Owns (state) — 2:** `canvasEl`@1667 · `lastCursor`@5973
 
-**Owns (functions) — 13:** `syncCursor`@5974 · `onPointerDown`@6056 · `onPointerMove`@6116 · `onPointerUp`@6186 · `onPointerCancel`@6205 · `onWheel`@6229 · `onContextMenu`@6249 · `onKeyDown`@6301 · `onKeyUp`@6431 · `onBlur`@6455 · `attachListeners`@6465 · `detachListeners`@6481 · `escapeLadder`@6261
+**Owns (functions) — 12** (was 13; `escapeLadder`@6261 was deleted 2026-08-05, §2.2)**:** `syncCursor`@5974 · `onPointerDown`@6056 · `onPointerMove`@6116 · `onPointerUp`@6186 · `onPointerCancel`@6205 · `onWheel`@6229 · `onContextMenu`@6249 · `onKeyDown`@6301 · `onKeyUp`@6431 · `onBlur`@6455 · `attachListeners`@6465 · `detachListeners`@6481
 
 **Reads from other clusters** (37 edges):
-  - `boxAnchor` (owned by `selection`) — 2 sites: `escapeLadder`, `onPointerMove`
+  - `boxAnchor` (owned by `selection`) — 2 sites: `escapeLadder`†, `onPointerMove`
   - `digRadius` (owned by `tool`) — 2 sites: `onKeyDown`, `onWheel`
   - `digging` (owned by `tool`) — 1 site: `onPointerMove`
   - `dollyPixels` (owned by `camera`) — 1 site: `onWheel`
@@ -1045,14 +1096,14 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
   - `look` (owned by `camera`) — 7 sites: `onPointerMove`
   - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
   - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `moveDrag` (owned by `move`) — 7 sites: `escapeLadder`, `onPointerDown`, `onPointerMove`, `onPointerUp`, `syncCursor`
+  - `moveDrag` (owned by `move`) — 7 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `onPointerUp`, `syncCursor`
   - `orbitState` (owned by `camera`) — 3 sites: `onPointerMove`, `onWheel`
   - `pendingMove` (owned by `move`) — 2 sites: `onPointerMove`
-  - `pendingStamp` (owned by `gesture`) — 5 sites: `escapeLadder`, `onPointerDown`, `onPointerMove`, `syncCursor`
-  - `segmentAnchor` (owned by `segment`) — 2 sites: `escapeLadder`, `onPointerMove`
-  - `selectedEntityId` (owned by `entities`) — 1 site: `escapeLadder`
-  - `selection` (owned by `selection`) — 1 site: `escapeLadder`
-  - `stamp` (owned by `stamp`) — 5 sites: `escapeLadder`, `onKeyDown`, `syncCursor`
+  - `pendingStamp` (owned by `gesture`) — 5 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `syncCursor`
+  - `segmentAnchor` (owned by `segment`) — 2 sites: `escapeLadder`†, `onPointerMove`
+  - `selectedEntityId` (owned by `entities`) — 1 site: `escapeLadder`†
+  - `selection` (owned by `selection`) — 1 site: `escapeLadder`†
+  - `stamp` (owned by `stamp`) — 5 sites: `escapeLadder`†, `onKeyDown`, `syncCursor`
 
 **MUTATES other clusters** (20 edges):
   - `digging` (owned by `tool`) — 2 sites: `onPointerDown`, `onPointerUp`
@@ -1078,7 +1129,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 ### Cluster: stats
 
-**Owns (state) — 6:** `statsCb`@1973 · `cachedLogStats`@2003 · `statsOpsLen`@2004 · `statsUndoLen`@2005 · `statsRedoLen`@2006 · `lastReconfigureMs`@1992
+**Owns (state) — 6:** `statsChannel`@2026 · `cachedLogStats`@2003 · `statsOpsLen`@2004 · `statsUndoLen`@2005 · `statsRedoLen`@2006 · `lastReconfigureMs`@1992
 
 **Owns (functions) — 1:** `currentLogStats`@5949
 
@@ -1090,7 +1141,7 @@ and mutates across cluster lines, what reads and mutates it, and its public memb
 
 **Read by other clusters** (2 edges):
   - `lastReconfigureMs` (read in `lifecycle`) — 1 site: `tick`
-  - `statsCb` (read in `lifecycle`) — 1 site: `tick`
+  - `statsChannel` (read in `lifecycle`) — 1 site: `tick`
 
 **MUTATED BY other clusters** (1 edge):
   - `lastReconfigureMs` (mutated by `stamp`) — 1 site: `applyReconfigureSession`
@@ -1119,6 +1170,14 @@ Ranked by external edge count with zero or one mutation crossing the boundary:
 All six read the same small substrate — `world.store`, `world.log`, `lifecycle.ctx`,
 `lifecycle.disposed`, `catalogs.table` — and nothing else of consequence.
 
+**Three of those five may not be held by value**, which the original phrasing here did not
+say. `ctx`, `disposed` and `table` are `let`s the host REPLACES (`init`/`dispose`,
+`setMaterialTable`), so an extracted module that copies them reads a photograph: a stale
+material table meshes and bakes against a project the user has already changed, and a
+snapshotted `disposed` answers `false` for the life of the process. Only `store` and `log`
+are `const` handles a module may keep. The settled split is a type now —
+`HostSubstrate` in `packages/editor/src/viewport-host/substrate.ts` — and §7.3 states it.
+
 ### 7.2 What entangles the rest
 
 - **`stamp` ↔ `move` share one slot.** Not a coupling to be tidied: the move session *is*
@@ -1140,12 +1199,40 @@ All six read the same small substrate — `world.store`, `world.log`, `lifecycle
 The `let`-vs-`const` split (58 vs 12) is what decides the mechanism, because a `const`
 handle passed by value cannot fork but a reassigned `let` silently can.
 
-1. **An explicit context record for the substrate.** `store`, `log`, `worker`, `dirty`,
-   `chunkMeshes`, `table`, `archetypeById`, `flagStore` are all `const` and are never
-   reassigned by anyone. They account for the large majority of the 244 read edges
-   (`world.store` alone is read at 42 sites across 14 clusters, `world.log` at 37 sites
-   across 8, `catalogs.table` at 14 sites across 6). Passing them as one frozen record is
-   safe by construction and removes most of the read fan-out with no ceremony.
+1. **An explicit context record for the substrate. LANDED at T3a (2026-08-05) as
+   `HostSubstrate`** — `packages/editor/src/viewport-host/substrate.ts`, a package-internal
+   record type plus an identity factory, whose own TSDoc is the authority on the split. It
+   is declared but **not yet constructed**: `createFieldHost` adopts it when T3b's first
+   cluster extraction has something to hand it, since building one with no consumer would be
+   dead code claiming to be a boundary. The substrate accounts for the large majority of the
+   244 read edges (`world.store` alone is read at 42 sites across 14 clusters, `world.log` at
+   37 sites across 8, `catalogs.table` at 14 sites across 6).
+
+   **The split this section originally proposed was wrong on two members, and the record
+   corrects it.** `table` and `archetypeById` are NOT `const`: `setMaterialTable` assigns a
+   whole new `table` and `setEntityCatalog` rebuilds `archetypeById` rather than editing it,
+   so a module holding either by value goes on working against a project the user has
+   changed — well-formed data, wrong buckets, no error anywhere. The record therefore has
+   **two sides, sixteen members**:
+
+   - **Eleven held BY VALUE** — `const` in the host, so the binding never moves and every
+     write lands through the identity already handed out (`chunkMeshes.set`,
+     `propMeshes.length = 0`, `flagStore.applyFlags`): `store`, `log`, `dirty`, `worker`,
+     `chunkMeshes`, `flagStore`, `requestContext`, `litByClass`, `propMeshes`, `ghostMeshes`,
+     `voidCastMeshes`. Note `litByClass` is on this side even though it is DERIVED from
+     `table` — a table swap clears and refills the map rather than replacing it, which is
+     exactly what makes it safe to pass while its source is not.
+   - **Five as THUNKS** — `let` in the host, where a snapshot is a permanent fork:
+     `table()`, `archetypeById()`, `ctx()`, `disposed()`, `canvasEl()`. `ctx` and `canvasEl`
+     fail at both ends (copied before `init` they are `null` forever; copied before `dispose`
+     they outlive the device), and `disposed` is the loudest: snapshot it and every
+     `if (disposed) return` guard in an extracted module waves the teardown through.
+
+   Nothing is frozen or copied by the factory, and that is deliberate rather than an
+   omission — the shared identity IS the contract on the value side, so defending it from
+   mutation would break the thing it exists for. When a member moves between `const` and
+   `let` in the host it moves sides in the type, and the compiler makes every consumer say
+   so.
 2. **Sub-modules for the six clean clusters in §7.1**, each taking that record plus a
    narrow callback for the one boundary mutation it performs.
 3. **A small internal store for the interactive middle** — `stamp`+`move`+`gesture`,
@@ -1155,7 +1242,10 @@ handle passed by value cannot fork but a reassigned `let` silently can.
    reference to every other. A single subscribable store with named slots is the shape that
    matches how the code already behaves, since `notifyStamp` / `notifySelection` /
    `notifyTool` / `notifyEntities` / `notifyHistory` / `notifyDrift` are already exactly
-   that pattern hand-rolled six times.
+   that pattern hand-rolled six times. **Half of that is now shared rather than hand-rolled:**
+   T3a's `ViewChannel` (§2.2) owns the subscribe/publish/deliver half for all thirteen seams,
+   so what a store would still add is the SLOTS and their change detection, not the
+   notification machinery.
 4. **Leave `lifecycle` and `render` last.** They are the two functions that legitimately see
    everything; they get simpler only after the clusters beneath them do.
 
@@ -1209,7 +1299,10 @@ the interactive-middle store (step 3) exist to lift it *onto*.
 
 If the stamp session must move first anyway, the two facts that will bite are: (a) it cannot
 go without `move`, because `dropMove` reassigns `stamp` and `sendPreviewJob` reassigns
-`moveCommitPending`; and (b) `lifecycle.ret.dispose`, `input.escapeLadder`, `input.onKeyDown`
-and `world.resetWorld` all call `cancelStampSession`, which is invoked from 14 regions across
+`moveCommitPending`; and (b) `lifecycle.ret.dispose`, `input.onKeyDown` and
+`world.resetWorld` all call `cancelStampSession`, which is invoked from 14 regions across
 7 clusters — the teardown edge has to be inverted into a callback before the module can own
-its own lifetime.
+its own lifetime. (T3a replaced one of those named callers with an indirect one rather than
+removing it: `input.escapeLadder` is gone, and the session's Esc capture holds
+`cancelStampSession` as its cancel closure, so `input.onKeyDown` reaches it through
+`router.escape()` now. The teardown edge stands; only its spelling changed.)
