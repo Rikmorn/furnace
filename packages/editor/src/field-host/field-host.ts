@@ -6758,7 +6758,8 @@ export function createFieldHost(deps?: {
         // BASE the momentary derives from (and restores to), so releasing the
         // modifier lands on the panel's latest choice, not a stale save.
         //
-        // BELOW the guard, deliberately: while a modifier is held, `tool` is the DERIVED
+        // ABOVE the value guard, deliberately (the guard sits below this
+        // branch): while a modifier is held, `tool` is the DERIVED
         // brush, so a set that equals it can still be a real change to the BASE the
         // release will land on (picking smooth under a held ⇧ is exactly that). Comparing
         // the derived tool here would drop it and let go of ⇧ restore the wrong brush.

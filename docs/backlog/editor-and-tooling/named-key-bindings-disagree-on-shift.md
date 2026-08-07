@@ -6,8 +6,9 @@ rather than picking, and this entry is the question it declined to answer.
 
 ## Context
 
-The three matchers, as they stand at `packages/editor/src/frontend/lib/actions.ts`
-(re-read the file rather than trusting these line numbers — the surrounding table moves):
+The three matchers, as they stood BEFORE T3b2 in `frontend/lib/actions.ts` (the
+policies now live as `KeyBinding` rows in `src/action-registry/` — see "What T3b2
+did" below; the table records the pre-migration closures the policies came from):
 
 | action | keycap | matcher | ⇧ held |
 | --- | --- | --- | --- |
