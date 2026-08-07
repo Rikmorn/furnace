@@ -23,34 +23,33 @@
 //     and the seam must go back to the subscriber count it had.
 //
 // ALL THIRTEEN seams are still read here — each one's job is stated where it is wired, at
-// its `latch*` below. TEN are per-consumer latches. THREE stay in the provider shell,
+// its `latch*` below. ELEVEN are per-consumer latches. TWO stay in the provider shell,
 // because each feeds state the CHROME owns rather than state the host pushes:
-// `subscribeTool` (the tool + radius cells), `subscribeToolError` (the toast, which is no
-// one surface's) and `subscribeFlags` (the findings, and a verify release that has to keep
-// working while the palette showing it is closed). Their effects say why in full.
+// `subscribeToolError` (the toast, which is no one surface's) and `subscribeFlags` (the
+// findings, and a verify release that has to keep working while the palette showing it is
+// closed). Their effects say why in full.
+//
+// `subscribeTool` was the third of those, and the tool + radius CELLS it fed were the two
+// biggest, until the host made it a state seam like the other ten: a plain `setTool`
+// publishes now, and the seam carries a snapshot. Both halves were needed — the publish is
+// what stops three simultaneous readers diverging the first time anyone picks a brush, the
+// snapshot is what a late mount reads (`TopBar` swaps `ToolStrip` out for a `SessionStrip`
+// for the whole of every stamp session, so the surface that shows the brush is a late
+// mount every session). With both, the pair is a plain latch and the provider holds
+// nothing.
 //
 // THE ONE CONTEXT, and why the chrome-owned state is not IN it. `FieldShellContext` carries
 // `{ host, engineReady, chrome }` and its value changes only when the host arrives or the
 // engine comes up — twice in a session. That stability is load-bearing: every hook here
 // reads this context, so a value that moved with the brush radius would re-render the
 // entities palette on every slider frame, which is precisely the cost the old cadence split
-// existed to avoid. So the SIX chrome-owned values live in CELLS on `chrome` (see
+// existed to avoid. So the four chrome-owned values live in CELLS on `chrome` (see
 // `createCell`) and are latched by the same `useSeam` the host seams are: shared truth,
 // per-consumer subscription.
 //
-// FIVE of the six are FORCED and one is a judgement call, and keeping that straight
+// THREE of the four are FORCED and one is a judgement call, and keeping that straight
 // matters more than a round number:
 //
-//   - `tool` + `radius` ride `subscribeTool`, an EVENT channel with NO snapshot
-//     (field-host.ts) — and `TopBar` swaps `ToolStrip` out for a `SessionStrip` for the
-//     whole of every stamp session. So a latch would remount reading `DEFAULT_TOOL` /
-//     `DEFAULT_RADIUS` beside a brush the viewport is actively drawing, and nothing would
-//     ever correct it: an event seam has no catch-up push. `tool` is forced twice over —
-//     the plain `FieldHost.setTool` publishes nothing at all, so its three simultaneous
-//     readers would diverge permanently the first time anyone picked a brush.
-//     (Both values DO come back on that seam from the host's own paths — the eyedrop, the
-//     momentary ⇧/⌃, the wheel, `[` / `]`. Being pushed back was never the question; being
-//     pushed back TO A LATE MOUNT is, and that is what the missing snapshot decides.)
 //   - `gesture` has no seam in either direction, so there is nothing to reconcile copies
 //     against at all.
 //   - `filters` + `verifying` have to outlive the surface that shows them: `PaletteLayer`
@@ -60,8 +59,8 @@
 //     work; it is a cell because its push and the `verifying` release are one coupling and
 //     one effect, and splitting them would be two subscriptions to say one thing.
 //
-// The PURE half of this mirror — the value-equality comparators, the literals the cells
-// open at, and the filter restore — lives in `../lib/field-host-mirrors.ts`, where each is
+// The PURE half of this mirror — the value-equality comparators, the literals a latch or a
+// cell opens at, and the filter restore — lives in `../lib/field-host-mirrors.ts`, where each is
 // directly unit-testable. Nothing with React in it went with them, and
 // `PERSIST_DEBOUNCE_MS` below stays because it tunes an EFFECT here rather than describing
 // a mirrored value.
@@ -84,6 +83,7 @@ import type {
 	FieldHost,
 	FieldStats,
 	FieldTool,
+	FieldToolPush,
 	FlagFilters,
 	FlagsSummary,
 	PendingStamp,
@@ -135,14 +135,13 @@ export type FieldEntitiesState = {
 
 /** The armed brush, what LMB is armed to do, and the radius it strokes with. Read-write
  *  in one shape rather than the state/actions PAIR the sibling providers use (useView,
- *  useWorkspace, useWorld): the adopt and the push here are ONE concern that cannot be
- *  separated — see the echo guard on the tool mirror — and useView's own header says to
- *  delete that split rather than defend it where nobody benefits. Every consumer of this
- *  hook both shows the tool and changes it. */
+ *  useWorkspace, useWorld), and useView's own header says to delete that split rather than
+ *  defend it where nobody benefits: every consumer of this hook both shows the tool and
+ *  changes it. */
 export type FieldToolState = {
 	tool: FieldTool;
 	/** What LMB is armed to do — `null` = the brush strokes. CHROME state pushed one way
-	 *  into the host — and the only one of the five that is one-way: `setGesture` has no
+	 *  into the host — and the only value in this shape that is: `setGesture` has no
 	 *  subscription behind it (nor anything riding another seam, which is where `radius`
 	 *  went at the F4.5 gate), so this is a MIRROR by construction rather than by echo, and
 	 *  it opens at `"pointer"` because that is what a fresh host is already armed with
@@ -166,18 +165,21 @@ export type FieldToolState = {
 	 *  landing). Read-only here for that reason — `host.startStamp` is what sets it, and
 	 *  the seam is what carries it back, so this one IS a per-consumer latch. */
 	pendingStamp: PendingStamp | null;
-	/** Arm what LMB does — adopt + push, the ONE funnel, exactly as `setTool` is. */
+	/** Arm what LMB does — adopt + push, and the ONE funnel here that still adopts (no
+	 *  seam pushes a gesture back). */
 	setGesture: (next: ViewportGesture | null) => void;
-	/** Adopt + push, the ONE funnel for a tool change. The host clamps (smooth ceilings,
-	 *  hollow floor) as a backstop; the controls stay inside the same ranges so chrome
-	 *  and host agree.
+	/** The ONE funnel for a tool change: PUSH, and read the answer off the seam. The host
+	 *  clamps (smooth ceilings, hollow floor) and publishes what it clamped to, so what
+	 *  `tool` above shows is the brush the strokes will actually use rather than what the
+	 *  control asked for.
 	 *
-	 *  The adopt is not an optimisation here, it is the whole mechanism: `FieldHost.setTool`
-	 *  publishes NOTHING on the plain path (only a set that lands while a momentary
-	 *  modifier is held re-derives and fires), so the cell write below is the only thing
-	 *  that tells the chrome its own tool changed. */
+	 *  It used to write a chrome cell first and this docblock said why: `FieldHost.setTool`
+	 *  "publishes NOTHING on the plain path", so the cell was the only thing that told the
+	 *  chrome its own tool had changed. The host publishes on every set that changes
+	 *  something now, which is what retired the cell. */
 	setTool: (next: FieldTool) => void;
-	/** Adopt + push, and TWO-WAY since the F4.5 holistic gate.
+	/** Push, and read the answer off the seam — `setTool`'s shape, and TWO-WAY since the
+	 *  F4.5 holistic gate.
 	 *
 	 *  It used to be one-way on purpose, and this docblock used to say so: the host's
 	 *  wheel and `[` / `]` step the radius without passing through here, and the argument
@@ -186,14 +188,11 @@ export type FieldToolState = {
 	 *  and read a stale number off the strip, which is a readout stating something untrue
 	 *  about the tool in hand.
 	 *
-	 *  The mirror rides `subscribeTool` (see `FieldToolPush`), so it added no seam. A
-	 *  slider drag DOES round-trip — `applyRadius`'s early return suppresses a NO-OP set
-	 *  only, and every drag step is a real change, so each one comes straight back (its
-	 *  own comment carries the measurement). What makes that harmless is the adopt below
-	 *  it: the echo lands in a cell write carrying the number the chrome already holds, and
-	 *  the cell drops an identical value, so the round trip costs no render. The
-	 *  out-of-range case is where the early return earns its keep — a set past the clamp
-	 *  pushes once at the boundary and the next one finds it already current. */
+	 *  It rides `subscribeTool` alongside the tool (see `FieldToolPush`), so it added no
+	 *  seam. A slider drag round-trips per step — `applyRadius`'s early return suppresses a
+	 *  NO-OP set only, and every drag step is a real change (its own comment carries the
+	 *  measurement) — and each step's answer is the CLAMPED number, which is what makes a
+	 *  set past the range settle on the boundary instead of showing what was asked for. */
 	setRadius: (r: number) => void;
 };
 
@@ -248,9 +247,10 @@ export type FieldFlagsState = {
 
 // --- the chrome's own cells -------------------------------------------------
 //
-// The five values with no host seam to latch. A cell is the smallest thing that makes
-// them readable by `useSeam` on the same terms as a host seam: one value, N subscribers,
-// the current value pushed synchronously on subscribe (the (re)mount rule
+// The three values with no host seam to latch, plus the one that has a seam and is a cell
+// by choice (this file's header says which is which). A cell is the smallest thing that
+// makes them readable by `useSeam` on the same terms as a host seam: one value, N
+// subscribers, the current value pushed synchronously on subscribe (the (re)mount rule
 // `view-channel.ts` states, for the same reason — a surface arriving mid-session must not
 // render a default beside something the viewport is plainly drawing).
 //
@@ -268,11 +268,11 @@ const NEVER: Unsubscribe = (): void => undefined;
 /** EXPORTED for one thing only: the release-contract unit in
  *  `tests/chrome/host-seams-and-catalogs.test.tsx`, beside the one that pins the same
  *  contract for the host's thirteen channels. No production code outside this file builds
- *  a cell — the six that exist are `createChromeCells`', made once per provider. */
+ *  a cell — the four that exist are `createChromeCells`', made once per provider. */
 export type Cell<T> = {
 	read(): T;
 	/** Drops an IDENTICAL value rather than publishing it, by identity and never by value:
-	 *  a comparator belongs to the seam that needs one (`toolsEqual` on the tool mirror),
+	 *  a comparator belongs to the latch that needs one (`toolsEqual` on `latchToolPush`),
 	 *  not to every cell.
 	 *
 	 *  BELT AND BRACES rather than the thing that makes an echo free — `useSeam` bails on
@@ -324,13 +324,11 @@ export function createCell<T>(initial: T): Cell<T> {
 }
 
 /** The chrome-owned half of the mirror: one cell per value no surface can hold its own
- *  copy of (this file's header says which five are forced and which one is chosen),
+ *  copy of (this file's header says which three are forced and which one is chosen),
  *  created once per provider (never module-level — two shells in one process, which every
- *  test file is, must not share a brush). */
+ *  test file is, must not share a set of bands). */
 type ChromeCells = {
-	tool: Cell<FieldTool>;
 	gesture: Cell<ViewportGesture | null>;
-	radius: Cell<number>;
 	flags: Cell<FlagsSummary>;
 	filters: Cell<FlagFilters>;
 	verifying: Cell<string | null>;
@@ -347,9 +345,7 @@ function createChromeCells(): ChromeCells {
 	const filters = createCell<FlagFilters>(DEFAULT_FLAG_FILTERS);
 	let touched = false;
 	return {
-		tool: createCell<FieldTool>(DEFAULT_TOOL),
 		gesture: createCell<ViewportGesture | null>(DEFAULT_GESTURE),
-		radius: createCell(DEFAULT_RADIUS),
 		flags: createCell<FlagsSummary>(NO_FLAGS),
 		filters,
 		verifying: createCell<string | null>(null),
@@ -367,9 +363,21 @@ function createChromeCells(): ChromeCells {
  *  when the host arrives and when the engine comes up — which is what keeps a context
  *  every surface reads from re-rendering them all on a slider drag. */
 type FieldShell = {
-	/** The host, UNGATED: what the verbs push into. The four of them (`setTool`,
-	 *  `setRadius`, `setGesture`, `verify`) deliberately do not wait for `engineReady` —
-	 *  a control that silently did nothing before the first frame is a dead control. */
+	/** The host, UNGATED: what the four verbs (`setTool`, `setRadius`, `setGesture`,
+	 *  `verify`) push into without waiting for `engineReady`.
+	 *
+	 *  This used to be stated as a principle, and the principle no longer holds for all
+	 *  four: "a control that silently did nothing before the first frame is a dead
+	 *  control". `setTool` and `setRadius` are now exactly that, because their READBACK
+	 *  moved onto a host seam the gate below does not open until the engine is up — and
+	 *  `host` is `undefined` for every render before that anyway (`App.tsx` assigns the ref
+	 *  in the same tick as the `engine-ready` dispatch), so those two calls reach nothing
+	 *  either way. What changed is only whether the chrome PRETENDS otherwise: it used to
+	 *  move a cell the host never heard about, and then never reconcile it. Being ungated
+	 *  still earns its keep for `setGesture` and `verify`, which are chrome-owned.
+	 *
+	 *  The window is the engine-bundle load. If it ever needs an affordance, it needs a
+	 *  visible one — not a control that moves and lies. */
 	host: FieldHost | undefined;
 	/** The SUBSCRIBE gate. Nothing latches a host seam until the engine is up. */
 	engineReady: boolean;
@@ -404,10 +412,10 @@ function onCell<T>(pick: (chrome: ChromeCells) => Cell<T>): Connect<T> {
 
 /** Latch one multicast seam into a React-readable snapshot.
  *
- *  TEN of the thirteen host seams push their current state synchronously inside
+ *  ELEVEN of the thirteen host seams push their current state synchronously inside
  *  `subscribe` (`view-channel.ts`'s `snapshot` option, and every cell above does the same),
- *  so the first `getSnapshot` AFTER the subscription effect reads real state. The three that
- *  do not — `subscribeStats`, `subscribeTool` and `subscribeToolError` — are EVENT seams by the host's own
+ *  so the first `getSnapshot` AFTER the subscription effect reads real state. The two that
+ *  do not — `subscribeStats` and `subscribeToolError` — are EVENT seams by the host's own
  *  choice, and for them `empty` is what the first render shows until the first push
  *  arrives. The first render is `empty` either way: `useSyncExternalStore` reads the
  *  snapshot before React attaches the subscription, exactly as the provider's `useState`
@@ -462,6 +470,22 @@ const NO_ENTITIES: readonly FieldEntityInfo[] = Object.freeze([]);
  *  wiring hole. Deliberately NOT the host's own starting orbit: copying those two numbers
  *  into the chrome would be a constant that silently drifts. */
 const IDENTITY_POSE: CameraPose = Object.freeze({ yaw: 0, pitch: 0 });
+
+/** What a fresh host is armed with, as the tool seam's payload. Read for the one render
+ *  between a surface mounting and its subscription's snapshot arriving — and for the whole
+ *  pre-engine-ready window, where `onHost` subscribes to nothing and there is no host to
+ *  have armed anything. The two halves are the mirrors module's literals rather than numbers
+ *  written again here.
+ *
+ *  The PAIR is frozen for `NO_ENTITIES`' reason — one shared object across every latch in
+ *  the process — and shallowly, which is all the freeze claims: `DEFAULT_TOOL` itself is an
+ *  ordinary exported literal and its `mask` and `smooth` are writable. That exposure is the
+ *  mirrors module's and predates this constant (it was the tool cell's initial value on the
+ *  same terms); nothing mutates a tool in place, and the seam hands out clones. */
+const DEFAULT_TOOL_PUSH: FieldToolPush = Object.freeze({
+	tool: DEFAULT_TOOL,
+	radius: DEFAULT_RADIUS,
+});
 
 // Guarded because the host fires it every rAF; an idle field must not re-render the
 // status bar 60×/s.
@@ -602,9 +626,29 @@ const latchPendingStamp = onHost<PendingStamp | null>((host, latch) =>
 	host.subscribePendingStamp((p) => latch(() => p)),
 );
 
-const latchTool = onCell((chrome) => chrome.tool);
+// The armed brush and the radius it strokes with, latched as ONE value because they arrive
+// as one push — and because splitting them would be two subscriptions to `subscribeTool`
+// per reader, which is the duplicate the seam-count cases exist to catch. Nothing is lost:
+// every reader of one reads the other (they are one hook's shape), so a radius change was
+// always going to re-render the tool's readers too.
+//
+// GUARDED by `toolsEqual`, which is the load-bearing half — the host publishes a fresh
+// clone per push, so identity alone would re-render every reader on every momentary ⇧/⌃
+// tap. The radius rides the plain `===` beside it. What the guard now absorbs on top of
+// those taps is the ECHO of the chrome's own set: a `setTool` reaches the host, the host
+// publishes what it clamped it to, and a reader that already holds that value bails by
+// identity. The same comparator, one more caller.
+const latchToolPush = onHost<FieldToolPush>((host, latch) =>
+	host.subscribeTool((push) =>
+		latch((prev) =>
+			prev.radius === push.radius && toolsEqual(prev.tool, push.tool)
+				? prev
+				: push,
+		),
+	),
+);
+
 const latchGesture = onCell((chrome) => chrome.gesture);
-const latchRadius = onCell((chrome) => chrome.radius);
 const latchFlags = onCell((chrome) => chrome.flags);
 const latchFilters = onCell((chrome) => chrome.filters);
 const latchVerifying = onCell((chrome) => chrome.verifying);
@@ -690,27 +734,22 @@ export function useFieldEntitySelection(): FieldEntitySelectionState {
 
 /** The armed brush plus the verbs that change it; throws outside the provider.
  *
- *  USER-paced: the host pushes a tool on an Alt-click eyedrop and on every momentary ⇧/⌃
- *  press and release, i.e. as fast as fingers move and no faster — except `radius`, which
- *  a slider drag moves at pointer rate.
+ *  USER-paced: the host pushes on every set that changes the brush — a strip control, an
+ *  Alt-click eyedrop, each momentary ⇧/⌃ press and release — i.e. as fast as fingers move
+ *  and no faster, except `radius`, which a slider drag moves at pointer rate.
  *
- *  THREE of its four values are shared cells rather than latches, and all three are
- *  forced rather than chosen.
+ *  ONE of its four values is a shared cell rather than a latch: `gesture` has no seam in
+ *  either direction, so copies could never be reconciled.
  *
- *  `gesture` has no seam in either direction, so copies could never be reconciled.
+ *  `tool` and `radius` are ONE latch over `subscribeTool` — they arrive as one push, and a
+ *  latch each would be two subscriptions per reader to say one thing. They were cells until
+ *  the host closed both halves of the gap: the plain `setTool` publishes now (so this
+ *  hook's three simultaneous readers — the strip, the status keymap, the action registry —
+ *  cannot diverge), and the seam carries a snapshot (so the strip, which `TopBar` unmounts
+ *  for the whole of every stamp session, reads the live brush when it comes back rather
+ *  than a default nothing would ever correct).
  *
- *  `tool` and `radius` are forced by the SEAM's shape, not by the funnels below: they ride
- *  `subscribeTool`, which is an EVENT channel with no snapshot, and `TopBar` unmounts
- *  `ToolStrip` for the whole of every stamp session. A latch would come back reading the
- *  chrome's defaults beside a brush the viewport is drawing, with no catch-up push coming
- *  to fix it. Be precise about which of the two verbs below publishes, because the obvious
- *  claim is wrong in both directions: `setRadius` DOES round-trip (`applyRadius`
- *  value-compares, then `notifyTool`), while `setTool` publishes nothing on the plain path
- *  at all — which forces `tool` a second time, since this hook has three simultaneous
- *  readers (the strip, the status keymap, the action registry) and a copy each would
- *  diverge the first time anyone picked a brush.
- *
- *  `pendingStamp` has a snapshot behind it, so it is a latch.
+ *  `pendingStamp` has a snapshot behind it, so it is a latch too.
  *
  *  Throws, unlike `useCameraPose` and `useFieldHistory` — both reasons are load-bearing: a
  *  defaulted `tool` would claim the host is on dig-into-rock when nobody has asked it
@@ -720,33 +759,29 @@ export function useFieldEntitySelection(): FieldEntitySelectionState {
 export function useFieldTool(): FieldToolState {
 	const shell = useShell("useFieldTool");
 	const { host, chrome } = shell;
-	const tool = useSeam(shell, latchTool, DEFAULT_TOOL);
+	const { tool, radius } = useSeam(shell, latchToolPush, DEFAULT_TOOL_PUSH);
 	const gesture = useSeam(shell, latchGesture, DEFAULT_GESTURE);
-	const radius = useSeam(shell, latchRadius, DEFAULT_RADIUS);
 	const pendingStamp = useSeam(shell, latchPendingStamp, null);
 
+	// PUSH ONLY — the adopt these two used to do is the host's answer now, and it arrives
+	// synchronously inside the call (`setTool` / `applyRadius` notify before returning), so
+	// a control still moves within the handler that touched it. What the round trip buys is
+	// that what moves is what the host CLAMPED, not what the control asked for.
 	const setTool = useCallback(
 		(next: FieldTool): void => {
-			chrome.tool.write(next);
 			host?.setTool(next);
 		},
-		[chrome, host],
+		[host],
 	);
-	// Adopt + push inside the handler, NOT an effect keyed on the value: this is the
-	// pointer-rate half of that criterion (a slider drag pushes per frame, and the effect
-	// form would cost a second render pass on every one of them), and it has no mount push
-	// to fold in — the chrome's default IS the host's, so there is nothing to correct at
-	// engine-ready. Adding one would be a new host call for no disagreement.
 	const setRadius = useCallback(
 		(r: number): void => {
-			chrome.radius.write(r);
 			host?.setDigRadius(r);
 		},
-		[chrome, host],
+		[host],
 	);
-	// Adopt + push, `setRadius`'s shape and for its reasons: click-rate, no mount push to
-	// fold in (the chrome's default IS the host's), and no seam to mirror — the host
-	// publishes no gesture, so nothing can push back.
+	// Adopt + push, and the one of this hook's three verbs that still adopts: click-rate, no
+	// mount push to fold in (the chrome's default IS the host's), and no seam to mirror —
+	// the host publishes no gesture, so nothing can push back.
 	const setGesture = useCallback(
 		(next: ViewportGesture | null): void => {
 			chrome.gesture.write(next);
@@ -901,36 +936,12 @@ export function FieldHostStateProvider({
 	children: ReactNode;
 }) {
 	// One set per provider, built once. Never module-level: two shells in one process —
-	// which every chrome test file is — must not share a brush or a set of bands.
+	// which every chrome test file is — must not share a set of bands.
 	const [chrome] = useState(createChromeCells);
 	const shell = useMemo<FieldShell>(
 		() => ({ host, engineReady, chrome }),
 		[host, engineReady, chrome],
 	);
-
-	// Mirror HOST-initiated tool changes (Alt-click eyedropper, momentary Shift/Ctrl
-	// overrides). ECHO GUARD (binding rider): a chrome `setTool` that lands while a
-	// momentary modifier is held makes the host re-derive and fire THIS callback with the
-	// DERIVED tool — so the mirror ADOPTS only (a cell write, never a `host.setTool`
-	// re-push: pushing the derived tool back would re-derive → re-fire → loop), and
-	// value-compares first so an echo of our own tool changes nothing. `toolsEqual` is the
-	// only real half of that guard — the host publishes a fresh clone per push, so identity
-	// alone would re-render every reader of the tool on every momentary tap.
-	// The RADIUS half arrived with the F4.5 gate's W-2: the host's wheel and `[` / `]` reach
-	// the radius without passing through the chrome, so the readout used to keep whatever
-	// number the chrome last set. Both halves land in one push and are adopted independently
-	// — the tool through its value comparison, the radius through the cell's own identity
-	// check on a number, which is free.
-	//
-	// HERE rather than in `useFieldTool` because the values it writes are shared: see that
-	// hook for why a per-consumer tool cannot work.
-	useEffect(() => {
-		if (!engineReady || !host) return;
-		return host.subscribeTool(({ tool, radius }) => {
-			if (!toolsEqual(chrome.tool.read(), tool)) chrome.tool.write(tool);
-			chrome.radius.write(radius);
-		});
-	}, [engineReady, host, chrome]);
 
 	// What the host has to SAY: its user-facing refusals (selection-mask misuse, an
 	// empty flood, the void-cast budget, all four verify guards) and — since F4.5c —

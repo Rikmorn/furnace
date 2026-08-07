@@ -368,11 +368,14 @@ dig ring, selection) had rendered NOTHING since F1. Record + rules:
   + wheel = radius, **Alt-click eyedropper** (samples the aimed cell's class),
   **Shift-held = momentary Smooth**, **Ctrl-held = momentary Dig**; `subscribeTool`
   mirrors the effective tool back to the chrome. It began as a HOST-initiated-only seam
-  (eyedropper, momentary enter/leave) and is no longer only that: a chrome `setTool` landing
-  under a held modifier re-derives the effective tool and fires carrying the DERIVED value —
-  which is why the chrome's mirror value-compares before re-pushing — and since the F4.5
-  gate's W-2 the seam also carries the brush RADIUS, which the chrome's own writes move
-  (§18). The kit-fill ghost renders as a
+  (eyedropper, momentary enter/leave), then took the brush RADIUS alongside at the F4.5
+  gate's W-2 (§18), and is a plain STATE seam since foundations T3b2 (§22.8): every set
+  that changes something publishes, and subscribing pushes the current pair. Two clauses of
+  the host-initiated era survive and both are load-bearing — a `setTool` landing under a held
+  modifier re-derives, so the push carries the DERIVED value rather than what the caller set
+  (which is why a mirror must value-compare before pushing back), and that re-derive
+  notifies UNCONDITIONALLY, so it is the one path where an identical set publishes an
+  identical payload. The kit-fill ghost renders as a
   translucent solid cube (rebuilt per snapped-size change) plus edges; the brush ghost
   persists off-canvas so panel-slider size drags preview live.
 - **Selection (a tool class, not an op)** — `setGesture("box"|"material"|"void")`
@@ -2584,15 +2587,17 @@ without a DOM or a React tree. **All thirteen seams moved in one commit and ever
 is unchanged** — `subscribeSegmentHud` delegates to `field-segment.ts`'s own channel, the
 other twelve are channels the host holds.
 
-Ten of the thirteen **push the current value on subscribe** — the (re)mount rule: a surface
-that mounts mid-state must not render empty beside an overlay already showing that state.
-The snapshot is a closure re-read **per subscribe**, not captured once, so a late mount is
-pushed the state as it is then. Three seams deliberately have no snapshot, because their
-payload is an EVENT rather than a state: `subscribeTool` (a change the chrome did not make;
-a subscriber wanting the current tool has `setTool`'s own funnel), `subscribeToolError`
-(re-pushing the last refusal to a remounting toast stack would resurrect one the user
-dismissed) and `subscribeStats` — pushed every rAF, so the longest a subscriber waits is a
-frame, and a snapshot would be the only place that payload was assembled off the tick.
+Ten of the thirteen **pushed the current value on subscribe** at T3a — the (re)mount rule: a
+surface that mounts mid-state must not render empty beside an overlay already showing that
+state. The snapshot is a closure re-read **per subscribe**, not captured once, so a late
+mount is pushed the state as it is then. Three deliberately had none, because their payload
+is an EVENT rather than a state: `subscribeToolError` (re-pushing the last refusal to a
+remounting toast stack would resurrect one the user dismissed), `subscribeStats` (pushed
+every rAF, so the longest a subscriber waits is a frame, and a snapshot would be the only
+place that payload was assembled off the tick) and `subscribeTool` — "a change the chrome
+did not make; a subscriber wanting the current tool has `setTool`'s own funnel". **That
+last one stopped being true at foundations T3b2 (§22.8)**: eleven of the thirteen carry a
+snapshot today, and the two that do not are the toast and the stats.
 
 `subscribeStats`' channel, its payload and its log-signature cache live in
 `field-host/field-stats.ts` since foundations T3b1 (2026-08-06), not in the host; the
@@ -2951,7 +2956,10 @@ provider shell, and **six chrome-owned values live in provider-held CELLS** (`cr
 rather than in per-consumer state — still latched by the same `useSeam`, so the arrangement
 is "shared truth, per-consumer subscription" rather than a context by another name. Five of
 the six are FORCED and one is a judgement call, and the distinction matters more than the
-round number:
+round number. **T3b2 Task 6 (§22.8) then retired two of the six and one of the three** —
+the tool seam converted, so `tool` and `radius` are a latch and the shell holds two seams,
+not three. The two entries below are what that removed, kept because they are the argument
+the conversion had to answer:
 
 - **`tool` + `radius`** ride `subscribeTool`, an EVENT channel with **no snapshot**, while
   `TopBar` swaps `ToolStrip` out for a `SessionStrip` for the whole of every stamp session.
@@ -2961,7 +2969,7 @@ round number:
   **nothing at all**, so its three simultaneous readers would diverge permanently the first
   time anyone picked a brush. (Both values do come back on that seam from the host's own
   paths — the eyedrop, the momentary ⇧/⌃, the wheel, `[` / `]`. Being pushed back was never
-  the question; being pushed back TO A LATE MOUNT is.)
+  the question; being pushed back TO A LATE MOUNT is.) **Both causes are gone as of §22.8.**
 - **`gesture`** has no seam in either direction, so there is nothing to reconcile copies
   against.
 - **`filters` + `verifying`** must outlive the surface that shows them: `PaletteLayer`
@@ -2970,16 +2978,15 @@ round number:
 - **`flags`** is the CHOSEN one. `flagsChannel` carries a snapshot, so a latch would work; it
   is a cell because its push and the `verifying` release are one coupling and one effect.
 
-**The echo guard, stated exactly, because it is easy to describe as symmetric and it is
-not.** The host half is a SPECIFICATION plus one value-compare. `subscribeTool`'s TSDoc
-tells the chrome it "must value-compare against its own state before re-pushing" — that is
-the specification — and `notifyTool()` itself publishes **unconditionally**; there is no
-host-side tool compare. The only host-side compare is on the RADIUS, in `applyRadius`'s
-`if (clamped === digRadius) return`, which suppresses a no-op set (and is what stops the
-clamp looping). The load-bearing half is the chrome's: `toolsEqual`
-(`frontend/lib/field-host-mirrors.ts`), which the mirror effect runs before writing the
-cell. It cannot be identity — the host publishes a fresh clone per push, so identity alone
-would re-render every reader of the tool on every momentary tap.
+**The echo guard, stated exactly, because it is easy to describe as symmetric and it was
+not.** At T3b1 the host half was a SPECIFICATION plus one value-compare: `subscribeTool`'s
+TSDoc told the chrome it "must value-compare against its own state before re-pushing", and
+`notifyTool()` itself published **unconditionally** — there was no host-side tool compare,
+only the RADIUS's, in `applyRadius`'s `if (clamped === digRadius) return`. §22.8 gave the
+tool its twin (`sameTool`), so the asymmetry is gone. The load-bearing half is still the
+chrome's: `toolsEqual` (`frontend/lib/field-host-mirrors.ts`), which the tool latch runs
+before adopting. It cannot be identity — the host publishes a fresh clone per push, so
+identity alone would re-render every reader of the tool on every momentary tap.
 
 **The one cost the collapse ADDED**, named because nothing else in the slice regressed:
 `latchEntities` is the only latch whose subscribe callback does WORK rather than adopting a
@@ -3505,3 +3512,123 @@ the arrow costs `StatusFragment`'s two-kind model) and
 `family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reaches the host directly and
 returns no `ActionResult`; unreachable-while-refused today because both surfaces pre-check,
 but "the one funnel" is not literally true).
+
+### 22.8 The tool seam converts — a state seam, and the cell retires (Task 6)
+
+**A sanctioned behaviour change, the one this slice planned for.** `FieldHost.setTool` on the
+plain path assigned `tool = clamped` and announced nothing; the seam had no snapshot. The
+chrome absorbed both: `useFieldHostState`'s provider held a `tool` cell and a `radius` cell,
+written by whichever surface set the brush and by a shell-owned `subscribeTool` effect. All
+three of those are gone. `setTool` now value-compares (`sameTool`) and publishes through
+`notifyTool()`; `toolChannel` carries `{ snapshot: () => [toolPush()] }`; and `useFieldTool`
+latches the seam like any other reader.
+
+**Both halves were needed and neither is sufficient**, which is why the cell had survived a
+publish-only proposal:
+
+- The **publish** answers who owns the value. Three surfaces read the tool simultaneously
+  (the strip, the status keymap, the action registry). With no announcement, a copy each
+  diverges the first time anyone picks a brush and nothing ever reconciles them.
+- The **snapshot** answers the late mount. `TopBar` swaps `ToolStrip` out for a
+  `SessionStrip` for the whole of every stamp session, so the surface that displays the
+  brush remounts once per session; without a catch-up push it would come back on
+  `DEFAULT_TOOL`. `tests/chrome/tool-strip.test.tsx`'s "the strip comes back from a session
+  still showing the brush the host holds" is that claim at product scale — it opens a
+  session, asserts the strip really unmounted, ends the session, and reads `FILL`.
+
+**The value guard is not an optimisation.** Every strip control rebuilds the whole
+`FieldTool`, so a publish without a compare would push on every no-op set into a path that
+previously ran only on momentary taps. `sameTool` is `applyRadius`'s
+`if (clamped === digRadius) return` one type up, and it sits BELOW the momentary branch on
+purpose: while a modifier is held `tool` is the DERIVED brush, so a set equal to it can still
+be a real change to the base the release will land on (picking smooth under a held ⇧).
+Comparing there would make letting go of ⇧ restore the wrong brush.
+
+**Two comparators, and `shared/` is the option not taken rather than the option not seen.**
+`sameTool` (host) and `toolsEqual` (`frontend/lib/field-host-mirrors.ts`, chrome) are the
+same predicate on opposite sides of a boundary the chrome may not cross with a value import
+— which rules out `field-host/` as the shared home but says nothing about `shared/`, where
+this slice's Task 5 already put `HOLLOW_MIN_M` and the radius bounds for the same reason and
+where `BrushEffect` already lives. It stays duplicated on tolerate-until-three, and because
+this duplication is the safe kind: both carry the destructure `satisfies Record<string,
+never>` backstop, so a new `FieldTool` field fails to compile in both places at once. What
+the backstop cannot catch — a comparison someone DELETES from one copy — is covered per-field
+on both sides instead. The move is filed:
+`docs/backlog/editor-and-tooling/one-tool-comparator-in-shared.md`.
+
+**What the chrome lost.** Six cells became four (`gesture`, `flags`, `filters`, `verifying`);
+three shell-held seams became two (`toolError`, `flags`); ten per-consumer latches became
+eleven. `tool` and `radius` are ONE latch over `subscribeTool` rather than two — they arrive
+in one push, and a latch each would be the duplicate subscription
+`tests/chrome/host-seams-and-catalogs.test.tsx` exists to catch. The seam-ownership tables in
+that file and in `shell.test.tsx` moved `tool` from the shell column to the reader column,
+which is the change stated as data.
+
+**Three behaviour deltas a user can observe.**
+
+1. **A set the host CLAMPS corrects the control.** A hollow below `HOLLOW_MIN_M` used to
+   leave the field displaying what it asked for while the strokes carved the clamped band.
+   The readout is the host's answer — but this took a second commit to be TRUE rather than
+   merely intended, and how it broke is the more useful half (see "the display-honesty
+   regression" below).
+2. **Before the engine is up, the brush controls do nothing visible.** `fieldHostRef` is
+   assigned in the same tick as the `engine-ready` dispatch, so `host` is `undefined` for
+   every render before it, and the latch is gated on `engineReady` besides. The cell used to
+   move under a click that never reached a host — and then never reconciled, because the
+   fresh host started on `defaultTool()` while the cell held the user's pick. The window
+   trades a silent permanent divergence for a control that visibly does nothing for the
+   length of the engine-bundle load.
+   **In the `no-webgpu` and `engine-error` states that window never closes**: `App.tsx`
+   renders `<Shell />` unconditionally, `status` never reaches `ready`, and the tool rail
+   and strip therefore render fully interactive and permanently inert. Judged the RIGHT
+   outcome and left alone — there is no host, so there is nothing a brush could arm, and the
+   alternative the old cell provided was a strip that moved and lied about a world nobody
+   can paint. It is not the right PRESENTATION: a control that is permanently dead should
+   say so rather than absorb clicks in silence, and that is a visible-affordance question
+   for the surfaces, not for this seam. Filed rather than built here —
+   `docs/backlog/editor-and-tooling/brush-controls-inert-without-an-engine.md`.
+3. **Every `setTool` that changes something reaches every reader.** That is the point; it is
+   also the delta with the widest surface, since it puts a push on a path that had none.
+
+**The display-honesty regression, and why the suite could not see it.** The conversion broke
+`HollowThickness` (`shell/tool-params.tsx`) — the editor's only free-text tool field, and the
+one control that keeps a LOCAL text buffer and reconciles it on render. Its blur handler
+corrects a sub-floor entry with `setTool({…, hollow: HOLLOW_MIN_M})`, and the buffer used to
+re-seed because that write hit a chrome cell comparing by IDENTITY, so a fresh object always
+published and always re-rendered. A latch compares by VALUE, and `HOLLOW_DEFAULT_M` equals
+`HOLLOW_MIN_M` — so the corrective set asks for a value the host already holds, nothing
+publishes, nothing renders, and the field sat on `0.1` over a 0.5 m band. Exactly the defect
+the F2b rider exists to prevent, on the control the rider is written at.
+
+**The fix is that the control normalises its own buffer** (`setText(String(committed))` beside
+the corrective set) rather than waiting for an echo a value-guarded seam is entitled to
+withhold. Note what is NOT the fix: removing the host's guard would not have helped, because
+the chrome's own `toolsEqual` latch guard suppresses the re-render independently — and that
+guard is load-bearing (it is what stops a momentary ⇧/⌃ tap repainting every tool reader).
+**A control that displays anything the tool does not literally say owes its own
+normalisation.** `HollowThickness` is the only one: radius and smooth strength are `min`/`max`
+range inputs and iterations and mode are `<select>`s over exactly the legal set, so no other
+control can hand the host an out-of-range value at all.
+
+**The stub had to convert with it, and its first cut hid the bug.**
+`tests/chrome/_stub-host.ts` holds the armed pair, its tool seam snapshots from it, and
+`setTool` / `setDigRadius` clamp then publish only if something moved — the production
+funnels, seam for seam. The first cut modelled the publish but neither guard, reasoning that
+"the chrome cannot tell the difference: its latch drops an equal push by value anyway". That
+is true of the LATCH and false of the chrome: no-push and equal-push really are
+indistinguishable downstream, but an UNCLAMPED push is a third thing that is neither, and it
+manufactured a render the real host does not. The floor is imported from
+`shared/field-limits.ts` and the guard borrows `toolsEqual`, so neither can drift from the
+number the strip shows or from the fields the host compares. Sabotage-measured: removing the
+stub's `setTool` publish reddens every case that arms a brush and then reads the strip;
+removing its snapshot reddens the two remount cases and nothing else; removing the
+component's own `setText` reddens the hollow case and nothing else.
+
+**The guard's PLACEMENT is a second property, and it needed its own pin.** `sameTool` sits
+BELOW the momentary branch: while a modifier is held `tool` is the DERIVED brush, so a set
+equal to it can still be a real change to the base the release lands on (picking smooth under
+a held ⇧). Hoisting it above the branch makes letting go of ⇧ restore the wrong brush — and
+left the entire editor suite green, because nothing drove the host's own key listeners.
+`tests/field-host-momentary.gpu.test.ts` does: it needs a device only because `init` is what
+attaches those listeners. Dropping the guard and hoisting the guard are different failures and
+now fail different cases.

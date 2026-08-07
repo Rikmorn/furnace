@@ -473,18 +473,24 @@ test("an identical tool push does not re-render the readout", () => {
 	expect(renders).toBe(base + 2);
 });
 
-// The (re)mount rule, on the CHROME's side of the mirror. Every host state seam pushes its
-// current value to an arriving subscriber (`view-channel.ts`'s snapshot option) so a
-// surface mounting mid-session renders the session rather than a default — and the five
-// chrome-owned values have no host seam to get that from, so their cells owe the same
-// thing. Nothing pinned it: dropping the push-on-subscribe from `createCell` left the whole
-// chrome suite green (measured, T3b1 Task 7), because every other case mounts its surface
-// BEFORE the push it asserts about.
+// The (re)mount rule, on the CHROME's side of the mirror: a surface mounting mid-session
+// must render the session rather than a default, and what a late mount reads is the
+// SNAPSHOT its subscription is handed synchronously.
 //
-// What it costs to lose is a late mount reading a stale default, and the palettes are all
-// late mounts — `PaletteLayer` unmounts a closed body, so opening the flags palette after
-// the analyzer answered would show an empty list beside markers the viewport is drawing.
-// The tool is the readable case of the same mechanism: it is the value a probe can name.
+// WHAT THIS CASE PINS CHANGED UNDER IT, and saying so is the point of this note. It was
+// written at T3b1 Task 7 against `createCell`'s push-on-subscribe — dropping that left the
+// whole chrome suite green, because every other case mounts its surface BEFORE the push it
+// asserts about, and the TOOL cell was the readable vehicle. T3b2 Task 6 retired that cell.
+// The tool now rides `subscribeTool`, so what this case exercises today is the SEAM's
+// snapshot (the stub's, standing in for the host's) reaching a late-mounting latch — a real
+// claim, and the one the strip depends on every stamp session, but NOT the one the case was
+// built for. The cell half moved to the framework-free unit in
+// `host-seams-and-catalogs.test.tsx`, whose first assertion is now its only cover.
+//
+// What either costs to lose is a late mount reading a stale default, and the palettes are
+// all late mounts — `PaletteLayer` unmounts a closed body, so opening the flags palette
+// after the analyzer answered would show an empty list beside markers the viewport is
+// drawing.
 test("a surface mounting after a push reads the state, not the default", () => {
 	const stub = makeStubHost();
 	function Probe() {
@@ -561,9 +567,10 @@ const DIG_TOOL: FieldTool = {
 };
 
 /** Reads every seam this file asserts a claim over — the child the two cases below mount
- *  when they want a READER present. Ten of the thirteen seams are latched in the surface
- *  that calls the hook (T3b1 Task 7), so with no reader they are claimed by nobody, which
- *  is the point of mounting this beside an empty `<span />`. */
+ *  when they want a READER present. Eleven of the thirteen seams are latched in the surface
+ *  that calls the hook (T3b1 Task 7, plus the tool seam at T3b2 Task 6), so with no reader
+ *  they are claimed by nobody, which is the point of mounting this beside an empty
+ *  `<span />`. */
 function SeamReader() {
 	useFieldHostState();
 	useCameraPose();
@@ -571,6 +578,7 @@ function SeamReader() {
 	useFieldSelection();
 	useFieldStamp();
 	useFieldHistory();
+	useFieldTool();
 	return <span />;
 }
 
@@ -580,17 +588,17 @@ function SeamReader() {
  *  would bury the two lines that differ.
  *
  *  The `owner` column is what T3b1 Task 7 added, and the split is forced rather than
- *  chosen. `tool` and `flags` stay the SHELL's: the tool seam writes the shared tool +
- *  radius cells (`FieldHost.setTool` publishes nothing, so a per-reader copy would never
- *  hear the strip's own change), and the flags seam releases an in-flight verify that must
- *  keep being released while the flags palette is closed. `selection` and `stamp` are plain
- *  host mirrors with a snapshot behind them, so they belong to whoever reads them. */
+ *  chosen. `flags` stays the SHELL's: its seam releases an in-flight verify that must keep
+ *  being released while the flags palette is closed. The other three are plain host mirrors
+ *  with a snapshot behind them, so they belong to whoever reads them — `tool` joined them at
+ *  T3b2 Task 6, when a plain `FieldHost.setTool` started publishing and the seam gained the
+ *  snapshot a late-mounting strip reads. */
 const LIFTED_SEAMS: readonly (readonly [
 	string,
 	"shell" | "reader",
 	(stub: ReturnType<typeof makeStubHost>) => number,
 ])[] = [
-	["tool", "shell", (s) => s.fire.tool(DIG_TOOL)],
+	["tool", "reader", (s) => s.fire.tool(DIG_TOOL)],
 	["selection", "reader", (s) => s.fire.selection(null)],
 	["stamp", "reader", (s) => s.fire.stamp(null)],
 	[
@@ -661,8 +669,8 @@ test("the four seams lifted off the panel are claimed by their owner, and freed 
 			});
 			return delivered;
 		};
-		// With NOTHING reading: the shell's two are claimed anyway, because the provider
-		// subscribes to them as the OWNER of the state they feed. The reader's two are
+		// With NOTHING reading: the shell's one is claimed anyway, because the provider
+		// subscribes to it as the OWNER of the state it feeds. The reader's three are
 		// claimed by nobody — which is what a closed palette costing nothing looks like
 		// from here, and a latch that subscribed regardless would read as 1.
 		expect([name, deliver()]).toEqual([name, owner === "shell" ? 1 : 0]);

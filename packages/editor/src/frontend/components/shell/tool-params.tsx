@@ -214,8 +214,23 @@ function HollowThickness({
 					// setTool, so a settled sub-floor value here would display 0.2 while strokes
 					// carve 0.5. Clamp on BLUR, not per keystroke — a mid-typing clamp would
 					// fight entering "0.75".
-					if (n < HOLLOW_MIN_M)
-						ctx.setTool({ ...ctx.tool, hollow: HOLLOW_MIN_M });
+					//
+					// The BUFFER is corrected HERE rather than left to the re-seed above, and that
+					// is load-bearing rather than belt-and-braces: the re-seed only runs on a
+					// RENDER, and this corrective set asks for the floor — which, since
+					// HOLLOW_DEFAULT_M equals it, is very often a value the host ALREADY holds. A
+					// value-guarded seam is entitled to publish nothing for that, so no render
+					// arrives and the buffer would sit on the sub-floor text over a 0.5 m band.
+					// Waiting for an echo the seam may withhold is not a contract; knowing what we
+					// asked for is.
+					const committed = Math.max(HOLLOW_MIN_M, n);
+					// UNCONDITIONALLY, and above the guard: "0.50" and "0.5000" parse to a value
+					// needing no clamp at all, so the guard below returns and the buffer would keep
+					// the text as typed rather than the number the tool carries. React bails on an
+					// identical string, so normalising every settled entry costs nothing.
+					setText(String(committed));
+					if (committed === n) return;
+					ctx.setTool({ ...ctx.tool, hollow: committed });
 				}}
 				aria-label="hollow thickness"
 				className="h-7 w-14 px-1.5 font-mono text-xs"

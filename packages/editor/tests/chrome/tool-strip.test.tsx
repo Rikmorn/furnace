@@ -332,6 +332,36 @@ test("a host-initiated tool push is adopted without re-pushing to host.setTool",
 	expect(stub.calls.setTool).not.toHaveBeenCalled();
 });
 
+test("the strip comes back from a session still showing the brush the host holds", async () => {
+	// The (re)mount rule at product scale, and the case T3b2 Task 6 had to keep passing by
+	// a DIFFERENT mechanism: `TopBar` swaps this strip out for the `SessionStrip` for the
+	// whole of every stamp session, so the surface that shows the armed brush is a late
+	// mount once per session. A provider-held cell used to carry the value across that gap;
+	// the tool seam's snapshot carries it now, and there is nothing else left that could.
+	// (Sabotage-proven: dropping the stub tool seam's `snapshot` fails this and the
+	// shell.test.tsx probe beside it, and nothing else in the chrome suite.)
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("fill");
+	expect(within(strip()).getByText("FILL")).toBeTruthy();
+
+	act(() => {
+		stub.fire.stamp(makeSession({ mode: "stamp", entityId: null }));
+	});
+	// Really unmounted — the assertion below is about a remount, not a re-render.
+	expect(screen.queryByRole("group", { name: "tool options" }) === null).toBe(
+		true,
+	);
+
+	act(() => {
+		stub.fire.stamp(null);
+	});
+	// `DIG` here — the chrome's DEFAULT_TOOL — is the failure: a strip that came back
+	// claiming a brush the user swapped away from before the session started.
+	expect(within(strip()).getByText("FILL")).toBeTruthy();
+});
+
 test("the dig↔fill re-aim survives under Segment — X swaps the sweep, it does not end it", async () => {
 	stubCatalog();
 	const stub = makeStubHost({ generators: [HALL] });
@@ -423,6 +453,39 @@ test("a typed hollow thickness still reaches the host per keystroke", async () =
 	fireEvent.change(thickness, { target: { value: "1.5" } });
 	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
 		hollow: 1.5,
+	});
+});
+
+test("a sub-floor hollow entry settles on the floor the STROKES will use", async () => {
+	// The F2b display-honesty rider, pinned from the side that can break it. The host clamps
+	// hollow to `HOLLOW_MIN_M` on `setTool`, so a field left showing `0.1` beside strokes
+	// carving a 0.5 m band is a readout stating something untrue about the tool in hand.
+	//
+	// It held for two years by ACCIDENT: the blur's corrective `setTool` wrote a fresh object
+	// into a chrome cell that compared by identity, so it always re-rendered and the buffer
+	// re-seeded. T3b2 Task 6 replaced that cell with a latch that compares by VALUE, and
+	// `HOLLOW_DEFAULT_M === HOLLOW_MIN_M` — so the corrective set asks for a value the host
+	// already holds, nothing publishes, nothing renders, and the buffer keeps `0.1`. The
+	// control normalises its own buffer now rather than waiting for an echo.
+	stubCatalog();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+	armEffect("fill");
+	fireEvent.click(within(strip()).getByLabelText("hollow fill"));
+	const thickness = within(strip()).getByLabelText(
+		"hollow thickness",
+	) as HTMLInputElement;
+
+	thickness.focus();
+	fireEvent.change(thickness, { target: { value: "0.1" } });
+	// Mid-edit the buffer shows what was typed — a clamp per keystroke would fight "0.75".
+	expect(thickness.value).toBe("0.1");
+
+	fireEvent.blur(thickness);
+	expect(thickness.value).toBe("0.5");
+	// …and the host really was told, so the field is not merely lying in the other direction.
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
+		hollow: 0.5,
 	});
 });
 

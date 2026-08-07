@@ -28,6 +28,8 @@ import { placesProps } from "../src/field-host/field-placements.ts";
 import type {
   CameraPose,
   FieldLayers,
+  FieldTool,
+  FieldToolPush,
   SegmentHud,
 } from "../src/field-host/index.ts";
 
@@ -438,6 +440,11 @@ test("setDigRadius publishes the new radius on the tool seam", () => {
   const host = createFieldHost();
   const pushes: { tool: unknown; radius: number }[] = [];
   host.subscribeTool((p) => pushes.push(p));
+  // The seam is a state mirror, so subscribing is itself a push (the host's own
+  // starting radius). Asserted rather than sliced off: it is the (re)mount rule the
+  // strip depends on, and dropping it silently would hide the day it stops arriving.
+  expect(pushes.map((p) => p.radius)).toEqual([1.25]);
+  pushes.length = 0;
 
   host.setDigRadius(3.5);
 
@@ -452,6 +459,11 @@ test("a radius that does not CHANGE publishes nothing — the echo guard", () =>
   host.setDigRadius(3.5);
   const pushes: { radius: number }[] = [];
   host.subscribeTool((p) => pushes.push(p));
+  // The subscribe snapshot, carrying the radius set above — and the reason this case
+  // clears the log rather than asserting emptiness at the end: the seam speaks once
+  // for the mount and the claim below is about the SET.
+  expect(pushes.map((p) => p.radius)).toEqual([3.5]);
+  pushes.length = 0;
 
   host.setDigRadius(3.5);
 
@@ -470,12 +482,13 @@ test("the radius rides ALONGSIDE the tool rather than inside it", () => {
   // suite; what is checkable here is that the two are separate fields, which is the
   // property the momentary swap cannot reach through.
   //
-  // `setTool` is deliberately absent from this case: on the ORDINARY path it is a
-  // chrome→host verb the host does not echo back (that would re-derive → re-fire →
-  // loop), so there is no push to inspect. Found by writing the obvious version of this
-  // test and watching `pushes.at(-1)` come back undefined. It is not absolute — with a
-  // momentary ⇧/⌃ still held, `setTool` runs `deriveMomentary`, which DOES notify — so
-  // the claim is about the path a chrome slider takes, not about the verb.
+  // `setTool` is absent from this case because the RADIUS is the subject and the radius
+  // funnel is what moves it. It used to be absent for a contract reason, and this comment
+  // used to say so: "on the ORDINARY path it is a chrome→host verb the host does not echo
+  // back […], so there is no push to inspect" — found by writing the obvious version of this
+  // test and watching `pushes.at(-1)` come back undefined. That is no longer true (T3b2
+  // Task 6: a plain `setTool` publishes), and the two cases below are where the verb's own
+  // announcement is pinned.
   const host = createFieldHost();
   const pushes: { tool: Record<string, unknown>; radius: number }[] = [];
   host.subscribeTool((p) =>
@@ -501,4 +514,177 @@ test("the radius rides ALONGSIDE the tool rather than inside it", () => {
   // …and `radius` is not one of its keys, which is the separation the momentary swap
   // cannot reach through.
   expect(Object.keys(push.tool)).not.toContain("radius");
+});
+
+// --- T3b2 Task 6: the tool seam tells the truth on every set -----------------
+//
+// A SANCTIONED behaviour change, so these are conscious-change pins: each one would have
+// FAILED before the change, and that is the point of writing them rather than adjusting
+// something. What they replace is a contract the chrome had to work around — a plain
+// `setTool` announced nothing, so the only holder of the armed brush was whichever chrome
+// surface had written it, and a surface that mounted later (the tool strip, which the top
+// bar unmounts for the whole of every stamp session) had nothing to read.
+
+test("a plain setTool reaches a subscriber", () => {
+  // The conscious change itself. Before it, this array stayed empty for anything short of
+  // a momentary modifier being held — the eyedrop and the ⇧/⌃ derive were the only paths
+  // that fired, so three simultaneous chrome readers of the tool diverged the first time
+  // anyone picked a brush and nothing ever brought them back.
+  const host = createFieldHost();
+  const pushes: FieldToolPush[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+  pushes.length = 0; // the subscribe snapshot; the claim is about the SET
+
+  host.setTool({
+    effect: "fill",
+    materialId: 2,
+    mask: { kind: "none" },
+    smooth: { strength: 16, iterations: 1, mode: "both" },
+    hollow: null,
+  });
+
+  expect(pushes.map((p) => [p.tool.effect, p.tool.materialId])).toEqual([
+    ["fill", 2],
+  ]);
+});
+
+test("the setTool push carries what the host CLAMPED, not what was asked for", () => {
+  // The chassis is the enforcement point for parameter ranges, and the publish is what
+  // makes that visible to a reader instead of only to the strokes: a control that asked
+  // for a sub-floor hollow must not go on displaying the number it asked for while the
+  // brush carves the floor.
+  const host = createFieldHost();
+  const pushes: FieldToolPush[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+  pushes.length = 0;
+
+  host.setTool({
+    effect: "fill",
+    materialId: 0,
+    mask: { kind: "none" },
+    smooth: { strength: 16, iterations: 1, mode: "both" },
+    hollow: 0.1, // below HOLLOW_MIN_M
+  });
+
+  expect(pushes.map((p) => p.tool.hollow)).toEqual([0.5]);
+});
+
+test("a setTool that changes nothing publishes nothing — the value guard", () => {
+  // `applyRadius`'s `clamped === digRadius` one type up, and the half the publish above
+  // could not ship without: every no-op set would otherwise reach every reader of the
+  // tool, and the strip re-sets the whole tool object for a change to any one of its
+  // fields. Sabotage-proven: dropping `sameTool` from `setTool` fails THIS case and
+  // nothing else in the suite.
+  const host = createFieldHost();
+  const armed = (): FieldTool => ({
+    effect: "fill",
+    materialId: 2,
+    mask: { kind: "class", classId: 1 },
+    smooth: { strength: 8, iterations: 2, mode: "erode" },
+    hollow: 0.75,
+  });
+  host.setTool(armed());
+  const pushes: FieldToolPush[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+  pushes.length = 0;
+
+  // A DIFFERENT object with identical values, nested fields and all — which is what the
+  // strip sends, since every one of its controls rebuilds the whole tool.
+  host.setTool(armed());
+
+  expect(pushes).toEqual([]);
+});
+
+/** The brush the per-field cases below start from. Every value here differs from the one
+ *  its row changes to, so each row is a real one-field move. */
+const ARMED_BRUSH: FieldTool = {
+  effect: "fill",
+  materialId: 2,
+  mask: { kind: "class", classId: 1 },
+  smooth: { strength: 8, iterations: 2, mode: "both" },
+  hollow: 0.75,
+};
+
+/** One row per field `sameTool` compares that NO other case in the package moves on its
+ *  own. `effect`, `hollow` and `mask` each already redden a case elsewhere if their
+ *  comparison is dropped; these four redden nothing, and the destructure backstop does not
+ *  cover them — it catches a field nobody ADDED a comparison for, never one somebody
+ *  DELETED. A dropped `materialId` compare would swallow every swatch click and snap the
+ *  strip back to the class before it, with the suite green. */
+const ONE_FIELD_MOVES: readonly (readonly [
+  string,
+  (t: FieldTool) => FieldTool,
+])[] = [
+  ["materialId", (t) => ({ ...t, materialId: 3 })],
+  ["smooth.strength", (t) => ({ ...t, smooth: { ...t.smooth, strength: 4 } })],
+  [
+    "smooth.iterations",
+    (t) => ({ ...t, smooth: { ...t.smooth, iterations: 3 } }),
+  ],
+  ["smooth.mode", (t) => ({ ...t, smooth: { ...t.smooth, mode: "erode" } })],
+];
+
+test("the value guard lets a change to any ONE compared field through", () => {
+  // The guard's other half, and the direction that fails SILENTLY: the case above proves it
+  // suppresses a no-op, this proves it does not suppress a real move. Table-driven rather
+  // than four near-identical blocks (the `LIFTED_SEAMS` precedent one file over) — the claim
+  // has the same shape in all four and only the field differs.
+  //
+  // Sabotage-proven: dropping `materialId` from `sameTool` fails this and nothing else in
+  // the package.
+  for (const [field, move] of ONE_FIELD_MOVES) {
+    const host = createFieldHost();
+    host.setTool(ARMED_BRUSH);
+    const pushes: FieldToolPush[] = [];
+    host.subscribeTool((p) => pushes.push(p));
+    pushes.length = 0;
+
+    host.setTool(move(ARMED_BRUSH));
+
+    // Named in the tuple so a failure says WHICH comparison went missing.
+    expect([field, pushes.length]).toEqual([field, 1]);
+  }
+});
+
+test("subscribeTool pushes the CURRENT pair on subscribe", () => {
+  // The other half of the conversion, and the one the chrome's late mount rests on: the
+  // seam had no snapshot at all, so a surface arriving mid-session read a default beside
+  // a brush the viewport was actively drawing and nothing ever corrected it.
+  const host = createFieldHost();
+  host.setTool({
+    effect: "smooth",
+    materialId: 0,
+    mask: { kind: "none" },
+    smooth: { strength: 4, iterations: 3, mode: "fill" },
+    hollow: null,
+  });
+  host.setDigRadius(2.75);
+
+  const pushes: FieldToolPush[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+
+  expect(pushes.map((p) => [p.tool.effect, p.radius])).toEqual([
+    ["smooth", 2.75],
+  ]);
+});
+
+test("the snapshot is a CLONE — a subscriber cannot write into host state", () => {
+  // The seam's standing rule ("a pushed value is CLONED once per publish"), which the
+  // snapshot had no way to break before it existed. `subscribe`'s push goes through the
+  // same builder as `notifyTool`, so this is what says the builder is on both paths.
+  const host = createFieldHost();
+  const seen: FieldTool[] = [];
+  host.subscribeTool((p) => seen.push(p.tool));
+  const first = seen[0];
+  if (first === undefined)
+    throw new Error("test: the tool seam pushed nothing");
+  first.effect = "paint";
+  first.smooth.strength = 1;
+
+  const later: FieldToolPush[] = [];
+  host.subscribeTool((p) => later.push(p));
+
+  expect(later.map((p) => [p.tool.effect, p.tool.smooth.strength])).toEqual([
+    ["dig", 16],
+  ]);
 });

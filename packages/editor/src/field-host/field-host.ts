@@ -543,17 +543,42 @@ export type FieldHost = {
    *  clamped to the core ceilings and `hollow` is clamped to ≥ 0.5 m (core
    *  accepts any hollow > 0 — it cannot clamp against cellSize — but a
    *  sub-cell shell band on organic shapes can produce holey shells, and 0.5
-   *  matches the UI's step). */
+   *  matches the UI's step).
+   *
+   *  ANNOUNCES the result on {@link subscribeTool} — the CLAMPED tool, which is
+   *  what makes a caller's out-of-range request visible to every reader rather
+   *  than only to the strokes. A set that changes nothing publishes nothing
+   *  ({@link setDigRadius}'s rule, one type up).
+   *
+   *  THOSE TWO CLAUSES MEET, and the case where they do is the one to design
+   *  against: an out-of-range request whose clamp lands on the value already
+   *  held moves nothing, so it is announced to NOBODY. The clamp is visible only
+   *  when it changes the held tool. A caller displaying an unclamped buffer of
+   *  its own — a text field mid-edit — must therefore normalise that buffer
+   *  itself rather than wait for an echo this seam is entitled to withhold.
+   *  (`shell/tool-params.tsx`'s hollow field is the one that does; it learned
+   *  the hard way.) */
   setTool(tool: FieldTool): void;
-  /** Subscribes to HOST-initiated tool changes (eyedropper, momentary
-   *  Shift/Ctrl enter/leave) so the chrome can mirror them. NOT fired for a
-   *  plain chrome setTool — EXCEPT when that setTool lands while a momentary
-   *  modifier is held: that re-derives the effective tool and DOES fire,
-   *  carrying the DERIVED tool (not what the chrome set), so the mirror must
-   *  value-compare against its own state before re-pushing (echo guard).
-   *  Single subscriber (the shell's host-state provider, which publishes the
-   *  mirror and the `setTool` funnel together at `useFieldTool` — they are one
-   *  concern precisely because of that guard); returns an unsubscribe. */
+  /** Subscribes to the armed brush and its radius ({@link FieldToolPush}), pushing
+   *  the CURRENT pair synchronously on subscribe — so a surface mounting mid-session
+   *  (the tool strip, which the chrome unmounts for the whole of every stamp session)
+   *  renders the brush the viewport is drawing rather than a default. N subscribers;
+   *  returns an unsubscribe.
+   *
+   *  EVERY path that moves either value fires it: a chrome `setTool`, the Alt-click
+   *  eyedropper, momentary Shift/Ctrl enter and leave, the slider, the wheel and
+   *  `[` / `]`. Both funnels value-compare, so a set that changes nothing fires nothing —
+   *  with one exception worth knowing before you build a counter on this seam: a `setTool`
+   *  landing under a held modifier goes through the re-derive, which notifies
+   *  unconditionally, so a repeated identical set publishes a repeated identical payload.
+   *
+   *  This contract used to read "NOT fired for a plain chrome setTool — EXCEPT when
+   *  that setTool lands while a momentary modifier is held", which made the chrome the
+   *  only holder of a value the host owns and left a late mount with nothing to read.
+   *  What survives that clause is the reason it named: a set landing under a held
+   *  modifier re-derives, so the push carries the DERIVED tool rather than what the
+   *  caller set. A mirror must therefore still value-compare before pushing back —
+   *  answering a derived push with a `setTool` re-derives and re-fires, which is a loop. */
   subscribeTool(cb: (push: FieldToolPush) => void): () => void;
   /** Subscribes to the host's user-facing messages: swallowed stroke failures (kit
    *  fill off the lattice, unknown material class — F2a buried these in
@@ -1596,6 +1621,61 @@ function clampTool(t: FieldTool): FieldTool {
   return c;
 }
 
+// On THIS side of the seam a weakened mask compare suppresses a PUBLISH rather than
+// merely a re-render — the chrome is never told the brush changed — so the backstop below
+// is load-bearing rather than tidy.
+function sameMask(a: FieldMaskChoice, b: FieldMaskChoice): boolean {
+  // Compiler backstop, the `toolsEqual`/`statsEqual` rider in the shape a UNION takes: the
+  // tag compare covers every TAG-ONLY member, so what must not be forgotten is a member
+  // carrying a payload BESIDE its tag. Switching on `a.kind` makes the compiler demand a
+  // branch for each, and a new kind fails the never-check in `default` — where a bare
+  // `a.kind === b.kind` would quietly call two different masks equal.
+  switch (a.kind) {
+    case "class":
+      return b.kind === "class" && a.classId === b.classId;
+    case "none":
+    case "organic-only":
+    case "kit-only":
+    case "selection":
+      return a.kind === b.kind;
+    default: {
+      const unhandled: never = a;
+      return unhandled;
+    }
+  }
+}
+
+// Value-equality over every FieldTool field — `setTool`'s no-op guard, which is
+// `applyRadius`'s `clamped === digRadius` one type up.
+//
+// A SECOND comparator rather than one shared with the chrome's `toolsEqual`
+// (`frontend/lib/field-host-mirrors.ts`), which is the same predicate: the chrome may not
+// take a VALUE edge to this file — the barrel carries core, and a second core in the chrome
+// bundle is what `tests/frontend-no-engine-leakage.test.ts` exists to prevent. Both carry
+// the destructure backstop below, so a new FieldTool field fails to compile in BOTH places
+// rather than silently weakening either guard.
+function sameTool(a: FieldTool, b: FieldTool): boolean {
+  // Compiler backstop: a future FieldTool field lands in `rest` and fails the never-check,
+  // forcing this comparator to learn it. A missed field would make two DIFFERENT tools
+  // compare equal, and the guard below would then swallow a real change — a brush the user
+  // picked that the chrome is never told about.
+  const { effect, materialId, hollow, mask, smooth, ...rest } = a;
+  void (rest satisfies Record<string, never>);
+  // The same backstop one level down: `smooth` is a nested shape whose future fields would
+  // slip past the top-level destructure unseen.
+  const { strength, iterations, mode, ...smoothRest } = smooth;
+  void (smoothRest satisfies Record<string, never>);
+  return (
+    effect === b.effect &&
+    materialId === b.materialId &&
+    hollow === b.hollow &&
+    sameMask(mask, b.mask) &&
+    strength === b.smooth.strength &&
+    iterations === b.smooth.iterations &&
+    mode === b.smooth.mode
+  );
+}
+
 /** The generator's JSON-Schema `properties` map, narrowed off the loosely-typed
  *  `paramSchema` — the clamp-bound source {@link deriveSizeDefaults} reads. A
  *  schema without a properties object yields `{}`, not a throw: a size-less
@@ -1689,10 +1769,24 @@ export function createFieldHost(deps?: {
   let momentarySaved: FieldTool | null = null;
   let momentaryShift = false;
   let momentaryCtrl = false;
-  // Panel mirror for host-initiated tool changes (eyedropper, momentary). No
-  // snapshot: the mirror is an EVENT (a change the chrome did not make), and a
-  // subscriber that wants the current tool has `setTool`'s own funnel.
-  const toolChannel = createViewChannel<[FieldToolPush]>();
+  // The chrome's mirror of the armed brush + its radius — a STATE seam like the other
+  // ten, snapshot and all. It used to be an EVENT seam, and its comment used to say so:
+  // "the mirror is an EVENT (a change the chrome did not make), and a subscriber that
+  // wants the current tool has `setTool`'s own funnel". That funnel was the whole problem
+  // — it made the chrome the only holder of a value the host owns, so a surface arriving
+  // mid-session (the tool strip, which `TopBar` unmounts for the whole of every stamp
+  // session) had nothing to read the current brush from.
+  //
+  // ONE payload builder for both directions: the snapshot an arriving subscriber gets and
+  // the push `notifyTool` makes are the same value assembled the same way, so a field
+  // added to FieldToolPush cannot reach one and miss the other.
+  const toolPush = (): FieldToolPush => ({
+    tool: cloneTool(tool),
+    radius: digRadius,
+  });
+  const toolChannel = createViewChannel<[FieldToolPush]>({
+    snapshot: () => [toolPush()],
+  });
   // The user-facing message channel (the chrome's toast stack + message log).
   // No snapshot either — a message is an event, and re-pushing the last refusal
   // to a remounting toast stack would resurrect one the user dismissed.
@@ -5446,10 +5540,10 @@ export function createFieldHost(deps?: {
 
   // --- momentary tool overrides -------------------------------------------
 
-  // Mirror a host-initiated tool change to the chrome (cloned — the chrome must
-  // never hold a reference into host state).
+  // Announce the armed brush to the chrome (cloned — the chrome must never hold a
+  // reference into host state). Every path that moves the tool or the radius ends here.
   const notifyTool = (): void => {
-    toolChannel.publish({ tool: cloneTool(tool), radius: digRadius });
+    toolChannel.publish(toolPush());
   };
 
   // Recompute the effective tool from (saved base, held modifiers). DERIVED,
@@ -6663,11 +6757,18 @@ export function createFieldHost(deps?: {
         // Panel change while a momentary modifier is held: adopt it as the
         // BASE the momentary derives from (and restores to), so releasing the
         // modifier lands on the panel's latest choice, not a stale save.
+        //
+        // BELOW the guard, deliberately: while a modifier is held, `tool` is the DERIVED
+        // brush, so a set that equals it can still be a real change to the BASE the
+        // release will land on (picking smooth under a held ⇧ is exactly that). Comparing
+        // the derived tool here would drop it and let go of ⇧ restore the wrong brush.
         momentarySaved = clamped;
         deriveMomentary();
         return;
       }
+      if (sameTool(tool, clamped)) return; // applyRadius' `clamped === digRadius`, one type up
       tool = clamped;
+      notifyTool();
     },
     subscribeTool(cb) {
       return toolChannel.subscribe(cb);

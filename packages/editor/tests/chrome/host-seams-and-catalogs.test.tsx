@@ -12,10 +12,10 @@ import "../inspector/_register.ts";
 //
 // (1) THE ONE-CLAIMANT RULE, quantified over every seam. The claim used to be that
 //     `FieldHostStateProvider` holds all thirteen and no rendered surface holds any. T3b1
-//     Task 7 inverted it: ten seams are now latched per-consumer, in the surface that
-//     reads them, and only three are still the shell's. So the claim is the SPLIT — which
-//     three, and that the other ten are claimed by a reader and released with it. Still a
-//     claim about the SET, which is why it cannot live in a per-surface file.
+//     Task 7 inverted it: the seams are latched per-consumer, in the surface that reads
+//     them, and only a couple are still the shell's. So the claim is the SPLIT — which
+//     ones those are, and that every other seam is claimed by a reader and released with
+//     it. Still a claim about the SET, which is why it cannot live in a per-surface file.
 //
 //     Since the seams went multicast (T3a) a second claimant no longer STEALS the first's
 //     callback, which is why this file matters more, not less: what it catches now is a
@@ -194,9 +194,9 @@ const flushCatalog = () =>
 	});
 
 /** Mount the provider stack with NOTHING inside it. That is not a placeholder — it is the
- *  subject: the catalog pass and the shell's three seam claims belong to the PROVIDERS, and
+ *  subject: the catalog pass and the shell's own seam claims belong to the PROVIDERS, and
  *  a render with no surface in it is what proves they do not depend on one — and, since the
- *  collapse, that the other ten do. The seam case re-renders a reader over this same empty
+ *  collapse, that every other seam does. The seam case re-renders a reader over this same empty
  *  child and then swaps it back out, which is what makes all three of its halves
  *  discriminating. */
 async function renderProviders(stub: ReturnType<typeof makeStubHost>) {
@@ -350,18 +350,27 @@ test("every stub release frees only its own subscriber, like all thirteen of the
 	}
 });
 
-// The same release contract, for the CHROME's own cells — the six values with no host
-// seam behind them (`gesture`, `tool`, `radius`, `flags`, `filters`, `verifying`). They are
-// latched by the same `useSeam` the host seams are, so they are exposed to the same leak
-// class, and the case above does not reach them: it counts subscribers on the STUB HOST's
-// channels, and a cell is not one.
+// The same release contract, for the CHROME's own cells — `gesture`, `flags`, `filters` and
+// `verifying` (`flags` is the one with a seam behind it, a cell by choice; the other three
+// have none). They are latched by the same `useSeam` the host seams are, so they are exposed
+// to the same leak class, and the case above does not reach them: it counts subscribers on
+// the STUB HOST's channels, and a cell is not one.
 //
 // The React half needs no case of its own and deliberately does not get one: `useSeam`
 // hands `useSyncExternalStore` whatever `connect` returned, so if React runs the release on
-// unmount for the ten host seams — which the counts above prove — it runs it for the cells
+// unmount for the latched host seams — which the counts above prove — it runs it for the cells
 // too, through identical code. What that leaves untested is the cell's OWN release body,
 // which is pure and framework-free, so it is tested that way. (Sabotage-proven: making the
 // release a no-op fails this and nothing else in the suite.)
+//
+// ITS FIRST ASSERTION IS NOW THE ONLY THING PINNING PUSH-ON-SUBSCRIBE, and that changed
+// under it rather than being designed: `shell.test.tsx`'s "a surface mounting after a push
+// reads the state, not the default" was written at T3b1 to cover exactly that, using the
+// TOOL cell as its vehicle — and T3b2 Task 6 retired that cell, so the value it asserts now
+// arrives on the seam's own snapshot instead. The React-level case did not go red when the
+// subject moved out from under it, which is why the framework-free line below is the one to
+// keep. (Sabotage-proven separately: dropping `cb(value)` from `createCell.subscribe` fails
+// this case.)
 test("a cell frees only its own subscriber, and does so idempotently", () => {
 	const cell = createCell("a");
 	const heard: string[] = [];
@@ -393,22 +402,17 @@ test("a cell frees only its own subscriber, and does so idempotently", () => {
 	expect(heard).toEqual(["B:b"]);
 });
 
-/** The three seams the SHELL owns, and the ten every other row belongs to a reader.
- *  The split is not a preference — each of the three is forced (T3b1 Task 7):
- *  `tool` writes the shared tool/radius cells (`FieldHost.setTool` publishes nothing, so
- *  a per-reader copy would never hear the strip's own change), `toolError` posts a toast
- *  that belongs to no one surface, and `flags` releases an in-flight verify that has to
- *  keep being released while the flags palette is CLOSED. */
-const SHELL_SEAMS: ReadonlySet<string> = new Set([
-	"tool",
-	"toolError",
-	"flags",
-]);
+/** The two seams the SHELL owns; every other row belongs to a reader. The split is not a
+ *  preference — both are forced (T3b1 Task 7): `toolError` posts a toast that belongs to no
+ *  one surface, and `flags` releases an in-flight verify that has to keep being released
+ *  while the flags palette is CLOSED. `tool` was a third until T3b2 Task 6 gave the seam a
+ *  publish on every `setTool` that changes something and a snapshot for a late mount —
+ *  the two things a per-reader copy needed to stop diverging. */
+const SHELL_SEAMS: ReadonlySet<string> = new Set(["toolError", "flags"]);
 
-/** One surface reading every LATCHED seam, so the case below can watch all ten arrive
- *  with a reader and leave with it. `useFieldTool` is here for `pendingStamp` — the one
- *  value in its shape the host really does push back — and `useFieldEntities` covers the
- *  entity PAIR. */
+/** One surface reading every LATCHED seam, so the case below can watch all eleven arrive
+ *  with a reader and leave with it. `useFieldTool` covers the tool seam AND `pendingStamp`;
+ *  `useFieldEntities` covers the entity PAIR. */
 function AllSeamsProbe() {
 	useFieldHostState();
 	useCameraPose();
@@ -422,12 +426,12 @@ function AllSeamsProbe() {
 	return <span />;
 }
 
-test("every host seam has ONE claimant: three the shell's, ten their readers'", async () => {
+test("every host seam has ONE claimant: two the shell's, eleven their readers'", async () => {
 	fetch404();
 	const stub = makeStubHost();
 	const { rerender } = await renderProviders(stub);
 
-	// (1) With NOTHING reading, the shell's three are claimed and the other ten are not.
+	// (1) With NOTHING reading, the shell's two are claimed and the other eleven are not.
 	// A latch that subscribed without a reader would read as 1 here — which is the old
 	// arrangement creeping back, and the cost the collapse bought is exactly that a
 	// closed palette pays nothing.
@@ -437,8 +441,8 @@ test("every host seam has ONE claimant: three the shell's, ten their readers'", 
 			SHELL_SEAMS.has(name) ? 1 : 0,
 		]);
 
-	// (2) A reader mounts and every seam delivers to EXACTLY ONE subscriber — the ten to
-	// the probe, the three to the provider above it. Exactly one, not "at least one": a
+	// (2) A reader mounts and every seam delivers to EXACTLY ONE subscriber — the eleven to
+	// the probe, the two to the provider above it. Exactly one, not "at least one": a
 	// hook that subscribed twice to the seam it reads would show up here and nowhere else.
 	rerender(withEditor(<AllSeamsProbe />, stub));
 	for (const [name, , push] of seamsOf(stub)) {
@@ -449,12 +453,12 @@ test("every host seam has ONE claimant: three the shell's, ten their readers'", 
 		expect([name, delivered]).toEqual([name, 1]);
 	}
 
-	// (3) …and the reader takes its ten with it. THIS is the claim the one-owner rule
+	// (3) …and the reader takes its eleven with it. THIS is the claim the one-owner rule
 	// became: a duplicate mirror is the normal arrangement on a multicast seam, but a
 	// mirror that outlives its surface is a leak with no other symptom — the unmounted
 	// tree just keeps being pushed at. The child is a `<div />` so the swap is a real
 	// unmount rather than a re-render of the same element type, and the provider stays
-	// mounted throughout, which is what makes the three that hold at 1 discriminating.
+	// mounted throughout, which is what makes the two that hold at 1 discriminating.
 	rerender(withEditor(<div />, stub));
 	for (const [name, , push] of seamsOf(stub)) {
 		let delivered = 0;

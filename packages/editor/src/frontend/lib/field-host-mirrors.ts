@@ -175,19 +175,35 @@ export const sameEntities = (
     );
   });
 
-// Value-equality for the subscribeTool echo guard (see the mirror effect in
+// Value-equality for the subscribeTool echo guard (see `latchToolPush` in
 // `../hooks/useFieldHostState.tsx`).
-const masksEqual = (a: FieldMaskChoice, b: FieldMaskChoice): boolean =>
-  a.kind === "class" && b.kind === "class"
-    ? a.classId === b.classId
-    : a.kind === b.kind;
+function masksEqual(a: FieldMaskChoice, b: FieldMaskChoice): boolean {
+  // Compiler backstop, the `toolsEqual`/`statsEqual` rider in the shape a UNION takes: the
+  // tag compare covers every TAG-ONLY member, so what must not be forgotten is a member
+  // carrying a payload BESIDE its tag. Switching on `a.kind` makes the compiler demand a
+  // branch for each, and a new kind fails the never-check in `default` — where a bare
+  // `a.kind === b.kind` would quietly call two different masks equal.
+  switch (a.kind) {
+    case "class":
+      return b.kind === "class" && a.classId === b.classId;
+    case "none":
+    case "organic-only":
+    case "kit-only":
+    case "selection":
+      return a.kind === b.kind;
+    default: {
+      const unhandled: never = a;
+      return unhandled;
+    }
+  }
+}
 
 export const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
   // Compiler backstop (F2b rider): destructure EVERY FieldTool field — a
   // future field lands in `rest` and fails the never-check, forcing this
   // comparator to learn it. A missed field would silently WEAKEN the
   // subscribeTool echo guard: differing tools would compare equal and the
-  // mirror would drop host-initiated changes.
+  // latch would drop a change the host really made.
   const { effect, materialId, hollow, mask, smooth, ...rest } = a;
   void (rest satisfies Record<string, never>);
   // The same backstop one level down: `smooth` is a nested shape whose future
@@ -207,11 +223,13 @@ export const toolsEqual = (a: FieldTool, b: FieldTool): boolean => {
 
 /** The brush the chrome opens on — a mirror of the host's own `defaultTool()` (dig into
  *  rock, unmasked, core SMOOTH_DEFAULTS-equivalent smooth, solid fill). A local literal
- *  because the chrome cannot value-import core or the host
- *  (frontend-no-engine-leakage), and `subscribeTool` pushes only when the tool or the
- *  radius CHANGES — including for the chrome's own writes, since the F4.5 gate's W-2 made
- *  the radius two-way — never as a catch-up at subscribe time. So there is still nothing
- *  to seed from at mount, which is what this literal is for. */
+ *  because the chrome cannot value-import core or the host (frontend-no-engine-leakage).
+ *
+ *  What it covers is now ONE render rather than a whole session: `subscribeTool` carries a
+ *  snapshot since foundations T3b2, so a mounting surface is pushed the host's real brush
+ *  inside its subscription — but `useSyncExternalStore` reads the snapshot BEFORE React
+ *  attaches that subscription, and this is what it reads. It used to be the seed for a
+ *  provider-held cell, because the seam had no catch-up push at all. */
 export const DEFAULT_TOOL: FieldTool = {
   effect: "dig",
   materialId: 0,

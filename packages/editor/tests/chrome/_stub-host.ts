@@ -1,10 +1,16 @@
 // The shared stub FieldHost for the chrome tests.
 //
 // Every mutator is a recording mock; each subscribe seam is a REAL `createViewChannel`,
-// so a test can fire host-initiated pushes manually (wrap them in `act`). Ten of the
-// thirteen push their CURRENT state on subscribe — every one except tool, toolError and
+// so a test can fire host-initiated pushes manually (wrap them in `act`). Eleven of the
+// thirteen push their CURRENT state on subscribe — every one except toolError and
 // stats — which is the production host's own split, seam for seam. Current, not empty:
 // see `mirrorSeam` for why the difference started mattering.
+//
+// TWO mutators are more than recording mocks, and they are the two the tool seam answers
+// for: `setTool` and `setDigRadius` PUBLISH, because the production host does (foundations
+// T3b2). A stub that only recorded them would let the chrome read its own writes back from
+// somewhere else and go green over a host that never announced them — which is the whole
+// defect the publish closed.
 //
 // MULTICAST, exactly as all thirteen of the production host's are since T3a: N
 // subscribers each get every push, an unsubscribe removes only its own callback and is
@@ -46,7 +52,20 @@ import {
   createViewChannel,
   type ViewChannel,
 } from "../../src/field-host/view-channel.ts";
+// The chrome's half of the tool comparator, borrowed rather than re-spelled: the stub's
+// no-op guard must agree with the production host's `sameTool` about WHICH fields count,
+// and `toolsEqual` is that predicate with the destructure backstop already on it.
+import {
+  DEFAULT_RADIUS,
+  DEFAULT_TOOL,
+  toolsEqual,
+} from "../../src/frontend/lib/field-host-mirrors.ts";
 import type { EntityCatalog } from "../../src/shared/catalog.ts";
+import {
+  HOLLOW_MIN_M,
+  RADIUS_MAX,
+  RADIUS_MIN,
+} from "../../src/shared/field-limits.ts";
 
 /** The pose the stub reports on subscribe — a stand-in for the host's starting orbit
  *  (its exact numbers are the host's business; what matters is that one arrives). */
@@ -55,7 +74,7 @@ export const START_POSE: CameraPose = { yaw: 0.6, pitch: 0.5 };
 /** A state-MIRROR seam: a channel that remembers what was last published through it and
  *  hands THAT to every later subscriber.
  *
- *  The production host's ten mirror seams read live host state in their `snapshot` thunk
+ *  The production host's eleven mirror seams read live host state in their `snapshot` thunk
  *  (`stamp === null ? null : structuredClone(stamp)`, `flagStore.summary()`, …) — the
  *  (re)mount rule, so a surface arriving mid-session renders the session rather than a
  *  default. The stub's snapshots used to be frozen literals instead, which was invisible
@@ -112,6 +131,21 @@ export function makeHistory(
   };
 }
 
+/** The host's `clampTool`, modelled at the ONE bound a chrome control can actually reach.
+ *
+ *  Hollow is the editor's only free-text tool field, so it is the only one where a user can
+ *  hand the host a value outside its range: the radius is a `min`/`max` range input, smooth
+ *  strength is another, and iterations and mode are `<select>`s over exactly the legal set.
+ *  The smooth ceilings therefore have no chrome path to this clamp and stay pinned host-side
+ *  (`tests/field-host-headless.test.ts`), where the real `clampTool` is.
+ *
+ *  The FLOOR is imported, never restated — `shared/field-limits.ts` is the same module the
+ *  control reads its `min` off, so the fixture cannot drift from the number the strip shows. */
+const clampStubTool = (t: FieldTool): FieldTool => ({
+  ...t,
+  hollow: t.hollow === null ? null : Math.max(HOLLOW_MIN_M, t.hollow),
+});
+
 /** A zeroed FieldStats with `overrides` applied — the host's idle readout. */
 export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
   return {
@@ -132,8 +166,9 @@ export function makeStats(overrides: Partial<FieldStats> = {}): FieldStats {
 
 /** A minimal FieldHost stub: every mutator is a recording mock; the subscribe
  *  seams are real multicast channels so a test can fire host-initiated pushes
- *  manually (wrap in act) and read the delivered count back. Ten of the thirteen
- *  push their current state on subscribe, like the real host. */
+ *  manually (wrap in act) and read the delivered count back. Eleven of the thirteen
+ *  push their current state on subscribe, like the real host — and the two tool
+ *  mutators clamp and value-guard, also like the real host. */
 export function makeStubHost(
   opts: {
     generators?: FieldGeneratorInfo[];
@@ -165,18 +200,35 @@ export function makeStubHost(
    *  able to put the right button down between two presses, which is exactly the
    *  thing a snapshot could not express. */
   let looking = false;
+  /** The armed brush and its radius — what the tool seam's snapshot reads, and what
+   *  `setTool` / `setDigRadius` move. Held as state rather than remembered by the channel
+   *  (`mirrorSeam`) because the two mutators publish HALF a push each: a `setTool` carries
+   *  the radius the host is already holding, and a `setDigRadius` carries the armed tool.
+   *  A fresh host's own defaults, taken from the chrome literals that mirror them rather
+   *  than hand-copied a fourth time — and those literals are themselves checked against a
+   *  real host's subscribe snapshot in `tests/field-host-mirrors.test.ts`, so this fixture
+   *  is now two links from the source of truth instead of a restatement of it. CLONED
+   *  because `armed` is replaced wholesale but the literal is shared process-wide. */
+  let armed: FieldToolPush = {
+    tool: structuredClone(DEFAULT_TOOL),
+    radius: DEFAULT_RADIUS,
+  };
   /** The thirteen seams, one real {@link createViewChannel} each — the SAME helper
    *  the production host's are built from, so a change to delivery, isolation or
    *  push-on-subscribe reaches the chrome suite without anyone remembering to
    *  mirror it here.
    *
    *  Which ones carry a `snapshot` is the production host's split, seam for seam:
-   *  the ten state MIRRORS push their current value to each arriving subscriber, and
-   *  the three EVENT seams (tool, toolError, stats) push nothing until a `fire.*`. A
-   *  stub that pushed on all thirteen would let a consumer depending on an initial
-   *  tool push go green against a host that never sends one. */
+   *  the eleven state MIRRORS push their current value to each arriving subscriber, and
+   *  the two EVENT seams (toolError, stats) push nothing until a `fire.*`. A stub that
+   *  pushed on all thirteen would let a consumer depending on an initial toast go green
+   *  against a host that never sends one. */
   const seams = {
-    tool: createViewChannel<[FieldToolPush]>(),
+    // Its own snapshot rather than `mirrorSeam`'s remembered last push, for the reason
+    // `armed` above states — and closer to the production host for it: the real snapshot
+    // reads live host state too. It shares `mirrorSeam`'s ONE infidelity (see there): every
+    // subscriber is handed the same object, where the real host clones per push.
+    tool: createViewChannel<[FieldToolPush]>({ snapshot: () => [armed] }),
     toolError: createViewChannel<[string, ToolErrorSeverity]>(),
     stats: createViewChannel<[FieldStats]>(),
     // The real host pushes the CURRENT pose on subscribe (its own starting orbit);
@@ -200,6 +252,13 @@ export function makeStubHost(
     // `null` on a fresh host, which is what a status bar mounting with no gesture
     // in flight must read rather than nothing at all.
     segmentHud: mirrorSeam<SegmentHud | null>(null),
+  };
+  /** Move the armed pair and announce it — the stub's `notifyTool`. Answers the DELIVERED
+   *  count so `fire.tool` can report it the way every other `fire.*` does. */
+  const publishTool = (next: FieldToolPush): number => {
+    armed = next;
+    seams.tool.publish(next);
+    return seams.tool.size();
   };
   // What `occupiedTopY` answers. Mutable so a case can put content in the world
   // without a GPU: the seed decision is chrome-side arithmetic over this one number,
@@ -300,9 +359,31 @@ export function makeStubHost(
     newWorld: calls.newWorld,
     // biome-ignore lint/suspicious/noEmptyBlockStatements: inert test no-op
     loadWorld: () => {},
-    setDigRadius: calls.setDigRadius,
+    // The two publishing mutators (see this file's header), each modelling the production
+    // funnel it stands for: clamp, then publish only if something MOVED.
+    //
+    // An earlier cut modelled neither and argued that "the chrome cannot tell the
+    // difference: its latch drops an equal push by value anyway". That is true of the
+    // LATCH and false of the chrome: a control holding a local text buffer reconciles it
+    // only when a render happens, so "no push" and "an equal push" are indeed
+    // indistinguishable — but an UNCLAMPED push is a third thing that is neither, and it
+    // manufactured a render the real host does not. It hid a live defect in
+    // `HollowThickness` for exactly one commit.
+    setDigRadius: (r) => {
+      calls.setDigRadius(r);
+      // `clampRadius`'s own spelling, argument order included: the constants were already
+      // imported, and re-deriving the ARITHMETIC is the other half of not drifting.
+      const clamped = Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
+      if (clamped !== armed.radius)
+        publishTool({ tool: armed.tool, radius: clamped });
+    },
     setShading: calls.setShading,
-    setTool: calls.setTool,
+    setTool: (t) => {
+      calls.setTool(t);
+      const clamped = clampStubTool(t);
+      if (!toolsEqual(clamped, armed.tool))
+        publishTool({ tool: clamped, radius: armed.radius });
+    },
     // Every seam below has the SAME two lines: record the claim, then hand back the
     // channel's own unsubscribe. Real, per-subscriber and idempotent, because an inert
     // release could not tell a subscriber that leaks from one that cleans up — and the
@@ -463,13 +544,15 @@ export function makeStubHost(
      *  asserting about the membership it just changed, which is the honest number. */
     fire: {
       /** The tool seam carries the RADIUS too (F4.5 gate, W-2). Radius defaults to the
-       *  host's own initial 1.25 so the three existing callers that only care about the
+       *  host's own initial default so the three existing callers that only care about the
        *  tool (`shell.test.tsx`, `tool-strip.test.tsx`, `host-seams-and-catalogs.test.tsx`)
-       *  keep working unchanged and do not assert a radius they never chose. */
-      tool: (t: FieldTool, radius = 1.25): number => {
-        seams.tool.publish({ tool: t, radius });
-        return seams.tool.size();
-      },
+       *  keep working unchanged and do not assert a radius they never chose.
+       *
+       *  It moves the ARMED pair, not just the wire: this is the host changing its own
+       *  tool (an eyedrop, a momentary ⇧/⌃), so a surface mounting after it must read the
+       *  pushed value off the snapshot rather than the value from before. */
+      tool: (t: FieldTool, radius = DEFAULT_RADIUS): number =>
+        publishTool({ tool: t, radius }),
       stamp: (s: StampSession | null): number => {
         seams.stamp.publish(s);
         return seams.stamp.size();

@@ -10,12 +10,14 @@
 // `toolsEqual` are COMPILE-time backstops. They fail `bun run typecheck`, never a
 // test — a runtime assertion cannot notice a field nobody has written yet.
 import { expect, test } from "bun:test";
+import { createFieldHost } from "../src/field-host/field-host.ts";
 import type {
   FieldEntityInfo,
   FieldStats,
   FieldTool,
+  FieldToolPush,
   PlacedArchetype,
-} from "../src/field-host/index.ts"; // type-only: erased
+} from "../src/field-host/index.ts"; // the VALUE import above is a test-only edge — see the cross-check case
 import {
   DEFAULT_FLAG_FILTERS,
   DEFAULT_GESTURE,
@@ -290,10 +292,13 @@ test("toolsEqual compares mask KIND, and classId only within `class`", () => {
 // ------------------------------------------------------------ the literals
 
 test("the mirror opens on the host's own defaults", () => {
-  // These are local literals BECAUSE the chrome cannot value-import the host, so
-  // nothing machine-checks them against it — pinning the values here is what
-  // makes a drift show up as a failing assertion rather than as a control that
-  // silently describes a state the host is not in.
+  // These are local literals BECAUSE the chrome cannot value-import the host. Pinning the
+  // values is what makes a drift show up as a failing assertion rather than as a control
+  // that silently describes a state the host is not in.
+  //
+  // For TWO of them that is no longer the only cover — see the case below, which checks the
+  // tool and the radius against a real host. The other two have no seam to check against:
+  // the host publishes no gesture at all, and its flag filters are pushed nowhere.
   expect(DEFAULT_TOOL).toEqual({
     effect: "dig",
     materialId: 0,
@@ -321,6 +326,30 @@ test("the mirror opens on the host's own defaults", () => {
     undoDepth: 0,
     redoDepth: 0,
   });
+});
+
+test("the tool and radius literals ARE a fresh host's, checked against one", () => {
+  // The claim the case above can only make by RESTATEMENT, made machine-checkable by T3b2
+  // Task 6: `subscribeTool` carries a snapshot now, so a fresh host states its own armed
+  // brush and radius to whoever subscribes. Before that the seam said nothing until
+  // something moved, and there was no way to ask a host what it opened on.
+  //
+  // A TEST may import both layers. The value-import ban is on what ends up in the chrome
+  // BUNDLE (`tests/frontend-no-engine-leakage.test.ts` enforces it, over `src/frontend/`),
+  // not on the suite that checks the chrome — and the whole reason these literals exist is
+  // that the runtime import is forbidden, not that the fact is unknowable.
+  //
+  // No `init`: the tool and the radius are CPU state a host holds from construction, which
+  // is what keeps this out of the GPU suites.
+  const host = createFieldHost();
+  const pushes: FieldToolPush[] = [];
+  host.subscribeTool((p) => pushes.push(p));
+
+  const snapshot = pushes[0];
+  if (snapshot === undefined)
+    throw new Error("test: the tool seam pushed nothing on subscribe");
+  expect(snapshot.tool).toEqual(DEFAULT_TOOL);
+  expect(snapshot.radius).toBe(DEFAULT_RADIUS);
 });
 
 // ---------------------------------------------------------- deserializeFilters
