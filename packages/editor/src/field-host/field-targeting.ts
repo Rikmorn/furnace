@@ -40,7 +40,7 @@
 //     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP —
 //     `field-props.ts`'s `kitMat` precedent, and the two-extracted-readers bar in
 //     its active form. A value copy would be `null` for the life of the host
-//     (it is assigned at `init`, ~2,300 lines below where this is assembled).
+//     (it is assigned at `init`, ~1,900 lines below where this is assembled).
 //   - `digRadius` is a host `let` the wheel, the brackets and the panel slider all
 //     move, so it is a call for `field-segment.ts`'s stated reason: passed as a
 //     number, the target would be computed at the radius held when this module was

@@ -36,11 +36,6 @@ import {
   RADIUS_MIN,
   SELECTION_UI_BUDGET,
 } from "../shared/field-limits.ts";
-import {
-  type AnalyzeInput,
-  AnalyzerWorkerClient,
-  createAnalyzePump,
-} from "./analyzer-client.ts";
 import { boxCentre, boxEdges } from "./box-edges.ts";
 import {
   dolly,
@@ -52,6 +47,7 @@ import {
   snapToAxis,
   toEyeTarget,
 } from "./camera-control.ts";
+import { createAnalyzer } from "./field-analyzer.ts";
 import {
   bankDolly,
   flySpeed,
@@ -65,9 +61,6 @@ import {
   type FlagFilters,
   type FlagRow,
   type FlagsSummary,
-  flagCellBox,
-  flagMarkerCenter,
-  flagMarkerStyle,
   INFO_TINT,
 } from "./field-flags.ts";
 import {
@@ -82,8 +75,6 @@ import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
 import { createPicking } from "./field-picking.ts";
 import {
-  FALLBACK_COLLISION,
-  groupPlacements,
   type PlacedArchetype,
   placementsByEntity,
   placesProps,
@@ -1407,14 +1398,9 @@ const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
  *  the cadence was tuned. Deliberately NOT re-exported from `index.ts`: the chrome has
  *  no business with it, and everything behind that barrel value-imports core. */
 export const STROKE_MIN_MS = 40;
-/** The project's runtime-built engine bundle, which is where stage 2's mover
- *  lives. The daemon serves it at this path; the analyzer worker imports it. */
-const ANALYZER_ENGINE_URL = "/engine.js";
-/** Wall-clock ceiling for ONE stage-2 verify. The mover is real and the lanes
- *  are budgeted, so the verb has to be able to give up: past this the verdict
- *  comes back `inconclusive` with reason `budget`, which the panel paints as no
- *  answer rather than as a third one. */
-const VERIFY_BUDGET_MS = 8000;
+// The advisor's four constants — the engine URL and verify budget stage 2 posts,
+// the drawn marker's metre size, and the whole-world debounce — left with
+// `field-analyzer.ts`. Each had exactly one reader and it went with the cluster.
 const EDITOR_FOV_Y = Math.PI / 3;
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
 const RADIUS_WHEEL_STEP = 0.1;
@@ -1464,25 +1450,6 @@ const STAMP_GHOST_ALPHA = 0.35;
 // the whole viewport.
 const VOID_CAST_COLOR: Vec3T = [0.25, 0.85, 0.75];
 const VOID_CAST_ALPHA = 0.3;
-
-// Walkability-marker cube edge (metres) — under the 0.25 m cell, so a marker
-// reads as a pin ON a floor cell rather than as a block filling it. FIXED in
-// metres while the marker's Y lift is `cellSize / 2`, which is deliberate but
-// only safe because this host is single-lattice: `createFieldStore()` takes the
-// default and `loadWorld` REFUSES a world of another cellSize. On a coarser
-// lattice the pin would shrink against its cell, and on a much finer one it
-// would span several — make it lattice-relative if that refusal ever lifts.
-const FLAG_MARKER_SIZE_M = 0.18;
-// Quiet time after the last density write before the WHOLE-WORLD pass runs
-// (reachability demotion + pit detection). Those two are world-cadence: one dug
-// cell can open or seal a trap anywhere, so they cannot be done per dirty chunk,
-// and a whole-world re-flood costs ~72% of a full analyzeWorld on top of it
-// (F4 tranche A measured 2.9–3.2 ms against 4.1–4.2 ms over 108 chunks, both
-// growing with the world). This debounce is the budget knob: long enough that a
-// drag re-arms it
-// instead of running it, short enough that the markers settle while the user is
-// still looking at what they dug.
-const ANALYZER_IDLE_MS = 500;
 
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
@@ -1875,30 +1842,51 @@ export function createFieldHost(deps?: {
   const propMeshes: PropRender[] = [];
 
   // The walkability advisor's findings store (what the analyzer found, what the
-  // filters admit, what stage 2 has since proved). Declared HERE, ahead of the
-  // advisor block that owns the rest of it, because it is a `HostSubstrate`
-  // member and the substrate is assembled below the last of those — a record
-  // whose value members are read eagerly cannot be built above one of them. Its
-  // partner `flagsChannel` stays with the advisor, closing over this.
+  // filters admit, what stage 2 has since proved).
+  //
+  // THE ONE PIECE OF THE ADVISOR THAT STAYS, by decision rather than by omission
+  // — the rest of the cluster left on 2026-08-07 (foundations T3d) for
+  // `field-analyzer.ts`, and this handle could not go with it. It is a
+  // `HostSubstrate` VALUE member, and the substrate is assembled ~180 lines below
+  // this line and ~1,800 lines ABOVE where the advisor is now constructed; a
+  // record whose value members are read eagerly cannot be built above one of
+  // them, which is why T3b1 hoisted this declaration here in the first place. It
+  // also has two extracted readers now — `field-analyzer.ts` and
+  // `field-picking.ts`, both through `substrate.flagStore` — so it is genuinely
+  // shared state and not one cluster's private store.
+  //
+  // That makes it a FOURTH substrate leftover beside `propMeshes`, `ghostMeshes`
+  // and `voidCastMeshes`, which the closure map's §1 accounting classifies as
+  // substrate rather than as cluster state.
+  //
+  // MIGRATION (until T3d Task 3): the sentence that used to follow — "those three
+  // stay because `renderScene` DRAWS them, this one stays because the substrate
+  // has to HAND it out before its owner exists; same class, different force" — is
+  // true only while `render` is still in this closure. The moment it leaves, those
+  // three are read by an EXTRACTED module through the substrate, which is
+  // structurally what `field-analyzer.ts` and `field-picking.ts` already do with
+  // this one. The two forces converge and the distinction dissolves; what survives
+  // is the plain fact that all four are substrate leftovers. The same sentence is
+  // written a second time in `docs/reference/field-host-clusters.md` §2.7 and both
+  // ends rot together — grep `MIGRATION (until T3d Task 3)` to find the pair.
   const flagStore = createFlagStore();
 
-  // The walkability advisor's marker layer: ONE instanced unit cube for every
-  // VISIBLE finding, its per-instance tint the severity/verdict colour. Null
-  // when nothing is visible or before GPU init. `markerCount` is the twin of
-  // `field-props.ts`'s private prop counts — decided by every rebuild, uploaded
-  // only when a context exists.
-  let flagMarkers: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
-    null;
+  // The marker layer's material and binding. The LAYER itself — the instanced
+  // mesh, its count and the selected finding's outline — left with
+  // `field-analyzer.ts`; these two stayed because they are `materials` cluster
+  // state, built by `initMaterials` and freed by `dispose` alongside every other
+  // material here. The advisor reads the material through a single-consumer
+  // function dep (`field-props.ts`'s `kitMat` precedent) and never sees the bind.
   let flagMarkerMat: material.Material | null = null;
   let flagMarkerBind: binding.Binding | null = null;
-  let markerCount = 0;
 
   // The cell-level selection display (f2b gate item 1): ONE translucent instanced
   // cube per drawn cell of a `cells` selection, so a flood the camera is standing
   // inside reads as a shape rather than as an AABB outline the user cannot see
   // from within. Null for a region selection, for no selection, and before GPU
-  // init. `selectionCellsCount` is the markerCount twin — decided by every
-  // rebuild, uploaded only when a context exists.
+  // init. `selectionCellsCount` is the twin of the advisor marker layer's own
+  // count (`field-analyzer.ts`) — decided by every rebuild, uploaded only when a
+  // context exists.
   let selectionCells: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
     null;
   let selectionCellMat: material.Material | null = null;
@@ -1985,13 +1973,10 @@ export function createFieldHost(deps?: {
   // still ask; the sub-threshold press has no reader on this side at all since
   // T3c took the threshold test too.
 
-  // The SELECTED finding's cell outline (D-F4.5-15), rebuilt with every flags
-  // push. The key itself lives in the flag store — beside the findings it names,
-  // so `summary()` can answer "is that row still visible?" without the host
-  // holding a second copy that would have to be invalidated by every filter
-  // change, every analyzer response and every world reset. Null when nothing is
-  // selected, and equally when the selected key no longer resolves.
-  let flagSelectionBatch: LineBatch | null = null;
+  // The SELECTED finding's cell outline left with `field-analyzer.ts` too, and
+  // unlike the ghost meshes above it could: it is a CPU-only line batch with no
+  // GPU handle for `dispose` to free, and its one reader is `renderScene`, which
+  // asks `advisor.selectionBatch()`.
 
   // --- void cast (the X-ray) ----------------------------------------------
   // A ghostMeshes sibling: one entry per cast chunk, every bucket on the ONE
@@ -2434,12 +2419,12 @@ export function createFieldHost(deps?: {
     // resetWorld, which discards the cast with everything else.
     voidcast.invalidate();
     // Same choke point, second consumer: the analyzer mirrors this store, so
-    // this is where it learns what to copy across. Only what was WRITTEN goes in
-    // — the worker widens to the chunks whose answer could have changed, and the
-    // apron neighbours below are a MESH-seam rule, not that one.
-    for (const k of changed) analyzerDirty.add(k);
-    analyzePump.request();
-    scheduleWholeWorldPass();
+    // this is where it learns what to copy across. ONE call rather than the three
+    // lines it replaced (the dirty keys, the pass request, the whole-world
+    // re-arm) because those three were one act — see the verb's own docs. The
+    // apron neighbours below are a MESH-seam rule and deliberately not part of
+    // what goes across: the worker owns that widening.
+    advisor.noteDensityWritten(changed);
     for (const k of changed) {
       dirty.add(k);
       const [cx, cy, cz] = field.parseChunkKey(k);
@@ -2498,27 +2483,25 @@ export function createFieldHost(deps?: {
   // remaining footprint marks where the cluster was.
   //
   // The two arrows below FORWARD-REFERENCE bindings declared hundreds of lines
-  // down (`kitMat` is above, but `analyzerPlacementsStale`, `analyzerWholeWorld`
-  // and `analyzePump` are not). That is safe for the reason spelled out at the
-  // `createVoidCast` assembly below — nothing between this closure's brace and
-  // its `return {` ever RUNS, so an arrow body cannot be evaluated before the
-  // declarations it names. The object literal itself is eager, which is why
-  // `substrate` and `kitInstancedMat` are both declared above this line.
+  // down (`kitMat` is above, but `advisor` is not). That is safe for the reason
+  // spelled out at the `createVoidCast` assembly below — nothing between this
+  // closure's brace and its `return {` ever RUNS, so an arrow body cannot be
+  // evaluated before the declarations it names. The object literal itself is
+  // eager, which is why `substrate` and `kitInstancedMat` are both declared above
+  // this line.
   const props = createProps({
     substrate,
     kitMat: () => kitMat,
     kitInstancedMat,
-    // The two analyzer flags AND the pump request, as ONE named act. The three
-    // lines were one statement of intent inside `rebuildProps` and they stay
-    // one here: the prop layer and the analyzer's collider set are derived from
-    // the SAME log, so a rebuild of the layer IS a change to what stage 1 must
-    // re-run over. Whole-world, not incremental — props rasterize into the
-    // solidity stage 1 reads, and `voxelizePlacements` is whole-map replacement
-    // by construction, so there is no incremental placement-sync path.
+    // Straight through to the advisor's verb of the same name, which is where the
+    // act now lives: the two analyzer flags AND the pump request, as ONE named
+    // thing. The three lines were one statement of intent inside `rebuildProps`,
+    // the host named the act when `props` left, and `field-analyzer.ts` kept that
+    // name when the flags followed — the prop layer and the analyzer's collider
+    // set are derived from the SAME log, so a rebuild of the layer IS a change to
+    // what stage 1 must re-run over.
     markPlacementsStale: () => {
-      analyzerPlacementsStale = true;
-      analyzerWholeWorld = true;
-      analyzePump.request();
+      advisor.markPlacementsStale();
     },
   });
 
@@ -2901,6 +2884,15 @@ export function createFieldHost(deps?: {
     return boxEdges(boxCorners(center, half), color);
   };
 
+  // THE selected-thing outline: `aabbEdgeBatch` at the accent colour. Two callers
+  // and they are deliberately the two overlays that must never drift apart — the
+  // selected ENTITY's footprint box, and (through the advisor's
+  // `selectionOutline` dep) the selected FINDING's cell. One function is what
+  // makes "both wear `--primary`" a fact rather than two call sites that happen
+  // to name the same constant.
+  const selectedBoxOutline = (aabb: { min: Vec3T; max: Vec3T }): LineBatch =>
+    aabbEdgeBatch(aabb, SELECTED_COLOR);
+
   const rebuildSelectionBatch = (): void => {
     const aabb = selection === null ? null : selectionAabb(selection);
     selectionBatch =
@@ -2929,8 +2921,9 @@ export function createFieldHost(deps?: {
       materialized === undefined || materialized.kind !== "cells"
         ? null
         : selectionDisplayCells(materialized.chunks, SELECTION_DISPLAY_CAP);
-    // The count settles FIRST and unconditionally (rebuildFlagMarkers' rule): it
-    // is what the layer IS, and a host with no context has still decided it.
+    // The count settles FIRST and unconditionally (`rebuildFlagMarkers`' rule,
+    // now in `field-analyzer.ts`): it is what the layer IS, and a host with no
+    // context has still decided it.
     selectionCellsCount = plan?.displayed ?? 0;
     const c = ctx;
     if (!c || !selectionCellMat) return;
@@ -3002,8 +2995,9 @@ export function createFieldHost(deps?: {
   // while the outline came back correct.
   //
   // Always BEFORE a `notifySelection`, because `selectionInfo` reports how many
-  // cells the display settled on (the publishFlags ordering rule: no subscriber
-  // may read a payload whose overlay is still the previous selection's).
+  // cells the display settled on (the `publishFlags` ordering rule, now stated in
+  // `field-analyzer.ts`: no subscriber may read a payload whose overlay is still
+  // the previous selection's).
   const refreshSelectionDisplay = (): void => {
     rebuildSelectionBatch();
     rebuildSelectionCells();
@@ -3238,9 +3232,9 @@ export function createFieldHost(deps?: {
   //
   // The assembly did NOT stay here, and the reason is ordering rather than
   // preference: the press interrogates `entityFootprints`, `gizmoAxisAt`,
-  // `setSelectedEntity`, `setSelectedFlag` and `viewState`, all of which are
-  // declared BELOW this point, and the deps literal is eager. Assembling it here
-  // would have cost five arrows to save two. Search `const picking =`, ~1,100
+  // `setSelectedEntity`, `viewState` and the advisor's `setSelectedFlag`, all of
+  // which are declared BELOW this point, and the deps literal is eager. Assembling it here
+  // would have cost five arrows to save two. Search `const picking =`, ~690
   // lines down, immediately above the machine that dispatches it.
 
   // The named-history feed (`field-history-feed.ts`): its channel, its change
@@ -3399,7 +3393,7 @@ export function createFieldHost(deps?: {
       gizmo = null;
       return;
     }
-    entitySelectionBatch = aabbEdgeBatch(box, SELECTED_COLOR);
+    entitySelectionBatch = selectedBoxOutline(box);
     // The gizmo hangs on the SAME box, so it moves and dies with it — one
     // rebuild, one invalidation, and no way for the handles to end up outlining
     // a different volume than the emphasis does. While a move is live only the
@@ -3493,6 +3487,23 @@ export function createFieldHost(deps?: {
     return selection === null ? null : selectionAabb(selection);
   };
 
+  // Put the camera on a world box, as ONE act: fit the current orbit to it, adopt
+  // that as an aimed pose, and push the result through the one funnel every camera
+  // path ends in. Two callers — `frameSelection` directly below, and the advisor's
+  // click-to-frame through the `frameCameraOn` dep.
+  //
+  // A NAMED function rather than two spellings of the same two statements, and the
+  // naming is the point: this composition is the CAMERA cluster's act, which is the
+  // whole argument for why `field-analyzer.ts` takes it as a dep instead of taking
+  // `orbitState` + `aimCamera` + `applyOrbit` (that module's header makes the
+  // case). Left as an anonymous arrow in the advisor's deps literal it would have
+  // been invisible to a grep for any camera binding OR any camera function name —
+  // so the cluster that owns it would have had to rediscover it when it moves.
+  const frameCameraOn = (box: { min: Vec3T; max: Vec3T }): void => {
+    aimCamera(frameBox(orbitState, box));
+    applyOrbit();
+  };
+
   const frameSelection = (): void => {
     const box = frameTargetBox();
     if (box === null) {
@@ -3502,8 +3513,7 @@ export function createFieldHost(deps?: {
       reportToolError("nothing selected to frame");
       return;
     }
-    aimCamera(frameBox(orbitState, box));
-    applyOrbit();
+    frameCameraOn(box);
   };
 
   /** The world-space AABB of a set of chunk keys. Used by {@link frameChunks} (which
@@ -3838,508 +3848,138 @@ export function createFieldHost(deps?: {
     requestVoidCast: voidcast.request,
   });
 
-  // --- walkability advisor (D-F4-9) ---------------------------------------
+  // Bumped by every world reset. A verify is seconds long and `resetWorld` drops
+  // every finding, so a verdict landing after one would be re-added to a store
+  // that has just dropped every verdict it had — describing a field that no
+  // longer exists. The advisor's own staleness rule (a chunk's re-analysis drops
+  // its verdicts) cannot catch that one, because the clear already happened;
+  // every OTHER way a verdict goes stale is that rule's job.
+  //
+  // `world`'s state and NOT the advisor's, which is why it did not travel with
+  // the verify verb that reads it: `resetWorld` writes it and the entity
+  // footprint cache's log signature reads it too (~500 lines up). It sat inside
+  // the advisor block until 2026-08-07 and moved to this line, directly above the
+  // assembly.
+  //
+  // THAT HOIST WAS A READABILITY PREFERENCE AND NOT A REQUIREMENT, and saying so
+  // matters because the next note depends on it. `worldEpoch: () => worldEpoch` is
+  // an arrow body, so it would have forward-referenced perfectly safely from below
+  // — this file leans on exactly that three times in this region, most loudly at
+  // the `createProps` seam, whose `markPlacementsStale` arrow reaches `advisor`
+  // 1,385 lines further down. What the hoist buys is that a reader of the assembly
+  // can see the binding without searching, nothing more.
+  //
+  // MIGRATION (until T3d Task 6): expect to UNDO it. `resetWorld` calls
+  // `advisor.retireWorld()` and the advisor reads this counter back, so once
+  // `world` is a module the two are mutually dependent. A cycle between two
+  // modules is only openable if at least one side is lazy, and the lazy side here
+  // is this thunk — which means the declaration goes back below the assembly, or
+  // the epoch moves into `world`'s own module and the advisor takes its getter.
+  // Either way the sentence above stops being a free choice.
+  let worldEpoch = 0;
+
+  // --- walkability advisor (D-F4-9) — `field-analyzer.ts` ------------------
   //
   // The analyzer worker holds a MIRROR of this store: every density write is
   // copied across, and stage 1 re-runs over the chunks whose answer could have
   // changed. ADVISORY throughout (D-F4-1) — nothing it reports blocks a verb,
   // mutates the field, or fixes anything. It draws markers and fills a list.
   //
-  // Two cadences, and the split is the whole cost story. Per-edit passes analyse
-  // what was written; the CONNECTIVITY passes (reachability demotion, pit
-  // detection) are whole-world by nature and run on the idle tail — see
-  // ANALYZER_IDLE_MS.
-
-  const analyzer = new AnalyzerWorkerClient(deps?.spawnAnalyzer);
-  // `flagStore` is declared above with the rest of the substrate's value members
-  // — see its comment there for why it cannot live on this line any more.
-
-  // Snapshot (the selection seam's remount rationale): a subscriber arriving
-  // while markers are on screen must not render an empty list.
-  const flagsChannel = createViewChannel<[FlagsSummary]>({
-    snapshot: () => [flagStore.summary()],
+  // The whole cluster left on 2026-08-07 (foundations T3d): 18 of its 19 state
+  // bindings, all 14 of its functions, the worker handle, the flags channel and
+  // four module-scope constants. The nineteenth binding is `flagStore`, ~1,980
+  // lines up, and the verdict recorded at its declaration is that it CANNOT
+  // travel — it is a substrate value member, and the substrate is assembled above
+  // every module that could own it.
+  //
+  // Named `advisor` and not `analyzer`: `analyzer` was the worker CLIENT's
+  // binding for the whole of this cluster's life in this closure, and the module
+  // is the walkability ADVISOR the prose here has always called it — the worker
+  // is one thing it holds, now its own private state.
+  //
+  // ITS SEAM IS BIGGER THAN THE CLUSTER'S FUNCTION COUNT, which is the fact worth
+  // carrying forward: 18 verbs against 14 functions and 6 facade members. The
+  // extra ones are the closure map's 14 inbound MUTATION edges — bare assignments
+  // into these flags from `world`, `lifecycle` and `props` — every one now a call
+  // named for the ACT it performs, on `markPlacementsStale`'s precedent.
+  // `picking` went the other way two tasks ago (4 functions, ONE verb). A row's
+  // function count measures the cluster; what its neighbours WRITE into it
+  // measures the seam.
+  //
+  // THE POSITION IS FORCED from above and constrains what sits below. Above:
+  // `chunkCopy` is a dep and is declared ~130 lines up, so this cannot rise past
+  // it — the `createVoidCast` shape exactly. Below: `createPicking` and
+  // `createStatsMeter` both take verbs of this module as PLAIN refs, so neither
+  // may be assembled above this line, and each says so at its own end.
+  //
+  // THIS LINE IS BECOMING THE CLOSURE'S ORDERING PIVOT, and the remaining tranche
+  // tasks each add a constraint to it rather than relieving one. Stated once here
+  // instead of discovered three more times:
+  //
+  //   - Task 3 (`render`) joins the BELOW list — its module takes
+  //     `advisor.markerMesh` and `advisor.selectionBatch` as plain refs, making
+  //     three modules that may not rise above this line.
+  //   - Task 3 (`materials`) joins the ABOVE list — `flagMarkerMat: () =>
+  //     flagMarkerMat` becomes `materials.flagMarkerMat`, which forces
+  //     `createMaterials` above this assembly.
+  //   - Task 6 (`world`) is the one that is not merely an ordering fact: see the
+  //     MIGRATION note at `worldEpoch`'s declaration directly above. `resetWorld`
+  //     calls into this module and this module reads `world`'s epoch, so
+  //     extracting `world` closes a cycle that no ordering can resolve — only
+  //     laziness on one side can.
+  //
+  // A cluster with eight inbound callers and eight outbound deps ends up here by
+  // arithmetic, not by accident. It is the argument for extracting it EARLY, which
+  // is what this task did.
+  //
+  // Everything that reads `advisor` from ABOVE — `markDirtyWithNeighbors` and the
+  // `createProps` seam's arrow, both ~1,400 lines up — is a forward reference
+  // from inside a function body, which is safe for the reason spelled out at the
+  // `createVoidCast` assembly: nothing between this closure's brace and its
+  // `return {` ever RUNS.
+  //
+  // `frameCameraOn` and `selectionOutline` are the two deps that are not what
+  // they look like. Each names an ACT of another cluster rather than a binding —
+  // the camera's frame-on-a-box, and what "this is selected" is drawn as — so
+  // `orbitState`, `aimCamera`, `applyOrbit`, `aabbEdgeBatch` and `SELECTED_COLOR`
+  // all stay on this side of the line. The module's header argues that trade; the
+  // short version is that the advisor knows WHICH box, not how a camera frames
+  // one or what colour selected is.
+  //
+  // Both are PLAIN REFS to named closure functions, and that is deliberate rather
+  // than incidental: each is the second caller of a function that already had one
+  // (`frameSelection` and the entity footprint box), so the act each names is
+  // greppable BY NAME from its owning cluster. Written inline as arrows here they
+  // would have been two anonymous bodies a thousand lines from their twins — which
+  // the clusters that own them, `camera` and `selection`, would then have had to
+  // rediscover rather than move.
+  const advisor = createAnalyzer({
+    substrate,
+    spawnAnalyzer: deps?.spawnAnalyzer,
+    reportToolError,
+    chunkCopy,
+    flagMarkerMat: () => flagMarkerMat,
+    worldEpoch: () => worldEpoch,
+    frameCameraOn,
+    selectionOutline: selectedBoxOutline,
   });
-  // The project's capsule (setAgentProfile). NOTHING is posted without one: the
-  // analyzer is parameterized on the agent, and a guessed capsule would be the
-  // advisor inventing its own premise.
-  let agentProfile: field.AgentProfile | null = null;
-  // Whether the profile QUESTION has been answered — by a profile, or by the
-  // catalog 404 that says the project has none. `agentProfile === null` alone
-  // cannot tell those apart from "the fetch is still in flight", and the idle
-  // notice below is a claim about the PROJECT: posted from the in-flight state it
-  // would be reporting which of two async arrivals won a race, on a project that
-  // may well ship a profile. So the notice waits for this, and only this gets to
-  // be a second boolean rather than an `undefined` third state on the profile
-  // itself — every OTHER reader of `agentProfile` (the verify guard, the pending
-  // meter, the pump) asks "is there a usable capsule", where the two null-ish
-  // states are correctly the same answer.
-  let agentProfileAnswered = false;
-  // Once-EVER report for the missing profile (the maskDropReported discipline):
-  // an edit loop would otherwise repeat it at stroke rate. Never re-armed,
-  // because a profile can only be installed, never removed — and never ARMED
-  // until the answer above lands, so there is never a claim to take back.
-  let profileMissingReported = false;
-  // Chunks whose density this host has written since the last mirror sync —
-  // what it WROTE, never widened. The worker owns the widening (`reanalysisKeys`
-  // spreads to the neighbourhood AND down the cardinal columns, because the
-  // column pass's upward scans are uncapped); a host that pre-widened would be
-  // second-guessing a rule it does not hold.
-  const analyzerDirty = new Set<field.ChunkKey>();
-  // Keys the mirror may still hold that this store no longer does. The protocol
-  // has no reset verb on purpose, so a world swap lists the outgoing keys as
-  // removals; resetWorld fills this and the next sync drains it.
-  const analyzerStale = new Set<field.ChunkKey>();
-  // The next pass syncs the WHOLE store rather than `analyzerDirty` (a world
-  // load, or a profile installed after edits the mirror never saw).
-  let analyzerResync = false;
-  // The next pass re-posts the placement collider set (props rasterize into the
-  // solidity stage 1 reads, so the analyzer and the runtime see one prop set).
-  let analyzerPlacementsStale = false;
-  // The next pass is the whole-world one: reachability demotion + pit detection.
-  let analyzerWholeWorld = false;
-  // Reachability + pit seeds: the loaded world's manifest `playerStart`. EMPTY
-  // for a new world, and honestly so — both connectivity passes refuse an empty
-  // seed set outright (markUnreachable would otherwise demote everything,
-  // detectPits would have no notion of "enterable"), and inventing a spawn is
-  // the one thing an advisor must not do.
-  let analyzerSeeds: [number, number, number][] = [];
-  // True while a pass is posted and unanswered. A flag and not a count: the pump
-  // is a latest-wins latch, so exactly one pass can ever be in flight.
-  let analyzerBusy = false;
-  let analyzerIdle: ReturnType<typeof setTimeout> | null = null;
-
-  // An advisor failure is a TOOL problem, not a background hiccup (the void
-  // cast's posture): the user is looking at markers that have stopped updating.
-  const reportAnalyzerFailure = (err: unknown): void => {
-    if (disposed) return; // dispose rejects every pending job — expected, swallow
-    const message = err instanceof Error ? err.message : String(err);
-    reportToolError(`walkability analyzer: ${message}`);
-  };
-
-  // The placement colliders as core's rasterizer takes them: one group per
-  // archetype, its primitive the catalog's — or FALLBACK_COLLISION, which is
-  // exactly what the viewport already DRAWS for an uncatalogued archetype, so
-  // the analysis and the picture agree either way.
-  const analyzerPlacementGroups = (): field.PlacementCollisionGroup[] =>
-    [...groupPlacements(log.ops)].map(([archetypeId, records]) => ({
-      collision:
-        archetypeById.get(archetypeId)?.collision ?? FALLBACK_COLLISION,
-      records,
-    }));
-
-  // Would a pass find anything to analyse if one fired RIGHT NOW? The one
-  // answer, read by both the pump (`analyzerFire`, which decides on it) and the
-  // meter (`analyzerPendingCount`, which reports it) — the aimCamera/placeCamera
-  // funnel's reason. Two call sites deriving this separately is exactly how the
-  // chip came to say "1 pass owed" forever on a world the pump had already
-  // decided held nothing (the F4.5 gate's F-3).
-  //
-  // A PREDICATE and not the key list `analyzerFire` goes on to build: the meter
-  // is read from the per-frame stats push, and a helper returning
-  // `[...store.chunks.keys()]` would allocate one array per chunk every frame.
-  // Both branches here are O(1).
-  const analyzerHasWork = (): boolean =>
-    analyzerWholeWorld ? store.chunks.size > 0 : analyzerDirty.size > 0;
-
-  // Bring the mirror level with the store. Buffers are COPIES, and NOT because
-  // the wire needs them to be: the client structured-clones rather than
-  // transferring, so a real Worker would copy the store's own buffers safely.
-  // The copy is for the case where the handler runs IN THIS REALM — the tests
-  // wire it directly, and its `handleSync` says so — where the mirror would
-  // otherwise install a view onto the very array the next stroke writes into.
-  const postMirrorSync = (): void => {
-    const keys = analyzerResync ? [...store.chunks.keys()] : [...analyzerDirty];
-    analyzerResync = false;
-    const upserts: { key: field.ChunkKey; density: ArrayBuffer }[] = [];
-    for (const key of keys) {
-      const density = store.chunks.get(key);
-      if (density !== undefined)
-        upserts.push({ key, density: chunkCopy(density) });
-    }
-    // Tested against the LIVE store rather than trusted from the reset that
-    // recorded them: a new world can reuse a key the old one had, and the worker
-    // applies upserts BEFORE removals — so a key listed in both would delete the
-    // chunk that was just sent.
-    const removed = [...analyzerStale].filter((key) => !store.chunks.has(key));
-    analyzerStale.clear();
-    if (upserts.length === 0 && removed.length === 0) return;
-    void analyzer
-      .sync(store.cellSize, upserts, removed)
-      .catch(reportAnalyzerFailure);
-  };
-
-  /**
-   * The pump's fire-time work: bring the mirror level, then say what to analyse.
-   *
-   * A COMMAND as much as a query, deliberately. The sync and the analysis are
-   * ONE round trip, and the pump owns the moment it happens — which is the point
-   * of reading it at FIRE time, so the accumulated edits go out rather than the
-   * ones that happened to be current when a key was pressed. Both posts land in
-   * this turn and the worker dispatches in strict arrival order, so the analysis
-   * is guaranteed to see the sync without anyone awaiting its ack.
-   *
-   * `undefined` = nothing to analyse, which leaves the pump's latch idle (a
-   * mirror sync may still have gone out — emptying the mirror after a world
-   * reset is real work with no analysis attached).
-   */
-  const analyzerFire = (): AnalyzeInput | undefined => {
-    // The `createPreviewCoalescer` guard, for the same reason: the pump settles
-    // its latch on EVERY settlement, and `analyzer.dispose()` rejects the job in
-    // flight — so a queued request re-fires from inside that rejection, after the
-    // host is gone. Without this, the client's lazy `ensure()` would spawn a
-    // FRESH worker to receive it, leaving a live thread holding a megabyte-scale
-    // mirror and running a whole-world analysis nobody will read. Safe across
-    // re-init: `init` clears `disposed` before anything can request a pass.
-    if (disposed) return undefined;
-    const profile = agentProfile;
-    if (profile === null) {
-      // ANSWERED-and-absent, not merely absent. Unanswered means the catalog
-      // fetch is still in flight, and this sentence is about the PROJECT — said
-      // then it would be a fact about which arrival won a race, and a project
-      // that ships `catalog/agent.json` would read it whenever its fetch lost.
-      // The one-shot makes that permanent, so the gate has to be here rather
-      // than a retraction later.
-      if (agentProfileAnswered && !profileMissingReported) {
-        profileMissingReported = true;
-        // A WARNING, not a refusal: the advisor is behaving correctly and every
-        // verb still works. As an `error` this one sentence was enough to open
-        // the editor with a red unread badge over a world where nothing is wrong.
-        reportToolError(
-          "walkability advisor idle — this project installs no agent profile",
-          "warn",
-        );
-      }
-      // Every pending flag stays set, so an install later catches up in full —
-      // and that is what carries the UNANSWERED case: the answer posts nothing
-      // itself, so the next pass is where it gets said (or, if the answer was a
-      // profile, where the advisor simply starts working).
-      return undefined;
-    }
-    postMirrorSync();
-    if (analyzerPlacementsStale) {
-      analyzerPlacementsStale = false;
-      void analyzer
-        .placements(analyzerPlacementGroups())
-        .catch(reportAnalyzerFailure);
-    }
-    // Nothing to analyse — which for a whole-world request means an empty STORE,
-    // because that request analyses the store rather than `analyzerDirty`. The
-    // request is DEFERRED rather than consumed: dropping it would be harmless
-    // today (every path that later fills the store re-requests it, and the idle
-    // tail would catch the rest), but only by a coupling a reader has to
-    // re-derive, and the flag surviving is free. The first pass that has
-    // something to analyse then honours it, instead of downgrading to
-    // incremental and making the user wait out the idle tail.
-    //
-    // The deferral is invisible to the user because `analyzerPendingCount` asks
-    // the SAME question below: a request parked over an empty store is not work
-    // owed, and a meter that said otherwise would sit at "1 pass owed" for the
-    // life of a brand-new world.
-    if (!analyzerHasWork()) return undefined;
-    const dirty = analyzerWholeWorld
-      ? [...store.chunks.keys()]
-      : [...analyzerDirty];
-    const wholeWorld = analyzerWholeWorld;
-    analyzerWholeWorld = false;
-    analyzerDirty.clear();
-    analyzerBusy = true;
-    return { profile, dirty, reachability: wholeWorld, seeds: analyzerSeeds };
-  };
-
-  // Settle the marker layer on the current findings, then tell the subscriber —
-  // in that order, because a subscriber may read the host back synchronously
-  // (the panel does) and none may observe a summary whose markers are stale.
-  // The ONE path from "the findings changed" to "everything that shows them
-  // agrees", shared by the response, the filters and a world reset.
-  const publishFlags = (): void => {
-    const summary = flagStore.summary();
-    rebuildFlagMarkers(summary);
-    rebuildFlagSelection(summary);
-    flagsChannel.publish(summary);
-  };
-
-  // Adopt a selected finding and republish. The RAW write, with no validation and
-  // no camera: `selectFlag` refuses first and frames after, and the viewport's own
-  // marker click deliberately does neither — the user is looking at what they just
-  // clicked, so a frame there would be the camera jumping on every press.
-  const setSelectedFlag = (key: string | null): void => {
-    flagStore.setSelected(key);
-    publishFlags();
-  };
-
-  // The public verb. Refuses one way — a key no VISIBLE row answers to — through
-  // the same sentence `verifyFlag` uses for the same situation, and a refusal
-  // leaves the standing selection and publishes nothing.
-  const selectFlagImpl = (key: string | null): void => {
-    if (key === null) {
-      setSelectedFlag(null);
-      return;
-    }
-    const row = flagStore.rowByKey(key);
-    if (row === undefined) {
-      reportToolError("that flag was re-analyzed away");
-      return;
-    }
-    setSelectedFlag(key);
-    // The flag's CELL, not its chunk: `flagCellBox` is the same box the pointer
-    // pick clicks and the outline draws, so the camera lands on exactly what the
-    // user selected. (The chunk-sized frame this replaces is the F4 gate's first
-    // finding — 4 m of world round a 0.18 m pin.)
-    aimCamera(
-      frameBox(orbitState, flagCellBox(row.flag.world, store.cellSize)),
-    );
-    applyOrbit();
-  };
-
-  const analyzePump = createAnalyzePump(analyzer, {
-    next: analyzerFire,
-    onFlags: (res) => {
-      analyzerBusy = false;
-      if (disposed) return;
-      flagStore.applyFlags(res.chunks, res.pits);
-      publishFlags();
-    },
-    onError: (err) => {
-      analyzerBusy = false;
-      reportAnalyzerFailure(err);
-    },
-  });
-
-  // Re-arm the whole-world pass. Every density write calls this, so a drag
-  // pushes it out rather than running it; it fires once the writes stop. The
-  // per-edit passes are unaffected — they go out immediately.
-  const scheduleWholeWorldPass = (): void => {
-    if (analyzerIdle !== null) clearTimeout(analyzerIdle);
-    analyzerIdle = setTimeout(() => {
-      analyzerIdle = null;
-      analyzerWholeWorld = true;
-      analyzePump.request();
-    }, ANALYZER_IDLE_MS);
-  };
-
-  // --- stage 2: the verify verb --------------------------------------------
-  //
-  // One at a time, by a flag rather than a count: a verify is seconds of the
-  // project's REAL mover under a time budget, and the panel shows exactly one
-  // row as running. Queueing a second would spend that budget on a field the
-  // first may have outlived, with nothing on screen saying so.
-  let verifyInFlight = false;
-  // Bumped by every world reset. A verify is seconds long and `resetWorld` runs
-  // `flagStore.clear()`, so a verdict landing after one would be re-added to a
-  // store that has just dropped every verdict it had — describing a field that
-  // no longer exists. The store's own staleness rule (a chunk's re-analysis
-  // drops its verdicts) cannot catch that one, because the clear already
-  // happened; every OTHER way a verdict goes stale is that rule's job.
-  let worldEpoch = 0;
-
-  const verifyFlagImpl = (key: string): void => {
-    if (verifyInFlight) {
-      reportToolError("a verify is already running");
-      return;
-    }
-    const profile = agentProfile;
-    // Checked BEFORE the lookup so the message names the ROOT cause: with no
-    // profile nothing was ever analysed, so every key is missing, and "that flag
-    // was re-analyzed away" would send the user hunting the wrong thing.
-    //
-    // IT IS THE SAME RACE `analyzeChunks`'s idle notice had (the F4.5 gate's F-2) and it is
-    // NOT gated on `agentProfileAnswered` here, deliberately: this sentence is only reachable
-    // through a verify, a verify is only reachable from a flag ROW, and rows exist only once
-    // the analyzer has produced findings — which needs a profile. So the window in which the
-    // answer is still in flight has no route to this call. If a verify ever becomes reachable
-    // from somewhere that does not imply a finding (a palette verb, a command-palette row),
-    // that stops being true and this wants the same latch the notice took.
-    if (profile === null) {
-      reportToolError(
-        "verify needs the project's agent profile — none is installed",
-      );
-      return;
-    }
-    // The store owns key→row: `flagKey` is private to field-flags.ts, so a
-    // lookup written here would be re-spelling a format it cannot see.
-    const row = flagStore.rowByKey(key);
-    if (row === undefined) {
-      reportToolError("that flag was re-analyzed away");
-      return;
-    }
-    // A pit is refused HERE and not only in the panel, which disables the button
-    // with the same reason. Defence in depth on a verb whose cost is real: stage
-    // 2 drives directed lanes at ONE anchor cell and a pit is a whole region, so
-    // an anchor's lanes would prove nothing about it. The two spellings of the
-    // reason agree by REVIEW — the chrome cannot value-import anything under
-    // `field-host/` (the FlagsSection tint-palette precedent).
-    if (row.flag.kind === "pit") {
-      reportToolError("that finding is region-level — walk it");
-      return;
-    }
-    verifyInFlight = true;
-    const epoch = worldEpoch;
-    void analyzer
-      .verify({
-        engineUrl: ANALYZER_ENGINE_URL,
-        flag: row.flag,
-        profile,
-        budgetMs: VERIFY_BUDGET_MS,
-      })
-      .then((res) => {
-        // Dropped when the host is gone, or when the WORLD is: an answer about a
-        // field that has since been swapped out would be re-added past the
-        // clear that reset made, and would then badge whatever finding of the
-        // NEW world happened to key alike. Everything else — a re-analysis
-        // retiring or moving this finding — is the flag store's own rule, which
-        // drops a chunk's verdicts when that chunk is replaced.
-        if (disposed || worldEpoch !== epoch) return;
-        flagStore.setVerdict(row.flag, res.verdict);
-        publishFlags();
-      })
-      .catch(reportAnalyzerFailure)
-      // The latch releases on every SETTLEMENT, or one dead bundle costs the
-      // verb for the rest of the session (the pump's own rule). That covers the
-      // realistic bundle failure: a build error makes the daemon answer
-      // /engine.js with a 500, the worker's dynamic import rejects, and the
-      // typed analyzer-error lands in the catch above (the worker also drops its
-      // engine memo, so a later verify retries a bundle that has since built).
-      //
-      // It does NOT cover a `bundler.build()` that never settles at all: that
-      // import runs BEFORE `budgetMs` is consulted and nothing here bounds it,
-      // so this promise never settles and the latch stays shut. Deliberately not
-      // fixed with a host-side timeout — the worker dispatches on a serialized
-      // tail, so a hung import has already wedged sync and analyze too. A
-      // timeout would re-enable a button whose every request queues behind the
-      // hang, trading a visibly stuck verb for an invisibly stuck one.
-      .finally(() => {
-        verifyInFlight = false;
-      });
-  };
-
-  // Advisor passes still owed an answer — see FieldStats.analyzerPending. Two
-  // states where a flag is set and NOTHING is owed, and they are the same
-  // mistake from two directions: a meter stuck at 1 forever describes an advisor
-  // that is permanently working.
-  //
-  // With no profile IN HAND the pending flags DO accumulate (they are the
-  // catch-up an install would run), but nothing is posted and nothing will be
-  // until one arrives: the advisor is off, not busy. Both null-ish states read
-  // the same here on purpose — a host still waiting on `catalog/agent.json` owes
-  // exactly as much analysis as one whose project has no agent at all, namely
-  // none. Only the idle NOTICE has to tell them apart.
-  //
-  // With a profile and an EMPTY store, the whole-world request `analyzerFire`
-  // deferred is real and will be honoured — but there is nothing for it to look
-  // at yet, so `analyzerHasWork` is what both this and the pump ask. That shared
-  // answer is the point: the pump had already decided not to fire, and only this
-  // count disagreed (the F4.5 gate's F-3, on a brand-new world).
-  // COVERAGE NOTE (F4.5 seal): the `|| analyzerResync` term is not pinned by any test —
-  // deleting it leaves the whole suite green. It is kept rather than dropped because the two
-  // flags answer different questions (`analyzerHasWork` asks whether any chunk is dirty;
-  // `analyzerResync` asks whether the NEXT pass must re-read the whole store, which
-  // `setAgentProfile` and the world-load paths set on a store that may have no dirty chunk
-  // at all), and the reason the suite cannot tell them apart is timing: a queued resync
-  // normally survives only the frame in which `analyzerBusy` is already contributing 1. That
-  // is an argument, not a proof. If this ever needs changing, write the case first —
-  // profile installed on a loaded world, before the pump fires — rather than trusting the green.
-  const analyzerPendingCount = (): number => {
-    if (agentProfile === null) return 0;
-    const queued = analyzerHasWork() || analyzerResync;
-    return (analyzerBusy ? 1 : 0) + (queued ? 1 : 0);
-  };
-
-  const destroyFlagMarkers = (c: Context): void => {
-    if (!flagMarkers) return;
-    mesh.destroyInstanced(c, flagMarkers.im);
-    geometry.destroy(c, flagMarkers.g);
-    flagMarkers = null;
-  };
-
-  // Rebuild the marker layer from a settled summary: ONE instanced unit cube,
-  // scaled to FLAG_MARKER_SIZE_M, at each visible finding's floor surface raised
-  // half a cell (so the marker sits in the AIR cell the flag anchors on, not
-  // sunk into the floor under it). Whole-layer teardown-and-rebuild, like the
-  // prop layer (`field-props.ts`): instance counts are fixed at creation and a
-  // response replaces whole chunks at a time, so there is no partial update to
-  // make. Silent no-op before GPU init — init() rebuilds once the materials
-  // exist.
-  //
-  // The SELECTED finding's instance is drawn bigger (flagMarkerStyle) and keeps
-  // its own colour; the `--primary` half of D-F4.5-15's emphasis is the cell
-  // outline `rebuildFlagSelection` builds beside this.
-  const rebuildFlagMarkers = (summary: FlagsSummary): void => {
-    // The count settles FIRST and unconditionally: it is what the layer IS
-    // (the prop layer's rule, `field-props.ts`), and a host with no context has
-    // still decided it.
-    markerCount = summary.visible.length;
-    const c = ctx;
-    if (!c || !flagMarkerMat) return;
-    destroyFlagMarkers(c);
-    if (summary.visible.length === 0) return;
-    const g = geometry.cube(c, { size: 1 });
-    const im = mesh.createInstanced(c, {
-      geometry: g,
-      material: flagMarkerMat,
-      count: summary.visible.length,
-    });
-    // Column-major TRS with no rotation: uniform scale on the diagonal, position
-    // in the last column (the packPlacementMatrices layout, by hand because
-    // there is nothing to rotate). The POSITION comes from flagMarkerCenter,
-    // shared with the pointer pick's cell box so the drawn marker and the
-    // clickable one cannot part company by the height of the lift.
-    const matrices = new Float32Array(16 * summary.visible.length);
-    let i = 0;
-    for (const row of summary.visible) {
-      const o = i * 16;
-      const [cx, cy, cz] = flagMarkerCenter(row.flag.world, store.cellSize);
-      const style = flagMarkerStyle(row, row.key === summary.selected);
-      const size = FLAG_MARKER_SIZE_M * style.scale;
-      matrices[o] = size;
-      matrices[o + 5] = size;
-      matrices[o + 10] = size;
-      matrices[o + 12] = cx;
-      matrices[o + 13] = cy;
-      matrices[o + 14] = cz;
-      matrices[o + 15] = 1;
-      mesh.setInstanceTint(c, im, i, style.tint);
-      i++;
-    }
-    mesh.setInstanceMatrices(c, im, matrices);
-    flagMarkers = { im, g };
-  };
-
-  // The selected finding's cell outline — one cell of `--primary` wireframe round
-  // the marker, drawn under the flags layer gate. Built from `summary.selected`
-  // rather than from a key held here, so it can only ever outline a row the same
-  // push says is visible.
-  //
-  // DISCLOSED AS UNPINNED, the `gizmoVisible` rider: this batch has no seam and
-  // nothing reads instance data back, so no test observes that the outline (or the
-  // marker's size pop) is actually drawn. What IS pinned is everything either can be
-  // derived from — `flagCellBox` and `flagMarkerStyle` are pure and covered in
-  // tests/field-host/field-flags.test.ts, and `summary.selected`'s own resolution
-  // is covered there and in tests/field-host-flag-select.test.ts. An accessor added
-  // for one assertion is not worth the surface; the gate is the eyeball check. The
-  // third of the three is the cell layer's `selection` gate — see renderScene.
-  const rebuildFlagSelection = (summary: FlagsSummary): void => {
-    const row =
-      summary.selected === null
-        ? undefined
-        : summary.visible.find((r) => r.key === summary.selected);
-    flagSelectionBatch =
-      row === undefined
-        ? null
-        : aabbEdgeBatch(
-            flagCellBox(row.flag.world, store.cellSize),
-            SELECTED_COLOR,
-          );
-  };
 
   // --- the pointer pick (`field-picking.ts`) -------------------------------
   //
-  // Assembled HERE rather than where its four functions were ~1,100 lines up, and
+  // Assembled HERE rather than where its four functions were ~690 lines up, and
   // the position is forced from both sides: five of its eleven deps are declared
   // between there and here (`entityFootprints`, `gizmoAxisAt`, `setSelectedEntity`,
-  // `setSelectedFlag`, `viewState`), and the machine directly below takes `press`
+  // `advisor`, `viewState`), and the machine directly below takes `press`
   // as a plain ref. So the pair's one unavoidable arrow pair points DOWN from
   // here into the machine, which is the cheaper direction — two members rather
   // than five.
+  //
+  // `advisor` is the newest of those five and the one that pins this line hardest
+  // (foundations T3d, 2026-08-07): `setSelectedFlag` is taken as a PLAIN ref off
+  // an extracted module, so this assembly cannot rise above `createAnalyzer`. It
+  // is also an edge the closure map never counted — a cross-cluster CALL is not a
+  // data edge (§2.1's second correction), so the `analyzer` row's read-by list
+  // does not name the viewport's marker click at all.
   //
   // The two arrows are the only entries that are not what they look like:
   // `beginMove` and `setPendingMove` name verbs of a module that does not exist
@@ -4354,7 +3994,7 @@ export function createFieldHost(deps?: {
     gizmoAxisAt,
     selectedEntityId: () => selectedEntityId,
     setSelectedEntity,
-    setSelectedFlag,
+    setSelectedFlag: advisor.setSelectedFlag,
     beginMove: (entityId, axis, grabbed, press) =>
       machine.beginMove(entityId, axis, grabbed, press),
     setPendingMove: (next) => {
@@ -4370,7 +4010,7 @@ export function createFieldHost(deps?: {
   // that arbitrates between them, as **56 top-level declarations** inside
   // `createFieldMachine` — 12 mutable state slots, 2 view channels, 3 Esc rungs,
   // 1 preview coalescer and 38 functions. They used to thread this file from the
-  // state block ~2,600 lines up to the pointer handlers ~700 lines down. The
+  // state block ~2,100 lines up to the pointer handlers ~630 lines down. The
   // assembly sits HERE, where the bulk of them were, on `createSegmentBrush`'s
   // precedent — a cluster's remaining footprint marks where the cluster was.
   //
@@ -4395,7 +4035,7 @@ export function createFieldHost(deps?: {
   // into a callback, inverted.
   //
   // THE FORWARD-REFERENCE INVARIANT applies to this line exactly as it does to
-  // the `createVoidCast` assembly ~600 lines up, and this is the assembly that
+  // the `createVoidCast` assembly ~200 lines up, and this is the assembly that
   // leans on it hardest: `applyOrbit`, `gizmoVisible`, `orbitPivot` and
   // `activeGizmoAxis` all sit ABOVE here and call into the machine from inside
   // their bodies, and `field-picking.ts` — assembled directly above — does the
@@ -4704,17 +4344,24 @@ export function createFieldHost(deps?: {
     // The walkability advisor's markers: ONE opaque unlit instanced draw covering
     // every visible finding. Their own gate — the findings keep arriving while it
     // is off (the analyzer is not a display layer), this only stops drawing them.
-    if (viewState.layers().flags && flagMarkers) instanced.push(flagMarkers.im);
+    // Bound to a local because narrowing does not survive a call boundary: the
+    // gate and the push are two reads of `field-analyzer.ts`'s layer slot. The
+    // seam hands over the MESH rather than the `{ im, g }` pair behind it — the
+    // geometry is the module's to free and this loop never wanted it.
+    const flagMarkerMesh = advisor.markerMesh();
+    if (viewState.layers().flags && flagMarkerMesh)
+      instanced.push(flagMarkerMesh);
     // The cell-level selection display, under the `selection` layer with the
     // outlines below (hiding the layer hides the DISPLAY; the selection itself
     // stays live and keeps masking ops). Premultiplied and depth-write-free, so
     // it sorts into frame.render's blended group with the ghosts.
     //
     // DISCLOSED AS UNPINNED, the third of this task's three (see
-    // `rebuildFlagSelection` for the other two): THIS GATE is unobservable. The
-    // only window onto the layer is `selectionCellCount()`, which reports what the
-    // rebuild DECIDED and not what the frame drew — by design, since it is the
-    // markerCount twin and settles before the context guard. So switching
+    // `rebuildFlagSelection` in `field-analyzer.ts` for the other two): THIS GATE
+    // is unobservable. The only window onto the layer is `selectionCellCount()`,
+    // which reports what the rebuild DECIDED and not what the frame drew — by
+    // design, since it is the marker-count twin and settles before the context
+    // guard. So switching
     // `selection` off while a flood is selected is an eyeball check, not a test.
     // A `drawnSelectionCells()` accessor would be a second count whose only
     // consumer is one assertion, and two counts that can disagree is worse than
@@ -4859,7 +4506,9 @@ export function createFieldHost(deps?: {
     // so an outline here would box empty air; the pick is gated the same way, so
     // a flag selection cannot even be made while the layer is hidden.
     // occlude:false like every other selection overlay: a finding inside rock is
-    // exactly the kind the advisor is for.
+    // exactly the kind the advisor is for. A local for the same reason the marker
+    // layer above takes one — three reads of one slot behind a call.
+    const flagSelectionBatch = advisor.selectionBatch();
     if (viewState.layers().flags && flagSelectionBatch)
       frame.drawLines(c, {
         vertices: flagSelectionBatch.vertices,
@@ -4926,10 +4575,11 @@ export function createFieldHost(deps?: {
   //
   // All four payload deps name bindings declared ABOVE this line, so nothing here
   // is forced: `lastRemeshMs` and `remeshVersion` are `world` `let`s and ride as
-  // thunks; `voidcast.jobGen` and `analyzerPendingCount` are `const`s this closure
-  // never reassigns, so the bindings pass by reference and are read eagerly by
-  // this object literal — which is the only reason their declaration order
-  // matters at all.
+  // thunks; `voidcast.jobGen` and `advisor.pendingCount` are members of `const`
+  // module records this closure never reassigns, so they pass by reference and are
+  // read eagerly by this object literal — which is what makes their declaration
+  // order matter at all, and since T3d (2026-08-07) `advisor` is the reason this
+  // line may not rise: it was a closure `const` before and is now a module verb.
   //
   // The one FORWARD reference runs the other way: `applyReconfigureSession`, ~500
   // lines up, calls `stats.noteReconfigureMs`. That is safe for the reason spelled
@@ -4941,7 +4591,7 @@ export function createFieldHost(deps?: {
     lastRemeshMs: () => lastRemeshMs,
     remeshVersion: () => remeshVersion,
     voidCastJobGen: voidcast.jobGen,
-    analyzerPendingCount,
+    analyzerPendingCount: advisor.pendingCount,
   });
 
   // The canvas cursor for what the viewport is armed to do (D-F4.5-8's third
@@ -5305,17 +4955,24 @@ export function createFieldHost(deps?: {
   // selection state: like the tool/radius/camera pose, it is CPU-only session
   // state that survives a dispose/re-init on the same store.
   const resetWorld = (): void => {
-    // BEFORE the clear, while the outgoing keys still exist: the analyzer's
-    // mirror has no reset verb, so a world swap lists them as removals on the
-    // next sync. Its findings describe a field that is about to be gone, and its
-    // pending write set names chunks that will not be there to copy.
-    for (const key of store.chunks.keys()) analyzerStale.add(key);
-    analyzerDirty.clear();
-    analyzerResync = true;
-    analyzerSeeds = [];
     worldEpoch += 1; // retires any stage-2 verdict still in flight
-    flagStore.clear();
-    publishFlags();
+    // BEFORE the store is cleared below, while the outgoing keys still exist: the
+    // analyzer's mirror has no reset verb, so a world swap lists them as removals
+    // on the next sync. Its findings describe a field that is about to be gone,
+    // and its pending write set names chunks that will not be there to copy —
+    // five lines that were always one act, and are one verb since T3d.
+    //
+    // The epoch bump moved ABOVE it in the same change, and the move is provably
+    // inert rather than merely harmless. Name the statements it crossed, because
+    // that IS the proof: the four mirror writes the verb's first half now does —
+    // `analyzerStale.add` over the outgoing keys, `analyzerDirty.clear()`,
+    // `analyzerResync = true`, `analyzerSeeds = []`. None reads `worldEpoch`, and
+    // none can reach it transitively (`store.chunks` is a plain Map, no getter),
+    // so the four and the bump commute. Putting the bump after the verb instead
+    // would move it past `flagStore.clear()` AND `publishFlags()` — and the
+    // publish delivers to subscribers that are free to call back into the host
+    // synchronously, which is the one re-entrancy window in this function.
+    advisor.retireWorld();
     store.chunks.clear();
     store.materials.clear();
     log.ops.length = 0;
@@ -5418,7 +5075,7 @@ export function createFieldHost(deps?: {
       // markers: findings can arrive before the GPU does, and the counts they
       // settled are replayed into draws here.
       props.rebuild();
-      rebuildFlagMarkers(flagStore.summary());
+      advisor.rebuildMarkers();
       // The selection survives a dispose (it is CPU state), so its CELL display
       // has to be rebuilt here too or a re-init — the AA switch, which never
       // touches the selection — would come back with the outline and no cubes.
@@ -5447,41 +5104,20 @@ export function createFieldHost(deps?: {
       cancelAnimationFrame(raf);
       detachListeners();
       worker.dispose();
-      analyzer.dispose();
-      // Disposing TERMINATES the analyzer worker, and the client spawns a fresh
-      // one on the next request — with an empty mirror and no placement set. A
-      // re-init'd host must therefore re-send both, or every pass fails: the
-      // protocol refuses an analyse before any sync (`requireStore`), so what
-      // arrives is a typed `analyzer-error` — "the mirror holds no field yet" —
-      // reported on the tool-error channel, once per pass, until something happens to
-      // fill `analyzerDirty`. LOUD rather than wrong, which is `requireStore`
-      // doing its job; the advisor is simply dead until then. The store, the log
-      // and the findings all survive a dispose (the `disposed = false` in `init`
-      // exists so a re-init'd instance lives), so this is the analyzer half of
-      // that same contract.
-      analyzerResync = true;
-      // DEFENCE IN DEPTH, and its independent effect is deliberately UNCOVERED:
-      // every path that can reach the analyzer after a dispose goes through
-      // `props.rebuild()` (via `init`, `loadWorld` or `newWorld`) or through
-      // `setAgentProfile` WITH a profile (its null answer reaches nothing — it
-      // requests no pass, and no pass can run without a capsule), and all of
-      // those set this flag themselves — so
-      // deleting this line fails no test. It is kept because depending on that
-      // coincidence is what the line above exists to stop doing, and the cost of
-      // being wrong is one-directional: `voxelizePlacements` is purely additive,
-      // so a worker with no placement set sees strictly MORE open air and
-      // UNDER-reports, which is the miss-unsafe direction for a trap hunt.
-      analyzerPlacementsStale = true;
-      if (analyzerIdle !== null) {
-        clearTimeout(analyzerIdle);
-        analyzerIdle = null;
-      }
+      // Terminate the advisor's worker and re-arm what a re-init has to re-send.
+      // ONE call because it is one act: disposing the worker is what MAKES the
+      // re-sync and the placement re-post owed, and the module's own verb carries
+      // the whole of that argument (including which half of it is deliberately
+      // uncovered by any test). The GPU half of the advisor's teardown is
+      // separate and lives in the context block below — it needs a `Context` this
+      // one does not, and it must run before `gpu.dispose`.
+      advisor.dispose();
       const c = ctx;
       if (c) {
         for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
         chunkMeshes.clear();
         props.destroy(c);
-        destroyFlagMarkers(c);
+        advisor.destroyMarkers(c);
         destroySelectionCells(c);
         machine.destroyGhosts();
         voidcast.discard();
@@ -5533,7 +5169,8 @@ export function createFieldHost(deps?: {
       // and it notifies. One teardown, one place.
       //
       // Its independent effect is currently UNCOVERED, and deliberately recorded
-      // as such (the analyzerPlacementsStale precedent above): `updateMove`
+      // as such (the `analyzerPlacementsStale` precedent, which lives in
+      // `field-analyzer.ts`'s own `dispose` since T3d): `updateMove`
       // guards on `stamp === null` too, so a mapping stranded by a bare
       // `stamp = null` changes nothing while the host stays disposed — swapping
       // this line back fails no test. What it buys is the state AFTER a re-init:
@@ -5552,7 +5189,7 @@ export function createFieldHost(deps?: {
       // this request is the explicit one, so that emptying does not depend on the
       // prop layer happening to rebuild on the same path. No ANALYSIS follows
       // either way — a new world holds no field and, with no manifest, no seed.
-      analyzePump.request();
+      advisor.requestPass();
       notifyEntities();
     },
     loadWorld(data) {
@@ -5580,12 +5217,13 @@ export function createFieldHost(deps?: {
       // the caller's. A world with no manifest (newWorld) leaves the seeds empty
       // and both connectivity passes skip, rather than guessing a spawn.
       const [seedX, seedY, seedZ] = data.manifest.playerStart;
-      analyzerSeeds = [[seedX, seedY, seedZ]];
-      // The mirror holds the OLD world (resetWorld listed its keys as removals);
-      // these chunks were written straight into the store, so nothing marked them
-      // dirty. Whole-world too: every chunk is new to the analyzer.
-      analyzerResync = true;
-      analyzerWholeWorld = true;
+      // The seed AND the two staleness flags as one act: the chunks above were
+      // written straight into the store, so nothing marked them dirty, and the
+      // mirror still holds the world `resetWorld` listed as removals. The
+      // REQUEST stays separate and stays where it is, below `props.rebuild()` —
+      // moving it up here would fire the pump before the log is compacted and
+      // before the prop layer is rebuilt, which is a different pass.
+      advisor.noteWorldLoaded([seedX, seedY, seedZ]);
       for (const key of store.chunks.keys()) dirty.add(key);
       // Fold aged brush runs before the panel reads the log: quiescent history
       // is guaranteed here (see compactLoadedLog), and it never touches entity
@@ -5599,7 +5237,7 @@ export function createFieldHost(deps?: {
       // Explicit rather than left to `props.rebuild()`'s own request: a load's
       // analyzer work (full re-sync, placements, whole-world pass) must not
       // depend on the prop layer happening to rebuild on the same path.
-      analyzePump.request();
+      advisor.requestPass();
       notifyEntities();
       // NO AUTOMATIC FRAME HERE, and the first attempt at ruling 5 put one in —
       // which is worth recording, because it looked like the obvious home. This
@@ -6012,36 +5650,18 @@ export function createFieldHost(deps?: {
     subscribeEntitySelection(cb) {
       return entitySelectionChannel.subscribe(cb);
     },
-    setAgentProfile(profile) {
-      agentProfileAnswered = true;
-      agentProfile = profile;
-      // "This project has none" is an answer and nothing more. It catches nothing
-      // up (there is no capsule to analyse with) and requests no pass — the idle
-      // notice's moment is the first pass that would have ANALYSED, which is a
-      // better one than load: at load it is an announcement about a feature the
-      // user has not reached for yet, and it would spend a toast slot on every
-      // boot of every project without an agent.
-      if (profile === null) return;
-      // Catch the world up: the mirror may be missing every edit made before the
-      // profile arrived, and the first pass should describe the field as it
-      // stands rather than only what has changed since.
-      analyzerResync = true;
-      analyzerWholeWorld = true;
-      analyzerPlacementsStale = true;
-      analyzePump.request();
-    },
-    subscribeFlags(cb) {
-      return flagsChannel.subscribe(cb);
-    },
-    setFlagFilters(filters) {
-      flagStore.setFilters(filters);
-      publishFlags();
-    },
-    verifyFlag: verifyFlagImpl,
-    selectFlag: selectFlagImpl,
-    flagMarkerCount() {
-      return markerCount;
-    },
+    // The advisor's six members, each a straight delegate onto `field-analyzer.ts`
+    // since T3d. TWO names moved on the way across, and both are the same
+    // de-prefixing act: `setFlagFilters` is `advisor.setFilters` and
+    // `flagMarkerCount` is `advisor.markerCount`, because on the seam the findings
+    // are already the advisor's and the word "flag" would be saying it twice. The
+    // facade keeps the longer spellings — out there the noun is load-bearing.
+    setAgentProfile: advisor.setAgentProfile,
+    subscribeFlags: advisor.subscribeFlags,
+    setFlagFilters: advisor.setFilters,
+    verifyFlag: advisor.verifyFlag,
+    selectFlag: advisor.selectFlag,
+    flagMarkerCount: advisor.markerCount,
     selectionCellCount() {
       return selectionCellsCount;
     },

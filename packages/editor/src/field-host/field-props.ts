@@ -54,6 +54,12 @@
 //     being added to one. That is the bar in its active form: widening the
 //     substrate for a single consumer charges every future cluster's assembly
 //     for this one's convenience.
+//     // MIGRATION (until T3d Task 3): "its only extracted reader" is true only
+//     while `materials` is still in `createFieldHost`. When that cluster leaves,
+//     this dep becomes `materials.kitMat` and the paragraph above stops
+//     describing a substrate-bar decision at all. `field-analyzer.ts`'s header
+//     carries the IDENTICAL exposure for `flagMarkerMat` — same cluster, same
+//     task, two headers, and neither file references the other.
 //
 // So the split is not `let` vs `const`, and it is not reader count alone — it is
 // whether the member is ALREADY declared. What is universal is the CALL: all

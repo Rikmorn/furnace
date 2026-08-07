@@ -86,7 +86,8 @@ const PICK_RANGE_M = DIG_RANGE_M;
  *  press actually does: it interrogates four clusters to decide, then writes to
  *  two more. Nine of the eleven are CALLS for the substrate's stated reason —
  *  they name state the host replaces — and the two plain refs (`setSelectedEntity`,
- *  `setSelectedFlag`) are `const` arrows whose identity never moves. */
+ *  `setSelectedFlag`) are bindings whose identity never moves: a closure `const`
+ *  arrow and, since foundations T3d (2026-08-07), a verb of `field-analyzer.ts`. */
 export type PickingDeps = {
   /** The host's shared state. Four members are read: `log` (the placement ops
    *  behind every prop candidate), `store` (the field the occluder raycast runs

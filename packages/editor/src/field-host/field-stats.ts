@@ -46,16 +46,18 @@
 //     than widening the substrate. Same CALL, different owner: the bar for adding
 //     a `HostSubstrate` member is two extracted readers, and that bar governs
 //     ADDING one, never declining one already declared.
-//   - `analyzerPendingCount` and `voidCastJobGen` are `const` bindings the host
-//     never reassigns (the second is `field-voidcast.ts`'s own `jobGen`, the
-//     first dep in this tranche that names another extracted MODULE rather than a
-//     host binding), so the bindings pass safely by reference. What they read
-//     behind those bindings is evaluated per call, which is exactly what keeps a
-//     `let` honest: `analyzerPendingCount` reaches FOUR analyzer `let`s
-//     (`agentProfile`, `analyzerResync`, `analyzerBusy`, and `analyzerWholeWorld`
-//     via `analyzerHasWork`) plus the `analyzerDirty` Set and `store.chunks`,
-//     both `const` containers; `voidCastJobGen` reaches one module-private
-//     generation.
+//   - `analyzerPendingCount` and `voidCastJobGen` are verbs of OTHER EXTRACTED
+//     MODULES — `field-analyzer.ts`'s `pendingCount` (since foundations T3d,
+//     2026-08-07; it was a closure `const` when this module left) and
+//     `field-voidcast.ts`'s `jobGen`, the first dep in this tranche that named
+//     another module rather than a host binding. Both are members of `const`
+//     module records the host never reassigns, so the bindings pass safely by
+//     reference. What they read behind those bindings is evaluated per call,
+//     which is exactly what keeps a `let` honest: `pendingCount` reaches FOUR
+//     module-private `let`s (`agentProfile`, `analyzerResync`, `analyzerBusy`, and
+//     `analyzerWholeWorld` via `analyzerHasWork`) plus the `analyzerDirty` Set and
+//     `store.chunks`, both `const` containers; `jobGen` reaches one
+//     module-private generation.
 //   - `lastReconfigureMs` is no longer a host binding at all: it moved IN. The
 //     map's one inbound MUTATION edge for this cluster (`stamp`'s
 //     `applyReconfigureSession`) is now a named call,
@@ -156,13 +158,14 @@ export type StatsMeterDeps = {
    *  feeds rather than at the wiring, so there is one spelling of what "pending"
    *  means. */
   voidCastJobGen(): number | null;
-  /** Walkability-advisor passes the host still owes an answer for (0–2). A `const`
-   *  arrow over four analyzer `let`s (`agentProfile`, `analyzerResync`,
-   *  `analyzerBusy`, and `analyzerWholeWorld` through `analyzerHasWork`) plus two
-   *  `const` containers (`analyzerDirty`, `store.chunks`), so the binding is safe
-   *  to hold and all six are read per call. The one dep that is a pure QUERY
-   *  rather than a state read — which is why the map, whose edges are over data
-   *  bindings, never counted it. */
+  /** Walkability-advisor passes the host still owes an answer for (0–2) —
+   *  `field-analyzer.ts`'s `pendingCount`. A verb over four of that module's own
+   *  `let`s (`agentProfile`, `analyzerResync`, `analyzerBusy`, and
+   *  `analyzerWholeWorld` through `analyzerHasWork`) plus two `const` containers
+   *  (`analyzerDirty`, `store.chunks`), so the binding is safe to hold and all six
+   *  are read per call. The one dep that is a pure QUERY rather than a state
+   *  read — which is why the map, whose edges are over data bindings, never
+   *  counted it. */
   analyzerPendingCount(): number;
 };
 

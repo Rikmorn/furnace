@@ -122,13 +122,13 @@ export const flagCellBox = (
   };
 };
 
-/** How much bigger the SELECTED finding's marker is drawn. A multiplier on the
- *  host's `FLAG_MARKER_SIZE_M` rather than a second metre constant beside it, so
- *  a change to the marker size cannot leave the emphasis behind. */
+/** How much bigger the SELECTED finding's marker is drawn. A multiplier on
+ *  `field-analyzer.ts`'s `FLAG_MARKER_SIZE_M` rather than a second metre constant
+ *  beside it, so a change to the marker size cannot leave the emphasis behind. */
 export const FLAG_SELECTED_SCALE = 1.6;
 
 /** What one marker instance is drawn as: its colour, and its size relative to the
- *  host's base marker constant. */
+ *  advisor's base marker constant. */
 export type FlagMarkerStyle = { tint: FlagTint; scale: number };
 
 /**
@@ -339,8 +339,13 @@ export type FlagStore = {
   filters(): FlagFilters;
   /** Remember which finding is selected, or `null` for none. Stored VERBATIM and
    *  never validated here — {@link FlagsSummary.selected} does the resolving, and
-   *  the host's `selectFlag` does the refusing (through {@link rowByKey}, so an
-   *  unknown key is reported rather than silently stored). */
+   *  `field-analyzer.ts`'s `selectFlagImpl` does the refusing (through
+   *  {@link rowByKey}, so an unknown key is reported rather than silently
+   *  stored). Named for the IMPLEMENTATION rather than for `FieldHost.selectFlag`
+   *  it backs, because the viewport's marker click reaches `setSelected` by
+   *  another route — `field-picking.ts` → `setSelectedFlag` — which goes past the
+   *  refusal deliberately, and a sentence naming only the facade member would
+   *  read as though every write here had been validated. */
   setSelected(key: string | null): void;
   /** Drop every finding, pit, verdict and the selection (a world reset). Filters
    *  survive — they are a view preference, like the layer flags. The selection

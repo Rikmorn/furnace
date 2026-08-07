@@ -311,7 +311,7 @@ export type MachineDeps = {
   notifyEntities(): void;
   /** Record how long the last landed reconfigure took, for the op-cost meter.
    *  An ARROW at the assembly rather than a plain ref, because `field-stats.ts`
-   *  is constructed ~1,200 lines below this module. */
+   *  is constructed ~530 lines below this module. */
   noteReconfigureMs(ms: number): void;
   /** Install the last reconfigure's drift report (null = the apply was clean).
    *
