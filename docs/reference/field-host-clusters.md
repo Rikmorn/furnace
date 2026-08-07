@@ -31,12 +31,19 @@ at once** — `stamp`, `move` and `gesture`, to
 every boundary drawn between them cuts a state machine in half (§7.2, and §7.5, which
 predicted this extraction's whole cost and is now annotated with what it got right). Between
 them they took 13 of their 14 state bindings and all 28 of their functions; the one that
-stayed is `stamp.ghostMeshes`, and §6's `stamp` row says why.
+stayed is `stamp.ghostMeshes`, and §6's `stamp` row says why. **Later the same day the
+POINTER CHAIN followed them** into the same module — the four pointer handlers' bodies, plus
+`tool.digging` and `tool.lastStroke` — leaving the handlers themselves behind as delegates.
+That is the first time a row was hollowed in PART while the cluster went on standing; §2.4
+says what it cost this map, and `tool` and `input` are the two rows.
 
 Every count below still includes all nine. They are left as measured because they are what
 the remaining 14 clusters were sized against; subtract those rows from §4 when reading them
 as current — the rows themselves are now marked, so the subtraction is a matter of skipping
-the ones whose heading says EXTRACTED rather than of remembering a list.
+the ones whose heading says EXTRACTED rather than of remembering a list. **The two rows
+marked PARTIALLY HOLLOWED are the exception to that instruction and must not be skipped:**
+they are live clusters whose edge lists are part stale, and each stale line is annotated
+where it stands rather than removed.
 
 **And foundations T3a, T3b1 and T3c each changed things the map names.** §2.2, §2.3 and
 §2.4 record exactly what, and which numbers below are consequently stale. Read them before
@@ -252,15 +259,51 @@ its new module. Three notes for anyone reading §4–§6 as current:
 
 ### 2.4 Changed since T3b1 — foundations T3c, 2026-08-07
 
-`stamp`, `move` and `gesture` left together, into `field-machine.ts`; §1's opening paragraph
-names the module and §6's three rows record what each took. Four notes for anyone reading
-§4–§6 as current:
+T3c moved TWO things, on the same day and into the same module, and the second is the one a
+reader of §4–§6 is most likely to be caught by.
+
+**First, `stamp`, `move` and `gesture` left together**, into `field-machine.ts`; §1's opening
+paragraph names the module and §6's three rows record what each took.
+
+**Then the POINTER CHAIN followed** — the bodies of `onPointerDown`, `onPointerMove`,
+`onPointerUp` and `onPointerCancel`, i.e. pointerdown's seven-way arbitration, pointermove's
+six-way, and the pair that end a gesture. The listeners themselves stayed (`attachListeners`
+owns the canvas element), so the four functions are still declared in `field-host.ts` as
+one- and two-line delegates onto `machine.pointerDown/Move/Up/Cancel`. The rule that drew
+that line is stated in the module: **most of what those branches TEST is the machine's own
+state** (a live move, a pending stamp arm, the armed gesture, a stroke in progress), so the
+chain follows the state; every branch's VERB stayed with its cluster and arrives as a dep
+(`eyedropper`, `applyTool`, `selectionClick`, `pointerPress`, the segment brush's three).
+Three branch tests are NOT the machine's — `camera.look`, `selection.boxAnchor`,
+`segment.segmentAnchor` — and they travel the other way, as liveness thunks. `MachineDeps`
+went 22 → 39 members, which is a measurement of what the chain was already reaching for.
+
+Two more bindings went with it (`tool.digging`, `tool.lastStroke`), and the DOM's pointer
+capture became one thunk pair in `field-host.ts` (`capturePointer` / `releasePointer`)
+called from four sites — three in the chain, one in `pointerPress`.
+
+**`tool` and `input` are consequently the first PARTIALLY HOLLOWED rows in §6**, and §1's
+"skip the rows whose heading says EXTRACTED" instruction does not reach them: both clusters
+are still live, so skipping them under-reports, while reading them as measured over-reports.
+Both headings now say PARTIALLY HOLLOWED, and both rows carry a per-edge annotation saying
+which edges are gone, which are re-homed inside the file, and which merely changed module.
+§5.2's table has the same annotation as a `Status` column. **Per-site COUNTS are not
+re-derived anywhere** — that is a full attribution sweep (§1's rule), not something this
+change was in a position to do honestly; the annotations are per-BINDING and are exact at
+that grain.
+
+Four further notes for anyone reading §4–§6 as current:
 
 - **Line numbers have drifted a THIRD time, and this one is not a uniform shift.** The file
   went 7,345 → 6,329 — a 1,016-line hole opened where the session machine was, so every
   `@line` in §6 below the state block is short by a different amount depending on which side
   of the extraction it sat. Do not interpolate. **Grep by name**, as §2.3 already said and
-  this makes non-negotiable.
+  this makes non-negotiable. The pointer chain's move a few hours later was net **+1** on
+  this file (6,328 → 6,329, and **6,337** after this section's honesty pass) and drifted the
+  lines a fourth time anyway: ~150 lines of chain left the input handlers near the bottom and
+  a comparable number arrived ~3,000 lines higher up, as the look-drag and pointer-capture
+  verbs the machine could not take and the prose that says why. A net-zero file is not an
+  unchanged one.
 - **The three rows are the first EXTRACTED rows whose cluster boundary was wrong as drawn.**
   Every earlier extraction took a row and moved it. These three could not be moved
   separately at all — §7.2 had already recorded why (`stamp` and `move` share one slot) and
@@ -314,13 +357,13 @@ whose state it touches).
 | `stamp` | 7 → **1** (`ghostMeshes` stayed — substrate) | 19 → **0** | 11 (12 until `commitSession` died) | **13** | 45 | 6 — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `move` + `gesture`) |
 | `render` | 5 | 5 | 0 | 13 | 30 | 0 |
 | `lifecycle` | 5 | 1 | 2 | 11 | 76 | 24 |
-| `input` | 2 | 13 → **12** | 1 | 10 | 59 (high — §2.2) | 20 |
+| `input` | 2 | 13 → **12** (+2 new: the capture pair) | 1 | 10 | 59 (high — §2.2) | 20 — **PARTIALLY HOLLOWED 2026-08-07**: the four pointer handlers' BODIES went to `field-machine.ts` and took most of both edge counts with them; the row is live, the numbers are pre-T3c (§6) |
 | `catalogs` | 3 | 0 | 3 | 10 | 26 | 2 |
 | `entities` | 8 | 9 | 8 | 9 | 28 | 0 |
 | `selection` | 9 | 17 | 4 | 9 | 21 | 2 |
 | `materials` | 17 | 7 | 1 | 8 | 40 | 15 |
 | `analyzer` | 19 | 14 | 6 | 8 | 39 | 14 |
-| `tool` | 10 | 12 | 4 | 8 → **7** | 35 → **34** | 11 |
+| `tool` | 10 → **8** | 12 | 4 | 8 → **7** | 35 → **34** → **29** | 11 → **8** — **PARTIALLY HOLLOWED 2026-08-07**: `digging` + `lastStroke` left with the pointer chain (§6) |
 | `camera` | 8 | 10 | 4 | 8 | 25 | 10 |
 | `targeting` | 1 | 6 | 0 | 7 | 14 | 2 |
 | `picking` | 0 | 4 | 0 | 7 | 9 | 1 |
@@ -363,20 +406,28 @@ clusters read.
 ### 5.2 DOM handlers driving other clusters — `input` (20 edges)
 
 The `input` cluster owns almost no state of its own (`canvasEl`, `lastCursor`). It is a
-driver: it reassigns state in five other clusters.
+driver: it reassigns state in five other clusters — **three of them since 2026-08-07**
+(`tool`, `camera`, `targeting`; the `move` rows and three of the five `tool` rows left the
+file with the pointer chain).
 
-| Target | Written by | Line |
-|---|---|---|
-| `tool.momentaryShift` | `onKeyDown` / `onKeyUp` / `onBlur` | 6421 / 6435 / 6459 |
-| `tool.momentaryCtrl` | `onKeyDown` / `onKeyUp` / `onBlur` | 6425 / 6439 / 6460 |
-| `tool.digging` | `onPointerDown` / `onPointerUp` | 6106 / 6196 |
-| `tool.lastStroke` | `onPointerMove` | 6172 |
-| `tool.maskDropReported` | `onPointerDown` | 6107 |
-| `targeting.lastPointer` | `onPointerDown` / `onPointerMove` | 6057 / 6117 |
-| `camera.look` | `onPointerDown` / `onPointerUp` | 6111 / 6197 |
-| `camera.dollyPixels` | `onWheel` | 6235 |
-| `camera.keys` (`const` Set) | `onKeyDown` / `onKeyUp` / `onBlur` | 6428 / 6433 / 6457 |
-| `move.pendingMove` | `onPointerMove` / `onPointerUp` | 6148 / 6194 |
+**Five of these ten rows changed on that date (T3c), and the `Status` column says how.** The
+line numbers are all pre-T3c and are NOT re-derived — grep by name (§2.4). The pattern is
+worth reading whole, because it is what "the machine arbitrates, the tools act" cost this
+table: every row a POINTER handler drove either left the file with the state it drove, or
+stayed and became a call.
+
+| Target | Written by | Line | Status (2026-08-07) |
+|---|---|---|---|
+| `tool.momentaryShift` | `onKeyDown` / `onKeyUp` / `onBlur` | 6421 / 6435 / 6459 | unchanged — keyboard |
+| `tool.momentaryCtrl` | `onKeyDown` / `onKeyUp` / `onBlur` | 6425 / 6439 / 6460 | unchanged — keyboard |
+| `tool.digging` | `onPointerDown` / `onPointerUp` | 6106 / 6196 | **not an edge** — state and writers both in `field-machine.ts` |
+| `tool.lastStroke` | `onPointerMove` | 6172 | **not an edge** — same |
+| `tool.maskDropReported` | `onPointerDown` | 6107 | **still an edge, now cross-MODULE** — `field-machine.ts`'s `pointerDown`, via `armMaskDropReport` |
+| `targeting.lastPointer` | `onPointerDown` / `onPointerMove` | 6057 / 6117 | unchanged — the delegates still write it |
+| `camera.look` | `onPointerDown` / `onPointerUp` | 6111 / 6197 | **re-homed in-file** — `beginLook` / `endLook`, which are `camera`'s |
+| `camera.dollyPixels` | `onWheel` | 6235 | unchanged — wheel |
+| `camera.keys` (`const` Set) | `onKeyDown` / `onKeyUp` / `onBlur` | 6428 / 6433 / 6457 | unchanged — keyboard |
+| `move.pendingMove` | `onPointerMove` / `onPointerUp` | 6148 / 6194 | **not an edge** — state and writers both in `field-machine.ts` |
 
 ### 5.3 World reset / load fan-out — `world` (12 edges)
 
@@ -793,9 +844,23 @@ facade now returns `props.instanceCounts()`, which makes the defensive copy the 
 to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 
 
-### Cluster: tool
+### Cluster: tool — **PARTIALLY HOLLOWED 2026-08-07** (T3c: `digging` + `lastStroke` → `field-machine.ts`)
 
-**Owns (state) — 10:** `tool`@1706 · `momentarySaved`@1712 · `momentaryShift`@1713 · `momentaryCtrl`@1714 · `toolChannel`@1717 · `toolErrorChannel`@1721 · `maskDropReported`@1726 · `digRadius`@1957 · `digging`@1958 · `lastStroke`@1959
+Two of the ten state bindings left with the POINTER CHAIN (T3c's second half, which moved
+the four pointer handlers' bodies into `field-machine.ts`): `digging` and `lastStroke` are
+the plain brush's stroke state, and those four handlers were their only readers anywhere in
+the file — so they went with the chain rather than staying behind a pair of thunks. The
+other eight bindings and all twelve functions are still in the closure. `maskDropReported`
+is the interesting one that stayed: its BINDING did, while the site that re-arms it moved,
+so the edge survives as a call through an `armMaskDropReport` thunk that `field-segment.ts`
+was already taking.
+
+**This is the first row here hollowed in PART with the cluster still standing**, and §1's
+"subtract the marked rows" instruction does not cover it: skipping this row under-reports,
+because eight of its ten bindings and all twelve of its functions are still in the closure.
+Read the row, and read the struck edges below as the correction.
+
+**Owns (state) — 10 → 8:** `tool`@1706 · `momentarySaved`@1712 · `momentaryShift`@1713 · `momentaryCtrl`@1714 · `toolChannel`@1717 · `toolErrorChannel`@1721 · `maskDropReported`@1726 · `digRadius`@1957 · ~~`digging`@1958~~ — **moved to `field-machine.ts` 2026-08-07** · ~~`lastStroke`@1959~~ — **moved 2026-08-07**
 
 **Owns (functions) — 12:** `reportToolError`@2551 · `sphereShape`@2539 · `toolMask`@2569 · `toolOp`@2599 · `strokeShape`@2632 · `commitToolOp`@2656 · `isKitFillTool`@2674 · `eyedropper`@2764 · `applyTool`@2812 · `applyRadius`@3276 · `notifyTool`@5587 · `deriveMomentary`@5599
 
@@ -808,24 +873,30 @@ to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 **MUTATES other clusters** (0 edges):
   - none
 
-**Read by other clusters** (17 → **16** edges):
+**Read by other clusters** (17 → **16** → **14** edges):
   - `digRadius` (read in `input`) — 2 sites: `onKeyDown`, `onWheel`
   - `digRadius` (read in `render`) — 3 sites: `ghostState`, `renderCursorAffordance`, `renderGhostLines`
   - `digRadius` (read in `segment`) — 2 sites: `rebuildSegmentPreview`, `segmentClick`
   - `digRadius` (read in `targeting`) — 1 site: `computeTarget`
-  - `digging` (read in `input`) — 1 site: `onPointerMove`
-  - `lastStroke` (read in `input`) — 1 site: `onPointerMove`
+  - ~~`digging` (read in `input`) — 1 site: `onPointerMove`~~ — **NOT AN EDGE since 2026-08-07:**
+    binding and reader are now both inside `field-machine.ts`, which is what made the move
+    free. Same for `lastStroke` below and for both mutations further down.
+  - ~~`lastStroke` (read in `input`) — 1 site: `onPointerMove`~~ — **internalised 2026-08-07**
   - `momentaryCtrl` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
   - `momentaryShift` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
   - ~~`tool` (read in `voidcast`) — 1 site: `requestVoidCast`~~ — **PHANTOM, deleted
     2026-08-06.** `requestVoidCast` never read the `tool` binding; the match was the word
     inside a refusal string. See §2.1's third correction for the class of error.
 
-**MUTATED BY other clusters** (11 edges):
-  - `digging` (mutated by `input`) — 2 sites: `onPointerDown`, `onPointerUp`
-  - `lastStroke` (mutated by `input`) — 1 site: `onPointerMove`
-  - `maskDropReported` (mutated by `input`) — 1 site: `onPointerDown`
-  - `maskDropReported` (mutated by `segment`) — 1 site: `segmentClick`
+**MUTATED BY other clusters** (11 → **8** edges):
+  - ~~`digging` (mutated by `input`) — 2 sites: `onPointerDown`, `onPointerUp`~~ — **internalised 2026-08-07**
+  - ~~`lastStroke` (mutated by `input`) — 1 site: `onPointerMove`~~ — **internalised 2026-08-07**
+  - `maskDropReported` (mutated by `input`) — 1 site: **`field-machine.ts`'s `pointerDown`**
+    since 2026-08-07 (was `onPointerDown` in this file), through the `armMaskDropReport`
+    thunk. The binding stayed and the mutator left — still one edge, now a cross-MODULE one.
+  - `maskDropReported` (mutated by `segment`) — 1 site: `segmentClick`, through the same
+    thunk (a named `const` since 2026-08-07; it was an inline arrow when only one caller
+    needed it)
   - `momentaryCtrl` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
   - `momentaryShift` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
 
@@ -1546,13 +1617,52 @@ these three are struck at neither, because they still do.
 **Public members (0):** none — internal only
 
 
-### Cluster: input
+### Cluster: input — **PARTIALLY HOLLOWED 2026-08-07** (T3c: the four pointer handlers' BODIES → `field-machine.ts`)
 
-**Owns (state) — 2:** `canvasEl`@1667 · `lastCursor`@5973
+The four `onPointer*` functions are still declared here and still what `attachListeners`
+attaches — but since T3c they are one-line delegates onto `machine.pointerDown/Move/Up/Cancel`
+(two lines for the first two, which still record `lastPointer` on the way past). The
+ARBITRATION they used to hold — pointerdown's seven-way chain, pointermove's six-way, the
+pair that end a gesture — is in `field-machine.ts`, because most of what those branches test
+is that module's state. The three tests that are NOT its (`camera.look`, `selection.boxAnchor`,
+`segment.segmentAnchor`) travel back the other way as liveness thunks on the machine's deps
+record, and the verbs the chain dispatches to (`eyedropper`, `applyTool`, `selectionClick`,
+`pointerPress`, the segment brush's three) all stayed in their own clusters.
 
-**Owns (functions) — 12** (was 13; `escapeLadder`@6261 was deleted 2026-08-05, §2.2)**:** `syncCursor`@5974 · `onPointerDown`@6056 · `onPointerMove`@6116 · `onPointerUp`@6186 · `onPointerCancel`@6205 · `onWheel`@6229 · `onContextMenu`@6249 · `onKeyDown`@6301 · `onKeyUp`@6431 · `onBlur`@6455 · `attachListeners`@6465 · `detachListeners`@6481
+Two more of this row's functions were re-homed WITHOUT leaving the file: the look drag's
+three verbs (`beginLook`, `lookDrag`, `endLook`) were carved out of `onPointerDown`/`Move`/`Up`
+and belong to `camera`, and `capturePointer`/`releasePointer` were carved out of the same
+three and belong here (they are the only two places `canvasEl`'s DOM capture is spelled).
 
-**Reads from other clusters** (37 edges):
+**HOW STALE THE EDGE LISTS BELOW ARE, honestly.** Every edge whose only sites were the four
+pointer handlers moved, and they went to two different places, which is the distinction to
+carry into the lists:
+
+- **Left the file** (now inside `field-machine.ts`, either as its own state or through a
+  dep): `moveDrag`, `pendingMove`, `pendingStamp`, `digging`, `lastStroke`, `boxAnchor`,
+  `segmentAnchor`, and `gesture`'s two pointer sites — reads; `pendingMove`, `digging`,
+  `lastStroke` and `maskDropReported` — mutates. Six of those nine bindings are the machine's
+  OWN now (`moveDrag`, `pendingMove`, `pendingStamp`, `gesture`, `digging`, `lastStroke`), so
+  those edges are gone rather than moved. The other three are still owned elsewhere and are
+  now touched across a module boundary: `boxAnchor` and `maskDropReported` here,
+  `segmentAnchor` in `field-segment.ts`.
+- **Re-homed inside the file**, out of `input` and into `camera`: every `look` read and
+  mutate, and `orbitState`'s pointermove reads. They are now `beginLook`/`lookDrag`/`endLook`,
+  which is `camera` touching its own state — so `input` loses the edge and no one gains one.
+- **Survives in `input`**: the keyboard (`momentaryShift`, `momentaryCtrl`, `keys`,
+  `digRadius`), the wheel (`digRadius`, `dollyPixels`, `orbitState`, `gesture`), every
+  `syncCursor` read, and `targeting.lastPointer`, which the two surviving delegates still
+  write on the way past.
+
+The per-binding SITE COUNTS below are not re-derived — that is a full attribution sweep
+(§1's rule), and a number that looks fresh but isn't is worse than one that admits its date.
+The lists above are per-BINDING and exact at that grain. Grep by name.
+
+**Owns (state) — 2:** `canvasEl`@1667 · `lastCursor`@5973 — **both stayed**
+
+**Owns (functions) — 12** (was 13; `escapeLadder`@6261 was deleted 2026-08-05, §2.2)**:** `syncCursor`@5974 · `onPointerDown`@6056 · `onPointerMove`@6116 · `onPointerUp`@6186 · `onPointerCancel`@6205 · `onWheel`@6229 · `onContextMenu`@6249 · `onKeyDown`@6301 · `onKeyUp`@6431 · `onBlur`@6455 · `attachListeners`@6465 · `detachListeners`@6481 — **all twelve still declared here; four are now delegates (see above), and two new ones joined them (`capturePointer`, `releasePointer`)**
+
+**Reads from other clusters** (37 edges — see the staleness note above):
   - `boxAnchor` (owned by `selection`) — 2 sites: `escapeLadder`†, `onPointerMove`
   - `digRadius` (owned by `tool`) — 2 sites: `onKeyDown`, `onWheel`
   - `digging` (owned by `tool`) — 1 site: `onPointerMove`
@@ -1571,21 +1681,35 @@ these three are struck at neither, because they still do.
   - `selection` (owned by `selection`) — 1 site: `escapeLadder`†
   - `stamp` (owned by `stamp`) — 5 sites: `escapeLadder`†, `onKeyDown`, `syncCursor`
 
-**MUTATES other clusters** (20 edges):
-  - `digging` (owned by `tool`) — 2 sites: `onPointerDown`, `onPointerUp`
-  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel`
-  - `keys` (owned by `camera`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `lastPointer` (owned by `targeting`) — 2 sites: `onPointerDown`, `onPointerMove`
-  - `lastStroke` (owned by `tool`) — 1 site: `onPointerMove`
-  - `look` (owned by `camera`) — 2 sites: `onPointerDown`, `onPointerUp`
-  - `maskDropReported` (owned by `tool`) — 1 site: `onPointerDown`
-  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `pendingMove` (owned by `move`) — 2 sites: `onPointerMove`, `onPointerUp`
+**MUTATES other clusters** (20 edges — this is the list T3c changed most; §5.2 carries the
+same ten rows with per-site lines, annotated there):
+  - `digging` (owned by `tool`) — 2 sites: `onPointerDown`, `onPointerUp` — **GONE:** binding
+    and writer both left, together
+  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel` — stayed
+  - `keys` (owned by `camera`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — stayed
+  - `lastPointer` (owned by `targeting`) — 2 sites: `onPointerDown`, `onPointerMove` —
+    **stayed**, and deliberately: the two delegates still write it before handing over,
+    because its three readers (`ghostState`, `renderCursorAffordance`, the facade's
+    `beginMove`) are all in this file and the chain never reads it
+  - `lastStroke` (owned by `tool`) — 1 site: `onPointerMove` — **GONE**, with `digging`
+  - `look` (owned by `camera`) — 2 sites: `onPointerDown`, `onPointerUp` — **re-homed inside
+    this file:** the writes are `beginLook`/`endLook` now, which are `camera`'s, so the edge
+    is `camera` writing its own state and `input` no longer has it
+  - `maskDropReported` (owned by `tool`) — 1 site: `onPointerDown` — **left the file:** now
+    `field-machine.ts`'s `pointerDown` through the `armMaskDropReport` thunk
+  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — stayed
+  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — stayed
+  - `pendingMove` (owned by `move`) — 2 sites: `onPointerMove`, `onPointerUp` — **GONE:**
+    both the binding (2026-08-07, with `move`) and both writers (T3c's chain move) are in
+    `field-machine.ts`
 
 **Read by other clusters** (2 edges):
-  - `canvasEl` (read in `picking`) — 1 site: `pointerPress`
+  - `canvasEl` (read in `picking`) — 1 site: `pointerPress` — through `capturePointer` since
+    2026-08-07, not the raw element
   - `canvasEl` (read in `targeting`) — 2 sites: `toNdc`
+  - (`field-machine.ts` reads it too, at three capture sites and one release — through the
+    same two thunks, and never as the element. Not counted: the machine is a module, not a
+    cluster in this map.)
 
 **MUTATED BY other clusters** (0 edges):
   - none

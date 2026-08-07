@@ -190,9 +190,11 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
   // number to reason about.
   //
   // The VARIABLE is separate because the two paths are: the segment branch in
-  // `onPointerMove` returns above the stroke throttle and so never touches `lastStroke`.
+  // `field-machine.ts`'s `pointerMove` returns above the stroke throttle and so never
+  // touches that module's `lastStroke` (both the throttle and the flag below moved
+  // there with the pointer chain in T3c — neither is in `field-host.ts` any more).
   // Keeping them apart is HYGIENE rather than a fix for a live bug, and the honest size
-  // of it is small — a stroke and a segment cannot be live at once (`onPointerDown`
+  // of it is small — a stroke and a segment cannot be live at once (`pointerDown`
   // routes `gesture !== null` to the gesture branch and never sets `digging`), so
   // sharing the slot would cost at most one dropped brush application, and only if the
   // user disarmed the gesture, pressed LMB and moved within one 40 ms window of the last

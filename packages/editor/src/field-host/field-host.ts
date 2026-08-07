@@ -5288,19 +5288,26 @@ export function createFieldHost(deps?: {
   // --- input handlers -----------------------------------------------------
   //
   // The POINTER four are one line each: their bodies are the machine's pointer
-  // chain (T3c), because every test in every branch of them reads that module's
-  // state — a live move, a pending stamp arm, the armed gesture, a stroke in
-  // progress. What stays here is the attachment and the KEYBOARD, and neither is
-  // a leftover: `attachListeners` owns the canvas element, and the momentary
+  // chain (T3c), because MOST of what their branches test is that module's state
+  // — a live move, a pending stamp arm, the armed gesture, a stroke in progress.
+  // Three tests are not: a live look drag, a pending box corner and a pending
+  // segment point are all still owned over here, and they travel back the other
+  // way as liveness questions on the deps record (`looking`, `boxAnchor`,
+  // `segmentAnchor`). A chain sits where most of what it decides on lives and
+  // asks about the rest; `field-machine.ts`'s chain header argues it out.
+  //
+  // What stays here is the attachment and the KEYBOARD, and neither is a
+  // leftover: `attachListeners` owns the canvas element, and the momentary
   // modifier pins below are closure-private keydown state with no route out of
   // this file at all. The wheel stays because half of it is the camera.
   //
   // The one statement that did NOT delegate is `lastPointer`, and deliberately:
-  // it is not arbitration, the chain never reads it, and its readers are the
-  // per-frame ghost and `frameSelection` — this closure's, both. A write-thunk
-  // dep for it would have handed the machine a boundary write made purely on
-  // someone else's behalf, which is the one shape `MachineDeps` is trying not to
-  // grow.
+  // it is not arbitration, the chain never reads it, and its three readers —
+  // `ghostState`, `renderCursorAffordance` and the facade's `beginMove`, which
+  // anchors a `G` grab at the last known cursor — are all this closure's. A
+  // write-thunk dep for it would have handed the machine a boundary write made
+  // purely on someone else's behalf, which is the one shape `MachineDeps` is
+  // trying not to grow.
 
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
@@ -5805,7 +5812,8 @@ export function createFieldHost(deps?: {
       // guards on `stamp === null` too, so a mapping stranded by a bare
       // `stamp = null` changes nothing while the host stays disposed — swapping
       // this line back fails no test. What it buys is the state AFTER a re-init:
-      // `updateMove` RETURNS from onPointerMove, so a stranded mapping would
+      // `updateMove` RETURNS from the machine's `pointerMove` (this file's
+      // `onPointerMove` is a two-line delegate since T3c), so a stranded mapping would
       // swallow every pointermove — box previews, segment previews and brush
       // strokes alike — until something else cleared it.
       machine.cancelSession();

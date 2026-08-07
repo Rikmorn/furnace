@@ -331,13 +331,15 @@ export type MachineDeps = {
   // shape of the list is the extraction's claim restated as a type: thirteen
   // VERBS the chain dispatches to, three LIVENESS reads, and one constant.
   //
-  // No state, and that is the load-bearing part. Every branch the chain takes is
-  // decided by this module's own slots (`moveDrag`, `pendingStamp`, `gesture`,
+  // No state, and that is the load-bearing part. MOST of what the chain branches
+  // on is this module's own slots (`moveDrag`, `pendingStamp`, `gesture`,
   // `digging`), which is why the chain is here; every OUTCOME belongs to some
   // other cluster, which is why the verbs are deps. The three liveness reads are
   // the seam between those two sentences — a look drag, a box corner and a
   // segment anchor are each state a branch TESTS but an overlay elsewhere OWNS,
-  // so this module asks and never holds.
+  // so this module asks and never holds. "Most", not "every": read as an absolute
+  // the rule sends `pointerMove`'s first branch back to the host. See the pointer
+  // chain's header.
 
   /** The host's `STROKE_MIN_MS`: the minimum gap between two applications of a
    *  held stroke. A VALUE and not a call, because it is a module `const` — a
@@ -1706,13 +1708,26 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // reason its delegates give; it no longer decides anything.
   //
   // THE MACHINE ARBITRATES, THE TOOLS ACT — the rule that drew the boundary and
-  // the one to read these four functions by. Every TEST in every chain below
-  // reads state this module owns (a live move, a pending stamp arm, the armed
-  // gesture, a stroke in progress) and that is why the chains are here; almost
-  // every branch's VERB belongs to some other cluster and that is why the verbs
-  // arrive in {@link MachineDeps} rather than moving. `eyedropper`, `applyTool`,
-  // `selectionClick`, the segment brush's three and `pointerPress` all still live
-  // exactly where they lived.
+  // the one to read these four functions by. MOST of what the chains below TEST
+  // is state this module owns (a live move, a pending stamp arm, the armed
+  // gesture, a stroke in progress), and that majority is why the chains are here
+  // rather than split in two; every branch's VERB belongs to some other cluster,
+  // and that is why the verbs arrive in {@link MachineDeps} rather than moving.
+  // `eyedropper`, `applyTool`, `selectionClick`, the segment brush's three and
+  // `pointerPress` all still live exactly where they lived.
+  //
+  // THREE TESTS ARE NOT THIS MODULE'S, and they are named here rather than left
+  // for a reader to trip over, because the rule stated as an absolute would send
+  // them away: `pointerMove` branches on `deps.looking()`, `deps.boxAnchor()` and
+  // `deps.segmentAnchor()` — a live look drag, a pending box corner and a pending
+  // segment point, each state a branch TESTS but an overlay somewhere else OWNS.
+  // They arrive as LIVENESS reads for exactly that reason: this module asks and
+  // never holds, and the overlay stays with the cluster that draws it. Read the
+  // rule as "a branch that tests state you do not own is not yours" and
+  // `pointerMove`'s FIRST branch goes back to the host, which splits one
+  // arbitration across two modules — the thing this move exists to end. The
+  // criterion is where most of what a chain decides on LIVES; the rest it asks
+  // about.
   //
   // `pointerPress` is the one worth naming, because at a glance it should have
   // come too: it arms {@link PendingMovePress} and starts gizmo moves, both this
