@@ -10,10 +10,11 @@
 // because a reader meeting `ActionResult` is the reader who needs it. There are THREE
 // provenances for a sentence the user sees, and each owns its own:
 //
-//   1. THE HOST's — `reportToolError` → `subscribeToolError` → a toast. 41 sites across
+//   1. THE HOST's — `reportToolError` → `subscribeToolError` → a toast. 41 CALL sites across
 //      `field-host/` at head (33 in `field-host.ts`, 6 in `field-voidcast.ts`, 2 in
-//      `field-segment.ts`); the planning digest said 46 on a count taken before T3b1's
-//      cluster extractions moved five out. They are not actions and they do not move. A verb that hands off to
+//      `field-segment.ts`); the planning digest said 46 because it counted every MENTION of
+//      the name — the extra five are one interface declaration, two dep-object passes and
+//      two prose mentions, all still there. They are not actions and they do not move. A verb that hands off to
 //      the host returns `{ ok: true }` on the hand-off: the host answers for itself, later,
 //      on its own channel.
 //   2. THE WORLD SEAM's — `frontend/lib/world-actions.ts` composes and says its own save and

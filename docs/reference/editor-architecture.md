@@ -561,14 +561,24 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   toolbar's `onEntityCatalogInstalled` callback then, the catalog provider's
   `entityCatalogTick` since F4.5a. The signal carries NOTHING — the host is the source of
   truth, and a payload would invite reading it instead. Reading once left `archetypeId` free text
-  forever. The INSTALL half is pinned by `tests/chrome/host-seams-and-catalogs.test.tsx`
-  ("the entity catalog is fetched, parsed and installed on the host") — which host-level
-  tests structurally cannot do, because they install the catalog first. The RE-READ half
-  currently has no pin: it was `tests/chrome/field-panel.test.tsx`'s, and that file became
-  `host-seams-and-catalogs.test.tsx` at F4.5b Task 14 keeping only the two claims that
-  belonged to no single surface — the re-read case went with the panel rather than moving to
-  `session-card.test.tsx`, which is where the `entityCatalogTick` consumer now lives
-  (`shell/SessionCard.tsx`). A gap, recorded here rather than papered over.
+  forever. **Both halves are pinned, in the two files the two halves belong to** — which
+  host-level tests structurally cannot do, because they install the catalog first. The
+  INSTALL half is `tests/chrome/host-seams-and-catalogs.test.tsx` ("the entity catalog is
+  fetched, parsed and installed on the host"). The RE-READ half is
+  `tests/chrome/session-card.test.tsx` ("archetypeId becomes a PICKER when the catalog
+  lands AFTER the card opened"), which opens the session BEFORE the fetch settles so the
+  card's mount-time read is the pre-catalog one, then asserts the field turns from an
+  `<input>` into D-25's segmented control and that `listGenerators` was last called AFTER
+  `setEntityCatalog`. It sits there because `shell/SessionCard.tsx` is where the
+  `entityCatalogTick` consumer lives.
+
+  *(Corrected 2026-08-07. This passage read "the RE-READ half currently has no pin … the
+  re-read case went with the panel" — written when `field-panel.test.tsx` was folded into
+  `host-seams-and-catalogs.test.tsx`. The case did NOT go with the panel: it was ported to
+  the session card in `c0ad6d07` (2026-07-31, the commit that created that file — its own
+  comment says "review B1, ported from the panel"), so the gap was already closed when it
+  was written down. Verified by sabotage: forcing the `entityCatalogTick` effect to
+  early-return reddens that case.)*
 - **Context-threaded preview** — `stamp-preview` now passes an `EvaluateContext { store }`
   (the scratch store the snapshot was installed into) for any `contextFree: false`
   generator, which is what lets scatter's ghost read the field at all. `stamp-previewed`'s
@@ -3017,6 +3027,36 @@ shape the bug would have taken.
 
 ## 22. Foundations T3b2 — one table to state a tool fact (2026-08-06)
 
+Where T3b1 moved code between layers (§21), T3b2 removes **restatement**. Two facts the
+editor spelled many times each now have one home apiece, and both moves are subtractive: the
+slice's headline artifact is six deleted literal tables, not six new modules.
+
+The two homes answer two different questions, and they sit on different layers.
+**`src/shared/action-table.ts`** answers *what a tool IS* — the effect, gesture and family
+rows the chrome's six tables used to each restate, on the neutral floor below everything.
+**`src/action-registry/`** answers *what a verb IS* — 39 descriptors as plain data, beside
+`field-host/` rather than under it, and the layer's fourth node. The registry is the one the
+program needs: T4's MCP server runs on the daemon, on Node, and an action table made of
+closures over a live React context cannot leave the browser. Splitting each row into its
+seven DATA fields and its four closures is what lets the daemon hold one.
+
+Three things follow that are worth reading in order. §22.1–§22.4 are the tool fact: what the
+six tables cost, the decision to derive them FULLY (overruling two written objections), the
+gate that proved the derivations before anything switched, and the host constants that moved
+with them. §22.5–§22.6 are the verb: the registry module, its layer rules and its Node door,
+then `ActionResult` and the one dispatch funnel. §22.7–§22.8 are as-built — the six literals
+actually deleted, and the tool seam converted so the chrome's last two forced cells could
+retire.
+
+Two properties hold across the whole slice. **The `FieldHost` facade is untouched** — 66
+members at master and 66 at head, `setTool(tool: FieldTool): void` included, so §22.8's
+conversion is a behaviour change behind an unchanged signature and nothing else moved.
+(Three of T3b1's cluster seams DID shrink, by four dead members Task 1 trimmed; those are
+module-internal and never were facade — §21.1.) And every derivation was **proven equal to
+the literal it replaced before the literal was deleted** — the gate in §22.3 is why Task 5
+could delete all six literals while touching **no chrome test file at all**, which is the
+strongest statement available that the chrome's rendered output did not move.
+
 ### 22.1 The six tables, and what they cost
 
 The editor stated each tool **six times**, keyed on **two** discriminators with no join
@@ -3032,10 +3072,17 @@ between them:
 | 6 | `STRIP_PARAMS_MIN` | same file | effect | the container-query breakpoint |
 
 Three name **registers** for one thing (`"Box"` the member, `"BOX"` the strip name,
-`"Cell select"` the family) and eight free-prose restatements of the Box/Wand/Room triple
-across five source files. Adding an effect meant **five** edits (`SELECT_MODES` is gesture-keyed and the only one
-of the six an effect never reaches); forgetting one meant a control that renders, arms, and
-then says the wrong thing.
+`"Cell select"` the family) and, beside the six tables, free-prose restatements of the tool
+MEMBER NAMES — hand-written roll-calls in hints, flyout rationales and overlay glosses,
+naming the brush members (`Dig, Fill, Paint or Smooth`) as often as the select triple
+(`Box / Wand / Room`), across five source files. Adding an effect meant **five** edits
+(`SELECT_MODES` is gesture-keyed and the only one of the six an effect never reaches);
+forgetting one meant a control that renders, arms, and then says the wrong thing.
+
+*(The digest enumerated eight such prose sites and missed a ninth, `tool.brushCycle`'s hint
+— §22.7 resolves them one by one. The count is recorded here as history and is not the
+claim; the claim is greppable at head: `Wand` occurs **once** in `packages/editor/src`, in
+`action-table.ts`'s row data, where at master it occurred in three files.)*
 
 **All six are gone as of Task 5** (§22.7). Each home now computes its table from the rows at
 module scope, or reads a row register directly, and the literals were deleted in the same
@@ -3240,10 +3287,13 @@ unique caps, the MCP-projection membership), the two-⇧-policies pin, and the c
 reduced to the property that still means something without a second matcher to compare
 against — **at most one action claims any press**, plus the canvas keys claiming none. That
 file now imports nothing from `frontend/`. `ActionGroup` and `ActionGate` **moved** down
-rather than being duplicated and pinned: they are types, the chrome may type-import them, and
-`actions.ts` re-exports them so its importers keep one import site. `ACTION_GROUPS` stays in
-the chrome — a group's title and render order are rendering facts, and it is a value the
-chrome value-imports.
+rather than being duplicated and pinned: they are types, so the chrome may type-import them.
+Only `ActionGroup` is re-exported from `actions.ts` (its importers keep one import site);
+**`ActionGate` deliberately is not** — it has no consumer outside the registry, and a
+re-export is one line on the day one appears, which is the surface-membership rule applied
+rather than a barrel filled by habit (`actions.ts` says so at its own re-export).
+`ACTION_GROUPS` stays in the chrome — a group's title and render order are rendering facts,
+and it is a value the chrome value-imports.
 
 **`mcpProjection` is recorded, not built.** Six rows carry it, and they are the whole
 membership: the axis views project onto one `view.snap {axis, sign}` MCP tool while the
@@ -3282,9 +3332,11 @@ identical import in `schemas.ts` stays green.
 says in its own words that it deliberately does not chase `await import(…)`. So it also
 BUILDS `frontend/lib/actions.ts` for the browser — the chrome module that value-imports the
 registry, and therefore the door the narrowing opened — and asserts zod's runtime class names
-are absent from the output (with a positive marker so an empty build cannot pass). 28 KB and
-~16 ms at head. Sabotage-verified with a DYNAMIC import of `schemas.ts` planted in
-`descriptors.ts`: invisible to every regex in the file, caught here.
+are absent from the output (with a positive marker so an empty build cannot pass). One
+esbuild of one module, milliseconds — deliberately recorded with no figure, since a KB/ms
+pair nothing reads rots every commit (the original pair, "28 KB and ~16 ms", was already
+wrong on both halves within the slice). Sabotage-verified with a DYNAMIC import of
+`schemas.ts` planted in `descriptors.ts`: invisible to every regex in the file, caught here.
 
 **Six schemas, not twelve — the axis views take their input from their own ids.** The
 measured worklist counts twelve actions as needing input; six of those are the axis views,
@@ -3306,9 +3358,16 @@ chrome can describe. Duplicate and Grab need the id alone and take any.
 
 Before T3b2 Task 4 every `run` was `(ctx) => void`: **zero** actions were async, **zero**
 produced a result anything read, and failure had three shapes, none of them the action's —
-the host's `reportToolError` channel (41 sites across `field-host/` — the planning digest
-said 46, counting 38 in `field-host.ts` where head has 33, five of them having left with
-T3b1's cluster extractions), a `notify.error` from
+the host's `reportToolError` channel (41 call sites across `field-host/`, 33 of them in
+`field-host.ts` — the planning digest said 46 and 38, and **the gap is the counting rule, not
+a move**: at `294c34df`, the commit the digest states it measured, `grep reportToolError`
+gives 46/38 and `grep 'reportToolError('` gives 41/33, and those files are byte-identical at
+head. The five extra are one interface declaration, two dep-object passes and two prose
+mentions. *Corrected 2026-08-07: this passage previously said the five "left with T3b1's
+cluster extractions", which is wrong — the digest was measured AFTER T3b1, so nothing could
+have. The claim survived because `field-host.ts` really did hold 38 CALL sites before T3b1's
+void-cast extraction and 33 after, which makes the wrong explanation reproduce the right
+number by coincidence.*), a `notify.error` from
 inside a chrome seam, or silence. `run: (ctx, input) => Promise<ActionResult>` is a NEW
 channel for all 39.
 
@@ -3359,6 +3418,12 @@ reports through `runVerb`'s toast. `world.makeDefault` is **not** one of the awa
 the planning digest named: it opens a MODAL and returns, the promise lives two hops down
 inside the confirm's `onConfirm`, and awaiting a human decision would leak the promise on
 every cancel. Its verdict answers for the dispatch — the confirm was raised.
+
+**The digest's async column was wrong in both directions**, which is worth stating because
+the two errors cancel in the total and would otherwise look like agreement: it marked
+`save`, `bake` and `world.makeDefault`, so it named `makeDefault` (which does not await) and
+MISSED `saveAs` (which does — it returns the seam's promise whenever an input carries the
+name, and only opens the drawer when it does not). Three either way, a different three.
 
 **`runAction(def, ctx, env, input?, onClaim?)`** is gate → claim → `enabled` → run → say.
 `onClaim` fires the instant the gate ALLOWS and before `enabled` is consulted, because at
@@ -3472,7 +3537,7 @@ and a `stripName: "DIG"` field would be new restatement rather than removed rest
 
 **The two written non-derivation decisions retired by QUOTATION.** `status-keymap.ts` and
 `ToolRail.tsx` each keep a header block that quotes the paragraph it used to carry and states
-the supersession (2026-08-06, §22.2). The eight free-prose Box/Wand/Room restatements were
+the supersession (2026-08-06, §22.2). The free-prose member restatements (§22.1) were
 resolved individually: four died with the literals they sat in, three comments/glosses
 (`ToolRail.tsx`'s flyout rationale ×2, `CommandPalette.tsx`'s member roll-call) were rewritten
 to stop enumerating members, `ShortcutsDialog.tsx`'s canvas gloss had its roll-call DELETED
@@ -3506,9 +3571,9 @@ member ref (caught by ten cases across the package), and the session verbs swapp
 adapter.
 
 **Two residues were adjudicated rather than closed**, both filed:
-`status-line-keycaps-restate-the-registry.md` (ten of 27 clauses lead with a cap `keycap()`
-also derives — a real duplication, but `keycap()` lives ABOVE the floor and the fix that keeps
-the arrow costs `StatusFragment`'s two-kind model) and
+`status-line-keycaps-restate-the-registry.md` (the status line's own keycap clauses, measured
+and stated once in §22.6 — a real duplication, but `keycap()` lives ABOVE the floor and the
+fix that keeps the arrow costs `StatusFragment`'s two-kind model) and
 `family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reaches the host directly and
 returns no `ActionResult`; unreachable-while-refused today because both surfaces pre-check,
 but "the one funnel" is not literally true).
@@ -3539,10 +3604,9 @@ publish-only proposal:
 **The value guard is not an optimisation.** Every strip control rebuilds the whole
 `FieldTool`, so a publish without a compare would push on every no-op set into a path that
 previously ran only on momentary taps. `sameTool` is `applyRadius`'s
-`if (clamped === digRadius) return` one type up, and it sits BELOW the momentary branch on
-purpose: while a modifier is held `tool` is the DERIVED brush, so a set equal to it can still
-be a real change to the base the release will land on (picking smooth under a held ⇧).
-Comparing there would make letting go of ⇧ restore the wrong brush.
+`if (clamped === digRadius) return` one type up. Its PLACEMENT — below the momentary branch
+— is a separate property with its own failure mode and its own pin; see *the guard's
+placement* below.
 
 **Two comparators, and `shared/` is the option not taken rather than the option not seen.**
 `sameTool` (host) and `toolsEqual` (`frontend/lib/field-host-mirrors.ts`, chrome) are the
@@ -3606,9 +3670,13 @@ withhold. Note what is NOT the fix: removing the host's guard would not have hel
 the chrome's own `toolsEqual` latch guard suppresses the re-render independently — and that
 guard is load-bearing (it is what stops a momentary ⇧/⌃ tap repainting every tool reader).
 **A control that displays anything the tool does not literally say owes its own
-normalisation.** `HollowThickness` is the only one: radius and smooth strength are `min`/`max`
-range inputs and iterations and mode are `<select>`s over exactly the legal set, so no other
-control can hand the host an out-of-range value at all.
+normalisation.** `HollowThickness` is the only one, and the reason is structural rather than
+a survey: it holds the only `useState` in `tool-params.tsx`. Every other renderer in
+`PARAM_RENDERER` is a control that cannot express an illegal value in the first place —
+`radius` and `strength` are `min`/`max`/`step` range inputs, `iterations`, `mode` and `mask`
+are `<select>`s over exactly the legal option set, and `material` is a swatch grid — so none
+of them can hand the host something to clamp, and none of them keeps a buffer that could
+fall out of step with the answer.
 
 **The stub had to convert with it, and its first cut hid the bug.**
 `tests/chrome/_stub-host.ts` holds the armed pair, its tool seam snapshots from it, and

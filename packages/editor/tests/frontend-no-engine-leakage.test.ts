@@ -290,7 +290,10 @@ test("the chrome's action graph BUNDLES without zod — the constraint, not a pr
   // regexes cannot see (a dynamic import, a re-export chain through a module nobody thought
   // to scan, a bundler resolving something unexpected) shows up here and nowhere else.
   //
-  // Cheap enough to keep: 28 KB and ~16 ms at head.
+  // Cheap enough to keep: one esbuild of one module, milliseconds. NO figure recorded — a
+  // KB/ms pair moves with every commit and with the machine, and nothing here reads it, so
+  // it would only ever be a number to correct. (The first one already was: it said 28 KB
+  // and ~16 ms; head measures ~32 KB and single-digit ms.)
   const built = await Bun.build({
     entrypoints: [join(FRONTEND, "lib", "actions.ts")],
     target: "browser",

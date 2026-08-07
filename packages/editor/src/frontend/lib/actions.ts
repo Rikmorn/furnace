@@ -594,11 +594,16 @@ const BEHAVIORS: ActionBehaviors = {
     // is the case this sentence is for: it distinguishes Make default from Bake, and the
     // label has no room for that.
     //
-    // NOT ONE OF THE AWAITING TWO, and the digest that said it was had the shape wrong:
+    // NOT ONE OF THE AWAITING THREE, and the digest that said it was had the shape wrong:
     // this verb opens a MODAL and returns. The promise it is said to fire lives two hops
     // down, inside the confirm's `onConfirm` (`useWorld`'s `runVerb`), and awaiting it from
     // here would mean awaiting a human decision — and leaking the promise on every cancel.
     // The verdict answers for the DISPATCH: the confirm was raised.
+    //
+    // The three that DO await are `save`, `saveAs` and `bake` — the three `WorldActions`
+    // members returning `Promise<ActionResult>`, against eight still returning `void`. The
+    // digest marked a different three (`save`, `bake` and this verb), so it was wrong twice
+    // in one column: it named this one and missed `saveAs`.
     run: (ctx, input) => {
       const name = input?.name ?? ctx.world.name;
       if (name === null)

@@ -33,16 +33,27 @@ Each section keeps its own trigger. Delete a section when it is taken.
 
 ## The action GATE could leave `lib/actions.ts`
 
-`frontend/lib/actions.ts` is ~1225 lines and holds two things that only meet at the bottom
-of the file: the **action TABLE** (the ~36 declared actions, their labels, hints, keys and
-`run`s — the part everyone edits) and the **GATE** (the rules deciding whether a matched
-action may proceed at all).
+`frontend/lib/actions.ts` is 1,299 lines and holds two things that only meet at the bottom
+of the file: the **action TABLE** (39 actions — since T3b2 their DATA rows live in
+`src/action-registry/descriptors.ts` and this file holds the four closures `label`,
+`enabled`, `checked` and `run`, joined by id) and the **GATE** (the rules deciding whether a
+matched action may proceed at all).
 
-The gate is `ActionGate`, `GateEnv`, `GateVerdict`, `gateAction`, `clickGate`,
-`sessionRefusal`, `controlVerdict` and `matchAction` — roughly 90 lines, pure, and acyclic
-with respect to the table: it takes an `ActionDef` and answers about it, and imports nothing
-the table does not already import. A `lib/action-gate.ts` beside `lib/actions.ts` would take
-it whole.
+The gate is `GateEnv`, `GateVerdict`, `gateAction`, `clickGate`, `sessionRefusal`,
+`controlVerdict` and `matchAction` — pure, and acyclic with respect to the table: it takes an
+`ActionDef` and answers about it, and imports nothing the table does not already import. A
+`lib/action-gate.ts` beside `lib/actions.ts` would take it whole.
+
+> **Re-measured 2026-08-07 (foundations T3b2).** Three facts moved and the entry is
+> re-stated against head rather than left as written: the file grew 1,225 → **1,299** lines
+> (T3b2 added `runAction`, `runNamed`, `sayResult` and the `BEHAVIORS` join), the table is
+> **39** actions not ~36 (the "~36" was never right — it was 39 at the time too), and
+> **`ActionGate` has already left**: it is a type, so it moved down to
+> `action-registry/descriptors.ts` with the rows — and `actions.ts` does NOT re-export it
+> (no consumer outside the registry), so it is not even a name this file still holds. The
+> remaining cluster is the seven names above. **Still open** — T3b2 declined the move for
+> the entry's own stated reason (it carried a behavioural change), and `GateEnv` becoming a
+> discriminated union on `caller` makes the seam sharper, not weaker.
 
 ### Context
 

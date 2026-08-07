@@ -96,6 +96,23 @@ being a rule.
 (above) wants one fact — "this action opens a surface" — and adding it alone is hard to justify;
 adding it alongside another field is not.
 
+> **This trigger FIRED at foundations T3b2 (2026-08-06) and was NOT taken — recorded rather
+> than silently passed.** The row gained `mcpProjection`, and `ActionDef` split: the data
+> fields are `ActionDescriptor` in `src/action-registry/descriptors.ts` now, so the field
+> this entry wants would go THERE, beside `flyLetter` and `armsTool`.
+>
+> Why it was declined anyway: T3b2's rows are the DAEMON's, and "this action opens a chrome
+> surface" is a fact about a React surface that the registry — which may not import
+> `frontend/` at all — has no business carrying. A field named for focus return would be the
+> first row field no non-chrome caller could ever act on. The honest options are now (a) the
+> field lives on the chrome's `ActionBehavior` half instead, which is where the closures that
+> DO the opening already are, or (b) the six affected rows keep forwarding by hand. That is a
+> real design choice this entry did not previously have to make, and it is cheaper to make it
+> than it was before, because the split has already sorted every other field into a side.
+>
+> **Revised trigger:** the next time `ActionBehavior` gains a field, or the Safari gate
+> reports it.
+
 ### Reference
 
 - `packages/editor/src/frontend/hooks/useViewportFocusReturn.ts` — `onCloseAutoFocus`'s

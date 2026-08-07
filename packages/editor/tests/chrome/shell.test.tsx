@@ -615,15 +615,15 @@ const LIFTED_SEAMS: readonly (readonly [
 ];
 
 // The path the real editor ALWAYS takes, and the one no other case covers: App mounts the
-// shell before the engine bundle has landed, so every one of the ten effects first runs
+// shell before the engine bundle has landed, so every one of the eleven effects first runs
 // with `engineReady` false and claims nothing. A provider that read the flag only at mount
-// would leave all ten slots empty for the whole session — every readout dead, nothing
+// would leave all eleven slots empty for the whole session — every readout dead, nothing
 // thrown. The other direction (ready → not ready) is unreachable: `status` never leaves
 // `ready`, and App assigns the host exactly once.
 test("no seam is claimed before engine-ready, and each is claimed exactly once after", () => {
 	const stub = makeStubHost();
-	// With a READER mounted throughout, so the gate is quantified over the ten latched
-	// seams too and not just the three the shell holds. The gate lives in one place for
+	// With a READER mounted throughout, so the gate is quantified over the eleven latched
+	// seams too and not just the two the shell holds. The gate lives in one place for
 	// all thirteen (`onHost`, plus the shell effects' own guard) — this is what says so.
 	const tree = (engineReady: boolean) => (
 		<FieldHostStateProvider host={stub.host} engineReady={engineReady}>
