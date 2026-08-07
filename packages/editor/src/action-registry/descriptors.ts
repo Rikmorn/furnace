@@ -232,15 +232,9 @@ const DESCRIPTORS = [
   {
     id: "edit.delete",
     group: "edit",
-    keys: {
-      kind: "named",
-      keys: ["Backspace", "Delete"],
-      // ⇧⌫ is REFUSED, preserving `edit.delete`'s `!e.shiftKey` exactly. The two rows
-      // below say "any" and preserve theirs; the source disagrees and T3b2 did not
-      // pick a side (see ShiftPolicy + docs/backlog/editor-and-tooling/
-      // named-key-bindings-disagree-on-shift.md).
-      shiftPolicy: "up",
-    },
+    // ⇧⌫ deletes: named keys do not read ⇧ (product decision 2026-08-07, resolving
+    // the two-policy disagreement T3b2 preserved — the keys.ts header has the history).
+    keys: { kind: "named", keys: ["Backspace", "Delete"] },
     hint: "Delete the selected stamp and the ops it committed, behind a confirm (⌘Z puts it back)",
     gate: "typed",
   },
@@ -335,7 +329,7 @@ const DESCRIPTORS = [
   {
     id: "session.confirm",
     group: "session",
-    keys: { kind: "named", keys: ["Enter"], shiftPolicy: "any" },
+    keys: { kind: "named", keys: ["Enter"] },
     hint: "Commit the ready ghost, apply a reconfigure, or drop a grab",
     gate: "typed",
   },
@@ -349,7 +343,7 @@ const DESCRIPTORS = [
   {
     id: "session.escape",
     group: "session",
-    keys: { kind: "named", keys: ["Escape"], shiftPolicy: "any" },
+    keys: { kind: "named", keys: ["Escape"] },
     hint: "Cancel one thing, most recent first: a half-drawn region, then the live session, then the selected stamp, then the cell selection",
     gate: "typed",
   },

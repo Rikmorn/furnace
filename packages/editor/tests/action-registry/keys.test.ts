@@ -1,8 +1,8 @@
 // The five binding kinds, one at a time. `descriptors.test.ts` beside this proves the DATA
 // reproduces the live table; this file proves the PREDICATE means what the six matchers in
 // `frontend/lib/actions.ts` meant, kind by kind — the ⌥ exclusion every kind shares, the
-// case folding three of them do, `?`'s layout argument for reading no ⇧ at all, and the two
-// ⇧ policies `named` carries because the source carries two.
+// case folding three of them do, `?`'s layout argument for reading no ⇧ at all, and the
+// ⇧-indifference `named` settled on (product decision 2026-08-07 — ⇧⌫ deletes).
 //
 // Pure — no DOM, no chrome import. `KeyFacts` is a plain object by design, which is what
 // lets this file (and, in T4, the daemon) exercise the matcher without a `KeyboardEvent`.
@@ -33,7 +33,6 @@ const CHAR: KeyBinding = { kind: "char", char: "?" };
 const NAMED: KeyBinding = {
   kind: "named",
   keys: ["Backspace", "Delete"],
-  shiftPolicy: "up",
 };
 
 /** Each kind beside a press that DOES run it — the five happy paths, so the exclusion case
@@ -132,22 +131,17 @@ test("a named key answers to any name in its list, verbatim", () => {
   expect(matchBinding(NAMED, at("backspace"))).toBe(false);
 });
 
-test("a named key's ⇧ policy is REQUIRED, and both of its values do what they say", () => {
-  // The union's one concession to a source that disagrees with itself: `edit.delete`'s
-  // matcher pinned `!e.shiftKey` and the ⏎/Esc matchers did not, neither side saying why.
-  // Both are preserved rather than unified — the type carries the note, the backlog carries
-  // the question (named-key-bindings-disagree-on-shift.md), and this is the unit half of
-  // holding them apart. The `named` field cannot be omitted, so a new binding has to choose.
-  const up = NAMED; // { …, shiftPolicy: "up" }
-  const any: KeyBinding = {
-    kind: "named",
-    keys: ["Enter"],
-    shiftPolicy: "any",
-  };
-  expect(matchBinding(up, at("Backspace", { shift: true }))).toBe(false);
-  expect(matchBinding(up, at("Backspace"))).toBe(true);
-  expect(matchBinding(any, at("Enter", { shift: true }))).toBe(true);
-  expect(matchBinding(any, at("Enter"))).toBe(true);
+test("a named key does not read ⇧ — the same verb answers either way", () => {
+  // The unit half of the 2026-08-07 product decision: named keys briefly carried a
+  // required per-binding ShiftPolicy to preserve a source disagreement (⇧⌫ refused,
+  // ⇧⏎/⇧Esc accepted, neither side saying why). The user unified on acceptance —
+  // ⇧⌫ deletes — and the field died with the disagreement. The keys.ts header holds
+  // the history; the descriptor half is pinned in descriptors.test.ts in keycaps.
+  const enter: KeyBinding = { kind: "named", keys: ["Enter"] };
+  expect(matchBinding(NAMED, at("Backspace", { shift: true }))).toBe(true);
+  expect(matchBinding(NAMED, at("Backspace"))).toBe(true);
+  expect(matchBinding(enter, at("Enter", { shift: true }))).toBe(true);
+  expect(matchBinding(enter, at("Enter"))).toBe(true);
 });
 
 test("the keycap is DERIVED from the binding, in the editor's own vocabulary", () => {
@@ -161,14 +155,8 @@ test("the keycap is DERIVED from the binding, in the editor's own vocabulary", (
   // A named binding caps by its FIRST key: ⌫ and ⌦ are one verb, and the cap names the one
   // a user reaches for.
   expect(keycap(NAMED)).toBe("⌫");
-  expect(keycap({ kind: "named", keys: ["Enter"], shiftPolicy: "any" })).toBe(
-    "⏎",
-  );
-  expect(keycap({ kind: "named", keys: ["Escape"], shiftPolicy: "any" })).toBe(
-    "Esc",
-  );
+  expect(keycap({ kind: "named", keys: ["Enter"] })).toBe("⏎");
+  expect(keycap({ kind: "named", keys: ["Escape"] })).toBe("Esc");
   // A name with no cap of its own falls through to itself — what a future Tab or Home wants.
-  expect(keycap({ kind: "named", keys: ["Home"], shiftPolicy: "up" })).toBe(
-    "Home",
-  );
+  expect(keycap({ kind: "named", keys: ["Home"] })).toBe("Home");
 });

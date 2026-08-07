@@ -297,24 +297,12 @@ test("the canvas keys classify as NOTHING — the registry claims none of them",
     expect({ key, rows: claimants(facts({ key })) }).toEqual({ key, rows: [] });
 });
 
-test("the three named-key bindings keep TWO ⇧ policies — preserved, not unified", () => {
-  // THE FINDING, PINNED AS DATA. Today's source refuses ⇧⌫ and accepts ⇧⏎ / ⇧Esc, neither
-  // side says why, and T3b2 declined to pick — so this is the assertion that makes unifying
-  // them a deliberate act rather than the side effect of a tidy-up.
-  //
-  // If this fails you are changing product behaviour on a destructive key. Read
-  // `docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md` and get the
-  // decision made — do not edit this expectation to match the code.
-  const policies = ACTION_DESCRIPTORS.flatMap((d) =>
-    d.keys?.kind === "named" ? [[d.id, d.keys.shiftPolicy] as const] : [],
-  );
-  expect(Object.fromEntries(policies)).toEqual({
-    "edit.delete": "up",
-    "session.confirm": "any",
-    "session.escape": "any",
-  });
-  // And the behaviour those two words buy, stated in keycaps, so a reader never has to hold
-  // `"up"`/`"any"` in their head to see what is at stake.
+test("named keys accept ⇧ uniformly — ⇧⌫ deletes (product decision 2026-08-07)", () => {
+  // THE DECISION, PINNED AS DATA. This assertion's predecessor preserved TWO ⇧ policies
+  // (⇧⌫ refused, ⇧⏎/⇧Esc accepted) and its comment demanded a product decision before
+  // anyone unified them. The user made it: accept ⇧ everywhere a key is matched by NAME.
+  // The change below is that decision landing, not a tidy-up — if ⇧⌫ must stop deleting,
+  // that is a NEW product decision, not a revert.
   const shifted = (key: string) => claimants(facts({ key, shiftKey: true }));
   expect({
     "⇧⌫": shifted("Backspace"),
@@ -322,8 +310,8 @@ test("the three named-key bindings keep TWO ⇧ policies — preserved, not unif
     "⇧⏎": shifted("Enter"),
     "⇧Esc": shifted("Escape"),
   }).toEqual({
-    "⇧⌫": [],
-    "⇧⌦": [],
+    "⇧⌫": ["edit.delete"],
+    "⇧⌦": ["edit.delete"],
     "⇧⏎": ["session.confirm"],
     "⇧Esc": ["session.escape"],
   });

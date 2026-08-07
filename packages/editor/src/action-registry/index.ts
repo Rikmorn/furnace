@@ -28,9 +28,9 @@ export {
   type ActionGroup,
   type ActionId,
 } from "./descriptors.ts";
-// `ShiftPolicy` is deliberately NOT here. It has no consumer outside `keys.ts`, it is
-// reachable through `KeyBinding` for anyone who needs to name it, and re-exporting a type is
-// one line on the day a consumer actually appears. Publicness is a decision someone made.
+// `ShiftPolicy` is gone, not just unexported: the 2026-08-07 product decision (⇧ accepted
+// on every NAME-matched key — ⇧⌫ deletes) retired the two-policy disagreement the field
+// existed to preserve. The keys.ts header carries the history.
 export {
   type KeyBinding,
   type KeyFacts,

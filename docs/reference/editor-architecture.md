@@ -3245,35 +3245,25 @@ advertised a key nothing answers"* — and which it had closed for exactly one r
 
 The union's one real axis is **what each kind does about ⇧**. `chord`/`bare`/`shifted` state
 it (that is what makes ⌘Z and ⇧⌘Z two actions); `char` cannot, because the character is what
-the layout produced and which modifier produced it is the layout's business; `named` chooses
-per binding, for the reason below. `char` and `named: "any"` reach the same predicate and are
-still separate kinds, because `{ kind: "named", keys: ["?"] }` would read as a claim that `?`
-is a key name, which is the thing `char` exists to deny.
+the layout produced and which modifier produced it is the layout's business; `named` does not
+read it — the resolved decision below. `char` and `named` reach the same ⇧-indifferent
+predicate and are still separate kinds, because `{ kind: "named", keys: ["?"] }` would read
+as a claim that `?` is a key name, which is the thing `char` exists to deny.
 
-**One binding did not map cleanly, and the SCHEMA bent rather than the behaviour.** Three
-actions match named keys, and the source carries **two** ⇧ policies across them with no
-comment on either side: `session.confirm` (⏎) and `session.escape` (Esc) ignore ⇧, while
-`edit.delete`'s inline matcher pins `!e.shiftKey` — so ⇧⏎ commits, ⇧Esc cancels, and ⇧⌫ does
-nothing. A single-policy `named` kind could express one group or the other, never both. The
-kind therefore carries a **required** `ShiftPolicy` (`"up"` | `"any"`), and all three
-bindings keep exactly what they do today.
-
-Three things about that field are deliberate. It is **required**, because a silent default is
-precisely how the disagreement arrived — every named binding now states its own. It is
-**named apart from `chord`'s `shift`**, which is a boolean that STATES the modifier and has
-no don't-care member; one name for two vocabularies would be a reader's trap. And `char` has
-**no** policy field at all: pinning ⇧ up would kill `?` on a layout that puts it unshifted
-and pinning it down would kill it on the one this editor is developed against, so there is
-nothing to choose.
-
-**The disagreement itself is a filed question, not a resolved one**
-(`docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md`). *Should ⇧⌫
-delete?* is a product decision about the editor's one destructive keycap, and it might go
-either way — tighten ⏎/Esc, loosen ⌫, or document both. What settles that it is a real
-question rather than an artefact: this codebase *does* write down a deliberate
-shift-agnostic binding when it makes one — `?` spends eleven lines of TSDoc on it and files
-its AltGr residue — and none of these three carries a word. A declarative table is allowed to
-force that question and is not allowed to answer it.
+**One binding did not map cleanly at T3b2, the SCHEMA bent rather than the behaviour — and
+the question it forced is now RESOLVED (user decision, 2026-08-07).** The source carried two
+⇧ policies across the three named-key bindings with no comment on either side: ⇧⏎ committed
+and ⇧Esc cancelled while ⇧⌫ did nothing (`edit.delete`'s inline matcher pinned
+`!e.shiftKey`). T3b2 preserved both behind a **required** `ShiftPolicy` field and filed the
+question rather than letting a type shape pick a winner on a destructive keycap. At the
+T3b2 merge review the user picked: **accept ⇧ everywhere a key is matched by NAME — ⇧⌫
+deletes**, uniform with ⏎/Esc. The field died with the disagreement it preserved (the
+declarative-table discipline held: the table forced the question, the user answered it, and
+only then did the schema simplify), the backlog entry retired, and the decision is pinned in
+keycaps at `tests/action-registry/descriptors.test.ts` ("⇧⌫ deletes") plus the unit half in
+`keys.test.ts`. `char` still has no policy field for its own LAYOUT reason: pinning ⇧ up
+would kill `?` on a layout that puts it unshifted, and pinning it down would kill it on the
+one this editor is developed against — nothing to choose.
 
 **The rows stood beside the literals for exactly one commit**, which is Task 3 landing them and
 Task 4 deleting them. (`shared/action-table.ts`'s literals had a longer overlap — see §22.3.) The gate asserted all seven fields (order included)

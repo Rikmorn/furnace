@@ -19,40 +19,16 @@
 // two ways: a binding is a chord or it is not, and a key is named by its NAME or by the
 // CHARACTER it produced, never by both.
 //
-// The union carries exactly ONE field that is not a shape — `named`'s {@link ShiftPolicy} —
-// and it is there because the source it was derived from disagrees with itself: three
-// bindings match named keys and two ⇧ policies run across them, neither documented. This
-// table PRESERVES both. The declarative form is allowed to force that question and is not
-// allowed to answer it; the answer is a product decision, and it is filed
-// (`docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md`).
+// The union is ALL SHAPE — no member carries a policy field. It briefly did: the three
+// named-key bindings arrived from source carrying two undocumented ⇧ policies (⇧⌫ refused
+// while ⇧⏎/⇧Esc were accepted), and T3b2 preserved both behind a required `ShiftPolicy`
+// field until the product decision landed (user, 2026-08-07): ⇧ is accepted everywhere a
+// key is matched by NAME — ⇧⌫ deletes, uniform with ⏎/Esc. The field died with the
+// disagreement it existed to preserve, and the backlog entry that held the question
+// (`named-key-bindings-disagree-on-shift.md`) resolved with it.
 //
 // This module names no DOM type and imports nothing. That is the point of the layer, and
 // `tests/action-registry/node-door.test.ts` is what holds it.
-
-/** What a binding requires of ⇧ when it is matched by a key NAME.
- *
- *  Two members, because the source this table was derived from carries two policies:
- *
- *  - `"up"` — ⇧ must NOT be held. `edit.delete`'s matcher spelled `!e.shiftKey`.
- *  - `"any"` — ⇧ is not read at all. `session.confirm`'s and `session.escape`'s did not.
- *
- *  NEITHER SIDE CARRIES A RATIONALE IN THE SOURCE, and foundations T3b2 preserved both
- *  rather than unifying them — deliberately. The declarative table forced the question and
- *  is allowed to force it; it is not allowed to answer it, because "which policy is right"
- *  is a product decision about a destructive key (should ⇧⌫ delete?) and not a consequence
- *  of the type shape. Filed with the three matchers and a trigger at
- *  `docs/backlog/editor-and-tooling/named-key-bindings-disagree-on-shift.md`. If you are
- *  here to tidy this away: read that first, then ask.
- *
- *  REQUIRED, never optional. An omitted policy would default silently to one of the two —
- *  and a silent default on exactly the question two live bindings already disagree about is
- *  how the disagreement got here. Every named binding states its own.
- *
- *  A DISTINCT NAME from `chord`'s `shift`, and the distinction is load-bearing: `chord`'s
- *  field is a boolean that STATES the modifier (absent or `false` = ⇧ up, `true` = ⇧ down),
- *  and it has no don't-care member because ⌘Z and ⇧⌘Z must stay two actions. This one has a
- *  don't-care and no "down". One name for two vocabularies would be a reader's trap. */
-export type ShiftPolicy = "up" | "any";
 
 /** One key binding, as data.
  *
@@ -67,12 +43,13 @@ export type ShiftPolicy = "up" | "any";
  *    what makes a CapsLocked keyboard produce the same action.
  *  - `char` cannot state it. The character is what the layout produced, and which modifier
  *    produced it is the layout's business — see the kind's own note.
- *  - `named` CHOOSES, per binding, through {@link ShiftPolicy}. That field is the union's
- *    one concession to a source that disagrees with itself, and it is documented there.
+ *  - `named` does not read it. A key matched by NAME means the same verb with or without
+ *    ⇧ — ⇧⌫ deletes exactly as ⇧⏎ commits (product decision 2026-08-07; the header has
+ *    the history).
  *
- *  `char` and `named: "any"` reach the same predicate and are still separate kinds, because
- *  the JUSTIFICATION is not the same: `{ kind: "named", keys: ["?"] }` would read as a claim
- *  that `?` is a key name, which is exactly the thing `char` exists to deny. */
+ *  `char` and `named` reach the same ⇧-indifferent predicate and are still separate kinds,
+ *  because the JUSTIFICATION is not the same: `{ kind: "named", keys: ["?"] }` would read as
+ *  a claim that `?` is a key name, which is exactly the thing `char` exists to deny. */
 export type KeyBinding =
   /** ⌘/⌃ + a key, with ⇧ stated rather than assumed (absent = ⇧ must be UP). */
   | { readonly kind: "chord"; readonly key: string; readonly shift?: boolean }
@@ -87,10 +64,10 @@ export type KeyBinding =
    *  perfectly possible — so what the user produced is the whole test. No case folding:
    *  punctuation has no case.
    *
-   *  NO {@link ShiftPolicy} here, and that is a decision rather than an omission: pinning ⇧
-   *  up would kill this key on any layout that puts `?` unshifted, and pinning it down would
-   *  kill it on the one this editor is developed against. There is nothing to choose, so
-   *  there is no field to choose it with.
+   *  ⇧ is deliberately unread here for a LAYOUT reason, distinct from `named`'s product
+   *  reason: pinning ⇧ up would kill this key on any layout that puts `?` unshifted, and
+   *  pinning it down would kill it on the one this editor is developed against. There is
+   *  nothing to choose, so there is no field to choose it with.
    *
    *  AltGr is the one keyboard this cannot reach, and it is a known cost rather than an
    *  oversight: Windows reports AltGr as ctrl+alt, which the `mod` and ⌥ exclusions both
@@ -99,8 +76,8 @@ export type KeyBinding =
   | { readonly kind: "char"; readonly char: string }
   /** Any one of these NAMED keys, matched verbatim — `Backspace`/`Delete`, `Enter`,
    *  `Escape`. A list rather than a single name because ⌫ and ⌦ are one verb on two
-   *  keycaps. Every one states its own {@link ShiftPolicy}; read that note before changing
-   *  one.
+   *  keycaps. ⇧ is not read: the same verb answers with or without it (product decision
+   *  2026-08-07 — the header carries the two-policy history this uniformity resolved).
    *
    *  NON-EMPTY BY TYPE, which is why {@link keycap} can index element 0 without a guard:
    *  tuple position 0 is exempt from `noUncheckedIndexedAccess`. An empty list was
@@ -109,7 +86,6 @@ export type KeyBinding =
   | {
       readonly kind: "named";
       readonly keys: readonly [string, ...string[]];
-      readonly shiftPolicy: ShiftPolicy;
     };
 
 /** What a matcher is allowed to know about a keypress — the whole of it.
@@ -166,11 +142,7 @@ export function matchBinding(binding: KeyBinding, facts: KeyFacts): boolean {
     case "char":
       return !facts.mod && facts.key === binding.char;
     case "named":
-      return (
-        !facts.mod &&
-        (binding.shiftPolicy === "any" || !facts.shift) &&
-        binding.keys.includes(facts.key)
-      );
+      return !facts.mod && binding.keys.includes(facts.key);
   }
 }
 
