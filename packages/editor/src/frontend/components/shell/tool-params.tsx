@@ -42,6 +42,10 @@ import {
 	RADIUS_MAX,
 	RADIUS_MIN,
 } from "../../../shared/field-limits.ts";
+// The dead-control answer, from the tool that owns the control. A VALUE import of the floor,
+// which is what the floor is for — the chrome may not reach under `field-host/` for it, and
+// that constraint is what decided where the registry lives (its header carries the argument).
+import { toolCanActivate } from "../../../shared/tool-registry.ts";
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
@@ -99,9 +103,16 @@ export type { ParamId };
  * rule leans on. A second list beside the popover is exactly how "the ⋯ holds everything
  * the strip shows plus the rest" would quietly stop being true.
  *
- * The per-effect membership is the DEAD-CONTROL FIX: `FieldTool`'s own doc says
+ * The per-effect membership is HALF the DEAD-CONTROL FIX: `FieldTool`'s own doc says
  * `materialId` is "ignored by dig and smooth", so the swatches appear under paint and fill
  * and nowhere else. The panel this replaces showed them permanently, under every tool.
+ *
+ * The other half is the PROJECT's half — a param an effect has but this catalog cannot fill
+ * — and it is no longer here. It moved to `shared/tool-registry.ts` in foundations T3c,
+ * where the tool that owns the control answers for it; {@link availableParams} below is what
+ * asks. The split is deliberate and is the same one the registry's own header states: this
+ * table says which controls EXIST under which effect, the registry says which of them are
+ * LIVE right now.
  */
 export const TOOL_OPTIONS = deriveToolOptions();
 
@@ -123,13 +134,21 @@ export type ParamContext = {
 /** The params an effect can actually SHOW right now — `TOOL_OPTIONS[effect].all` minus the
  *  ones the project cannot fill. Filtering happens before the strip slices, so a material
  *  param a one-class catalog cannot fill never eats one of the strip's four slots and
- *  leaves a real control stranded behind the ⋯. */
+ *  leaves a real control stranded behind the ⋯.
+ *
+ *  THE RULE IS NOT HERE ANY MORE. This file used to spell it (`id === "material" ?
+ *  classes.length > 1 : true`) and was therefore the only place in the editor that knew a
+ *  control could be dead for a reason the effect table cannot see. Foundations T3c moved it
+ *  behind {@link toolCanActivate}, so the tool that owns the control is what answers for it
+ *  and a second surface asking the same question gets the same answer by construction rather
+ *  than by copying this line. `"brush"` is the id at every call because these ARE the brush's
+ *  controls — under `segment` too, whose click commits a brush op from the armed effect. */
 export function availableParams(
 	effect: BrushEffect,
 	classes: MaterialTable["classes"],
 ): readonly ParamId[] {
-	return TOOL_OPTIONS[effect].all.filter((id) =>
-		id === "material" ? classes.length > 1 : true,
+	return TOOL_OPTIONS[effect].all.filter((control) =>
+		toolCanActivate("brush", { control, classes }),
 	);
 }
 

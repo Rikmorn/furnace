@@ -52,6 +52,21 @@ Any of:
 - **`tool.brush` / `tool.select` gain an input schema** for any other reason — at that point
   the rows half is one call site away from the funnel.
 
+### T3c's tool registry did NOT fire the first clause (2026-08-07)
+
+T3c Task 5's planning note expected the registry to be a third caller of `member.arm` "by
+construction", on the reading that a ToolManager owns arming. The registry that landed does
+not: `src/shared/tool-registry.ts` answers who EXISTS (`toolEntries()`) and whose controls
+are LIVE (`toolCanActivate`), and nothing else. The builder/arming half was deferred whole —
+a `build` row cannot sit beside a chrome-read `canActivate` under the editor's layer rules
+(that module's header carries the argument), and a `build` with no caller is not surface this
+repo ships. `armMember` still has exactly its two callers, both pre-checking before the pick.
+
+So this entry stands unchanged, and the first clause is still unmet. The next thing that
+would meet it is the ARMING half of the registry — T4's MCP surface is where an agent asks
+to arm Paint with no rail flyout to be refused by, which is the second clause already written
+below it.
+
 ## Reference
 
 - `packages/editor/src/frontend/lib/actions.ts` — `familyMembers`, `armMember`, and

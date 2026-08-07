@@ -45,6 +45,29 @@ two behind a shared third would be worse than today.
 A third copy appearing, `FieldTool` gaining a field (which is when both backstops fire and
 somebody edits both files anyway), or any tranche already moving type surface into `shared/`.
 
+### The third clause FIRED at foundations T3c Task 5 (2026-08-07), and was still declined
+
+The tool registry landed as a NEW floor module (`src/shared/tool-registry.ts`), so a tranche
+really did move type surface into `shared/`. Three things kept the comparator where it is,
+and the first two are the ones that decide it:
+
+- **The move cannot be made without editing a pin.** `tests/field-host-mirrors.test.ts:33`
+  value-imports `toolsEqual` from `frontend/lib/field-host-mirrors.ts` and drives it through
+  eleven per-field cases. Deleting that copy breaks the import; keeping it as a re-export of
+  a shared third is the shape this entry already names as *"worse than today"*. T3c Task 5's
+  contract was that no existing test is edited, so the move had no landing that task could
+  take.
+- **The type surface that moved was not `FieldTool`'s.** The new module declares its own
+  four types and type-imports `MaterialTable` and `ParamId`; it neither carries `FieldTool`
+  nor makes carrying it any cheaper. The trigger clause was written to catch "someone is
+  already in `shared/` deciding where `FieldTool` lives" — nobody was.
+- Both backstops still hold and the per-field pins on both sides still hold, so the
+  duplication is still the SAFE kind this entry describes.
+
+**Sharpened trigger, replacing the third clause:** a tranche that moves `FieldTool` itself
+into `shared/`, or one licensed to edit `tests/field-host-mirrors.test.ts`. A new floor
+module on its own is no longer enough — T3c proved that clause fires without buying anything.
+
 ## Reference
 
 - `packages/editor/src/field-host/field-host.ts` — `sameMask` / `sameTool`
