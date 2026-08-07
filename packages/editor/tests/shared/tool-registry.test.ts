@@ -2,7 +2,7 @@
 // dead-control answer they moved here to give.
 //
 // The last group is the one that matters most and is the easiest to write badly. The rule
-// `toolCanActivate("brush", …)` now answers was a literal inside `availableParams`
+// `toolCanActivateControl("brush", …)` now answers was a literal inside `availableParams`
 // (`tool-params.tsx`), and a case that re-spelled that literal and compared the two would be
 // a tautology wearing an assertion's clothes — the exact shape `action-table.test.ts`'s
 // header says was deleted after T3b2's derive-and-diff gate had done its work. So the answer
@@ -17,7 +17,7 @@ import {
   defineTool,
   type ToolCapabilityCtx,
   type ToolId,
-  toolCanActivate,
+  toolCanActivateControl,
   toolEntries,
 } from "../../src/shared/tool-registry.ts";
 
@@ -50,9 +50,19 @@ test("the editor's own registry is setup-loud too — re-registering a shipped t
   // The module-scope table, not a fresh one: the guard has to hold for the instance the
   // editor actually runs on, and the two registrations at the bottom of the module are what
   // make this reachable without any setup of its own.
+  //
+  // IT LEAVES THE SINGLETON UNTOUCHED, which is what makes writing at it acceptable in a
+  // suite Bun runs in ONE process (`TOOLS` is shared by every case in this file and by any
+  // other file that imports the module). `define` CHECKS THEN THROWS — the `store.set` is
+  // below the guard and unreachable on this path — so the failed registration is not a
+  // partial write. That ordering is load-bearing for this case, not incidental: reverse the
+  // two lines and this test would silently start mutating the table the cases below assert
+  // on. Core's `Registry` carries a `reset()` for suites that need to undo a write; this one
+  // deliberately has none, because nothing here ever completes one.
   expect(() => defineTool({ id: "segment" })).toThrow(
     `tool-registry: tool "segment" is already registered`,
   );
+  expect(toolEntries().map((d) => d.id)).toEqual(["brush", "segment"]);
 });
 
 test("entries() is REGISTRATION order, and a fresh array each call", () => {
@@ -68,13 +78,15 @@ test("entries() is REGISTRATION order, and a fresh array each call", () => {
   expect(registry.entries().map((d) => d.id)).toEqual(["segment", "brush"]);
 });
 
-test("canActivate defaults to TRUE — for a tool with no answer, and for an id with none", () => {
+test("canActivateControl defaults to TRUE — for a tool with no answer, and for an id with none", () => {
   const registry = createToolRegistry();
   registry.define({ id: "segment" });
-  expect(registry.canActivate("segment", ctx("material", 0))).toBe(true);
+  expect(registry.canActivateControl("segment", ctx("material", 0))).toBe(true);
   // Deliberately invalid input: `ToolId` makes an unregistered id unspellable, and the
   // runtime-quiet fallback is what a render is entitled to when one arrives anyway.
-  expect(registry.canActivate("nope" as ToolId, ctx("material", 0))).toBe(true);
+  expect(
+    registry.canActivateControl("nope" as ToolId, ctx("material", 0)),
+  ).toBe(true);
 });
 
 // --- (2) the two registrations the editor ships ------------------------------
@@ -83,10 +95,29 @@ test("the editor registers exactly `brush` and `segment`, in that order", () => 
   expect(toolEntries().map((d) => d.id)).toEqual(["brush", "segment"]);
 });
 
+test("EVERY `ToolId` is registered — the union and the registrations are one set", () => {
+  // THE DRIFT THIS CLOSES, and it is the one failure the module's own header warns about
+  // arriving by a different door. `ToolId` and the `defineTool` calls are two enumerations of
+  // one set. Registering an id the union does not carry fails `bun run typecheck` and the
+  // order case above; the OTHER direction was guarded by nothing — widen the union, forget
+  // the registration, and `toolCanActivateControl("newTool", ctx)` takes the default and
+  // answers `true`. That is the dead control back on screen with the whole suite green.
+  //
+  // The `Record<ToolId, true>` restates the union deliberately: TypeScript checks THAT for
+  // exhaustiveness, so a member added to `ToolId` fails to compile here — which is the half
+  // a runtime array cannot buy — and this case then proves the registrations cover it. Same
+  // two-part shape as `action-table.ts`'s `FAMILY_IDS` guard, for the same reason.
+  const declared: Record<ToolId, true> = { brush: true, segment: true };
+  // Both sides widened to `string[]` deliberately — `Object.keys` gives `string[]`, and
+  // narrowing it back with a cast would be the assertion asserting its own premise.
+  const registered: string[] = toolEntries().map((d) => d.id);
+  expect(registered.sort()).toEqual(Object.keys(declared).sort());
+});
+
 test("`segment` declares no capability — its strip renders the BRUSH's controls", () => {
   const segment = toolEntries().find((d) => d.id === "segment");
-  expect(segment?.canActivate).toBeUndefined();
-  expect(toolCanActivate("segment", ctx("material", 1))).toBe(true);
+  expect(segment?.canActivateControl).toBeUndefined();
+  expect(toolCanActivateControl("segment", ctx("material", 1))).toBe(true);
 });
 
 // --- (3) the dead-control answer, as a grid ----------------------------------
@@ -119,7 +150,7 @@ test("the brush kills the material control on a catalog with nothing to choose b
     grid.map(([control, n]) => [
       control,
       n,
-      toolCanActivate("brush", ctx(control, n)),
+      toolCanActivateControl("brush", ctx(control, n)),
     ]),
   ).toEqual(grid);
 });

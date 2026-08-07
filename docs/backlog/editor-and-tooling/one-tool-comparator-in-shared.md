@@ -48,15 +48,8 @@ somebody edits both files anyway), or any tranche already moving type surface in
 ### The third clause FIRED at foundations T3c Task 5 (2026-08-07), and was still declined
 
 The tool registry landed as a NEW floor module (`src/shared/tool-registry.ts`), so a tranche
-really did move type surface into `shared/`. Three things kept the comparator where it is,
-and the first two are the ones that decide it:
+really did move type surface into `shared/`. Two things kept the comparator where it is:
 
-- **The move cannot be made without editing a pin.** `tests/field-host-mirrors.test.ts:33`
-  value-imports `toolsEqual` from `frontend/lib/field-host-mirrors.ts` and drives it through
-  eleven per-field cases. Deleting that copy breaks the import; keeping it as a re-export of
-  a shared third is the shape this entry already names as *"worse than today"*. T3c Task 5's
-  contract was that no existing test is edited, so the move had no landing that task could
-  take.
 - **The type surface that moved was not `FieldTool`'s.** The new module declares its own
   four types and type-imports `MaterialTable` and `ParamId`; it neither carries `FieldTool`
   nor makes carrying it any cheaper. The trigger clause was written to catch "someone is
@@ -64,9 +57,18 @@ and the first two are the ones that decide it:
 - Both backstops still hold and the per-field pins on both sides still hold, so the
   duplication is still the SAFE kind this entry describes.
 
+**A first draft of this note claimed the move needs a test edit. It does not**, and the
+correction matters because the false claim would have made the work look more expensive than
+it is: `tests/field-host-mirrors.test.ts:33` imports `toolsEqual` BY NAME from
+`frontend/lib/field-host-mirrors.ts`, so `export { toolsEqual } from "../../shared/…"` there
+satisfies it with zero test edits and ONE implementation. That is also not what this entry
+calls *"worse than today"* — that phrase is about keeping TWO implementations behind a shared
+third, and a re-export is one implementation plus an alias. Cost is not the blocker; the
+blocker is that nobody was making the `FieldTool` placement decision.
+
 **Sharpened trigger, replacing the third clause:** a tranche that moves `FieldTool` itself
-into `shared/`, or one licensed to edit `tests/field-host-mirrors.test.ts`. A new floor
-module on its own is no longer enough — T3c proved that clause fires without buying anything.
+into `shared/`. A new floor module on its own is no longer enough — T3c proved that clause
+fires without buying anything.
 
 ## Reference
 

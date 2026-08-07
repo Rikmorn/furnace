@@ -45,7 +45,7 @@ import {
 // The dead-control answer, from the tool that owns the control. A VALUE import of the floor,
 // which is what the floor is for — the chrome may not reach under `field-host/` for it, and
 // that constraint is what decided where the registry lives (its header carries the argument).
-import { toolCanActivate } from "../../../shared/tool-registry.ts";
+import { toolCanActivateControl } from "../../../shared/tool-registry.ts";
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
@@ -139,7 +139,7 @@ export type ParamContext = {
  *  THE RULE IS NOT HERE ANY MORE. This file used to spell it (`id === "material" ?
  *  classes.length > 1 : true`) and was therefore the only place in the editor that knew a
  *  control could be dead for a reason the effect table cannot see. Foundations T3c moved it
- *  behind {@link toolCanActivate}, so the tool that owns the control is what answers for it
+ *  behind {@link toolCanActivateControl}, so the tool that owns the control answers for it
  *  and a second surface asking the same question gets the same answer by construction rather
  *  than by copying this line. `"brush"` is the id at every call because these ARE the brush's
  *  controls — under `segment` too, whose click commits a brush op from the armed effect. */
@@ -148,7 +148,7 @@ export function availableParams(
 	classes: MaterialTable["classes"],
 ): readonly ParamId[] {
 	return TOOL_OPTIONS[effect].all.filter((control) =>
-		toolCanActivate("brush", { control, classes }),
+		toolCanActivateControl("brush", { control, classes }),
 	);
 }
 
