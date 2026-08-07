@@ -28,8 +28,9 @@
 // AND `stepHistory` DID NOT COME, though it wears the name. It calls into FIVE
 // clusters — `markDirtyWithNeighbors` (`world`), `cancelStampSession` (`stamp`),
 // `revalidateEntitySelection` AND `notifyEntities` (`entities`), `props.rebuild()`
-// (the extracted prop layer) and `notifyDrift` (`drift`) — and reads `store`, `log`,
-// `table`, `stamp` and `drift` besides. It is a lifecycle verb wearing a history
+// (the extracted prop layer) and `drift.set`/`drift.notify` (the drift report,
+// extracted to `field-drift.ts` at T3d) — and reads `store`, `log`, `table` and
+// `stamp` besides, plus `drift.standing()`. It is a lifecycle verb wearing a history
 // name: what it owns is "everything a step can move", of which the history push is
 // the smallest part. It does not even NAME this module — the push reaches here
 // through `notifyEntities`, which carries it by that seam's own contract — so

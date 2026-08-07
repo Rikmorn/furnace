@@ -82,9 +82,9 @@ export type SegmentDeps = {
    *  move through `applyRadius`; a snapshot taken here would fatten the preview
    *  capsule to a radius the committed op no longer uses. */
   digRadius(): number;
-  /** The surface point under a client-space pixel — the host's `selectionPoint`,
-   *  i.e. the RAW raycast hit, not `computeTarget`'s bitten-past centre. Null when
-   *  the ray resolves nothing. */
+  /** The surface point under a client-space pixel — `field-targeting.ts`'s
+   *  `selectionPoint`, reached through the host, i.e. the RAW raycast hit and not
+   *  `computeTarget`'s bitten-past centre. Null when the ray resolves nothing. */
   selectionPoint(clientX: number, clientY: number): Vec3T | null;
   /** Report a refusal to the user (console + the panel subscriber). One caller
    *  here: the length cap. */

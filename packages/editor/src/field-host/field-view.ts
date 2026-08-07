@@ -139,8 +139,11 @@ export type View = {
    *  copy rule {@link View.setLayers} keeps at the write half: the setter takes a
    *  copy so host state never aliases a panel's object, and a getter handing the
    *  same object back mutable would give that copy away again. SEVENTEEN of the
-   *  host's twenty-five read sites go through here: fourteen in `renderScene`,
-   *  two in `pickCandidates`, one in `ret.init`. */
+   *  twenty-five read sites go through here, fourteen of them in `renderScene`
+   *  alone — the densest read site in the editor, and the reason this getter is a
+   *  call rather than a snapshot. The remaining three are spread across the host
+   *  and `field-picking.ts`; they are deliberately not enumerated, because a list
+   *  of function names is the part of this note that rots. */
   layers(): Readonly<FieldLayers>;
   /** The slice-view clip plane in world metres, or `null` when it is off.
    *  DISPLAY + targeting only — never read by `logApply`, the oplog, or
@@ -185,10 +188,13 @@ export function createView(deps: ViewDeps): View {
     // raycast passes the slice clip, not just computeTarget — an eyedrop, a
     // box-select corner, or a flood seed under an active slice must land on the
     // sliced surface the user SEES, never on rock the display hides (what you
-    // see is what you target). The host's six call sites share this helper:
-    // `computeTarget`, `eyedropper`, `selectionPoint`, `materialSeedVoxel`,
-    // `voidSeedVoxel` and `pointerPick`. (The comment it travelled from said
-    // "the four gesture sites below" — a count that had gone stale in place.)
+    // see is what you target). Six call sites share this helper, spread across
+    // three files since foundations T3d. They are NOT listed, and that is the
+    // second correction this comment has taken: it travelled from one that said
+    // "the four gesture sites below" (a count stale in place), was fixed by
+    // naming all six functions, and the names then went stale too when five of
+    // the six moved. The count and the RULE are what a reader needs; `grep -rn
+    // "sliceOpts()" src/field-host/` is the list.
     sliceOpts: () => (sliceY === null ? undefined : { maxY: sliceY }),
     setLayers: (next) => {
       const wasVoidCast = layers.voidCast;

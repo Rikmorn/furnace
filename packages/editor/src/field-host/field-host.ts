@@ -18,7 +18,6 @@ import { vec4 } from "@furnace/core/transform";
 import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
 import {
   type BrushEffect,
-  computeBrushCenter,
   latticeClearance,
   regionSampleCount,
   snappedKitBox,
@@ -60,6 +59,7 @@ import {
   readFlyMove,
 } from "./field-camera.ts";
 import { FieldWorkerClient, type WorkerLike } from "./field-client.ts";
+import { createDrift } from "./field-drift.ts";
 import {
   createFlagStore,
   type FlagFilters,
@@ -80,15 +80,13 @@ import {
 import type { FieldHistory } from "./field-history.ts";
 import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
-import { type PickCandidate, pickNearest } from "./field-pick.ts";
+import { createPicking } from "./field-picking.ts";
 import {
   FALLBACK_COLLISION,
   groupPlacements,
   type PlacedArchetype,
-  placementOwners,
   placementsByEntity,
   placesProps,
-  proxyScale,
   withArchetypeOptions,
 } from "./field-placements.ts";
 import { createProps } from "./field-props.ts";
@@ -100,6 +98,7 @@ import {
 } from "./field-selection-cells.ts";
 import type { StampSession } from "./field-stamp.ts";
 import { createStatsMeter } from "./field-stats.ts";
+import { createTargeting } from "./field-targeting.ts";
 import { createView } from "./field-view.ts";
 import { createVoidCast } from "./field-voidcast.ts";
 import {
@@ -1408,11 +1407,6 @@ const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
  *  the cadence was tuned. Deliberately NOT re-exported from `index.ts`: the chrome has
  *  no business with it, and everything behind that barrel value-imports core. */
 export const STROKE_MIN_MS = 40;
-/** How far a `pointer` pick reaches — the DIG reach, deliberately the same
- *  number rather than an independent one: "you can select what you could dig" is
- *  one rule to hold in the head, and the same range bounds the pick's occlusion
- *  probe, so nothing can be picked through terrain the probe never tested. */
-const PICK_RANGE_M = DIG_RANGE_M;
 /** The project's runtime-built engine bundle, which is where stage 2's mover
  *  lives. The daemon serves it at this path; the analyzer worker imports it. */
 const ANALYZER_ENGINE_URL = "/engine.js";
@@ -1714,6 +1708,32 @@ export function createFieldHost(deps?: {
   // the thing that turns the lights on.
   let shading: FieldHostShading = "studio";
 
+  // --- the `catalogs` cluster: DECLARED FACADE-RESIDENT, foundations T3d ------
+  //
+  // Three bindings — `table` here, `archetypes` and `archetypeById` ~130 lines
+  // down — and this is the record that they stay, so a later sweep does not read
+  // the absence of a `field-catalogs.ts` as an oversight.
+  //
+  // The row is 3 state / ZERO functions (`field-host-clusters.md` §6). What a
+  // module would have contained is therefore not the cluster's own work but its
+  // three SETTERS' bodies, and all three are facade members: `setMaterialTable`
+  // tears down every chunk render, rebuilds the per-class lit materials and
+  // re-dirties the world; `setEntityCatalog` rebuilds the prop layer;
+  // `listGenerators` folds the archetype ids into the generator schemas. Lifting
+  // those would drag `materials`, `world` and `props` across the line to carry
+  // three `let`s that no cluster function reads.
+  //
+  // And two of the three ALREADY LEFT, in the only sense that matters: `table()`
+  // and `archetypeById()` are `HostSubstrate` thunks, so every extracted module
+  // that needs them reads them live from the record. What is left in the closure
+  // is the assignment, which is the facade's.
+  //
+  // `archetypes` is the third and it does NOT join them, on T3a's substrate bar:
+  // adding a member requires two extracted readers and it has exactly one
+  // (`field-machine.ts`, through the `archetypes: () => archetypes` dep at the
+  // machine assembly). It rides as a single-consumer function dep instead —
+  // `field-props.ts`'s `kitMat` precedent, and the bar in its active form.
+  //
   // The project's resolved material table — drives the mesher's bucket split,
   // logApply validation, and the bake. Defaults rock-only until setMaterialTable.
   let table: field.MaterialTable = field.BUILTIN_TABLE;
@@ -1842,6 +1862,10 @@ export function createFieldHost(deps?: {
   // the two seeding paths need ORDER (the archetypeId enum, and startStamp's
   // "the catalog's first" fallback), which a Map's iteration order gives but
   // reads worse.
+  //
+  // The other two thirds of `catalogs`, which stays in this closure by decision
+  // rather than by omission — the verdict and its argument are at `table`'s
+  // declaration above.
   let archetypes: readonly EntityArchetype[] = [];
   let archetypeById: ReadonlyMap<string, EntityArchetype> = new Map();
   // The committed prop layer: one instanced draw per archetype, rebuilt from the
@@ -1886,7 +1910,7 @@ export function createFieldHost(deps?: {
   // Both `let`s left with `field-view.ts`, and the assembly did NOT stay here to
   // mark the spot the way the other four extractions' did: `createView` takes
   // the void cast's `discard` and `request`, so it cannot be constructed above
-  // `createVoidCast` — search `const viewState =`, ~2,300 lines down. What every
+  // `createVoidCast` — search `const viewState =`, ~1,900 lines down. What every
   // reader of this block wants to know is that the flags and the plane are still
   // the host's own state, read as `viewState.layers()` / `viewState.sliceY()`.
 
@@ -1900,13 +1924,16 @@ export function createFieldHost(deps?: {
   // draws them and one Map shared by identity is what stops the module that fills
   // it and the loop that draws it disagreeing about what is on screen.
 
-  // The last reconfigure's drift report (null = the last apply was clean, or
-  // none has run) + its panel seam. Snapshot for the same remount rule: a
-  // subscriber arriving after a reconfigure must not drop its report.
-  let drift: field.DriftFinding[] | null = null;
-  const driftChannel = createViewChannel<[FieldDriftReport | null]>({
-    snapshot: () => [driftPayload()],
-  });
+  // The drift report's slot and its panel seam BOTH left with `field-drift.ts`,
+  // and the row they left says why they could: every one of the four writes to
+  // the slot comes from another cluster (the reconfigure apply, a history step, a
+  // world reset, the panel's dismiss), so it looked like state that had to stay
+  // where all four could reach it. The READERS are what decided — there are two
+  // and both are the module's — so the writers got a two-verb seam
+  // (`drift.set` + `drift.notify`) and the state went with what reads it. The
+  // assembly is ~1,450 lines down, below `entityFootprints`, which is the one
+  // thing the payload cannot derive from itself.
+
   // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
   // cannot carry them — see subscribeEntities). A ZERO-ARG channel: the tick
   // carries no value, and its snapshot is the initial catch-up (the world may
@@ -1989,14 +2016,15 @@ export function createFieldHost(deps?: {
   // of the T3c move to decide: the four pointer handlers were their only readers
   // in this file, so nothing here lost a fact it was using. The RADIUS stayed —
   // the wheel, `[`/`]`, the panel slider and every ghost read it.
-  // Last cursor position over the viewport, so the ghost target marker can
-  // preview where the next stroke lands each frame. DELIBERATELY NOT cleared
-  // on pointer-leave (the size-preview affordance): the ghost keeps rendering at
-  // the last hover target while the mouse is over the panel, so panel-slider
-  // radius drags preview live in the viewport (renderGhost recomputes from
-  // this + the CURRENT radius per frame). The ghost lingering while the mouse
-  // is off-canvas is that feature's accepted trade-off.
-  let lastPointer: { x: number; y: number } | null = null;
+  //
+  // `lastPointer` left with `field-targeting.ts`, and the map files it here (§5.2
+  // lists the two pointer delegates as its writers) in a way that reads as though
+  // the DOM owned it. It did not: the last cursor position is the ARGUMENT every
+  // cursor-to-world function takes, cached — so it went with the five functions
+  // that are pure functions of it, the two delegates now call
+  // `targeting.notePointer` on the way past, and the three readers on this side
+  // (`ghostState`, `renderCursorAffordance`, `ret.beginMove`) ask
+  // `targeting.pointer()`.
   let lastRemeshMs = 0;
   // Monotonic remesh counter (see the FieldStats TSDoc): bumped once per
   // remesh completion so the panel's entity refresh has an event-driven
@@ -2585,15 +2613,6 @@ export function createFieldHost(deps?: {
 
   // --- tool application ---------------------------------------------------
 
-  // Cursor client coords → NDC (Y-up, [-1,1]). Copied from field-host/index.ts.
-  const toNdc = (clientX: number, clientY: number): [number, number] => {
-    if (!canvasEl) return [0, 0];
-    const r = canvasEl.getBoundingClientRect();
-    const x = ((clientX - r.left) / r.width) * 2 - 1;
-    const y = -(((clientY - r.top) / r.height) * 2 - 1);
-    return [x, y];
-  };
-
   const sphereShape = (center: Vec3T, radius: number): field.BrushShape => ({
     kind: "sphere",
     center,
@@ -2742,94 +2761,12 @@ export function createFieldHost(deps?: {
     }
   };
 
-  // Cursor → world ray + the eye-in-rock probe, shared by computeTarget, the
-  // eyedropper, and the selection-gesture seeds. Returns null when there is
-  // no camera or the view is singular.
-  //
-  // `eyeInRock` is the DISPLAY-space probe (slice coherence, F2b sweep): with
-  // an active slice, an eye at/above the clip plane sits in DISPLAY air even
-  // when the field there is rock — the slice hides that rock and the
-  // raycast's maxY clip suppresses its t=0 self-hit — so it reports false and
-  // EVERY gesture site then raycasts onto the sliced surface the user sees
-  // (what you see is what you target). Quantized to the eye's VOXEL BASE
-  // (worldToVoxel·cellSize) because the raycast clips whole voxels by base —
-  // a continuous origin-Y compare disagrees for a non-lattice-aligned sliceY
-  // inside the eye's own voxel.
-  const cursorRay = (
-    clientX: number,
-    clientY: number,
-  ): { origin: Vec3T; dir: Vec3T; eyeInRock: boolean } | null => {
-    if (!cam) return null;
-    const [nx, ny] = toNdc(clientX, clientY);
-    const r = camera.screenToRay(cam, nx, ny);
-    // Boundary cast: screenToRay returns Vec3 (Float32Array); fixed indices
-    // 0/1/2 are always present. `noUncheckedIndexedAccess` widens them to
-    // `number | undefined`. Marshal to plain tuples for `raycastField` exactly
-    // as field-host's rayFromCursor does (the recognized fixed-index read).
-    const ox = r.origin[0] as number;
-    const oy = r.origin[1] as number;
-    const oz = r.origin[2] as number;
-    const dx = r.dir[0] as number;
-    const dy = r.dir[1] as number;
-    const dz = r.dir[2] as number;
-    if (Math.hypot(dx, dy, dz) < 1e-8) return null; // singular VP → no valid ray
-    const cs = store.cellSize;
-    const buried =
-      field.getDensity(
-        store,
-        field.worldToVoxel(ox, cs),
-        field.worldToVoxel(oy, cs),
-        field.worldToVoxel(oz, cs),
-      ) < 0;
-    // Bound to a local for the ONE reason a local is ever right here: the
-    // expression reads the plane TWICE — a null check, then a compare — and
-    // narrowing does not survive a call boundary, so a second `viewState.sliceY()`
-    // would still be `number | null` and would not compile. Two reads inside one
-    // synchronous expression cannot observe a write between them, so this says
-    // exactly what the closure's `let` said. See `field-view.ts`'s header.
-    const sliceY = viewState.sliceY();
-    const eyeInRock =
-      buried && (sliceY === null || field.worldToVoxel(oy, cs) * cs < sliceY);
-    return { origin: [ox, oy, oz], dir: [dx, dy, dz], eyeInRock };
-  };
-
-  // The world-space brush centre for a cursor position under the dig-feel contract
-  // (field-brush.computeBrushCenter). The eye-in-rock probe + field raycast live
-  // HERE — they need the field + camera — while the pure module does the arithmetic.
-  // Returns null when there is no camera or the view is singular.
-  const computeTarget = (clientX: number, clientY: number): Vec3T | null => {
-    const ray = cursorRay(clientX, clientY);
-    if (!ray) return null;
-    const { origin, dir, eyeInRock } = ray;
-    // If the eye is embedded in rock (virgin world or buried), raycastField would
-    // hit the origin's OWN voxel at t=0 (raycast.ts: "a start inside rock hits its
-    // own voxel at t=0"), so we pass eyeInRock and the pure module mines forward
-    // from the eye. When the eye is in (display) air, apply where the ray meets
-    // rock, or dig ahead when it reaches maxDist through only air (a cavity aimed
-    // at open space). Under an active slice, cursorRay's display-space probe
-    // already treats a buried eye at/above the plane as in-air, so strokes land
-    // on the sliced surface shown.
-    const rc = eyeInRock
-      ? null
-      : field.raycastField(
-          store,
-          origin,
-          dir,
-          DIG_RANGE_M,
-          viewState.sliceOpts(),
-        );
-    return computeBrushCenter(
-      { origin, dir, eyeInRock, hit: rc ? rc.point : null },
-      digRadius,
-    );
-  };
-
   // Alt-click eyedropper: read the material class at the TARGET voxel — the
   // SOLID voxel the cursor ray hits (raycastField's `voxel`, never the pre-hit
   // air voxel), or the eye's own voxel when embedded in rock — into the active
   // tool. A miss (open air to max range) changes nothing. Never strokes.
   const eyedropper = (clientX: number, clientY: number): void => {
-    const ray = cursorRay(clientX, clientY);
+    const ray = targeting.cursorRay(clientX, clientY);
     if (!ray) return;
     const cs = store.cellSize;
     let voxel: [number, number, number];
@@ -2877,7 +2814,7 @@ export function createFieldHost(deps?: {
   // Apply the active tool at a cursor position: compute the dig-feel centre,
   // build the op, and commit it through the shared failure contract.
   const applyTool = (clientX: number, clientY: number): void => {
-    const at = computeTarget(clientX, clientY);
+    const at = targeting.computeTarget(clientX, clientY);
     if (!at) return;
     commitToolOp(strokeShape(at));
   };
@@ -3096,28 +3033,6 @@ export function createFieldHost(deps?: {
     notifySelection();
   };
 
-  // The surface point for a box-select click: the RAW raycast hit point — NOT
-  // computeTarget's brush-offset centre (a region corner must sit ON the wall,
-  // not bitten past it). Falls back to the dig-feel target when the ray misses
-  // everything or the eye is buried, so a click into open air still anchors.
-  const selectionPoint = (clientX: number, clientY: number): Vec3T | null => {
-    const ray = cursorRay(clientX, clientY);
-    if (!ray) return null;
-    if (!ray.eyeInRock) {
-      // Slice-coherent (sliceOpts): a corner clicked under an active slice
-      // sits ON the sliced surface shown, not on a hidden wall above it.
-      const rc = field.raycastField(
-        store,
-        ray.origin,
-        ray.dir,
-        DIG_RANGE_M,
-        viewState.sliceOpts(),
-      );
-      if (rc) return rc.point;
-    }
-    return computeTarget(clientX, clientY);
-  };
-
   // The outward-0.5 lattice snap lives in field-brush.ts (snapSpan) — shared
   // with the stamp session's selection→region derivation.
   const boxRegionSpec = (a: Vec3T, b: Vec3T): field.SelectionSpec => {
@@ -3135,7 +3050,7 @@ export function createFieldHost(deps?: {
   // transient miss must not flicker the box off.
   const updateBoxPreview = (clientX: number, clientY: number): void => {
     if (boxAnchor === null) return;
-    const p = selectionPoint(clientX, clientY);
+    const p = targeting.selectionPoint(clientX, clientY);
     if (!p) return;
     const spec = boxRegionSpec(boxAnchor, p);
     // boxRegionSpec only ever builds a region; this kind check narrows the
@@ -3149,75 +3064,32 @@ export function createFieldHost(deps?: {
     );
   };
 
-  // Material-select seed: the SOLID voxel under the cursor — the raycast hit
-  // voxel, or the eye's own voxel when embedded in rock (eyedropper parity).
-  // A miss (open air to max range) reports and yields null.
-  const materialSeedVoxel = (
-    clientX: number,
-    clientY: number,
-  ): Vec3T | null => {
-    const ray = cursorRay(clientX, clientY);
-    if (!ray) return null;
-    const cs = store.cellSize;
-    if (ray.eyeInRock)
-      return [
-        field.worldToVoxel(ray.origin[0], cs),
-        field.worldToVoxel(ray.origin[1], cs),
-        field.worldToVoxel(ray.origin[2], cs),
-      ];
-    // Slice-coherent (sliceOpts): the flood seed is the first VISIBLE solid
-    // under the cursor — the flood itself then runs on the real field.
-    const rc = field.raycastField(
-      store,
-      ray.origin,
-      ray.dir,
-      DIG_RANGE_M,
-      viewState.sliceOpts(),
-    );
-    if (!rc) {
-      reportToolError("material select: no rock under the cursor within range");
-      return null;
-    }
-    return rc.voxel;
-  };
-
-  // Void-select seed: the last AIR voxel the ray traverses before its rock
-  // hit (FieldHit.prev — guaranteed air here: with the eye in air, every
-  // pre-hit voxel the DDA crossed was non-rock). A miss (all air to max
-  // range) falls back to the brush TARGET's voxel — computeTarget's
-  // open-space point, itself in air on an all-air ray. An eye embedded in
-  // rock has no air on the ray at all (the cast self-hits at t=0), so that
-  // reports and bails instead of yielding an empty flood.
-  const voidSeedVoxel = (clientX: number, clientY: number): Vec3T | null => {
-    const ray = cursorRay(clientX, clientY);
-    if (!ray) return null;
-    if (ray.eyeInRock) {
-      reportToolError(
-        "void select: the eye is inside rock — aim from open air",
-      );
-      return null;
-    }
-    // Slice-coherent (sliceOpts): `prev` then precedes the first VISIBLE rock
-    // hit. Under an active slice it can be a display-air voxel that is rock in
-    // the real field — the flood then finds no air there and reports "no
-    // matching cells" instead of selecting a pocket the display hides.
-    const rc = field.raycastField(
-      store,
-      ray.origin,
-      ray.dir,
-      DIG_RANGE_M,
-      viewState.sliceOpts(),
-    );
-    if (rc) return rc.prev;
-    const target = computeTarget(clientX, clientY);
-    if (!target) return null;
-    const cs = store.cellSize;
-    return [
-      field.worldToVoxel(target[0], cs),
-      field.worldToVoxel(target[1], cs),
-      field.worldToVoxel(target[2], cs),
-    ];
-  };
+  // --- the cursor chain (`field-targeting.ts`) -----------------------------
+  //
+  // Six functions and one `let` — client pixels → NDC → a world ray → the four
+  // world answers a gesture can want from that ray, plus the last cursor position
+  // every per-frame preview is a function of. The assembly sits HERE, where the
+  // last of them was, on `createSegmentBrush`'s precedent: a cluster's remaining
+  // footprint marks where the cluster was.
+  //
+  // The two view members arrive as ARROWS rather than plain refs, and that is the
+  // one ordering fact worth carrying: `createView` is assembled ~750 lines BELOW
+  // this line and the deps literal is eager, so a plain `viewState.sliceY` would
+  // be a TDZ read. Same shape and same reason as the machine's
+  // `noteReconfigureMs`. The alternative — assembling this below `createView` —
+  // would have cost an arrow at `createSegmentBrush` instead, and that one is
+  // read on every pointer move.
+  //
+  // `toNdc` did not survive the move as surface: it has one caller inside the
+  // module and is private there now. The module's header argues the rest.
+  const targeting = createTargeting({
+    substrate,
+    cam: () => cam,
+    digRadius: () => digRadius,
+    sliceY: () => viewState.sliceY(),
+    sliceOpts: () => viewState.sliceOpts(),
+    reportToolError,
+  });
 
   // Materialize a gesture-built spec into the current selection. Runs on the
   // CLICK only (never per frame — full-budget floods cost ~60-80ms). A flood
@@ -3261,7 +3133,7 @@ export function createFieldHost(deps?: {
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
     maxSegmentM: MAX_SEGMENT_M,
     digRadius: () => digRadius,
-    selectionPoint,
+    selectionPoint: targeting.selectionPoint,
     reportToolError,
     commitToolOp,
     armMaskDropReport,
@@ -3315,7 +3187,7 @@ export function createFieldHost(deps?: {
     clientX: number,
     clientY: number,
   ): field.SelectionSpec | null => {
-    const p = selectionPoint(clientX, clientY);
+    const p = targeting.selectionPoint(clientX, clientY);
     if (!p) return null;
     if (boxAnchor === null) {
       setBoxAnchor(p); // first corner — the amber cross previews it
@@ -3337,7 +3209,7 @@ export function createFieldHost(deps?: {
       return;
     }
     if (selectionMode === "material") {
-      const seed = materialSeedVoxel(clientX, clientY);
+      const seed = targeting.materialSeedVoxel(clientX, clientY);
       if (!seed) return;
       commitSelectionSpec({
         kind: "flood-material",
@@ -3347,7 +3219,7 @@ export function createFieldHost(deps?: {
       });
       return;
     }
-    const seed = voidSeedVoxel(clientX, clientY);
+    const seed = targeting.voidSeedVoxel(clientX, clientY);
     if (!seed) return;
     commitSelectionSpec({
       kind: "flood-void",
@@ -3357,185 +3229,19 @@ export function createFieldHost(deps?: {
   };
 
   // --- pointer pick (object selection) ------------------------------------
-
-  // Everything a `pointer` click can land on, built fresh per click (never per
-  // frame — this is the whole reason the pick is affordable on the CPU).
   //
-  // Both drawn layers are GATED ON THEIR OWN LAYER FLAG, the slice-coherence
-  // rule applied to objects: with props or markers switched off, clicking where
-  // one would have been must not select it (what you see is what you target).
-  // Entity footprints are NOT gated on the `selection` layer — that flag hides
-  // the emphasis box, and a hidden box is not a hidden entity.
-  const pickCandidates = (): PickCandidate[] => {
-    const candidates: PickCandidate[] = [];
-    for (const [entityId, aabb] of entityFootprints())
-      candidates.push({ kind: "entity", entityId, aabb });
-
-    if (viewState.layers().props) {
-      // A prop click selects its OWNING entity, and `placementOwners` is what
-      // pairs each record with the span that claims it (the pure module owns the
-      // attribution rule, and is where it is unit-tested without a GPU).
-      for (const { entityId, record } of placementOwners(log.ops)) {
-        const collision =
-          archetypeById.get(record.archetypeId)?.collision ??
-          FALLBACK_COLLISION;
-        // The record's OWN frame, not `proxyCorners`: that one allocates 24
-        // floats per record for the wireframe, and the oriented box test wants
-        // the frame rather than the corners. Same centre and same extents as
-        // the drawn proxy (collisionCenter + proxyScale), so the click volume
-        // is exactly the box on screen.
-        const [sx, sy, sz] = proxyScale(collision, record.scale);
-        candidates.push({
-          kind: "prop",
-          entityId,
-          obb: {
-            center: field.collisionCenter(collision, record),
-            halfExtents: [sx / 2, sy / 2, sz / 2],
-            quat: record.quat,
-          },
-        });
-      }
-    }
-
-    if (viewState.layers().flags) {
-      // The pick volume is the CELL — `flagCellBox`, the same box the camera
-      // frames and the selected-flag outline draws, built on the same half-cell
-      // lift the instanced matrices use, so none of the four can part company.
-      // Deliberately NOT the drawn FLAG_MARKER_SIZE_M: a 0.18 m pin is a hard
-      // click target, and the cell is what the finding is actually about.
-      for (const row of flagStore.summary().visible)
-        candidates.push({
-          kind: "flag",
-          key: row.key,
-          aabb: flagCellBox(row.flag.world, store.cellSize),
-        });
-    }
-    return candidates;
-  };
-
-  // What a `pointer` press lands on: `{ hit }` when the pick RAN — `hit: null`
-  // there means it ran and found nothing, which the caller reads as deselect —
-  // and a bare null when it could not run at all (no camera, a singular view).
-  // The two must not collapse: a frame without a camera clearing the selection
-  // would be a silent, untraceable deselect.
+  // The whole cluster left with `field-picking.ts` — the candidate build, the
+  // occluder raycast, the arbitration and what a press DOES with the answer. Four
+  // functions and no state; the seam is ONE verb, because each of the first three
+  // had exactly one caller (the next one down) and the module made that pipeline
+  // sayable.
   //
-  // A PROP hit carries its OWNING entity — a placement record is not an
-  // independently editable object here.
-  const pointerPick = (
-    clientX: number,
-    clientY: number,
-  ): { hit: PickCandidate | null } | null => {
-    const ray = cursorRay(clientX, clientY);
-    if (!ray) return null;
-    // The occluder, slice-coherent like every other cursor-driven raycast
-    // (sliceOpts): under an active slice a pick targets the surface the user
-    // SEES. Skipped when the eye is in rock, for computeTarget's reason — the
-    // ray would hit its own voxel at t = 0 and occlude the entire world.
-    const rc = ray.eyeInRock
-      ? null
-      : field.raycastField(
-          store,
-          ray.origin,
-          ray.dir,
-          PICK_RANGE_M,
-          viewState.sliceOpts(),
-        );
-    // How far the ray is KNOWN to be clear: the terrain hit, or the probe's own
-    // range when it missed — nothing past that range was tested, so nothing past
-    // it may be picked either.
-    const clearTo =
-      rc === null
-        ? PICK_RANGE_M
-        : Math.hypot(
-            rc.point[0] - ray.origin[0],
-            rc.point[1] - ray.origin[1],
-            rc.point[2] - ray.origin[2],
-          );
-    return {
-      hit: pickNearest(
-        { origin: ray.origin, dir: ray.dir },
-        pickCandidates(),
-        clearTo,
-      ),
-    };
-  };
-
-  // What a resolved pick DOES: select the object under the cursor, or deselect
-  // when the press landed on bare terrain or nothing at all.
-  const applyPointerPick = (hit: PickCandidate | null): void => {
-    if (hit === null) {
-      setSelectedEntity(null);
-      return;
-    }
-    if (hit.kind === "flag") {
-      // A marker click is NOT a miss: it leaves the entity selection standing.
-      // The two are different selections, and clicking a finding is not a
-      // statement about which stamp is being worked on.
-      //
-      // Straight to `setSelectedFlag`, past the public verb: there is nothing to
-      // refuse (the key came out of the same summary the pick built its
-      // candidates from, one gesture ago) and nothing to frame (the user is
-      // looking at the marker they just pressed). D-F4.5-15's "the viewport is
-      // the primary selection surface" is this line; the palette row lights up
-      // because the seam pushes, not because the two surfaces talk.
-      setSelectedFlag(hit.key);
-      return;
-    }
-    setSelectedEntity(hit.entityId);
-  };
-
-  // One LMB press while `pointer` is armed. Three outcomes, in the order they
-  // are decided — and the order IS the arbitration:
-  //
-  //  1. A GIZMO handle: the manipulator wins every tie, because its arms are
-  //     drawn over the box they move (they all start at its centre) and one that
-  //     lost the click to the thing behind it would not be a manipulator. The
-  //     drag starts on the press with NO threshold, because no CLICK gesture
-  //     competes for a handle press — there is nothing for it to be mistaken
-  //     for, so nothing to disambiguate by waiting.
-  //  2. The ALREADY-SELECTED entity (directly, or through a prop it placed):
-  //     arm a pending drag and do nothing else. Re-selecting what is selected
-  //     was always a no-op, so deferring costs nothing, and the threshold is
-  //     what decides after the fact whether this press was a click or a move.
-  //  3. Anything else: today's plain pick. Pressing an UNSELECTED entity selects
-  //     it and arms nothing — otherwise the first click on any entity could
-  //     shove it, and a click would never be safe.
-  //
-  // Dispatched from the machine's pointerdown chain (T3c) and STAYS here, though
-  // two of its three outcomes are that module's state, because all three of its
-  // TESTS are this file's: the gizmo hit-test, `selectedEntityId` and a raycast
-  // pick. It reaches the machine the way every other host verb does — through the
-  // public verbs. See `field-machine.ts`'s pointer-chain header.
-  const pointerPress = (e: PointerEvent): void => {
-    const axis = gizmoAxisAt(e.clientX, e.clientY);
-    if (axis !== null && selectedEntityId !== null) {
-      if (
-        machine.beginMove(selectedEntityId, axis, true, {
-          x: e.clientX,
-          y: e.clientY,
-        })
-      )
-        capturePointer(e.pointerId);
-      return;
-    }
-    const picked = pointerPick(e.clientX, e.clientY);
-    if (picked === null) return;
-    const hit = picked.hit;
-    if (
-      hit !== null &&
-      hit.kind !== "flag" &&
-      hit.entityId === selectedEntityId
-    ) {
-      machine.setPendingMove({
-        entityId: hit.entityId,
-        x: e.clientX,
-        y: e.clientY,
-        pointerId: e.pointerId,
-      });
-      return;
-    }
-    applyPointerPick(hit);
-  };
+  // The assembly did NOT stay here, and the reason is ordering rather than
+  // preference: the press interrogates `entityFootprints`, `gizmoAxisAt`,
+  // `setSelectedEntity`, `setSelectedFlag` and `viewState`, all of which are
+  // declared BELOW this point, and the deps literal is eager. Assembling it here
+  // would have cost five arrows to save two. Search `const picking =`, ~1,100
+  // lines down, immediately above the machine that dispatches it.
 
   // The named-history feed (`field-history-feed.ts`): its channel, its change
   // signature and two of its three functions left, and no state stayed behind —
@@ -3556,11 +3262,11 @@ export function createFieldHost(deps?: {
   // one-line delegate like the other twelve.
   //
   // The forward reference here is the one that was already there:
-  // `commitToolOp` (~900 lines up) calls `historyFeed.notify()` where it called
+  // `commitToolOp` (~500 lines up) calls `historyFeed.notify()` where it called
   // `notifyHistory()`, which was declared on this same line. Safe for the reason
   // spelled out at the `createVoidCast` assembly below — nothing between this
   // closure's brace and its `return {` ever RUNS. No hoist was needed: the one dep
-  // is `substrate`, assembled ~1,500 lines above.
+  // is `substrate`, assembled ~1,200 lines above.
   const historyFeed = createHistoryFeed({ substrate });
 
   // The entity-list tick. Fired by every path that can add, remove or rewrite
@@ -3579,58 +3285,10 @@ export function createFieldHost(deps?: {
     historyFeed.notify();
   };
 
-  // Which committed entities the findings TOUCH — the palette's drift badges.
-  //
-  // Driven from the FINDINGS, not from the entities, and that direction is the
-  // whole cost model: a report holds a handful of ops each naming the chunks it
-  // wrote, so this is (findings × chunks × entities) box tests with NO string
-  // allocation at all. The other direction — enumerate each entity's chunk box and
-  // look each key up — allocates a key per chunk of every footprint, which grows
-  // with the cube of region size and is unbounded in a way findings are not.
-  //
-  // The overlap test reproduces chunk-box membership exactly rather than
-  // approximately: a box covers chunk `c` iff `floor(min/dim) <= c <= floor(max/dim)`,
-  // and those two are `c·dim <= box.max` and `(c+1)·dim > box.min` respectively —
-  // half-open on the high side, which is how a chunk owns its span.
-  const driftedEntities = (
-    findings: readonly field.DriftFinding[],
-  ): number[] => {
-    const boxes = entityFootprints();
-    const dim = field.CHUNK_DIM * store.cellSize;
-    const hit = new Set<number>();
-    for (const finding of findings)
-      for (const key of finding.chunks) {
-        const [cx, cy, cz] = field.parseChunkKey(key);
-        const lo: Vec3T = [cx * dim, cy * dim, cz * dim];
-        for (const [entityId, box] of boxes) {
-          if (hit.has(entityId)) continue;
-          if (
-            lo[0] <= box.max[0] &&
-            lo[0] + dim > box.min[0] &&
-            lo[1] <= box.max[1] &&
-            lo[1] + dim > box.min[1] &&
-            lo[2] <= box.max[2] &&
-            lo[2] + dim > box.min[2]
-          )
-            hit.add(entityId);
-        }
-      }
-    return [...hit];
-  };
-
-  // Cloned like the session: a drift report is plain data the palette keeps. The
-  // touched-entity set is recomputed on every push rather than stored beside
-  // `drift`, because the FOOTPRINTS can move under a standing report (a
-  // reconfigure re-splices a span; the report survives) — deriving at push time
-  // is what keeps the badge pointing at the geometry as it currently is.
-  const driftPayload = (): FieldDriftReport | null =>
-    drift === null
-      ? null
-      : { findings: structuredClone(drift), entityIds: driftedEntities(drift) };
-
-  const notifyDrift = (): void => {
-    driftChannel.publish(driftPayload());
-  };
+  // The reconfigure-drift report's three functions went with its slot to
+  // `field-drift.ts`. The assembly could not stay here — `driftedEntities` reads
+  // `entityFootprints`, declared ~60 lines below — so it sits just past that
+  // memo instead; search `const drift =`.
 
   // The LIVE entity record for an id (not a clone — callers that hand it on
   // clone at their own boundary), or null when no entity op carries it. The one
@@ -3704,6 +3362,22 @@ export function createFieldHost(deps?: {
     return boxes;
   };
 
+  // --- the reconfigure-drift report (`field-drift.ts`) ---------------------
+  //
+  // The slot, its panel channel and its three functions. The map called this row
+  // a RESULT SLOT and not a cluster (§3.3) because all four writes to it come
+  // from elsewhere — and that is exactly why it looked like state that had to stay
+  // in the closure. Its READERS decided instead: there are two and both went with
+  // it, so the four writers share a two-verb seam (`set` then `notify`, in that
+  // order, because notifications go last).
+  //
+  // The position is FORCED and this is the line that says by what: `driftedEntities`
+  // derives the touched-entity badges from `entityFootprints`, declared directly
+  // above, so this cannot rise back to where the cluster's functions were ~100
+  // lines up. Everything that READS it — the machine's apply, `stepHistory`,
+  // `resetWorld`, and the facade's `subscribeDrift`/`dismissDrift` — is below.
+  const drift = createDrift({ substrate, entityFootprints });
+
   // Re-derive the selected entity's box from the CURRENT record, and DROP the
   // selection when that record has left the log. Every path that can move or
   // remove a committed region calls this: a reconfigure apply (the region is an
@@ -3767,7 +3441,7 @@ export function createFieldHost(deps?: {
   const gizmoAxisAt = (clientX: number, clientY: number): Axis | null => {
     const g = gizmo;
     if (g === null || !gizmoVisible()) return null;
-    const ray = cursorRay(clientX, clientY);
+    const ray = targeting.cursorRay(clientX, clientY);
     if (ray === null) return null;
     // Every bound comes off the ONE span the batch was drawn from, so the
     // pickable arm and the visible arm cannot be different segments.
@@ -4109,7 +3783,7 @@ export function createFieldHost(deps?: {
   // extraction lands in this same region and inherits it.
   //
   // This binding is USED ABOVE where it is DECLARED: `markDirtyWithNeighbors`
-  // (~1,900 lines up) calls `voidcast.invalidate()`. That is legal, and it is
+  // (~1,350 lines up) calls `voidcast.invalidate()`. That is legal, and it is
   // FORCED rather than chosen — `snapshotAllChunks` is a dep and is declared
   // just above, so the construction cannot move up past it.
   //
@@ -4147,14 +3821,17 @@ export function createFieldHost(deps?: {
   // over it. The map records `view`'s only outbound edge as `world.dirty`,
   // because a cross-cluster CALL is not a data edge (§2.1); making the two verbs
   // constructor deps is what turns the omission into something the compiler
-  // enforces. The cluster's own state block, ~2,300 lines up, says where it went.
+  // enforces. The cluster's own state block, ~1,900 lines up, says where it went.
   //
   // Everything that READS this is a forward reference from inside a function
-  // body — `cursorRay`, `renderScene`, `pickCandidates` and `remeshOne` all sit
-  // above it — which is safe for the reason spelled out at the `createVoidCast`
-  // assembly above: nothing between this closure's brace and its `return {` ever
-  // RUNS, so no function body can be evaluated before this declaration executes.
-  // No hoist was needed, and none was taken.
+  // body — `renderScene` and `remeshOne` sit above it, as does the arrow pair the
+  // `createTargeting` assembly hands `field-targeting.ts` — which is safe for the
+  // reason spelled out at the `createVoidCast` assembly above: nothing between
+  // this closure's brace and its `return {` ever RUNS, so no function body can be
+  // evaluated before this declaration executes. No hoist was needed, and none was
+  // taken. (`field-picking.ts` reads it too and does NOT forward-reference: that
+  // assembly is deliberately below this line, which is half of why it is where it
+  // is.)
   const viewState = createView({
     substrate,
     discardVoidCast: voidcast.discard,
@@ -4654,6 +4331,38 @@ export function createFieldHost(deps?: {
           );
   };
 
+  // --- the pointer pick (`field-picking.ts`) -------------------------------
+  //
+  // Assembled HERE rather than where its four functions were ~1,100 lines up, and
+  // the position is forced from both sides: five of its eleven deps are declared
+  // between there and here (`entityFootprints`, `gizmoAxisAt`, `setSelectedEntity`,
+  // `setSelectedFlag`, `viewState`), and the machine directly below takes `press`
+  // as a plain ref. So the pair's one unavoidable arrow pair points DOWN from
+  // here into the machine, which is the cheaper direction — two members rather
+  // than five.
+  //
+  // The two arrows are the only entries that are not what they look like:
+  // `beginMove` and `setPendingMove` name verbs of a module that does not exist
+  // yet on this line. Everything else is a `const` arrow or a thunk over a host
+  // `let`, per `substrate.ts`'s split.
+  const picking = createPicking({
+    substrate,
+    layers: viewState.layers,
+    sliceOpts: viewState.sliceOpts,
+    cursorRay: targeting.cursorRay,
+    entityFootprints,
+    gizmoAxisAt,
+    selectedEntityId: () => selectedEntityId,
+    setSelectedEntity,
+    setSelectedFlag,
+    beginMove: (entityId, axis, grabbed, press) =>
+      machine.beginMove(entityId, axis, grabbed, press),
+    setPendingMove: (next) => {
+      machine.setPendingMove(next);
+    },
+    capturePointer,
+  });
+
   // --- the session + gesture machine (`field-machine.ts`) ------------------
   //
   // The stamp session, the reconfigure session, the move that rides one, the
@@ -4686,10 +4395,11 @@ export function createFieldHost(deps?: {
   // into a callback, inverted.
   //
   // THE FORWARD-REFERENCE INVARIANT applies to this line exactly as it does to
-  // the `createVoidCast` assembly ~350 lines up, and this is the assembly that
-  // leans on it hardest: `applyOrbit`, `gizmoVisible`, `orbitPivot`,
-  // `activeGizmoAxis` and `pointerPress` all sit ABOVE here and call into the
-  // machine from inside their bodies. Safe because nothing between this closure's
+  // the `createVoidCast` assembly ~600 lines up, and this is the assembly that
+  // leans on it hardest: `applyOrbit`, `gizmoVisible`, `orbitPivot` and
+  // `activeGizmoAxis` all sit ABOVE here and call into the machine from inside
+  // their bodies, and `field-picking.ts` — assembled directly above — does the
+  // same through the two arrows in its deps record. Safe because nothing between this closure's
   // brace and its `return {` ever RUNS — see that comment for the whole argument,
   // and for the rule it implies (do not add an executed statement at closure
   // level).
@@ -4721,7 +4431,7 @@ export function createFieldHost(deps?: {
     snapshotChunks,
     chunkOrigin,
     stampGhostMaterial,
-    cursorRay,
+    cursorRay: targeting.cursorRay,
     boxCorner,
     setBoxAnchor,
     setSegmentAnchor: segment.setAnchor,
@@ -4735,14 +4445,12 @@ export function createFieldHost(deps?: {
     // constructed ~600 lines below this one and the literal is eager. Same shape
     // as the forward reference `applyReconfigureSession` made when it lived here.
     noteReconfigureMs: (ms) => stats.noteReconfigureMs(ms),
-    // The drift SLOT stays in this closure — `stepHistory` and `resetWorld` clear
-    // it too, and `driftPayload` shapes it — so the apply gets a write-thunk and a
-    // push rather than the state. Two calls, not one, because the ordering is
-    // load-bearing: every piece of host state settles, then the notifications go.
-    setDrift: (next) => {
-      drift = next;
-    },
-    notifyDrift,
+    // The report is `field-drift.ts`'s since T3d, so the apply gets that module's
+    // two verbs rather than a write-thunk over a closure `let`. Still TWO, not
+    // one, because the ordering is load-bearing: every piece of host state
+    // settles, then the notifications go — the module's header argues it.
+    setDrift: drift.set,
+    notifyDrift: drift.notify,
     // The pointer chain's deps (T3c). Every one is a VERB the chain dispatches
     // to, or the liveness of a state whose overlay stays here — the arbitration
     // is the machine's, the actions are ours.
@@ -4762,7 +4470,7 @@ export function createFieldHost(deps?: {
     eyedropper,
     applyTool,
     armMaskDropReport,
-    pointerPress,
+    pointerPress: picking.press,
     selectionClick,
     segmentClick: segment.click,
     segmentAnchor: segment.anchor,
@@ -4811,9 +4519,9 @@ export function createFieldHost(deps?: {
     // finding: ⌘Z left the list up). Cleared, never recomputed; the load-path
     // clear (loadWorld) shares the rationale. An already-null report is not
     // re-notified.
-    if (drift !== null) {
-      drift = null;
-      notifyDrift();
+    if (drift.standing()) {
+      drift.set(null);
+      drift.notify();
     }
     notifyEntities();
   };
@@ -4906,8 +4614,12 @@ export function createFieldHost(deps?: {
     kitBox: ReturnType<typeof snappedKitBox> | null;
   };
   const ghostState = (): GhostState | null => {
-    if (!lastPointer) return null;
-    const center = computeTarget(lastPointer.x, lastPointer.y);
+    // Bound to a local, like every other read of the substrate's thunk side: the
+    // guard and the two coordinate reads are one synchronous expression over one
+    // `let`, and narrowing does not survive a call boundary.
+    const last = targeting.pointer();
+    if (last === null) return null;
+    const center = targeting.computeTarget(last.x, last.y);
     if (!center) return null;
     const kitBox = isKitFillTool() ? snappedKitBox(center, digRadius) : null;
     return { center, kitBox };
@@ -4949,8 +4661,13 @@ export function createFieldHost(deps?: {
       pendingStamp: machine.pendingStamp() !== null,
       anchored: boxAnchor !== null || segment.anchor() !== null,
     });
-    if (shape === null || !lastPointer) return;
-    const p = selectionPoint(lastPointer.x, lastPointer.y);
+    // Split rather than folded into one `||`, to keep the short-circuit the
+    // closure's `if (shape === null || !lastPointer)` had: with no gesture armed
+    // — the common frame — the cursor is not asked for at all.
+    if (shape === null) return;
+    const last = targeting.pointer();
+    if (last === null) return;
+    const p = targeting.selectionPoint(last.x, last.y);
     if (!p) return;
     const batch =
       shape === "ring"
@@ -5301,21 +5018,28 @@ export function createFieldHost(deps?: {
   // modifier pins below are closure-private keydown state with no route out of
   // this file at all. The wheel stays because half of it is the camera.
   //
-  // The one statement that did NOT delegate is `lastPointer`, and deliberately:
-  // it is not arbitration, the chain never reads it, and its three readers —
-  // `ghostState`, `renderCursorAffordance` and the facade's `beginMove`, which
-  // anchors a `G` grab at the last known cursor — are all this closure's. A
-  // write-thunk dep for it would have handed the machine a boundary write made
+  // The one statement that is not a delegation to the MACHINE is the pointer
+  // note, and deliberately: it is not arbitration, and the chain never reads it.
+  // A write-thunk dep for it would have handed the machine a boundary write made
   // purely on someone else's behalf, which is the one shape `MachineDeps` is
   // trying not to grow.
+  //
+  // It became a delegation of its own at T3d, to a different module and for the
+  // opposite reason. The binding it used to assign went to `field-targeting.ts`
+  // with the five cursor-to-world functions it is the cached ARGUMENT of, so the
+  // line is now `targeting.notePointer(...)`. Nothing about the argument above
+  // changed — the machine still must not own this write — and the two remaining
+  // readers on this side (`ghostState`, `renderCursorAffordance`) plus the
+  // facade's `beginMove`, which anchors a `G` grab at the last known cursor, ask
+  // `targeting.pointer()` for it.
 
   const onPointerDown = (e: PointerEvent): void => {
-    lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
+    targeting.notePointer(e.clientX, e.clientY); // feeds the per-frame ghost
     machine.pointerDown(e);
   };
 
   const onPointerMove = (e: PointerEvent): void => {
-    lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
+    targeting.notePointer(e.clientX, e.clientY); // feeds the per-frame ghost
     machine.pointerMove(e);
   };
 
@@ -5331,10 +5055,11 @@ export function createFieldHost(deps?: {
     machine.pointerCancel(e);
   };
 
-  // NOTE: no pointer-leave handler on purpose — lastPointer survives the
-  // pointer leaving the canvas so the ghost previews panel-driven size changes
-  // (see the lastPointer declaration comment). A move drag does not need one
-  // either: it takes pointer capture, so the events keep arriving.
+  // NOTE: no pointer-leave handler on purpose — the noted cursor position
+  // survives the pointer leaving the canvas so the ghost previews panel-driven
+  // size changes (see `lastPointer`'s declaration comment inside
+  // `createTargeting`, which is the whole argument). A move drag does not need
+  // one either: it takes pointer capture, so the events keep arriving.
 
   // The wheel is TWO bindings on one input, split by what LMB is armed to do.
   // Under `pointer` — which selects and moves rather than paints — there is no
@@ -5638,8 +5363,8 @@ export function createFieldHost(deps?: {
     // unlike an edit-time invalidation: everything else on screen is being
     // replaced too, so "void cast cleared" beside a fresh world is noise.
     voidcast.discard();
-    drift = null;
-    notifyDrift();
+    drift.set(null);
+    drift.notify();
   };
 
   // World-load compaction (spec D-F3-16 / D-F3-6): fold aged brush runs into
@@ -6077,11 +5802,17 @@ export function createFieldHost(deps?: {
       // ever been over the canvas — then the first cursor event anchors), so a
       // grab starts where the user is looking instead of jumping the ghost to
       // wherever the pointer happens to arrive next.
+      //
+      // COPIED at this boundary rather than handed on: `targeting.pointer()`
+      // returns the stored object (see its TSDoc — the per-frame ghost reads it
+      // and a defensive copy there would allocate every frame), so the one caller
+      // that passes it into another module's keeping makes the copy itself.
+      const last = targeting.pointer();
       machine.beginMove(
         entityId,
         null,
         false,
-        lastPointer === null ? null : { x: lastPointer.x, y: lastPointer.y },
+        last === null ? null : { x: last.x, y: last.y },
       );
     },
     applyReconfigure() {
@@ -6227,11 +5958,11 @@ export function createFieldHost(deps?: {
       notifyEntities();
     },
     subscribeDrift(cb) {
-      return driftChannel.subscribe(cb);
+      return drift.subscribe(cb);
     },
     dismissDrift() {
-      drift = null;
-      notifyDrift();
+      drift.set(null);
+      drift.notify();
     },
     frameChunks(chunks) {
       // Through `chunkSetBox`, which `frameWorld` also uses — a re-centre and a fit

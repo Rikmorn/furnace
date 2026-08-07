@@ -314,12 +314,19 @@ export type MachineDeps = {
    *  is constructed ~1,200 lines below this module. */
   noteReconfigureMs(ms: number): void;
   /** Install the last reconfigure's drift report (null = the apply was clean).
-   *  The drift SLOT stays in the host because its readers are broader than this
-   *  module — `stepHistory` clears it, `resetWorld` clears it, and `driftPayload`
-   *  shapes it for the panel — so this is a write-thunk, not state that moved.
+   *
+   *  `field-drift.ts`'s own verb since foundations T3d, arriving through the
+   *  host's deps record. It used to be a write-thunk over a closure `let`, on the
+   *  reasoning that the slot had to stay where its several writers could reach it;
+   *  the extraction inverted that — the slot's two READERS both went with it, and
+   *  the other three writers (`stepHistory`, `resetWorld`, the panel's dismiss)
+   *  call this same verb from where they are.
+   *
    *  Separate from {@link notifyDrift} because the apply's ordering is
    *  load-bearing: every piece of host state settles first, and the three
-   *  notifications go last. */
+   *  notifications go last. **That is the half `field-drift.ts` cites this
+   *  docblock for, and the move did not touch it** — the pair stayed two calls
+   *  precisely so this ordering survived the boundary. */
   setDrift(next: field.DriftFinding[] | null): void;
   /** Push the drift report to the panel. See {@link setDrift} for why the pair
    *  is two calls. */
@@ -1704,8 +1711,10 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // `createFieldHost` in foundations T3c — pointerdown's seven-way arbitration,
   // pointermove's six-way, and the pair that end a gesture. The host still
   // ATTACHES them (the canvas element is its, and so is `attachListeners`'
-  // headless guard) and still records `lastPointer` on the way past, for the
-  // reason its delegates give; it no longer decides anything.
+  // headless guard) and still records the cursor position on the way past — as
+  // `targeting.notePointer(…)` since T3d, when the binding it was writing left
+  // for `field-targeting.ts` with the five functions it is the cached argument
+  // of. The handlers did not move a line; it no longer decides anything.
   //
   // THE MACHINE ARBITRATES, THE TOOLS ACT — the rule that drew the boundary and
   // the one to read these four functions by. MOST of what the chains below TEST
@@ -1713,8 +1722,13 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // gesture, a stroke in progress), and that majority is why the chains are here
   // rather than split in two; every branch's VERB belongs to some other cluster,
   // and that is why the verbs arrive in {@link MachineDeps} rather than moving.
-  // `eyedropper`, `applyTool`, `selectionClick`, the segment brush's three and
-  // `pointerPress` all still live exactly where they lived.
+  // `eyedropper`, `applyTool` and `selectionClick` still live in the host, and
+  // the segment brush's three in `field-segment.ts`, exactly as they did. Two of
+  // the verbs have since left the host on their own account — `pointerPress` is
+  // `field-picking.ts`'s `press`, and `selectionClick` reaches
+  // `field-targeting.ts` for its seed voxels — which changed nothing here: a verb
+  // arrives as a dep whichever file it ends up in, and that is the point of
+  // taking verbs as deps rather than as locations.
   //
   // THREE TESTS ARE NOT THIS MODULE'S, and they are named here rather than left
   // for a reader to trip over, because the rule stated as an absolute would send
@@ -1731,13 +1745,13 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   //
   // `pointerPress` is the one worth naming, because at a glance it should have
   // come too: it arms {@link PendingMovePress} and starts gizmo moves, both this
-  // module's state. It stayed because of what it BRANCHES on — the gizmo
-  // hit-test, `selectedEntityId` and a raycast pick, three host clusters and none
-  // of this module's slots — so by the rule above it is a verb, not an
-  // arbitration this module could hold. It speaks to the machine the way every
-  // other host verb does, through the public verbs. Moving it would have imported
-  // four host reads and a host type to relocate one branch of a three-way
-  // decision that is not about sessions at all.
+  // module's state. It did not, and the argument is made in full at the top of
+  // `field-picking.ts` — which is where the function itself went at T3d, as that
+  // module's one seam member. Not restated here: two copies of one argument is
+  // how the stale one survives, and this header only needs the conclusion.
+  // Whichever file it sits in, it reaches this module through the public verbs
+  // like any other, and it is a verb rather than an arbitration this module could
+  // hold because none of its three tests is this module's state.
   //
   // BRANCH ORDER IS THE CONTRACT, not an implementation detail: it is what "a
   // pending stamp SHADOWS the armed gesture" and "RMB stays live under
