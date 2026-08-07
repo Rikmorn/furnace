@@ -52,7 +52,7 @@ Any of:
   pin is three assertions and belongs in that commit rather than its own.
 
   > **This clause FIRED at foundations T3c and was consciously not taken (2026-08-07).** T3c
-  > Task 5 opened that file for a real reason — the material-swatch case became a `toEqual`
+  > Task 1 (commit `d34374d3`) opened that file for a real reason — the material-swatch case became a `toEqual`
   > over a `toMatchObject` when `setTool` widened to a patch, because the ABSENCE of an
   > `effect` field is the claim. The pin was not added with it. The reason is a gate rule
   > rather than a judgement about the pin: the tranche's docs-and-gate task carried a suite
