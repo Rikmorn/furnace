@@ -14,7 +14,7 @@ is history, not current state.
 
 ## Index
 
-26 seals, ordered by **true slice sequence, oldest first** — the order the original
+27 seals, ordered by **true slice sequence, oldest first** — the order the original
 append-only log accumulated them in.
 
 **Filename order is NOT slice order.** Three files carry the 2026-07-06 extraction date
@@ -55,6 +55,7 @@ Dates marked `*` below are extraction-filed, not real seal dates.
 | 2026-07-25 | [Epic 3 · One Field F3b — the cave & the entities](2026-07-25-epic3-f3b-cave-and-entities.md) | core, dungeon, editor |
 | 2026-07-27 | [Epic 3 · One Field F4 — seeing](2026-07-27-epic3-f4-seeing.md) | core, dungeon, editor |
 | 2026-08-03 | [Epic 3 · F4.5 — the overlay cockpit](2026-08-03-epic3-f4.5-overlay-cockpit.md) | editor (core, dungeon stated byte-untouched except two comment-only changes) |
+| 2026-08-07 | [Foundations program · T1a→T3c — consolidated backfill](2026-08-07-foundations-t1a-t3c-backfill.md) — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d* | core, editor, dungeon |
 
 **On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
 frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
