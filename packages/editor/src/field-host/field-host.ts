@@ -1547,11 +1547,6 @@ const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
   y: [0.0612, 0.3864, 0.0976, 1], // #46a758
   z: [0.1046, 0.2664, 0.8632, 1], // #5b8def
 };
-// Cursor travel (px) before a press on the SELECTED entity stops being a click
-// and becomes a move. Below it a hand tremor between mousedown and mouseup must
-// not open a session, let alone splice the log.
-const DRAG_THRESHOLD_PX = 4;
-
 // Load-time compaction fires only when the loaded log carries MORE than this
 // many foldable ops (spec D-F3-16). Named, not inlined: the meter's
 // `compactable N` reads against the SAME logStats ceiling, so a user watches
@@ -1760,6 +1755,15 @@ export function createFieldHost(deps?: {
   // drag, so sharing the stroke's re-arm point would silence every segment
   // after the first.
   let maskDropReported = false;
+  // The ONE re-arm, handed to BOTH brushes that own a gesture-length report: the
+  // sphere stroke re-arms it at pointer-down (the machine's chain) and the
+  // segment brush at each commit (`field-segment.ts`). A named const rather than
+  // two inline arrows over one `let`, now that neither caller is in this file —
+  // two spellings of a one-line write is how a third acquires a subtly different
+  // one.
+  const armMaskDropReport = (): void => {
+    maskDropReported = false;
+  };
 
   // --- the Esc capture stack (D-12, was the Esc ladder) --------------------
   // ONE key, ONE rung per press, most recent intent first — except that "most
@@ -1950,7 +1954,9 @@ export function createFieldHost(deps?: {
   // left with `field-machine.ts`, and they had to: the move's SESSION is the
   // machine's `stamp` slot, so a boundary between them would have cut a state
   // machine in half (`field-host-clusters.md` §7.2). Their two Esc rungs went
-  // with them. Read here as `machine.moveDrag()` / `machine.pendingMove()`.
+  // with them. Read here as `machine.moveDrag()`, which the gizmo and the cursor
+  // still ask; the sub-threshold press has no reader on this side at all since
+  // T3c took the threshold test too.
 
   // The SELECTED finding's cell outline (D-F4.5-15), rebuilt with every flags
   // push. The key itself lives in the flag store — beside the findings it names,
@@ -1978,8 +1984,11 @@ export function createFieldHost(deps?: {
   let voidCastBind: binding.Binding | null = null;
 
   let digRadius = 1.25;
-  let digging = false;
-  let lastStroke = 0;
+  // The stroke's two slots — LMB-is-down and the throttle's last timestamp —
+  // left with the pointer chain (`field-machine.ts`), and they were the easiest
+  // of the T3c move to decide: the four pointer handlers were their only readers
+  // in this file, so nothing here lost a fact it was using. The RADIUS stayed —
+  // the wheel, `[`/`]`, the panel slider and every ghost read it.
   // Last cursor position over the viewport, so the ghost target marker can
   // preview where the next stroke lands each frame. DELIBERATELY NOT cleared
   // on pointer-leave (the size-preview affordance): the ghost keeps rendering at
@@ -2127,6 +2136,69 @@ export function createFieldHost(deps?: {
     camera.setPosition(cam, new Float32Array(eye));
     camera.setTarget(cam, new Float32Array(target));
     camera.setUp(cam, new Float32Array(up));
+  };
+
+  // --- the look drag + pointer capture -------------------------------------
+  //
+  // The pointer CHAIN — which of the seven things an LMB press can mean this
+  // press is — moved to `field-machine.ts` in foundations T3c, because every test
+  // in it reads that module's state and nothing else's. These five verbs are the
+  // half that could not go, for two reasons and both of them physical rather than
+  // stylistic:
+  //   - the LOOK drag is the camera cluster (`orbitState`, `aimCamera`,
+  //     `applyOrbit`, `orbitPivot` — four bindings that stay here), so the chain
+  //     asks whether the camera has the pointer and hands the drag back;
+  //   - pointer CAPTURE needs the canvas ELEMENT, which is this closure's
+  //     `canvasEl` and is reassigned by every attach/detach — the machine has no
+  //     handle on it and is not given one.
+  // So the machine arbitrates and calls these. Nothing here decides anything.
+
+  // Start an RMB drag. The pivot LATCHES here (see the `look` declaration): what
+  // this drag is gets decided once, at the press.
+  const beginLook = (clientX: number, clientY: number): void => {
+    look = { lastX: clientX, lastY: clientY, pivot: orbitPivot() };
+  };
+
+  // One drag event's worth of turn.
+  //
+  // The null guard is the compiler's, not the chain's: `pointerMove` calls this
+  // only under `looking()` one statement earlier, but `look` is a `let` in an
+  // enclosing scope and no narrowing survives the call boundary between them.
+  const lookDrag = (clientX: number, clientY: number): void => {
+    if (look === null) return;
+    const { dYaw, dPitch } = lookDeltas(
+      clientX - look.lastX,
+      clientY - look.lastY,
+    );
+    look.lastX = clientX;
+    look.lastY = clientY;
+    // The SAME angles either way, so the view turns the direction the hand
+    // moved in both drags; the pivot decides what stays still while it does.
+    aimCamera(
+      look.pivot === null
+        ? flyLook(orbitState, dYaw, dPitch)
+        : orbitAbout(orbitState, look.pivot, dYaw, dPitch),
+    );
+    applyOrbit();
+  };
+
+  const endLook = (): void => {
+    look = null; // the anchor a turned camera invalidated was retired in applyOrbit
+  };
+
+  // The DOM's pointer capture, which is unrelated to the Esc capture stack
+  // despite the shared word: this one routes the pointer's events to the canvas
+  // after the cursor leaves it, which is what makes a drag that runs off the
+  // viewport keep working (and is why there is no pointerleave handler — see the
+  // note beside `attachListeners`).
+  //
+  // Optional-chained on the element for `attachListeners`' reason: a headless
+  // fixture has no real canvas, and every one of these calls is best-effort.
+  const capturePointer = (pointerId: number): void => {
+    canvasEl?.setPointerCapture(pointerId);
+  };
+  const releasePointer = (pointerId: number): void => {
+    canvasEl?.releasePointerCapture(pointerId);
   };
 
   // Build the per-class lit material cache from `table`: a surface material per
@@ -2636,9 +2708,13 @@ export function createFieldHost(deps?: {
   // sabotage: hoisting the build above the try breaks nothing). What it
   // defends is real: a caller writing `commitToolOp(toolOp(shape))` evaluates
   // the build BEFORE this function is entered, so any future build-time throw
-  // would escape the catch, back out through onPointerDown, and skip its
-  // setPointerCapture — stranding `digging === true` with no capture, so a
-  // pointerup outside the canvas latches the stroke on.
+  // would escape the catch, back out through the machine's `pointerDown`, and
+  // skip the `capturePointer` on the line after it — stranding that chain's
+  // `digging === true` with no capture, so a pointerup outside the canvas latches
+  // the stroke on. Both the flag and the capture call moved to
+  // `field-machine.ts` in T3c; the failure mode did not move with them, because
+  // it is about the ORDER of two statements this function can still throw
+  // between.
   const commitToolOp = (shape: field.BrushShape): void => {
     try {
       markDirtyWithNeighbors(field.logApply(store, log, toolOp(shape), table));
@@ -3173,11 +3249,13 @@ export function createFieldHost(deps?: {
   // measured it at eight external edges and ONE boundary mutation). What stays
   // here is the wiring, and its shape is the point: the two bindings the host
   // REASSIGNS travel as calls, not values. `digRadius` is moved by `applyRadius`
-  // below, and `maskDropReported` is re-armed by `onPointerDown` as well as by the
-  // segment's own commit — either one handed over as a number or a boolean would
-  // give the module a private copy that diverges silently the first time the host
-  // wrote to its own. The three constants are `const` here and travel as values
-  // for the same reason read backwards.
+  // below, and `maskDropReported` is re-armed by the machine's stroke branch as
+  // well as by the segment's own commit — either one handed over as a number or a
+  // boolean would give the module a private copy that diverges silently the first
+  // time the host wrote to its own. The three constants are `const` here and
+  // travel as values for the same reason read backwards. Two of the three members
+  // below now go to `field-machine.ts` as well, which is what turned the re-arm
+  // into a named const instead of an arrow written out twice.
   const segment = createSegmentBrush({
     strokeMinMs: STROKE_MIN_MS,
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
@@ -3186,9 +3264,7 @@ export function createFieldHost(deps?: {
     selectionPoint,
     reportToolError,
     commitToolOp,
-    armMaskDropReport: () => {
-      maskDropReported = false;
-    },
+    armMaskDropReport,
     router,
   });
 
@@ -3424,6 +3500,12 @@ export function createFieldHost(deps?: {
   //  3. Anything else: today's plain pick. Pressing an UNSELECTED entity selects
   //     it and arms nothing — otherwise the first click on any entity could
   //     shove it, and a click would never be safe.
+  //
+  // Dispatched from the machine's pointerdown chain (T3c) and STAYS here, though
+  // two of its three outcomes are that module's state, because all three of its
+  // TESTS are this file's: the gizmo hit-test, `selectedEntityId` and a raycast
+  // pick. It reaches the machine the way every other host verb does — through the
+  // public verbs. See `field-machine.ts`'s pointer-chain header.
   const pointerPress = (e: PointerEvent): void => {
     const axis = gizmoAxisAt(e.clientX, e.clientY);
     if (axis !== null && selectedEntityId !== null) {
@@ -3433,7 +3515,7 @@ export function createFieldHost(deps?: {
           y: e.clientY,
         })
       )
-        canvasEl?.setPointerCapture(e.pointerId);
+        capturePointer(e.pointerId);
       return;
     }
     const picked = pointerPick(e.clientX, e.clientY);
@@ -4575,27 +4657,33 @@ export function createFieldHost(deps?: {
   // --- the session + gesture machine (`field-machine.ts`) ------------------
   //
   // The stamp session, the reconfigure session, the move that rides one, the
-  // armed-gesture slot and the pending-stamp arm, as **51 top-level declarations**
-  // inside `createFieldMachine` — 10 mutable state slots, 2 view channels, 3 Esc
-  // rungs, 1 preview coalescer and 35 functions. They used to thread this file
-  // from the state block ~2,600 lines up to the pointer handlers ~700 lines down.
-  // The assembly sits HERE, where the bulk of them were, on
-  // `createSegmentBrush`'s precedent — a cluster's remaining footprint marks
-  // where the cluster was.
+  // armed-gesture slot, the pending-stamp arm and (since T3c) the pointer chain
+  // that arbitrates between them, as **56 top-level declarations** inside
+  // `createFieldMachine` — 12 mutable state slots, 2 view channels, 3 Esc rungs,
+  // 1 preview coalescer and 38 functions. They used to thread this file from the
+  // state block ~2,600 lines up to the pointer handlers ~700 lines down. The
+  // assembly sits HERE, where the bulk of them were, on `createSegmentBrush`'s
+  // precedent — a cluster's remaining footprint marks where the cluster was.
   //
   // (The composition is stated rather than the bare total because a bare total is
   // the same hand-maintained tally the Esc-stack comment above just stopped
-  // keeping. This one is re-derivable in one command:
-  // `grep -cE "^  (const|let) " src/field-host/field-machine.ts` minus the `deps`
-  // destructure and minus everything below `return {`.)
+  // keeping. This one is re-derivable in one command — the range is what makes it
+  // honest, since a bare file-wide grep also catches the two module-scope helpers
+  // above the factory:
+  // `awk '/^  const { substrate } = deps;/,/^  return {/' field-machine.ts | grep -cE "^  (const|let) "`
+  // , minus the `deps` destructure the range opens on.)
   //
   // §7.5 of the closure map called this the WORST available extraction and it was
   // right about why (13 partner clusters, 45 cross-cluster edges, a slot shared
   // three ways). What it also said is what made it affordable now: the substrate
   // and the capture STACK had to exist first, and they do. The 45 edges land as
-  // one record plus 22 named deps, and the 14 `cancelStampSession` call sites
-  // land as `machine.cancelSession()` — the teardown edge §7.5 said had to be
-  // inverted into a callback, inverted.
+  // one record plus 39 named deps — 22 for the sessions, 17 more for the pointer
+  // chain, and that second group is a MEASUREMENT of what the seven-way
+  // arbitration was reaching for rather than a cost the move added: those calls
+  // were being made either way, from a handler 700 lines below the state it was
+  // reading. The 14 `cancelStampSession` call sites land as
+  // `machine.cancelSession()` — the teardown edge §7.5 said had to be inverted
+  // into a callback, inverted.
   //
   // THE FORWARD-REFERENCE INVARIANT applies to this line exactly as it does to
   // the `createVoidCast` assembly ~350 lines up, and this is the assembly that
@@ -4655,6 +4743,32 @@ export function createFieldHost(deps?: {
       drift = next;
     },
     notifyDrift,
+    // The pointer chain's deps (T3c). Every one is a VERB the chain dispatches
+    // to, or the liveness of a state whose overlay stays here — the arbitration
+    // is the machine's, the actions are ours.
+    //
+    // Plain refs except for three, and the exceptions are the same rule the rest
+    // of this record obeys: `looking` and `boxAnchor` read `let`s, so they travel
+    // as thunks or the machine would hold a copy of a fact that moves, and
+    // `strokeMinMs` is a module `const`, which travels as a value for exactly the
+    // reason read backwards.
+    strokeMinMs: STROKE_MIN_MS,
+    capturePointer,
+    releasePointer,
+    looking: () => look !== null,
+    beginLook,
+    lookDrag,
+    endLook,
+    eyedropper,
+    applyTool,
+    armMaskDropReport,
+    pointerPress,
+    selectionClick,
+    segmentClick: segment.click,
+    segmentAnchor: segment.anchor,
+    segmentUpdatePreview: segment.updatePreview,
+    boxAnchor: () => boxAnchor,
+    updateBoxPreview,
   });
 
   // --- history ------------------------------------------------------------
@@ -5172,155 +5286,42 @@ export function createFieldHost(deps?: {
   };
 
   // --- input handlers -----------------------------------------------------
+  //
+  // The POINTER four are one line each: their bodies are the machine's pointer
+  // chain (T3c), because every test in every branch of them reads that module's
+  // state — a live move, a pending stamp arm, the armed gesture, a stroke in
+  // progress. What stays here is the attachment and the KEYBOARD, and neither is
+  // a leftover: `attachListeners` owns the canvas element, and the momentary
+  // modifier pins below are closure-private keydown state with no route out of
+  // this file at all. The wheel stays because half of it is the camera.
+  //
+  // The one statement that did NOT delegate is `lastPointer`, and deliberately:
+  // it is not arbitration, the chain never reads it, and its readers are the
+  // per-frame ghost and `frameSelection` — this closure's, both. A write-thunk
+  // dep for it would have handed the machine a boundary write made purely on
+  // someone else's behalf, which is the one shape `MachineDeps` is trying not to
+  // grow.
 
   const onPointerDown = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
-    // A live GRAB (`G`, no button held) owns LMB: the button DROPS the move
-    // rather than picking whatever is under the cursor at the end of it. RMB
-    // falls through to look, so a grab can be re-aimed mid-move — the one thing
-    // a free-hand move genuinely needs the camera for.
-    const drag = machine.moveDrag();
-    if (drag !== null && !drag.grabbed && e.button === 0) {
-      machine.dropMove();
-      return;
-    }
-    if (e.button === 0 && e.altKey) {
-      // Alt-click samples a material — never strokes, so it stays live in
-      // selection mode too (a brush affordance the gestures don't collide with).
-      eyedropper(e.clientX, e.clientY);
-      return;
-    }
-    // A pending stamp SHADOWS the armed gesture: while one stands LMB is drawing
-    // its region, whatever the button did before (D-F4.5-7). Before the gesture
-    // branch and after the eyedropper, which samples rather than commits and
-    // stays live under every arm.
-    if (e.button === 0 && machine.pendingStamp() !== null) {
-      machine.stampRegionClick(e.clientX, e.clientY);
-      return;
-    }
-    const gesture = machine.gesture();
-    if (e.button === 0 && gesture !== null) {
-      // Armed gestures BYPASS applyTool entirely: no stroke, no digging flag.
-      // RMB look below stays live under every gesture. `pointer` is the DEFAULT
-      // one, so this branch — not the stroke below — is what a fresh host does
-      // with its first click.
-      //
-      // `pointer` is also the ONE gesture that can drag, and therefore the one
-      // that takes pointer capture: a press on a gizmo handle, or on the already
-      // selected entity, can become an entity MOVE (pointerPress owns that
-      // arbitration). The other three are still single clicks that capture
-      // nothing.
-      if (gesture === "pointer") pointerPress(e);
-      else if (gesture === "segment") {
-        // `segment` is a BRUSH that happens to be armed as a gesture, so the
-        // suspension below applies to it too — its second click commits a
-        // capsule op through `commitToolOp`, which is the "user dug a large
-        // tunnel while believing they were interacting with the stamp" report
-        // verbatim (F3b gate item 2). It needs its own guard because it reaches
-        // the store through THIS branch, above the stroke's.
-        if (machine.suspendedByStamp()) return;
-        segment.click(e.clientX, e.clientY);
-      } else selectionClick(gesture, e.clientX, e.clientY);
-      return;
-    }
-    if (e.button === 0) {
-      if (machine.suspendedByStamp()) return;
-      digging = true;
-      maskDropReported = false; // re-arm the once-per-stroke mask-drop report
-      applyTool(e.clientX, e.clientY);
-      canvasEl?.setPointerCapture(e.pointerId);
-    } else if (e.button === 2) {
-      look = { lastX: e.clientX, lastY: e.clientY, pivot: orbitPivot() };
-      canvasEl?.setPointerCapture(e.pointerId);
-    }
+    machine.pointerDown(e);
   };
 
   const onPointerMove = (e: PointerEvent): void => {
     lastPointer = { x: e.clientX, y: e.clientY }; // feeds the per-frame ghost
-    if (look) {
-      const { dYaw, dPitch } = lookDeltas(
-        e.clientX - look.lastX,
-        e.clientY - look.lastY,
-      );
-      look.lastX = e.clientX;
-      look.lastY = e.clientY;
-      // The SAME angles either way, so the view turns the direction the hand
-      // moved in both drags; the pivot decides what stays still while it does.
-      aimCamera(
-        look.pivot === null
-          ? flyLook(orbitState, dYaw, dPitch)
-          : orbitAbout(orbitState, look.pivot, dYaw, dPitch),
-      );
-      applyOrbit();
-      return;
-    }
-    // A live move owns the cursor — after `look`, so RMB can still re-aim the
-    // camera during a grab without the ghost chasing the same motion.
-    if (machine.moveDrag() !== null) {
-      machine.updateMove(e);
-      return;
-    }
-    // A press on the selected entity becomes a MOVE once the cursor has actually
-    // travelled. The threshold is measured from the PRESS, not accumulated, so a
-    // slow drift back and forth never adds its way over the line.
-    const p = machine.pendingMove();
-    if (p !== null) {
-      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX)
-        return;
-      machine.setPendingMove(null);
-      if (machine.beginMove(p.entityId, null, true, { x: p.x, y: p.y })) {
-        canvasEl?.setPointerCapture(p.pointerId);
-        // Anchors at the PRESS (not here) and applies this event's offset from
-        // it in the same call, so the travel that crossed the threshold counts.
-        machine.updateMove(e);
-      }
-      return;
-    }
-    // Box live preview: while a corner is pending, keep the amber region the
-    // second click would close updated as the cursor moves. Both users of the
-    // corner machinery, since a pending stamp draws its region the same way.
-    const gesture = machine.gesture();
-    if (
-      boxAnchor !== null &&
-      (gesture === "box" || machine.pendingStamp() !== null)
-    ) {
-      updateBoxPreview(e.clientX, e.clientY);
-      return;
-    }
-    // Segment brush: same shape, with the capsule the second click would sweep.
-    if (gesture === "segment" && segment.anchor() !== null) {
-      segment.updatePreview(e.clientX, e.clientY);
-      return;
-    }
-    if (!digging) return;
-    const now = performance.now();
-    if (now - lastStroke < STROKE_MIN_MS) return;
-    lastStroke = now;
-    applyTool(e.clientX, e.clientY);
+    machine.pointerMove(e);
   };
 
+  // Wrapped rather than attached straight off the machine, though these two add
+  // nothing: `attachListeners`/`detachListeners` pair by identity, and four
+  // handlers spelled one way is one fewer thing to get right than two spelled
+  // each way.
   const onPointerUp = (e: PointerEvent): void => {
-    // Only the button that STARTED a drag ends it. Gated on button 0 because RMB
-    // look is live during a move (a grab can be re-aimed), and a right-button
-    // release must not commit a splice the user is still positioning.
-    if (e.button === 0) {
-      if (machine.moveDrag()?.grabbed === true) machine.dropMove();
-      // A press that never crossed the threshold: it was a click on what was
-      // already selected, which has always been a no-op. Nothing to undo.
-      machine.setPendingMove(null);
-    }
-    digging = false;
-    look = null; // the anchor a turned camera invalidated was retired in applyOrbit
-    canvasEl?.releasePointerCapture(e.pointerId);
+    machine.pointerUp(e);
   };
 
-  // `pointercancel` is NOT a quiet pointerup: the system voided the gesture (a
-  // touch turned into a scroll, a device was lost), so a move in flight is
-  // DISCARDED rather than dropped. Committing a splice from a gesture the
-  // platform just cancelled would write history the user never asked for.
   const onPointerCancel = (e: PointerEvent): void => {
-    machine.cancelMoveInFlight();
-    onPointerUp(e);
+    machine.pointerCancel(e);
   };
 
   // NOTE: no pointer-leave handler on purpose — lastPointer survives the

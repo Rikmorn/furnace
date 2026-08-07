@@ -9,7 +9,18 @@
 // writes the slot itself, must reconcile in the same breath) — a bare assignment
 // that skips the reconcile leaves a capture behind, and the next Esc spends
 // itself cancelling something that already ended. That bug class is what this
-// module exists to end; T3c finishes the job for pointer capture.
+// module exists to end, and T3c closed the last gap in it: the sub-threshold
+// move press, which held a live intention with no rung under it, so an Esc
+// during one fell PAST the press and cancelled the selection behind it
+// (`field-machine.ts`'s "pending move" rung).
+//
+// A CAPTURE HERE IS NOT THE DOM'S `setPointerCapture`, and the word is all the
+// two share. That one routes a pointer's events to one element while a drag
+// runs; this one is a claim on the Esc key. The pointer chain takes both, two
+// lines apart, through different seams — `MachineDeps.capturePointer` for the
+// DOM's (the host still owns the canvas element, so the machine asks) and a rung
+// for this one. Neither reconciles the other, and a reader who reads them as one
+// thing will go looking for a release that is not in this file.
 //
 // Esc cancels the TOP, which is RECENCY — and recency is what the old ladder's
 // fixed rung order was approximating. Every rung's own comment argued from it
