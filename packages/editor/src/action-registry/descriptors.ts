@@ -34,14 +34,39 @@
 // not value-import (`tests/frontend-no-engine-leakage.test.ts`, narrowed to it plus bare
 // `zod` in Task 4; editor-architecture §22.5).
 //
-// The one value import: `LATTICE`, because `edit.grab`'s hint STATES the host's nudge step
-// and must read it rather than restate it. The number was already on the neutral floor
-// (`shared/field-brush.ts`, where the module that computes with it owns it); what this
-// slice's Task 2 changed is that the hint stopped hardcoding `0.5` and started reading it —
-// one of the six chrome sites that did (editor-architecture §22.4). The descriptor inherits
-// the same obligation, which is why this row is a template literal and not a string.
+// TWO VALUE IMPORTS, both for the same reason: a `hint` that STATES a fact some other module
+// owns must READ it, not restate it. `LATTICE` (`edit.grab`'s nudge step) was the first —
+// Task 2 stopped that row hardcoding `0.5`, one of the six chrome sites that did
+// (editor-architecture §22.4). The tool table is the second: four hints promise a family's
+// CYCLE ORDER by name, and the order is `FAMILY_ROWS`' — see {@link cycleOrder} for why four.
+// Every one of those rows is a template literal for that reason and not for style.
+//
+// Arrow-legal: `shared/` is the floor and this directory sits above it. The table imports
+// nothing back — it declares its own `ToolActionId` rather than reading these rows, which is
+// what keeps the edge one-way.
+import { deriveFamilies, type FamilyId } from "../shared/action-table.ts";
 import { LATTICE } from "../shared/field-brush.ts";
 import type { KeyBinding } from "./keys.ts";
+
+/** A family's members in the order ⇧ steps through them, as the FOUR hints that promise one
+ *  spell it: `Dig → Fill → …`.
+ *
+ *  Four, and the count is worth stating because three is the plausible wrong answer: TWO
+ *  hints per family (the arm key, which promises what ⇧ will then do, and the ⇧ chord
+ *  itself) × the two families with a table-held cycle. The stamp family's members are the
+ *  host's registry, so it has no order this can state.
+ *
+ *  THROWS on a family that is not in the table, at module init — the same stance `byId` and
+ *  the group lookup take one layer up. A hint promising a cycle through a family that does
+ *  not exist is worse than an import failure, because it reaches a user. */
+const FAMILIES = deriveFamilies();
+
+function cycleOrder(id: FamilyId): string {
+  const family = FAMILIES.find((f) => f.id === id);
+  if (family === undefined)
+    throw new Error(`descriptors: no tool family "${id}"`);
+  return family.members.map((m) => m.label).join(" → ");
+}
 
 /** `world`, `edit` and `view` are the burger's SUBMENUS — one each, rendered from this
  *  table (the holistic gate's ruling 3). `tool` and `session` are the keyboard's, and reach
@@ -146,8 +171,7 @@ export type ActionDescriptor = {
  *
  *  DECLARED `as const satisfies` and EXPORTED widened, which is two statements about one
  *  array and both are wanted. `as const` keeps the 39 ids as LITERALS, which is what
- *  {@link ActionId} is made of and therefore what makes the chrome's behavior table
- *  exhaustive by type rather than by a runtime join that throws. The widened export is what
+ *  {@link ActionId} is made of — see that type for what the union buys. The widened export is what
  *  every READER wants: under the literal tuple, `ACTION_DESCRIPTORS[number]` is a 39-member
  *  union and `d.hint` does not exist on the members that omit it, so a reader would have to
  *  narrow before touching an optional field that the shape declares optional. `satisfies`
@@ -254,7 +278,7 @@ const DESCRIPTORS = [
     id: "tool.brush",
     group: "tool",
     keys: { kind: "bare", key: "b" },
-    hint: "Arm the brush family — press again with ⇧ to cycle Dig → Fill → Paint → Smooth → Segment",
+    hint: `Arm the brush family — press again with ⇧ to cycle ${cycleOrder("brush")}`,
     gate: "typed",
     armsTool: true,
   },
@@ -262,7 +286,7 @@ const DESCRIPTORS = [
     id: "tool.brushCycle",
     group: "tool",
     keys: { kind: "shifted", key: "b" },
-    hint: "Cycle the brush family: Dig → Fill → Paint → Smooth → Segment",
+    hint: `Cycle the brush family: ${cycleOrder("brush")}`,
     gate: "typed",
     armsTool: true,
   },
@@ -270,7 +294,7 @@ const DESCRIPTORS = [
     id: "tool.select",
     group: "tool",
     keys: { kind: "bare", key: "m" },
-    hint: "Arm the cell-selection family — press again with ⇧ to cycle Box → Wand → Room",
+    hint: `Arm the cell-selection family — press again with ⇧ to cycle ${cycleOrder("select")}`,
     gate: "typed",
     armsTool: true,
   },
@@ -278,7 +302,7 @@ const DESCRIPTORS = [
     id: "tool.selectCycle",
     group: "tool",
     keys: { kind: "shifted", key: "m" },
-    hint: "Cycle the cell-selection family: Box → Wand → Room",
+    hint: `Cycle the cell-selection family: ${cycleOrder("select")}`,
     gate: "typed",
     armsTool: true,
   },

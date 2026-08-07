@@ -9,20 +9,32 @@
 //
 // ONE SOURCE FOR TWO CHANNELS. Every button renders from `TOOL_FAMILIES` and dispatches
 // that family's registry action, so the rail and the family keys (`V`/`B`/`M`/`S`) are two
-// views of one table and cannot come to mean different things. (The status bar's keymap
-// line is NOT one of them — `armedKeymap` is hand-enumerated, deliberately, because half of
-// what belongs on that line is canvas-owned keys the registry does not carry. Its own
-// header says so.) In particular:
+// views of one table and cannot come to mean different things.
+//
+// ─── THE EXCEPTION THIS HEADER USED TO CLAIM, RETIRED 2026-08-06 ─────────────────────────
+// It said:
+//
+//   "(The status bar's keymap line is NOT one of them — `armedKeymap` is hand-enumerated,
+//    deliberately, because half of what belongs on that line is canvas-owned keys the
+//    registry does not carry. Its own header says so.)"
+//
+// There is no exception left: the rail, the family keys, the top strip and the keymap line
+// are FOUR views of one table. `status-keymap.ts` carries the primary retirement note and
+// the reasoning; editor-architecture §22.2 is the decision.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+//
+// In particular:
 //   - a click arms the family's CURRENT member and never cycles. The rail is a mode
 //     selector: pressing the mode you are already in is idempotent, and cycling has its
 //     own affordance (⇧ + the letter, and the member flyout below).
 //   - a multi-member family carries a MEMBER FLYOUT. That is what keeps deleting
-//     `ToolPalette` from orphaning Fill / Paint / Smooth / Segment, Wand / Room, and every
+//     `ToolPalette` from orphaning every brush member past Dig, both flood modes and every
 //     generator past the first — the mouse had one button per member before, and the
-//     flyout is where they went. It is therefore the most load-bearing affordance in this
-//     file, which is why it is a 24 px target and not the mock's 14 px corner tick (the
-//     mock's geometry cannot satisfy WCAG 2.5.8 inside a 44 px column without eating the
-//     family button's own hit area).
+//     flyout is where they went. (ILLUSTRATIVE, not a list: `FAMILY_ROWS` is what says who
+//     the members are, and a roll-call here would be a seventh place to keep them.) It is
+//     therefore the most load-bearing affordance in this file, which is why it is a 24 px
+//     target and not the mock's 14 px corner tick (the mock's geometry cannot satisfy WCAG
+//     2.5.8 inside a 44 px column without eating the family button's own hit area).
 //   - the pressed family carries the INVERTED fill (D-8's contrast fix). The critique's
 //     finding was that the armed tool read fainter than its neighbours; it is now the
 //     strongest element in the column, and it stays at full strength when it is also
@@ -353,8 +365,8 @@ const RailFamily = memo(function RailFamily({ row }: { row: RailModel }) {
  *  2.2 SC 2.5.8 wants 24 × 24, and an overlapping corner tick both misses that and eats the
  *  family button's own hit area. The mock draws a 14 px corner tick; a 44 px column has no
  *  room for that AND a compliant target, and of the two this is the one every mouse route
- *  to Fill / Paint / Smooth / Segment, Wand / Room and the generators past the first goes
- *  through. */
+ *  to a member past its family's first goes through — which members those are is
+ *  `FAMILY_ROWS`' to say, and a roll-call here would be one more place to keep it. */
 function MemberFlyout({ row }: { row: RailModel }) {
 	const [open, setOpen] = useState(false);
 	const refused = !row.verdict.runnable;

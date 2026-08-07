@@ -34,7 +34,10 @@ import { openBlockedReason } from "../shared/field-entity.ts";
 // review — see `field-limits.ts`' header for what that used to cost.
 import {
   DIG_RANGE_M,
+  HOLLOW_MIN_M,
   MAX_SEGMENT_M,
+  RADIUS_MAX,
+  RADIUS_MIN,
   SELECTION_UI_BUDGET,
 } from "../shared/field-limits.ts";
 import {
@@ -1413,8 +1416,6 @@ const ANALYZER_ENGINE_URL = "/engine.js";
 const VERIFY_BUDGET_MS = 8000;
 const EDITOR_FOV_Y = Math.PI / 3;
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
-const RADIUS_MIN = 0.25;
-const RADIUS_MAX = 4;
 const RADIUS_WHEEL_STEP = 0.1;
 
 const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
@@ -1487,12 +1488,6 @@ const clampRadius = (r: number): number =>
 
 const clampIntRange = (v: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, Math.round(v)));
-
-// Fill-only shell-band floor (metres). Core accepts any hollow > 0 (it cannot
-// clamp against cellSize); the CHASSIS enforces the floor because a sub-cell
-// shell thickness on organic shapes can produce holey shells, and 0.5 matches
-// the UI's step + the kit lattice.
-const HOLLOW_MIN_M = 0.5;
 
 // Selection overlay colour — amber, deliberately distinct from the
 // hologram-blue brush ghost (GHOST_COLOR). Shared with the advisor's INFO_TINT

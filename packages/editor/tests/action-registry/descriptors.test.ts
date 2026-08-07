@@ -31,6 +31,8 @@ import {
   matchBinding,
 } from "../../src/action-registry/index.ts";
 import { ACTION_INPUT_SCHEMAS } from "../../src/action-registry/schemas.ts";
+import type { FamilyId } from "../../src/shared/action-table.ts";
+import { deriveFamilies } from "../../src/shared/action-table.ts";
 
 /** A press, as the four facts a binding is allowed to read. `metaKey` and `ctrlKey` are
  *  built separately and collapsed here, exactly as `keyFacts` does it in the dispatcher, so
@@ -138,6 +140,71 @@ test("only the six axis views carry an MCP projection, and each names its own pa
       p: { tool: "view.snap", input: { axis, sign } },
     });
   }
+});
+
+test("all FOUR hints that promise a CYCLE ORDER print the table's own members", () => {
+  // T3b2 Task 5 turned four literal hints — the brush family's pair and the cell-selection
+  // family's — into reads of `FAMILY_ROWS` through `cycleOrder`. Nothing pinned that prose
+  // before (measured: emptying `cycleOrder` reddened NOTHING across the whole editor suite),
+  // so the derivation arrived unguarded and this is the guard.
+  //
+  // FOUR, AND THE COUNT IS THE POINT. The first pass converted three and left `tool.brush`'s
+  // literal standing beside its own twin `tool.brushCycle` — so renaming an effect made `B`
+  // and `⇧B` promise different orders, side by side in the shortcuts overlay and in ⌘K. The
+  // case written with it asserted exactly the three that had been converted, which would have
+  // enshrined the miss rather than caught it. Two hints per family (arm-then-⇧, and the ⇧
+  // chord), two families with a table-held cycle: `tool.stampCycle` is NOT among them because
+  // the stamp family's members are the host's registry, and `tool.swapEffect` is not either —
+  // it names Dig ↔ Fill as a PAIR, not as an order, and no derivation states that pair.
+  //
+  // WHAT IT CATCHES, as a measured truth table rather than a claim — the four cells are
+  // (hint derived | hint re-hardcoded) × (table unchanged | an effect renamed):
+  //
+  //   derived,      unchanged  → green
+  //   derived,      renamed    → green   ← the derivation following, which is the point
+  //   hardcoded,    unchanged  → GREEN   ← the limitation, below
+  //   hardcoded,    renamed    → RED     ← the miss, caught
+  //
+  // So it does NOT catch a hint re-hardcoded to the string the table produces today, exactly
+  // as `action-table.test.ts`' three-limits pin passes a hand-written "snaps to 0.5 m". It
+  // catches that hint the moment the table moves under it — which is the only moment the
+  // hardcoding is a defect rather than a stylistic choice, and precisely the moment the
+  // original miss produced `B` and `⇧B` promising different orders. Stating the limitation is
+  // the difference between a pin and a false sense of one.
+  //
+  // It also catches a `cycleOrder` that comes out blank or half-formed, which a literal could
+  // never do and which is the new failure mode the derivation introduced (measured: emptying
+  // it reddens this case and nothing else in the package).
+  const order = (id: FamilyId): string => {
+    const family = deriveFamilies().find((f) => f.id === id);
+    if (family === undefined) throw new Error(`no family "${id}"`);
+    return family.members.map((m) => m.label).join(" → ");
+  };
+  const hintOf = (id: string): string => {
+    const row = ACTION_DESCRIPTORS.find((d) => d.id === id);
+    if (row?.hint === undefined) throw new Error(`no hint on "${id}"`);
+    return row.hint;
+  };
+  // Non-empty first, and separately: a `cycleOrder` that answered `""` would leave every
+  // comparison below matching two equally empty halves.
+  expect([order("brush").length > 0, order("select").length > 0]).toEqual([
+    true,
+    true,
+  ]);
+  expect({
+    brush: hintOf("tool.brush"),
+    brushCycle: hintOf("tool.brushCycle"),
+    select: hintOf("tool.select"),
+    selectCycle: hintOf("tool.selectCycle"),
+  }).toEqual({
+    brush: `Arm the brush family — press again with ⇧ to cycle ${order("brush")}`,
+    brushCycle: `Cycle the brush family: ${order("brush")}`,
+    select: `Arm the cell-selection family — press again with ⇧ to cycle ${order("select")}`,
+    selectCycle: `Cycle the cell-selection family: ${order("select")}`,
+  });
+  // NO SEPARATE TWIN CHECK, and none is needed: both of a family's hints are compared
+  // against the SAME `order(...)` call above, so the pair cannot disagree while both pass.
+  // That is the assertion the miss would have failed.
 });
 
 // --- the 640-press property ---------------------------------------------------

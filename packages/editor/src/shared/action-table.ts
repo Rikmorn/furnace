@@ -1,13 +1,18 @@
-// The tool table: what CLAIMS to be the one place a tool fact is stated. Six literals still
-// stand at head — T3b2 Task 5 switches their consumers here and deletes them, and until it
-// does, `tests/shared/action-table.test.ts` is what holds the two sides equal.
+// The tool table: THE one place a tool fact is stated. Six literals stated them before —
+// spread across four files, keyed on two discriminators with no join — and T3b2 Task 5
+// switched every consumer onto the derivations below and deleted all six. Nothing else in
+// the editor says what a brush effect is called, which params it has, what its keys do, or
+// which members a rail column cycles.
 //
 // Row data and pure derivations, nothing else. No React (the chrome renders these), no
 // engine, no `field-host` import at all: `src/shared/` is the neutral floor both arrows
 // point at, machine-enforced from both sides.
 //
-// Why this exists, what the six tables were, and which two written non-derivation decisions
-// it overrules: editor-architecture §22.
+// Why this exists, what the six tables were, which two written non-derivation decisions it
+// overrules, and how the equality was PROVEN before anything switched (the derive-and-diff
+// gate, which stood across three commits — `c7caa42c`, `3caab726`, `55f6b93c` — and was
+// deleted by the fourth): editor-architecture §22, and §22.7 for as-built.
+// `tests/shared/action-table.test.ts` is what holds the rows now — shape pins, not a diff.
 import type { BrushEffect } from "./field-brush.ts";
 import { LATTICE } from "./field-brush.ts";
 import { MAX_SEGMENT_M, SELECTION_UI_BUDGET } from "./field-limits.ts";
@@ -54,7 +59,7 @@ export type FamilyId = "pointer" | "brush" | "select" | "stamp";
 /** The action ids a family dispatches. Named as a union rather than `string` so a family
  *  row cannot point at an action that was never written; that the id RESOLVES is a separate
  *  claim, and the table's test makes it against the registry itself. */
-export type ToolActionId =
+type ToolActionId =
   | "tool.pointer"
   | "tool.brush"
   | "tool.brushCycle"
@@ -71,19 +76,24 @@ export type ToolActionId =
  *  name is the armed generator's, the measurement is a live push, and the steering clause
  *  is the one branch on a session's `moving` flag. Everything ELSE on every line — every
  *  keycap, every verb, every word — is row data. */
-export type StatusSlot =
+type StatusSlot =
   | "sessionSteer"
   | "sessionPrimary"
   | "sessionSecondary"
   | "stampName"
   | "segmentMeasure";
 
-/** One clause of a status line. TWO kinds, and the count is the model's whole claim: every
- *  line the editor shows is a `" · "`-joined list of clauses, and a clause is either a
- *  constant the row states or one runtime value with a constant lead-in. There is no third
- *  shape — no conditionals, no nesting, no formatting directives — which is what makes a
- *  row's line readable as prose in the source. */
-export type StatusFragment =
+/** One clause of a status line: a constant the row states, or one runtime value with a
+ *  constant lead-in. Every line the editor shows is a `" · "`-joined list of them.
+ *
+ *  TWO kinds is what today's fourteen lines need, and no third has been added — no
+ *  conditionals, no nesting, no formatting directives — which is what keeps a row's line
+ *  readable as prose in the source. That is the case FOR the shape, not a proof it is the
+ *  right one: the model is the least-earned abstraction in this module, it has never been
+ *  pushed by a line it could not express, and a third kind is on the table if one arrives
+ *  (see the keycap verdict above, where a `keycap` kind is the option that was declined for
+ *  a different reason). Do not read the count as settled. */
+type StatusFragment =
   | { readonly kind: "text"; readonly text: string }
   | {
       readonly kind: "slot";
@@ -97,10 +107,27 @@ export type StatusFragment =
 /** Sugar for the common fragment, so a row's line reads as the list of words it is. */
 const text = (t: string): StatusFragment => ({ kind: "text", text: t });
 
+// THE KEYCAPS INSIDE THESE FRAGMENTS — the verdict T3b2 Task 5 was asked to reach, here
+// because this is where a reader meets the question.
+//
+// A status clause spells its own key (`"⌫ delete"`, `"R rotate ¼"`, the `"⏎ "` lead-in), and
+// TEN of the 27 distinct clauses below lead with a cap that `action-registry/keys.ts`'
+// `keycap()` also derives from the binding rows. So it is a REAL duplication, not the
+// prose-legitimately-spells-its-own-keys reading — though only for those ten: the rest is
+// canvas-owned vocabulary the registry does not carry (`[ ] radius`, `⇧ smooth`, `⌃ dig`,
+// the arrow nudge) or names a mouse gesture rather than a key, which is the half the retired
+// objection in `status-keymap.ts` got right.
+//
+// NOT CLOSED HERE, and the reason is the layer rather than the effort: `keycap()` lives ABOVE
+// this floor, so importing it would reverse the import arrow and `no-chrome-leakage.test.ts`
+// would refuse it — and the shape that keeps the arrow costs {@link StatusFragment}'s two-kind
+// model. Filed with the measurement, the per-cap table and the option analysis:
+// `docs/backlog/editor-and-tooling/status-line-keycaps-restate-the-registry.md`.
+
 /** What separates two clauses of a status line. Stated once because the line is assembled
  *  in three places (the row's own fragments, the effect's modifier tail, and the two
  *  transient states) and a second spelling would put a different gap in one of them. */
-export const STATUS_SEPARATOR = " · ";
+const STATUS_SEPARATOR = " · ";
 
 /** How a live session is STEERED — the one clause that branches on `moving`. A move is
  *  dragged, everything else is nudged, and the arrow keys are canvas-owned: this is the
@@ -128,17 +155,15 @@ const formatSegmentMeasure = (r: SegmentReadout): string =>
  *  second click will be measured by. `capM` rides with the measurement rather than being
  *  read from {@link MAX_SEGMENT_M} here, because the host applied ITS number to THIS
  *  length and the readout must not be able to quote a different one. */
-export type SegmentReadout = { readonly lenM: number; readonly capM: number };
+type SegmentReadout = { readonly lenM: number; readonly capM: number };
 
 /** Is this measurement one the next click will REFUSE?
  *
  *  Strictly `>`, matching the host's own refusal (`len > MAX_SEGMENT_M`): a segment of
  *  exactly the cap COMMITS, so `>=` would paint a legal click as a doomed one. The only
- *  thing in the editor that can set a status line's tone.
- *
- *  MIGRATION (until T3b2 Task 5): NOT yet the one place the predicate is spelled —
- *  `status-keymap.ts`'s `segmentLine` still spells `lenM > capM` beside it. The gate holds
- *  the two equal until Task 5 deletes that one. */
+ *  thing in the editor that can set a status line's tone, and since T3b2 Task 5 the only
+ *  place the predicate is spelled — `status-keymap.ts`'s `segmentLine` spelled it too, and
+ *  went with the rest of that cascade. */
 const overSegmentCap = (r: SegmentReadout): boolean => r.lenM > r.capM;
 
 /** The strip's note for a BUDGETED flood gesture, from the host's own budget. Thousands
@@ -157,7 +182,7 @@ const FLOOD_BUDGET_NOTE = `budget ${SELECTION_UI_BUDGET / 1000}k`;
  *  row lists exactly the clauses that are LIVE under it, which is the point: a static clause
  *  naming ⌃ and X under paint named two dead keys, and no test that pinned the string could
  *  have caught it. */
-export type ModifierClause = {
+type ModifierClause = {
   /** The keycap, in the editor's own spelling (⇧ ⌃ ⌥ ⌘ ⏎ ⌫ and bare letters) — two
    *  spellings of one key reads as two different keys. */
   readonly key: string;
@@ -249,7 +274,7 @@ export type GestureRow = {
 /** A family member, as a REFERENCE into one of the two sub-tables above. The union is the
  *  join the six tables never had: a family is an ordered list of members drawn from BOTH
  *  discriminators, which is why the brush family can end in a gesture (`segment` strokes). */
-export type FamilyMemberRef =
+type FamilyMemberRef =
   | { readonly effect: BrushEffect }
   | { readonly gesture: GestureId };
 
@@ -261,20 +286,26 @@ export type FamilyRow = {
    *  the arm action's contextual label, which may name a MEMBER ("Stamp Hall"): a flyout
    *  headed "Stamp Hall tools" would be named after one of the things it lists. */
   readonly name: string;
-  /** Which of the TWO naming rules the rail's button follows right now.
+  /** Where the members come from — and, because the two follow from each other, which of
+   *  the two NAMING rules the rail's button obeys.
    *
-   *  `"arm"` — the arm action's own label, which is what three of the four families want.
-   *  `"running"` — name whatever is RUNNING (pending arm ▸ live session ▸ the arm action's
-   *  label), which the stamp family alone wants: while a session stands it reads as pressed
-   *  (a session IS the staged grammar running, D-7), so it must name the generator the
-   *  SESSION is on. `tool.stamp`'s own label names the ⇧S cursor, which a session does not
-   *  move — a `maze` reconfigure under a `hall` cursor made the rail say "Stamp Hall" beside
-   *  a session strip saying `maze #3`. */
-  readonly labelRule: "arm" | "running";
-  /** Where the members come from: `"rows"` = the refs below, `"generators"` = the host's
-   *  stamp registry, which no table can hold. Stated rather than inferred from an empty
-   *  `members` list, because "empty means look elsewhere" is a convention a reader has to
-   *  be told. */
+   *  `"rows"` — the refs below, and the button takes the arm action's own label.
+   *
+   *  `"generators"` — the host's stamp registry, which no table can hold; and the button
+   *  names whatever is RUNNING (pending arm ▸ live session ▸ the arm action's label). ONE
+   *  field for both, because it is one distinction: a family whose members are GENERATORS is
+   *  a family whose members are SESSIONS, and while a session stands the column reads as
+   *  pressed (a session IS the staged grammar running, D-7) — so it must name the generator
+   *  the SESSION is on rather than the ⇧S cursor `tool.stamp`'s own label reports. That is
+   *  the bug it exists for: a `maze` reconfigure under a `hall` cursor made the rail say
+   *  "Stamp Hall" beside a session strip saying `maze #3`.
+   *
+   *  A SEPARATE `labelRule` field stood here for one commit and was deleted in T3b2 Task 5:
+   *  it agreed with this one on all four rows, which is two spellings of one fact — the
+   *  smell this module exists to remove, found inside the module that removes it.
+   *
+   *  Stated rather than inferred from an empty `members` list, because "empty means look
+   *  elsewhere" is a convention a reader has to be told. */
   readonly memberSource: "rows" | "generators";
   /** Its members in CYCLE order — the order ⇧ steps through and the flyout lists. Empty
    *  when `memberSource` is `"generators"`. */
@@ -433,7 +464,6 @@ export const FAMILY_ROWS: readonly FamilyRow[] = [
   {
     id: "pointer",
     name: "Select",
-    labelRule: "arm",
     memberSource: "rows",
     // A family of ONE, spelled as a family anyway so the rail renders four things the same
     // way and "how many members has it?" is the single question that decides whether a
@@ -445,7 +475,6 @@ export const FAMILY_ROWS: readonly FamilyRow[] = [
   {
     id: "brush",
     name: "Brush",
-    labelRule: "arm",
     memberSource: "rows",
     // Both discriminators in one list: four effects and a gesture. `segment` is a gesture
     // that STROKES, and it is the reason a family member had to be a union.
@@ -462,7 +491,6 @@ export const FAMILY_ROWS: readonly FamilyRow[] = [
   {
     id: "select",
     name: "Cell select",
-    labelRule: "arm",
     memberSource: "rows",
     members: [{ gesture: "box" }, { gesture: "material" }, { gesture: "void" }],
     arm: "tool.select",
@@ -471,7 +499,6 @@ export const FAMILY_ROWS: readonly FamilyRow[] = [
   {
     id: "stamp",
     name: "Stamp",
-    labelRule: "running",
     // A stamp "member" is a GENERATOR, and the registry is the host's — picking one OPENS a
     // session rather than arming a mode. ⇧S POINTS the S key at the next generator without
     // opening anything, so this family's cycle is a cursor move rather than an arm.
@@ -482,11 +509,45 @@ export const FAMILY_ROWS: readonly FamilyRow[] = [
   },
 ];
 
+/** EVERY family, exactly once — checked at MODULE INIT.
+ *
+ *  `FAMILY_ROWS` has to be an ARRAY because its order is the rail's column order, and an
+ *  array cannot prove it covers {@link FamilyId} the way a `Record` would. Without this a
+ *  dropped row compiles AND imports, and the miss surfaces as `familyOf` throwing inside a
+ *  `B` keydown — the latest possible moment, in a handler, on a key the user just pressed.
+ *
+ *  A RUNTIME check, and deliberately not claimed as more: the `Record` below restates the
+ *  four ids, so TypeScript checks that IT is exhaustive and cannot see the array at all —
+ *  measured, a dropped row leaves `bun run typecheck` clean and throws here at import. That
+ *  is early enough to be the right trade (the chrome fails before first paint, and
+ *  `node-door.test.ts` fails in CI) and it is the most an ordered array can buy.
+ *
+ *  It also catches the array carrying a family TWICE, which coverage alone would not: two
+ *  rows with one id would quietly give the rail five columns. Both cases are
+ *  sabotage-verified and both name the offending list in the message. */
+const FAMILY_IDS: Record<FamilyId, true> = {
+  pointer: true,
+  brush: true,
+  select: true,
+  stamp: true,
+};
+{
+  const ids = FAMILY_ROWS.map((f) => f.id);
+  const declared = Object.keys(FAMILY_IDS);
+  if (ids.length !== declared.length || new Set(ids).size !== declared.length)
+    throw new Error(
+      `action-table: FAMILY_ROWS must carry each of ${declared.join(", ")} exactly once, got ${ids.join(", ")}`,
+    );
+  for (const id of declared)
+    if (!ids.includes(id as FamilyId))
+      throw new Error(`action-table: FAMILY_ROWS is missing "${id}"`);
+}
+
 // --- the transient states, and the order they shadow in ----------------------
 
 /** The two armed states that belong to no ROW: they are properties of the staged grammar
  *  (D-7), not of anything the user armed. */
-export type TransientStateId = "session" | "pendingStamp";
+type TransientStateId = "session" | "pendingStamp";
 
 /** The two transient states' lines — they shadow whatever is armed underneath.
  *
@@ -499,7 +560,7 @@ export type TransientStateId = "session" | "pendingStamp";
  *  "click ×2", NOT "drag", for the same mechanical reason the box line says it: the region
  *  takes two separate presses. One mechanism with two verbs on one status line, with the
  *  wrong verb on the flow D-F4.5-7 exists to make discoverable, is worse than either. */
-export const TRANSIENT_STATUS = {
+const TRANSIENT_STATUS = {
   session: [
     { kind: "slot", slot: "sessionSteer" },
     text("R rotate ¼"),
@@ -542,20 +603,30 @@ const plain = (t: string): StatusLine => ({ text: t, overCap: false });
 
 /** Render one fragment list into its clauses, filling each slot from `slots`.
  *
- *  THROWS on a slot the caller did not fill, which is the guard that keeps the two-kind
- *  fragment model honest: without it a fragment naming a slot its branch does not resolve
- *  would render the word `undefined` into a status line and nothing would fail. */
+ *  LOGS AND SKIPS a slot the caller did not fill. The thing being prevented is a status
+ *  line reading `undefined`, and dropping the clause does that while leaving the rest of the
+ *  line on screen.
+ *
+ *  Not a throw, and the distinction is this repo's failure policy rather than taste: every
+ *  caller of this reaches it from `StatusBar`'s render, so a throw here takes the whole shell
+ *  down over one missing word. Setup-loud, runtime-quiet-with-a-log — and the two throws that
+ *  DO stand in this module (`deriveSelectModes`, and `cycleOrder` one layer up) are correct
+ *  precisely because they fire at module init, where loud is the whole point. */
 function renderParts(
   fragments: readonly StatusFragment[],
   slots: Partial<Record<StatusSlot, string>>,
 ): string[] {
-  return fragments.map((f) => {
-    if (f.kind === "text") return f.text;
-    const value = slots[f.slot];
-    if (value === undefined)
-      throw new Error(`action-table: no value for status slot "${f.slot}"`);
-    return `${f.prefix ?? ""}${value}`;
-  });
+  return fragments
+    .map((f) => {
+      if (f.kind === "text") return f.text;
+      const value = slots[f.slot];
+      if (value === undefined) {
+        console.error(`action-table: no value for status slot "${f.slot}"`);
+        return null;
+      }
+      return `${f.prefix ?? ""}${value}`;
+    })
+    .filter((c): c is string => c !== null);
 }
 
 const render = (
@@ -703,11 +774,21 @@ export function deriveSelectModes(): Record<
   return { box: mode("box"), material: mode("material"), void: mode("void") };
 }
 
-/** One family member, resolved from its ref. */
+/** One family member, resolved from its ref.
+ *
+ *  IT CARRIES THE REF BACK, and that is the whole join: a member is a label and a sentence
+ *  for the flyout, and a `{effect}` or `{gesture}` for the arm — the two halves the six
+ *  tables kept in different files. `armMember` reads the ref and nothing else has to know
+ *  which sub-table the row came out of.
+ *
+ *  There is no `id` beside `label`. There WAS, in Task 2, holding `id: row.label` so the
+ *  derivation matched a literal that spelled both — and once the literal went, a second name
+ *  for one string is the defect this module exists to remove. The one surface that needs a
+ *  per-member KEY (`ToolFamilyMember.id`, which is a generator's id for the stamp family and
+ *  a label everywhere else) spells that choice once, where the two cases meet. */
 export type DerivedMember = {
-  /** Stable within its family — the member label, which is what the rail keys its flyout
-   *  rows and its cycle position on. */
-  readonly id: string;
+  /** WHICH row this is, and therefore what arming it DOES. */
+  readonly ref: FamilyMemberRef;
   readonly label: string;
   readonly hint: string;
 };
@@ -716,12 +797,11 @@ export type DerivedMember = {
  *
  *  What is not here is what cannot be: the four `(ctx) => …` predicates the rail evaluates
  *  per render (`armed`, the contextual label, the stamp family's generator members). Those
- *  are functions of live state; {@link FamilyRow.labelRule} and
- *  {@link FamilyRow.memberSource} are the table's half of them. */
+ *  are functions of live state; {@link FamilyRow.memberSource} is the table's half of both
+ *  the member list and the naming rule. */
 export type DerivedFamily = {
   readonly id: FamilyId;
   readonly name: string;
-  readonly labelRule: FamilyRow["labelRule"];
   readonly memberSource: FamilyRow["memberSource"];
   readonly members: readonly DerivedMember[];
   readonly arm: ToolActionId;
@@ -733,7 +813,6 @@ export function deriveFamilies(): readonly DerivedFamily[] {
   return FAMILY_ROWS.map((family) => ({
     id: family.id,
     name: family.name,
-    labelRule: family.labelRule,
     memberSource: family.memberSource,
     members: family.members.map(resolveMember),
     arm: family.arm,
@@ -746,5 +825,5 @@ export function deriveFamilies(): readonly DerivedFamily[] {
 function resolveMember(ref: FamilyMemberRef): DerivedMember {
   const row =
     "effect" in ref ? EFFECT_ROWS[ref.effect] : GESTURE_ROWS[ref.gesture];
-  return { id: row.label, label: row.label, hint: row.hint };
+  return { ref, label: row.label, hint: row.hint };
 }

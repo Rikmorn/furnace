@@ -104,10 +104,12 @@ function actionRow(def: ActionDef, ctx: ActionCtx): Row {
 	};
 }
 
-/** The tool families' MEMBERS — Dig, Fill, Box, Wand, Hall, Maze — which are rows the
- *  `ACTIONS` table does not carry: the rail reaches them through a flyout and the keyboard
- *  through a ⇧ cycle, so without these the palette would be the one surface that cannot
- *  arm Paint by name.
+/** The tool families' MEMBERS — rows the `ACTIONS` table does not carry: the rail reaches
+ *  them through a flyout and the keyboard through a ⇧ cycle, so without these the palette
+ *  would be the one surface that cannot arm a brush effect or a flood mode by name.
+ *
+ *  WHO those members are is `FAMILY_ROWS` plus the host's generator registry, and naming any
+ *  of them here would be a worse answer than the one a reader can already get.
  *
  *  A family with ONE member contributes none, which is the rail's own rule (it renders no
  *  flyout below a single-member column): that member IS the family's arm action, already a

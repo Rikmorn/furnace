@@ -78,12 +78,16 @@ import type {
   StampSession,
   ViewportGesture,
 } from "../../field-host/index.ts"; // type-only: erased
-// The two host LIMITS this table's hints state, value-imported off the neutral floor
-// (`shared/`, which the chrome may reach and `field-host/` may not be). The hints used to
-// spell "60 m" and "0.5 m" as prose and say so in a comment; a static sentence with no push
-// to read was the honest reason, not a good one. `MAX_SEGMENT_M` is still read here (the
-// Segment member's hint); `LATTICE` moved with `edit.grab`'s hint into the descriptor row.
-import { MAX_SEGMENT_M } from "../../shared/field-limits.ts";
+// The tool table (T3b2 Task 5). The three member arrays this file used to declare are rows
+// there now, and so are the two host limits their hints state: `MAX_SEGMENT_M` left with the
+// Segment hint and `LATTICE` left with `edit.grab`'s into the descriptor row, so this module
+// names neither number any more.
+import type {
+  DerivedFamily,
+  DerivedMember,
+  FamilyId,
+} from "../../shared/action-table.ts";
+import { deriveFamilies } from "../../shared/action-table.ts";
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
@@ -189,25 +193,29 @@ export type ActionCtx = {
   };
 };
 
-/** WHO is running this action. The third caller class the gate's env was never written for
- *  (T3b2's S12 finding), now stated rather than implied.
- *
- *  - `key` — a window keypress. Everything the gate refuses a KEY for is about a key: a
- *    character someone is typing, a letter the fly drag owns, a keycap on a menu-only verb.
- *  - `named` — the user (or an agent) NAMED the verb: a burger item, a rail button, a ⌘K
- *    row, a top-bar control, and tomorrow an MCP tool call. None of those is a character
- *    and none of them holds the right button, so none of the key classes applies. */
+/** WHO is running this action — the discriminant of {@link GateEnv}, which is where the
+ *  split and its reason are written. */
 export type ActionCaller = "key" | "named";
 
 /** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time.
  *
+ *  THE ONE ACCOUNT OF THE CALLER SPLIT (T3b2's S12 finding); {@link ActionCaller},
+ *  {@link clickGate} and {@link gateAction} point here rather than each telling a quarter of
+ *  it, which is what they were doing.
+ *
+ *  - `key` — a window keypress. Everything the gate refuses a KEY for is about a key: a
+ *    character someone is typing, a letter the fly drag owns, a keycap on a menu-only verb.
+ *  - `named` — the user (or an agent) NAMED the verb: a burger item, a rail button, a ⌘K
+ *    row, a top-bar control, and tomorrow an MCP tool call. None of those is a character and
+ *    none of them holds the right button, so none of the key classes applies.
+ *
  *  A UNION rather than one record with a `caller` field beside four facts, and that is the
- *  whole of S12's fix. `clickGate` used to hard-code `inTextInput: false` on an argument —
+ *  whole of the fix. `clickGate` used to hard-code `inTextInput: false` on an argument —
  *  *"the user typed to find it and then named it"* — that is true of a palette row and
  *  UNTRUE of an agent, and a hard-coded fact defended by a caller-specific story is a fact
  *  waiting to be wrong for the next caller. Split by caller, the two key-only facts are
  *  simply not askable of a named call: there is no `false` left to write down, so nobody has
- *  to justify one. */
+ *  to justify one. The hard-code became UNWRITEABLE rather than relocated. */
 export type GateEnv =
   | {
       readonly caller: "key";
@@ -241,11 +249,10 @@ export type GateVerdict = { ok: true } | { ok: false; hint: string | null };
 
 /** What a run may be handed beyond the ctx, as the DISPATCHER holds it.
  *
- *  Typed per id where it is written — `BEHAVIORS` below is keyed by {@link ActionId} and
- *  each row's `run` states its own `InputOf<Id>`, so `edit.duplicate` reading a
- *  `generatorId` does not compile. Widened here because a holder of 39 heterogeneous
- *  actions cannot name 39 input types, and every chrome surface is such a holder: they
- *  dispatch with no input at all and each run falls back to what the ctx has selected. */
+ *  WIDENED, because a holder of 39 heterogeneous actions cannot name 39 input types, and
+ *  every chrome surface is such a holder: they dispatch with no input at all and each run
+ *  falls back to what the ctx has selected. Where the per-id typing DOES bind, and where it
+ *  stops, is {@link ActionDef}'s to say — it is one account and it is told there. */
 export type ActionInput = ActionInputs[keyof ActionInputs] | undefined;
 
 /** One action's chrome half — the five things a serializable row cannot carry, typed
@@ -265,9 +272,8 @@ type ActionBehavior<Id extends ActionId> = {
 };
 
 /** Every action's chrome half, keyed by id — EXHAUSTIVE BY TYPE, which is the whole reason
- *  {@link ActionId} exists. A descriptor with no behavior and a behavior with no descriptor
- *  are both compile errors, where the join this replaces was a runtime `find` that threw at
- *  module init — the latest a missing verb can be found rather than the earliest. */
+ *  {@link ActionId} exists and is argued at that type's own declaration rather than a second
+ *  time here. This is the half of the join the union protects. */
 type ActionBehaviors = { readonly [Id in ActionId]: ActionBehavior<Id> };
 
 /** One action as every surface holds it: the row and its behaviors, joined.
@@ -344,89 +350,54 @@ const handOff =
     return Promise.resolve(ACTION_OK);
   };
 
-/** The same hand-off where the run has already had to compute something first. */
-const handedOff = (effect: () => void): Promise<ActionResult> => {
+/** The same hand-off, for a run that had to compute or refuse something FIRST — so it is
+ *  called at the END of a body where {@link handOff} wraps one. */
+const okAfter = (effect: () => void): Promise<ActionResult> => {
   effect();
   return Promise.resolve(ACTION_OK);
 };
 
 // --- families ---------------------------------------------------------------
+//
+// THE ROWS ARE THE ONLY COPY since T3b2 Task 5. Three member arrays used to stand here —
+// each spelling a label, a per-member sentence and a `{effect}`/`{gesture}` discriminator
+// that the strip, the keymap line and the breakpoint table each keyed on separately. They
+// are `shared/action-table.ts`'s `FAMILY_ROWS` now, and this file joins the three things a
+// row cannot hold onto them: the contextual label, the resolved members and the `armed`
+// predicate. Same shape as `BEHAVIORS` above, one layer up.
+//
+// The row's `memberSource` is what makes that join a lookup rather than a switch on family
+// id: it states which of two rules a column follows — for its members, its label AND its
+// armed predicate, which are one distinction and not three — and the three functions below
+// implement each rule once instead of once per column.
 
-/** One member of a keyed family: what arming it does, in the binding table's order.
- *  `effect` members arm the brush (and return LMB to it); `gesture` members arm a click
- *  gesture. The brush family has both — `segment` is a gesture that strokes.
- *
- *  `label` is here rather than in the rail because the rail's member flyout and the ⇧
- *  cycle step the SAME list: a second list beside the rail is how "⇧B cycles Dig → Fill"
- *  and what the flyout shows would come to disagree.
- *
- *  `hint` is the per-MEMBER sentence — the registry's own `hint` is family-level ("Arm the
- *  brush family"), and the facts that used to live on `ToolPalette`'s per-button tooltips
- *  ("momentary: hold Ctrl", the 60 m segment cap) had no home after that file was deleted.
- *  This is that home. */
-type FamilyMember = { label: string; hint: string } & (
-  | { effect: FieldTool["effect"] }
-  | { gesture: ViewportGesture }
-);
+/** The four columns, resolved once at module init. Named apart from the table's own
+ *  `FAMILY_ROWS`, which is the un-resolved half: these carry their members. */
+const FAMILIES = deriveFamilies();
 
-/** The pointer is a family of ONE. Spelled as a family anyway so the rail renders four
- *  things the same way, and so "how many members has it?" is the single question that
- *  decides whether a corner flyout appears. */
-const POINTER_FAMILY: readonly FamilyMember[] = [
-  {
-    label: "Select",
-    hint: "click a stamp, a prop or a marker; bare rock deselects",
-    gesture: "pointer",
-  },
-];
+/** A column BY ID, throwing on a miss. The four arm/cycle runs below need their own members,
+ *  and a `find` answering `undefined` would leave a bare-letter press doing nothing at all —
+ *  the same reason `byId` throws one table up. */
+function familyOf(id: FamilyId): DerivedFamily {
+  const row = FAMILIES.find((f) => f.id === id);
+  if (row === undefined) throw new Error(`actions: no tool family "${id}"`);
+  return row;
+}
 
-const BRUSH_FAMILY: readonly FamilyMember[] = [
-  { label: "Dig", hint: "carve air — momentary: hold ⌃", effect: "dig" },
-  { label: "Fill", hint: "solidify + write the material", effect: "fill" },
-  {
-    label: "Paint",
-    hint: "retint solid cells — organic classes only",
-    effect: "paint",
-  },
-  {
-    label: "Smooth",
-    hint: "relax the surface — momentary: hold ⇧",
-    effect: "smooth",
-  },
-  {
-    label: "Segment",
-    // The cap is the HOST's number, read rather than restated (foundations T3b2 moved it to
-    // `shared/field-limits.ts` for exactly this): the chrome cannot value-import anything
-    // under `field-host/`, and until that move the two agreed by review. It was
-    // `ToolPalette`'s Segment tooltip until F4.5b Task 8 deleted that file, and for one
-    // commit the cap had no affordance at all — a user met it only as a post-hoc refusal.
-    hint: `two clicks sweep the brush between them — max ${MAX_SEGMENT_M} m; Esc drops the point`,
-    gesture: "segment",
-  },
-];
-
-const SELECT_FAMILY: readonly FamilyMember[] = [
-  { label: "Box", hint: "two clicks span a snapped region", gesture: "box" },
-  {
-    label: "Wand",
-    hint: "flood-select the clicked material",
-    gesture: "material",
-  },
-  { label: "Room", hint: "flood-select an air pocket", gesture: "void" },
-];
-
-/** Which member is armed right now, as an index into `family` — `-1` when none is (the
- *  family is not the armed one). A `gesture` member wins over the brush effect, because
- *  arming `segment` is what LMB is actually doing. */
-function armedIndex(family: readonly FamilyMember[], ctx: ActionCtx): number {
-  const byGesture = family.findIndex(
-    (m) => "gesture" in m && m.gesture === ctx.gesture,
+/** Which member is armed right now, as an index into the family's members — `-1` when none
+ *  is (the family is not the armed one). A `gesture` member wins over the brush effect,
+ *  because arming `segment` is what LMB is actually doing. */
+function armedIndex(members: readonly DerivedMember[], ctx: ActionCtx): number {
+  const byGesture = members.findIndex(
+    (m) => "gesture" in m.ref && m.ref.gesture === ctx.gesture,
   );
   if (byGesture !== -1) return byGesture;
   // The brush effect only counts while LMB still brushes: under `pointer` or a cell
   // gesture the effect is a remembered setting, not an arm.
   if (ctx.gesture !== null) return -1;
-  return family.findIndex((m) => "effect" in m && m.effect === ctx.tool.effect);
+  return members.findIndex(
+    (m) => "effect" in m.ref && m.ref.effect === ctx.tool.effect,
+  );
 }
 
 /** Arm exactly this member and nothing else.
@@ -440,15 +411,15 @@ function armedIndex(family: readonly FamilyMember[], ctx: ActionCtx): number {
  *  member flyout.
  *
  *  The two rules are about different gestures and both stand: picking a member from THIS
- *  list is exclusive (the members are Dig | Fill | Paint | Smooth | Segment — one of
- *  them), while `X`'s dig↔fill swap goes through `armBrush` alone and still keeps a live
- *  segment, which is exactly where re-aiming is the point. */
-function armMember(member: FamilyMember, ctx: ActionCtx): void {
-  if ("gesture" in member) {
-    ctx.run.setGesture(member.gesture);
+ *  list is EXCLUSIVE — arming one leaves the others — while `X`'s dig↔fill swap goes through
+ *  `armBrush` alone and still keeps a live segment, which is exactly where re-aiming is the
+ *  point. */
+function armMember(member: DerivedMember, ctx: ActionCtx): void {
+  if ("gesture" in member.ref) {
+    ctx.run.setGesture(member.ref.gesture);
     return;
   }
-  ctx.run.armBrush(member.effect);
+  ctx.run.armBrush(member.ref.effect);
   // Only `segment` needs saying: every other gesture is already dropped inside
   // `armBrush` (`brushArming.disarmGesture`), and re-pushing a null the host already
   // holds would be a redundant call on every bare-letter press.
@@ -457,16 +428,18 @@ function armMember(member: FamilyMember, ctx: ActionCtx): void {
 
 /** Arm the family's CURRENT member — the bare press. With nothing of the family armed it
  *  takes the first, which is what makes one key enough to enter a family. */
-function armFamily(family: readonly FamilyMember[], ctx: ActionCtx): void {
-  const i = armedIndex(family, ctx);
-  const member = family[i === -1 ? 0 : i];
+function armFamily(id: FamilyId, ctx: ActionCtx): void {
+  const members = familyOf(id).members;
+  const i = armedIndex(members, ctx);
+  const member = members[i === -1 ? 0 : i];
   if (member !== undefined) armMember(member, ctx);
 }
 
 /** Step to the next member and arm it — the ⇧ press. Wraps. */
-function cycleFamily(family: readonly FamilyMember[], ctx: ActionCtx): void {
-  const i = armedIndex(family, ctx);
-  const member = family[(i + 1) % family.length];
+function cycleFamily(id: FamilyId, ctx: ActionCtx): void {
+  const members = familyOf(id).members;
+  const i = armedIndex(members, ctx);
+  const member = members[(i + 1) % members.length];
   if (member !== undefined) armMember(member, ctx);
 }
 
@@ -586,7 +559,7 @@ const BEHAVIORS: ActionBehaviors = {
     // an agent names it in the call.
     run: (ctx, input) =>
       input === undefined
-        ? handedOff(() => ctx.run.world.openDrawer("save-as"))
+        ? okAfter(() => ctx.run.world.openDrawer("save-as"))
         : ctx.run.world.saveAs(input.name),
   },
   "world.bake": {
@@ -630,7 +603,7 @@ const BEHAVIORS: ActionBehaviors = {
       const name = input?.name ?? ctx.world.name;
       if (name === null)
         return Promise.resolve(refused("name the world first (⌘S)"));
-      return handedOff(() => ctx.run.world.makeDefault(name));
+      return okAfter(() => ctx.run.world.makeDefault(name));
     },
   },
 
@@ -657,7 +630,7 @@ const BEHAVIORS: ActionBehaviors = {
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
-      return handedOff(() => ctx.host?.duplicateEntity(entityId));
+      return okAfter(() => ctx.host?.duplicateEntity(entityId));
     },
   },
   "edit.delete": {
@@ -687,7 +660,7 @@ const BEHAVIORS: ActionBehaviors = {
       // The same prompt the palette row raises, with the op count in it: a row reads
       // "3 ops" but a scatter reads "1 ops" and takes every prop it placed with it.
       const ops = entity.opSpan[1] - entity.opSpan[0] + 1;
-      return handedOff(() =>
+      return okAfter(() =>
         ctx.run.openConfirm({
           title: `Delete stamp #${entity.entityId}?`,
           message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
@@ -709,7 +682,7 @@ const BEHAVIORS: ActionBehaviors = {
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
-      return handedOff(() => ctx.host?.beginMove(entityId));
+      return okAfter(() => ctx.host?.beginMove(entityId));
     },
   },
   "edit.clearSelection": {
@@ -750,22 +723,22 @@ const BEHAVIORS: ActionBehaviors = {
   "tool.brush": {
     label: () => "Brush",
     enabled: () => true,
-    run: handOff((ctx) => armFamily(BRUSH_FAMILY, ctx)),
+    run: handOff((ctx) => armFamily("brush", ctx)),
   },
   "tool.brushCycle": {
     label: () => "Next brush",
     enabled: () => true,
-    run: handOff((ctx) => cycleFamily(BRUSH_FAMILY, ctx)),
+    run: handOff((ctx) => cycleFamily("brush", ctx)),
   },
   "tool.select": {
     label: () => "Cell select",
     enabled: () => true,
-    run: handOff((ctx) => armFamily(SELECT_FAMILY, ctx)),
+    run: handOff((ctx) => armFamily("select", ctx)),
   },
   "tool.selectCycle": {
     label: () => "Next cell select",
     enabled: () => true,
-    run: handOff((ctx) => cycleFamily(SELECT_FAMILY, ctx)),
+    run: handOff((ctx) => cycleFamily("select", ctx)),
   },
   "tool.stamp": {
     label: (ctx) => {
@@ -782,7 +755,7 @@ const BEHAVIORS: ActionBehaviors = {
         return Promise.resolve(
           refused("nothing to stamp — this project registers no generators"),
         );
-      return handedOff(() => ctx.host?.startStamp(generatorId));
+      return okAfter(() => ctx.host?.startStamp(generatorId));
     },
   },
   "tool.stampCycle": {
@@ -993,21 +966,15 @@ export type ToolFamilyMember = {
  *  rail and the keyboard from meaning different things, which is the defect class this
  *  slice has closed four times. */
 export type ToolFamily = {
-  id: "pointer" | "brush" | "select" | "stamp";
+  id: FamilyId;
   /** The family's STABLE name, for surfaces that name the set rather than the press —
    *  the rail's member flyout. Distinct from `arm.label`, which is contextual and may
    *  name a MEMBER ("Stamp Hall"): a flyout headed "Stamp Hall tools" would be named
    *  after one of the things it lists. */
   name: string;
-  /** What the family button is called RIGHT NOW.
-   *
-   *  Separate from `arm.label` because the two answer different questions once a session is
-   *  live. `arm.label` names what pressing the KEY would do, and for `tool.stamp` that is
-   *  `stampMember(ctx)` — the ⇧S cursor, which is independent of any live session. The rail
-   *  is showing the family as PRESSED at that moment, so it must name what is pressed: with
-   *  a `maze` reconfigure standing and the cursor still on `hall`, `arm.label` says "Stamp
-   *  Hall" while the session strip six inches away says `maze #3`. D-8's arming channel
-   *  lying about the state D-7 exists for. */
+  /** What the family button is called RIGHT NOW — separate from `arm.label`, which answers
+   *  a different question once a session is live. Which of the two rules a column follows is
+   *  the ROW's (`memberSource`); {@link familyLabel} implements both and carries the why. */
   label: (ctx: ActionCtx) => string;
   /** The action a click on the family BUTTON runs: arm the family's CURRENT member (the
    *  bare-letter press). Deliberately not the cycle — see `cycle`. */
@@ -1022,21 +989,6 @@ export type ToolFamily = {
   armed: (ctx: ActionCtx) => boolean;
 };
 
-/** Turn a static family into resolved members. `armed` comes from the same `armedIndex`
- *  the ⇧ cycle uses, so the flyout's tick and the cycle's starting point are one answer. */
-const staticMembers =
-  (family: readonly FamilyMember[]) =>
-  (ctx: ActionCtx): readonly ToolFamilyMember[] => {
-    const i = armedIndex(family, ctx);
-    return family.map((m, index) => ({
-      id: m.label,
-      label: m.label,
-      hint: m.hint,
-      armed: index === i && idle(ctx),
-      arm: (c: ActionCtx) => armMember(m, c),
-    }));
-  };
-
 /** Is the STAGED grammar (D-7) idle — no session, no stamp armed for region-draw?
  *
  *  Either one owns the interaction, so no gesture family reads as armed while one
@@ -1050,63 +1002,40 @@ const staticMembers =
 const idle = (ctx: ActionCtx): boolean =>
   ctx.session === null && ctx.pendingStamp === null;
 
-export const TOOL_FAMILIES: readonly ToolFamily[] = [
-  {
-    id: "pointer",
-    name: "Select",
-    label: (ctx) => byId("tool.pointer").label(ctx),
-    arm: byId("tool.pointer"),
-    cycle: null,
-    members: staticMembers(POINTER_FAMILY),
-    armed: (ctx) => idle(ctx) && ctx.gesture === "pointer",
-  },
-  {
-    id: "brush",
-    name: "Brush",
-    label: (ctx) => byId("tool.brush").label(ctx),
-    arm: byId("tool.brush"),
-    cycle: byId("tool.brushCycle"),
-    members: staticMembers(BRUSH_FAMILY),
-    // `armedIndex` is the whole rule: the brush counts as armed with LMB on the stroke
-    // (gesture null) and under `segment`, whose click commits a brush op.
-    armed: (ctx) => idle(ctx) && armedIndex(BRUSH_FAMILY, ctx) !== -1,
-  },
-  {
-    id: "select",
-    name: "Cell select",
-    label: (ctx) => byId("tool.select").label(ctx),
-    arm: byId("tool.select"),
-    cycle: byId("tool.selectCycle"),
-    members: staticMembers(SELECT_FAMILY),
-    armed: (ctx) => idle(ctx) && armedIndex(SELECT_FAMILY, ctx) !== -1,
-  },
-  {
-    id: "stamp",
-    name: "Stamp",
-    // The one family whose rail label is NOT its action's. While a session stands this
-    // family reads as pressed (a session IS the staged grammar running, D-7), so it has to
-    // name the generator the SESSION is on — `tool.stamp`'s own label names the ⇧S cursor,
-    // which the session does not move. A `maze` reconfigure under a `hall` cursor made the
-    // rail say "Stamp Hall" beside a session strip saying `maze #3`.
-    label: (ctx) => {
-      // The ARM first, then the session, then the cursor. A pending arm and a live
-      // session cannot both stand (opening one clears the other), so the order is a
-      // fallback chain rather than a priority: name whichever is running, and the
-      // cursor only when nothing is.
-      if (ctx.pendingStamp !== null) return `Stamp ${ctx.pendingStamp.name}`;
-      const live = ctx.session;
-      if (live === null) return byId("tool.stamp").label(ctx);
-      const def = ctx.generators.find((g) => g.id === live.generator);
-      return `Stamp ${def?.name ?? live.generator}`;
-    },
-    arm: byId("tool.stamp"),
-    // ⇧S POINTS the S key at the next generator without opening anything, so it is a
-    // cursor move rather than an arm — but it is still this family's cycle chord, and
-    // naming it here is what lets the rail annotate the flyout with it.
-    cycle: byId("tool.stampCycle"),
-    // The registry generators, straight through: a stamp "member" is a generator, and
-    // picking one OPENS a session rather than arming a mode.
-    members: (ctx) =>
+/** What the family button is called right now, per the row's `memberSource` — which carries
+ *  the naming rule too, for the reason that field's own note gives.
+ *
+ *  A `"rows"` column takes the arm action's own label, which is what three of the four want.
+ *  A `"generators"` column names whatever is RUNNING: `pendingStamp` ▸ session ▸ the arm
+ *  action's label. A pending arm and a live session cannot both stand (opening one clears the
+ *  other), so that is a fallback rather than a priority — name whichever is running, and fall
+ *  through to the ⇧S cursor, which is what the arm label reports, only when nothing is. */
+function familyLabel(family: DerivedFamily): (ctx: ActionCtx) => string {
+  if (family.memberSource === "rows")
+    return (ctx) => byId(family.arm).label(ctx);
+  return (ctx) => {
+    if (ctx.pendingStamp !== null) return `Stamp ${ctx.pendingStamp.name}`;
+    const live = ctx.session;
+    if (live === null) return byId(family.arm).label(ctx);
+    const def = ctx.generators.find((g) => g.id === live.generator);
+    return `Stamp ${def?.name ?? live.generator}`;
+  };
+}
+
+/** The family's members, resolved against the current state, per the row's `memberSource`.
+ *
+ *  `"rows"` — the table's own, with `armed` from the same `armedIndex` the ⇧ cycle uses, so
+ *  the flyout's tick and the cycle's starting point are one answer. `id` is the member LABEL
+ *  here and the generator ID below, which is the one place that choice is made and the
+ *  reason {@link DerivedMember} carries no `id` of its own.
+ *
+ *  `"generators"` — the host's registry, straight through: a stamp "member" is a generator,
+ *  and picking one OPENS a session rather than arming a mode. */
+function familyMembers(
+  family: DerivedFamily,
+): (ctx: ActionCtx) => readonly ToolFamilyMember[] {
+  if (family.memberSource === "generators")
+    return (ctx) =>
       ctx.generators.map((g) => ({
         id: g.id,
         label: g.name,
@@ -1120,19 +1049,50 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = [
         hint: "opens a session on the selection — or click ×2 to draw its region",
         armed: ctx.pendingStamp?.id === g.id || ctx.session?.generator === g.id,
         arm: (c: ActionCtx) => c.host?.startStamp(g.id),
-      })),
-    armed: (ctx) => !idle(ctx),
-  },
-];
+      }));
+  return (ctx) => {
+    const i = armedIndex(family.members, ctx);
+    return family.members.map((m, index) => ({
+      id: m.label,
+      label: m.label,
+      hint: m.hint,
+      armed: index === i && idle(ctx),
+      arm: (c: ActionCtx) => armMember(m, c),
+    }));
+  };
+}
+
+/** Is this the family LMB is currently doing? Exactly one is true at a time.
+ *
+ *  ON `memberSource` RATHER THAN ON THE ID, because that field is what the two answers
+ *  actually differ by. A `"rows"` column is armed when one of its own member refs matches
+ *  what LMB is on — `armedIndex` is the whole rule, and it is why the brush counts as armed
+ *  both with LMB on the stroke (gesture null) and under `segment`, whose click commits a
+ *  brush op. A `"generators"` column has no ref to match: its members are SESSIONS, so it is
+ *  armed exactly while the staged grammar is running, which is `idle` read the other way. */
+function familyArmed(family: DerivedFamily): (ctx: ActionCtx) => boolean {
+  if (family.memberSource === "generators") return (ctx) => !idle(ctx);
+  return (ctx) => idle(ctx) && armedIndex(family.members, ctx) !== -1;
+}
+
+export const TOOL_FAMILIES: readonly ToolFamily[] = FAMILIES.map((family) => ({
+  id: family.id,
+  name: family.name,
+  label: familyLabel(family),
+  arm: byId(family.arm),
+  cycle: family.cycle === null ? null : byId(family.cycle),
+  members: familyMembers(family),
+  armed: familyArmed(family),
+}));
 
 // --- the gate ---------------------------------------------------------------
 
 /** May a CONTROL for this action run it, and what to say when it may not?
  *
- *  The same {@link gateAction} the keyboard uses, under the `named` caller class — routed
- *  through the one gate rather than re-spelled, because a button that arms what its own key
- *  refuses is the two-surfaces-disagree defect, and the refusal SENTENCE has to be the same
- *  one too.
+ *  The same {@link gateAction} the keyboard uses, under the `named` caller class (see
+ *  {@link GateEnv}) — routed through the one gate rather than re-spelled, because a button
+ *  that arms what its own key refuses is the two-surfaces-disagree defect, and the refusal
+ *  SENTENCE has to be the same one too.
  *
  *  A MENU-ONLY action (no `gate`) IS runnable from a control, and that is the class's whole
  *  content: the no-gate refusal is a rule about KEYCAPS, and a control has none. The burger
@@ -1188,14 +1148,13 @@ function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
 }
 
 /** May this action run right now, for THIS caller? PURE — everything that changes between
- *  renders arrives in `env`, polled at dispatch time by the caller.
+ *  renders arrives in `env`, polled at dispatch time by the caller ({@link GateEnv} carries
+ *  why the two callers are a union).
  *
  *  Three of the four clauses are about a KEY and say so by living inside the `key` branch:
  *  a menu-only action can never be fired by a keycap it does not have; a `typed` gate is
  *  about a character someone is typing; the fly refusal is about a letter the look drag owns
- *  while the right button is HELD. None of the three has anything to say to a palette row, a
- *  menu item or an agent — which is precisely what `clickGate` used to assert with a
- *  hard-coded `inTextInput: false` and a caller-specific story to justify it (S12).
+ *  while the right button is HELD.
  *
  *  The two that bind every caller are the modal suppression (a second `openConfirm` would
  *  strand the first, whose `onCancel` then never runs) and {@link sessionRefusal}. */

@@ -10,10 +10,11 @@
 // params hide as a unit and the strip degrades to `name + ⋯` — which is only acceptable
 // because this button is a complete route back to every one of them.
 import { Ellipsis } from "lucide-react";
+import type { BrushEffect } from "../../../shared/field-brush.ts";
 import { useViewportFocusReturn } from "../../hooks/useViewportFocusReturn.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
-import type { BrushEffect, ParamContext, ParamId } from "./tool-params.tsx";
+import type { ParamContext, ParamId } from "./tool-params.tsx";
 import { Param } from "./tool-params.tsx";
 
 export function StripOverflow({

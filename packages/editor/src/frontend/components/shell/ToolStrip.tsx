@@ -18,11 +18,19 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { ViewportGesture } from "../../../field-host/index.ts"; // type-only: erased
-// The two host limits this strip STATES, off the neutral floor rather than restated: the
-// chrome cannot value-import `field-host/`, and before T3b2 both were prose that agreed by
-// review.
-import { LATTICE } from "../../../shared/field-brush.ts";
-import { SELECTION_UI_BUDGET } from "../../../shared/field-limits.ts";
+// Every NAME the strip shouts and every breakpoint it degrades at comes off the tool table
+// (T3b2 Task 5) — the two host limits the cell-select notes state reach it through the same
+// rows, since `GESTURE_ROWS` reads `LATTICE` and `SELECTION_UI_BUDGET` off the neutral floor.
+// So this file names neither number, and neither the modes nor the thresholds are a thing a
+// review has to keep in agreement with anything. What it still spells for itself is the
+// pointer branch's own words ("selection", the em dash), which are a readout rather than a
+// register, and the armed effect's shout, which is `toUpperCase()` of the id.
+import type { CellSelectId } from "../../../shared/action-table.ts";
+import {
+	deriveSelectModes,
+	deriveStripParamsMin,
+	GESTURE_ROWS,
+} from "../../../shared/action-table.ts";
 import { useCatalog } from "../../hooks/useCatalogs.tsx";
 import {
 	useFieldEntities,
@@ -33,7 +41,7 @@ import { entityName } from "../../lib/actions.ts";
 import { cn } from "../../lib/cn.ts";
 import { useEditor } from "../editor-context.ts";
 import { StripOverflow } from "./StripOverflow.tsx";
-import type { BrushEffect, ParamContext } from "./tool-params.tsx";
+import type { ParamContext } from "./tool-params.tsx";
 import { availableParams, Param, TOOL_OPTIONS } from "./tool-params.tsx";
 
 /**
@@ -66,36 +74,24 @@ import { availableParams, Param, TOOL_OPTIONS } from "./tool-params.tsx";
  * four-param fill set — so there is nothing to degrade, and consequently nothing for a ⋯
  * to hold. That is D-6 satisfied rather than skipped: the rule is "content stays reachable
  * under width pressure", and content that never hides is never unreachable.
+ *
+ * The figures are `EFFECT_ROWS`' since T3b2 Task 5 and the arithmetic above is the record of
+ * how they were arrived at, not a second copy of them. They are carried as literal CLASS
+ * STRINGS on the row rather than as rem numbers, and that is Tailwind's doing rather than a
+ * preference: it generates CSS by scanning source text for class-shaped strings, so a
+ * threshold templated into `@max-[${n}rem]/strip:hidden` would emit no rule at all.
  */
-// MIGRATION (until T3b2 Task 5): exported ONLY so `tests/shared/action-table.test.ts` can
-// diff it against `deriveStripParamsMin()` while both exist. Task 5 deletes the literal and
-// this strip reads the derivation; nothing but that gate imports it.
-export const STRIP_PARAMS_MIN: Record<BrushEffect, string> = {
-	dig: "@max-[32rem]/strip:hidden",
-	fill: "@max-[46rem]/strip:hidden",
-	paint: "@max-[38rem]/strip:hidden",
-	smooth: "@max-[41rem]/strip:hidden",
-};
-
-/** The host's flood budget, READ rather than restated since foundations T3b2 moved it onto
- *  the neutral floor (`shared/field-limits.ts`). It is what `SelectionInfo.truncated`
- *  reports hitting — and it bounds the two FLOOD gestures only. */
-const FLOOD_BUDGET_LABEL = `budget ${SELECTION_UI_BUDGET / 1000}k`;
+const STRIP_PARAMS_MIN = deriveStripParamsMin();
 
 /** What the strip calls each cell-selection gesture, and the one static fact that bounds
- *  it. The two FLOOD modes are budgeted; a box span is snapped instead — `truncated` is
- *  "always false for regions" (field-host.ts), so a budget note on Box would name a limit
- *  that cannot fire, which is the dead-control defect in prose form. */
-// MIGRATION (until T3b2 Task 5): exported ONLY for the derive-and-diff gate — see
-// `STRIP_PARAMS_MIN` above.
-export const SELECT_MODES: Record<
-	"box" | "material" | "void",
-	{ name: string; note: string }
-> = {
-	box: { name: "BOX", note: `snaps to ${LATTICE} m` },
-	material: { name: "WAND", note: FLOOD_BUDGET_LABEL },
-	void: { name: "ROOM", note: FLOOD_BUDGET_LABEL },
-};
+ *  it — both off `GESTURE_ROWS`, where the name sits beside the flyout's "Box" and the
+ *  keymap line's sentence so the three registers cannot drift.
+ *
+ *  The two FLOOD modes are budgeted; a box span is snapped instead — `truncated` is "always
+ *  false for regions" (field-host.ts), so a budget note on the box mode would name a limit
+ *  that cannot fire, which is the dead-control defect in prose form. `deriveSelectModes`
+ *  THROWS on a member with no note at all, which is the same defect in its quietest form. */
+const SELECT_MODES = deriveSelectModes();
 
 export function ToolStrip() {
 	const { gesture } = useFieldTool();
@@ -180,7 +176,10 @@ function PointerStrip() {
 			: (entities.find((e) => e.entityId === selectedEntityId) ?? null);
 	return (
 		<StripFrame
-			name="SELECT"
+			// The STRIP register, off the same row the flyout's "Select" and the keymap
+			// line's "LMB select" come from. A direct row read rather than `deriveSelectModes`,
+			// which covers the three CELL modes only.
+			name={GESTURE_ROWS.pointer.stripName}
 			params={
 				<span className="flex items-center gap-1.5">
 					<span>selection</span>
@@ -193,7 +192,7 @@ function PointerStrip() {
 	);
 }
 
-function CellSelectStrip({ mode }: { mode: "box" | "material" | "void" }) {
+function CellSelectStrip({ mode }: { mode: CellSelectId }) {
 	const { name, note } = SELECT_MODES[mode];
 	return <StripFrame name={name} params={<span>{note}</span>} />;
 }
@@ -223,7 +222,16 @@ function BrushStrip({ gesture }: { gesture: ViewportGesture | null }) {
 			// material (host `segmentClick` → `commitToolOp` → the same `toolOp` a stroke
 			// uses), which is also why its params are the effect's own rather than a fixed
 			// segment set.
-			name={gesture === "segment" ? "SEGMENT" : effect.toUpperCase()}
+			//
+			// The gesture half is the ROW's strip name; the effect half is `toUpperCase()` of
+			// the id and stays that way. `EffectRow` deliberately carries no strip name — the
+			// shout IS the id, so a `stripName: "DIG"` field would be the restatement this
+			// table exists to remove rather than one more thing it holds.
+			name={
+				gesture === "segment"
+					? GESTURE_ROWS.segment.stripName
+					: effect.toUpperCase()
+			}
 			suffix={gesture === "segment" ? effect : undefined}
 			params={onStrip.map((id) => <Param key={id} id={id} ctx={ctx} />)}
 			overflow={<StripOverflow effect={effect} params={available} ctx={ctx} />}

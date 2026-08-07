@@ -26,6 +26,15 @@
 // number. That is the same rule `LATTICE` obeys from the other side: the derivation and its
 // input live together, and which module they live in is decided by which one has to be
 // reachable from the chrome.
+//
+// THE BRUSH CLAMPS ARRIVED IN T3b2 Task 5 and are the same class read at a second surface.
+// `RADIUS_MIN`/`RADIUS_MAX`/`HOLLOW_MIN_M` were the strip's own literals, under a comment
+// saying they mirrored the host "by review" — the same honest-restatement shape the three
+// above carried, found in the file that task had to open anyway. Each is enforced by the
+// host (`clampRadius`, and the `hollow` floor `clampTool` applies) and each is STATED to a
+// user as a native control's own bound, which is the strongest form of stating one: the
+// range input cannot be dragged past `RADIUS_MAX`, so a drifted copy would not merely
+// misdescribe the clamp, it would make the control refuse a value the host accepts.
 
 /** How far a dig reaches from the eye, in metres.
  *
@@ -62,3 +71,26 @@ export const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
  *  the two FLOOD gestures (`material`, `void`) only — a `box` span is snapped instead, and
  *  `truncated` is always false for regions. */
 export const SELECTION_UI_BUDGET = 200_000;
+
+/** The smallest brush/capsule radius the host will hold, in metres.
+ *
+ *  Enforced by `clampRadius` (`field-host.ts`) on every radius the chrome or the `[`/`]`
+ *  keys push, and STATED as the `min` of the strip's radius range input — so the control
+ *  cannot ask for a radius the clamp would move. */
+export const RADIUS_MIN = 0.25;
+
+/** The largest brush/capsule radius the host will hold, in metres. {@link RADIUS_MIN}'s
+ *  other end, enforced by the same `clampRadius` and stated as the same input's `max`. */
+export const RADIUS_MAX = 4;
+
+/** The thinnest shell band a hollow fill may carve, in metres.
+ *
+ *  Core accepts any positive thickness (it cannot clamp against the cell size); the host
+ *  applies this floor because a sub-cell shell on an organic shape comes out holey. Stated
+ *  as the `min` of the strip's thickness field, which is also where the chrome re-applies it
+ *  on blur — a settled sub-floor value would otherwise DISPLAY 0.2 while strokes carved 0.5.
+ *
+ *  Equal to `LATTICE` today and deliberately not spelled as it: the kit lattice is a
+ *  snapping step and this is a thickness floor, and a shared spelling would make one move
+ *  the other. */
+export const HOLLOW_MIN_M = 0.5;

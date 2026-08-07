@@ -121,7 +121,10 @@ const CANVAS_GROUP: BindingGroup = {
 		},
 		{
 			keys: "left-drag",
-			what: "Apply the armed brush — Dig, Fill, Paint or Smooth — for as long as the button is down",
+			// No roll-call of the effects: the Tools group in this same dialog renders
+			// `tool.brush`'s hint, which names every brush member off `FAMILY_ROWS`, so a
+			// second list here could only fall behind one already on screen.
+			what: "Apply the armed brush for as long as the button is down",
 		},
 		{
 			keys: "⌥ left-click",
@@ -160,8 +163,12 @@ const CANVAS_GROUP: BindingGroup = {
 function registryRows(group: ActionGroup, ctx: ActionCtx): Binding[] {
 	// The cap is DERIVED from the binding, so the overlay — the one surface whose whole job
 	// is being right about keys — cannot advertise a chord nothing answers.
-	return ACTIONS.flatMap((a) => {
-		const keys = a.group === group ? capOf(a) : undefined;
+	//
+	// The group FILTER is its own step, and it used to be folded into the cap computation
+	// (`a.group === group ? capOf(a) : undefined`), which read as though the keycap depended
+	// on which group was asking. It never did.
+	return ACTIONS.filter((a) => a.group === group).flatMap((a) => {
+		const keys = capOf(a);
 		return keys === undefined ? [] : [{ keys, what: a.hint ?? a.label(ctx) }];
 	});
 }

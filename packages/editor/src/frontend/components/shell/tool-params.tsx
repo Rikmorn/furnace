@@ -27,23 +27,36 @@
 import type { MaterialTable } from "@furnace/core/field"; // type-only: erased
 import { type ReactNode, useId, useRef, useState } from "react";
 import type { FieldMaskChoice, FieldTool } from "../../../field-host/index.ts"; // type-only: erased
+import {
+	deriveToolOptions,
+	type ParamId,
+} from "../../../shared/action-table.ts";
+// The three host CLAMPS this file states as its controls' own bounds, read off the neutral
+// floor rather than mirrored by review (T3b2 Task 5 moved them; `field-limits.ts`' header
+// carries the bar they met). `LATTICE` is the fourth and was already there — the hollow
+// STEP is the kit lattice, which is the module that computes with it saying so.
+import type { BrushEffect } from "../../../shared/field-brush.ts";
+import { LATTICE } from "../../../shared/field-brush.ts";
+import {
+	HOLLOW_MIN_M,
+	RADIUS_MAX,
+	RADIUS_MIN,
+} from "../../../shared/field-limits.ts";
 import { cn } from "../../lib/cn.ts";
 import { SELECT_CLASS } from "../field/form-bits.tsx";
 import { MaterialSwatches } from "../field/MaterialSwatches.tsx";
 import { Checkbox } from "../ui/checkbox.tsx";
 import { Input } from "../ui/input.tsx";
 
-// Mirror FieldHost's radius clamp range (RADIUS_MIN/MAX) — the chrome cannot import the
-// host's value constants (type-only barrel).
-const RADIUS_MIN = 0.25;
-const RADIUS_MAX = 4;
+/** The radius slider's granularity. NOT a host limit — the host clamps the ENDS and
+ *  quantises nothing between them, so this is the strip's own choice about how fine a drag
+ *  can be and belongs here rather than on the floor. */
 const RADIUS_STEP = 0.05;
 
-// Fill-only shell-band floor/step (metres) — mirrors the host's HOLLOW_MIN_M clamp and
-// the 0.5 m kit lattice. The input does not re-clamp typed values (the host is the
-// enforcement point); min/step keep the native steppers on valid values.
-const HOLLOW_MIN_M = 0.5;
-const HOLLOW_STEP_M = 0.5;
+/** What the hollow toggle turns the band ON at. It equals {@link HOLLOW_MIN_M} today and is
+ *  written separately on purpose: one is the floor the host would clamp to, the other is the
+ *  thickness a user gets before touching the field, and a shared spelling would make moving
+ *  the floor silently move the default. */
 const HOLLOW_DEFAULT_M = 0.5;
 
 const LABEL_CLASS = "flex items-center gap-1.5 whitespace-nowrap";
@@ -64,20 +77,23 @@ const STRIP_SELECT_CLASS = "h-7 text-xs";
 const releaseAfterChange = (e: { currentTarget: HTMLSelectElement }): void =>
 	e.currentTarget.blur();
 
-export type BrushEffect = FieldTool["effect"];
-
-export type ParamId =
-	| "radius"
-	| "mask"
-	| "material"
-	| "hollow"
-	| "strength"
-	| "iterations"
-	| "mode";
+/** The seven knobs, re-exported from the table that decides which effect has which.
+ *
+ *  DECLARED THERE, NOT HERE, since T3b2 Task 5. This file used to spell the union and
+ *  `shared/action-table.ts` spelled it again — it had to, because the floor may not import
+ *  the chrome, so the two were held equal by a typecheck pin instead. Moving the HOME down
+ *  is what removed the second spelling rather than guarding it: the table says which params
+ *  exist and which effect reaches them, and this file says how each one draws. */
+export type { ParamId };
 
 /**
  * Per effect: the WHOLE option list in priority order, and how many of them the strip
  * carries (D-6's ≤4 cap). The ⋯ renders `all`; the strip renders its first `onStrip`.
+ *
+ * DERIVED, once, at module scope, from `EFFECT_ROWS`. What that buys is not this table's
+ * correctness but the FOUR others keyed on the same discriminator: an effect added to the
+ * rows reaches its param list, its strip breakpoint, its status line and its rail member
+ * together or not at all.
  *
  * ONE table, deliberately — this is the single-source-of-truth point the whole capacity
  * rule leans on. A second list beside the popover is exactly how "the ⋯ holds everything
@@ -87,22 +103,7 @@ export type ParamId =
  * `materialId` is "ignored by dig and smooth", so the swatches appear under paint and fill
  * and nowhere else. The panel this replaces showed them permanently, under every tool.
  */
-export const TOOL_OPTIONS: Record<
-	BrushEffect,
-	{ all: readonly ParamId[]; onStrip: number }
-> = {
-	// Dig writes air: no class, no shell band. Its full set and its strip set are the same
-	// two, so its ⋯ is a reachability guarantee rather than a drawer.
-	dig: { all: ["radius", "mask"], onStrip: 2 },
-	fill: { all: ["radius", "mask", "material", "hollow"], onStrip: 4 },
-	paint: { all: ["radius", "mask", "material"], onStrip: 3 },
-	// The only effect whose list is longer than its strip: iterations and the mask are the
-	// two a user sets once and leaves, so they live behind the ⋯.
-	smooth: {
-		all: ["radius", "strength", "mode", "iterations", "mask"],
-		onStrip: 3,
-	},
-};
+export const TOOL_OPTIONS = deriveToolOptions();
 
 /** Everything a param renderer reads or writes. Assembled once by the strip and handed to
  *  both renderings, so the popover's controls drive the same funnels the strip's do. */
@@ -186,7 +187,10 @@ function HollowThickness({
 			<Input
 				type="number"
 				min={HOLLOW_MIN_M}
-				step={HOLLOW_STEP_M}
+				// The kit lattice IS the step: a shell band is snapped the way the rest of the
+				// kit is, so the native steppers walk it rather than a second number that
+				// happened to match it.
+				step={LATTICE}
 				value={text}
 				onFocus={() => {
 					focused.current = true;

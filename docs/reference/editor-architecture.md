@@ -185,7 +185,7 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 **The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes are SIBLINGS, not a chain: neither imports the other, and `tests/no-chrome-leakage.test.ts` pins that direction explicitly because nothing else would — the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
-- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts` — each VALUE-imported by chrome components as well as by the host. T3b2 added two more (`field-limits.ts`, value-imported by both layers; `action-table.ts`, whose chrome consumers arrive in that slice's Task 5 — §22). `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
+- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts`. Two of the three are VALUE-imported by chrome components as well as by the host; **`catalog.ts` is the exception and always was** — the host `import type`s it at all four of its sites (`field-host.ts`, `field-placements.ts`, `field-props.ts`, `substrate.ts`), so only the chrome (`hooks/useCatalogs.tsx`) takes a value edge. It belongs here on the *type*-sharing half of the rule rather than the value-sharing half, and the earlier wording claiming otherwise was corrected in T3b2 Task 5. T3b2 added three more, all value-imported by both layers: `field-limits.ts`, `action-table.ts` (Task 5 switched the chrome onto it — §22), and `field-brush.ts`' `LATTICE` gained a registry-side reader too. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
 
 The guard scans `src/shared/` with no exemptions precisely because the original three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `field-host` specifier. That specifier rule ends the segment (`field-host/` or the end of the specifier) so it does not also catch `frontend/lib/field-host-mirrors.ts`, a chrome-internal helper that shares the prefix and nothing else.
 
@@ -2088,8 +2088,10 @@ three things.
 never wraps and never changes height, held by `overflow-hidden` plus a per-effect container query
 (`STRIP_PARAMS_MIN`) that hides the whole param group at once and degrades the strip to `name + ⋯`.
 That degradation is only safe because `shell/StripOverflow.tsx` holds the effect's WHOLE option
-list, of which the strip renders a prefix — ONE list in `shell/tool-params.tsx`, two renderings, so
-"the ⋯ holds everything the strip shows plus the rest" is structural rather than a promise. The two
+list, of which the strip renders a prefix — ONE list, two renderings, so "the ⋯ holds everything
+the strip shows plus the rest" is structural rather than a promise. Both the option list and the
+breakpoint are `shared/action-table.ts` rows since T3b2 Task 5 (§22.7); `shell/tool-params.tsx`
+derives them at module scope and still owns how each param DRAWS. The two
 non-brush branches have no threshold, deliberately: their content is one short span that cannot
 overflow, and content that never hides is never unreachable.
 
@@ -2121,14 +2123,18 @@ for a live move, `cell` for the two-click gestures, `crosshair` for the one-clic
 before the first click (`ring` for the segment brush, whose sweep really is `digRadius` thick;
 `cross` for a box corner and a pending stamp's region corner, neither of which has a radius).
 
-The status bar's `armedKeymap` (`shell/status-keymap.ts` — pure and React-free, so its strings
-are tested directly rather than through the DOM) is the fourth channel and is **hand-enumerated
-rather than derived
-from the registry**, deliberately: the registry knows what a key RUNS, not which four of two dozen
-bindings matter in a given mode, and half of what belongs on that line is canvas-owned keys the
-table does not carry at all. Its modifier clause is derived (`modifierParts`) rather than static,
-because `deriveMomentary` swaps dig↔fill symmetrically and passes ⌃ through under paint and smooth
-— a static clause named three keys the host does not bind.
+The status bar's keymap line is the fourth channel, and it is **derived from the tool table** —
+`shared/action-table.ts`'s `deriveArmedKeymap` walks `STATUS_PRECEDENCE` over row data, and
+`shell/status-keymap.ts` is the adapter that flattens the host's session/pending/segment objects
+into the plain input the floor can take. It is pure and React-free, so its strings are tested
+directly rather than through the DOM.
+
+*(It was hand-enumerated until T3b2 Task 5, on a reason this paragraph used to carry and §22.2
+now owns, quotes and retires.)*
+
+Its modifier clause is derived (`deriveModifierParts`) rather than static, because
+`deriveMomentary` swaps dig↔fill symmetrically and passes ⌃ through under paint and smooth — a
+static clause named three keys the host does not bind.
 
 ### 17.9 What is left of FieldPanel — nothing
 
@@ -3024,6 +3030,10 @@ across five source files. Adding an effect meant **five** edits (`SELECT_MODES` 
 of the six an effect never reaches); forgetting one meant a control that renders, arms, and
 then says the wrong thing.
 
+**All six are gone as of Task 5** (§22.7). Each home now computes its table from the rows at
+module scope, or reads a row register directly, and the literals were deleted in the same
+commit.
+
 ### 22.2 The FULL-derivation decision, and the two written objections it overrules
 
 Two of the six declared their non-derivation **in writing**. `status-keymap.ts`: *"Enumerated
@@ -3049,10 +3059,11 @@ generator's name; the live measurement; the one branch on `moving`). The
 
 ### 22.3 The derive-and-diff gate
 
-`tests/shared/action-table.test.ts` derives all six tables from the rows and asserts each
+`tests/shared/action-table.test.ts` derived all six tables from the rows and asserted each
 deep-equal to the literal **still standing in its own home** — taken before any consumer
-switched, which is what makes it a proof rather than a check on a transcription. Six
-derivations, **zero** mismatches on the first run: `deriveArmedKeymap` reproduced
+switched, which is what makes it a proof rather than a check on a transcription. It stood across
+**three** commits (`c7caa42c` landed it, `3caab726` and `55f6b93c` carried it) and Task 5 deleted
+it with the literals. Six derivations, **zero** mismatches on the first run: `deriveArmedKeymap` reproduced
 `armedKeymap` string-for-string and tone-for-tone across 36 armed states, including the
 strictly-`>` cap boundary and the session-over-a-pending-point case that put the tone in the
 same branch as the text. So the FULL-derivation decision's premise held: the canvas-key
@@ -3067,12 +3078,18 @@ is a closure inside `createFieldHost` and cannot be asserted against, so only th
 (`tool.swapEffect.enabled`) is groundable, and a `hold` field would have restated what the
 key already says.
 
-One assertion outlives the literals. `shared/` sits below both other layers, so the table
-cannot import the unions it keys on (`ViewportGesture` is `field-host/`'s, `ParamId` is the
-chrome's) — it declares its own, and a **bidirectional assignability pin** in the test makes
-a member added to one side alone a `bun run typecheck` failure. `BrushEffect` needs none of
-this: it already lives on the floor, which is what the gesture union should eventually look
-like.
+The type-identity pins outlive the literals, and Task 5 removed one of them by removing what
+it guarded. `shared/` sits below both other layers, so the table cannot import a union whose
+home is above it — `ViewportGesture` is `field-host/`'s — and it declares its own, with a
+**bidirectional assignability pin** in the test making a member added to one side alone a
+`bun run typecheck` failure (not a `bun test` one: bun transpiles). `ParamId` was in the same
+position and is not any more: Task 5 moved its HOME down to `action-table.ts` and
+`tool-params.tsx` re-exports it, so one declaration replaced two and the pin went with the
+duplication it stood in for. That fix was available for the params and not for the gestures
+because the params are the TABLE's fact — the chrome renders them, it does not decide which
+exist. `BrushEffect` needs none of this: it already lives on the floor, which is what the
+gesture union should eventually look like, and its pin holds two hops of aliasing rather than
+an equality that could fail today.
 
 ### 22.4 The three restated host constants
 
@@ -3089,6 +3106,17 @@ not a fix.
 The bar for `field-limits.ts`: a number belongs there only if it is **both** enforced by the
 host **and** stated to a user. A host-private clamp with no affordance stays beside its
 enforcement.
+
+**Three more met that bar in Task 5**, found in a file that task had to open anyway:
+`RADIUS_MIN`, `RADIUS_MAX` and `HOLLOW_MIN_M` were `tool-params.tsx` literals under a comment
+saying they mirrored the host by review. Each is enforced (`clampRadius`; the `hollow` floor
+in `clampTool`) and each is stated as a native control's own bound — the range input's
+`min`/`max`, the thickness field's `min` — which is the strongest form of stating one, since
+a drifted copy would not merely misdescribe the clamp but make the control refuse a value the
+host accepts. `HOLLOW_STEP_M` went the other way and was **deleted** rather than moved: it was
+`LATTICE` spelled again, and the hollow field now reads the lattice directly. **Nothing pins
+the three** — sabotaging each reddens no test in the package (measured) — which is filed at
+`docs/backlog/editor-and-tooling/the-brush-clamp-bounds-are-pinned-by-nothing.md`.
 
 **Measured, not assumed:** Tailwind v4's automatic source detection **does** scan
 `src/shared/`. With `STRIP_PARAMS_MIN`'s four container-query classes present only in
@@ -3193,8 +3221,8 @@ shift-agnostic binding when it makes one — `?` spends eleven lines of TSDoc on
 its AltGr residue — and none of these three carries a word. A declarative table is allowed to
 force that question and is not allowed to answer it.
 
-**The rows stood beside the literals for exactly one commit**, as `shared/action-table.ts`
-did in Task 2 and for the same reason. The gate asserted all seven fields (order included)
+**The rows stood beside the literals for exactly one commit**, which is Task 3 landing them and
+Task 4 deleting them. (`shared/action-table.ts`'s literals had a longer overlap — see §22.3.) The gate asserted all seven fields (order included)
 against the live table, and the 22 binding rows against the 22 live `match` closures over a
 **640-press cross-product** (40 keys × all 16 modifier combinations, with meta and ctrl
 enumerated separately so "the two sides collapse them the same way" was checked rather than
@@ -3376,8 +3404,104 @@ where the join they replace was a runtime `find` that threw at module init. `byI
 `ActionId` in the same change. `shared/action-table.ts`'s `ToolActionId` still cannot use the
 union (the floor sits below the registry) and still resolves by throwing.
 
-**The keycap is derived everywhere now.** `ActionDef.keys` is the `KeyBinding`, and `capOf(def)`
-(a thin read of the registry's `keycap()`) is what every surface printing one calls. What that replaces
-is a `keys: "⇧⌘S"` string on every row, declared beside a matcher it had to agree with by
-review — the gap `keybindings.test.ts` had already named in writing and closed for exactly one
-row.
+**The keycap is derived for every surface that prints an ACTION's cap.** `ActionDef.keys` is the
+`KeyBinding`, and `capOf(def)` (a thin read of the registry's `keycap()`) is what those surfaces
+call. What that replaces is a `keys: "⇧⌘S"` string on every row, declared beside a matcher it had
+to agree with by review — the gap `keybindings.test.ts` had already named in writing and closed
+for exactly one row.
+
+**One surface prints keycaps and does NOT go through `capOf`, and it is not an oversight**: the
+status bar's keymap line, whose clauses spell their own keys as row text (`⌫ delete`,
+`R rotate ¼`, `Esc clears`, the `⏎ ` lead-in). Ten of that line's 27 distinct clauses lead with a
+cap `keycap()` also derives. It is a real duplication, measured and adjudicated rather than
+assumed, and it is open because `keycap()` lives ABOVE the floor those rows sit on — closing it
+would reverse the import arrow. §22.7 and
+`docs/backlog/editor-and-tooling/status-line-keycaps-restate-the-registry.md`.
+
+### 22.7 As built — the six become derivations (Task 5)
+
+Each of §22.1's six homes now COMPUTES its table from the rows, at module scope, and the
+literal is deleted:
+
+| was | is now |
+|---|---|
+| `TOOL_OPTIONS` literal, `tool-params.tsx` | `deriveToolOptions()` |
+| `STRIP_PARAMS_MIN` literal, `ToolStrip.tsx` | `deriveStripParamsMin()` |
+| `SELECT_MODES` + `FLOOD_BUDGET_LABEL`, `ToolStrip.tsx` | `deriveSelectModes()` |
+| `POINTER_FAMILY` / `BRUSH_FAMILY` / `SELECT_FAMILY` + the `TOOL_FAMILIES` literal, `actions.ts` | `deriveFamilies()`, joined with three closures |
+| `armedKeymap`'s branch cascade + `segmentLine`, `status-keymap.ts` | `deriveArmedKeymap()` |
+| `modifierParts`, same file | `deriveModifierParts()` |
+
+**`status-keymap.ts` is an ADAPTER now and nothing else.** What is left in it is the one thing
+the floor cannot do: reach the host's `StampSession` / `PendingStamp` / `SegmentHud` and
+flatten them into the plain `KeymapInput` a module below `field-host/` may take, resolving the
+two session verbs through `SESSION_VERBS[sessionStateTag(...)]` on the way. `Keymap` is the
+table's own `StatusLine`, re-exported rather than declared a second time.
+
+**The family model became a join keyed on the RULE FIELDS, not on the family id.** `actions.ts`
+maps `deriveFamilies()` and adds the three things a row cannot hold — `label`, `members`,
+`armed` — with each implemented ONCE per rule rather than once per column: `labelRule` picks
+`"arm"` (the action's own label) or `"running"` (pendingStamp ▸ session ▸ arm-label), and
+`memberSource` picks `"rows"` (the table's members, `armed` from `armedIndex`) or
+`"generators"` (the host's registry, `armed` = the staged grammar is running). The third
+follows the second because that field is what the two answers actually differ by: a `"rows"`
+column is armed when one of its own refs matches what LMB is on, and a `"generators"` column
+has no ref to match.
+
+**`DerivedMember` carries its REF and no `id`.** Task 2's `id: row.label` existed to match a
+literal that spelled both; once the literal went it was a second name for one string. The ref
+replaced it and does more work than it did — `armMember` reads the discriminator off the
+member, so the arming machinery and the flyout's display are one list instead of two walked in
+parallel. The one surface that needs a per-member KEY (`ToolFamilyMember.id`: a generator's id
+for the stamp family, the label everywhere else) now makes that choice in the one place the
+two cases meet.
+
+**Two strip names moved from literals to row reads.** `GESTURE_ROWS.pointer.stripName` and
+`.segment.stripName` were correct but unread; `PointerStrip` and `BrushStrip` read them now,
+and `tests/chrome/tool-strip.test.tsx`' existing DOM assertions are what gate them (verified
+by sabotage: renaming either reddens that suite and only that suite). `EffectRow` deliberately
+carries NO strip name — `BrushStrip` renders `effect.toUpperCase()`, a derivation from the id,
+and a `stripName: "DIG"` field would be new restatement rather than removed restatement.
+
+**The two written non-derivation decisions retired by QUOTATION.** `status-keymap.ts` and
+`ToolRail.tsx` each keep a header block that quotes the paragraph it used to carry and states
+the supersession (2026-08-06, §22.2). The eight free-prose Box/Wand/Room restatements were
+resolved individually: four died with the literals they sat in, three comments/glosses
+(`ToolRail.tsx`'s flyout rationale ×2, `CommandPalette.tsx`'s member roll-call) were rewritten
+to stop enumerating members, `ShortcutsDialog.tsx`'s canvas gloss had its roll-call DELETED
+rather than derived (the same dialog already renders `tool.brush`'s hint, which names every
+brush member off the rows — the hand-written copy sat a few rows below a derived one), and
+**all FOUR descriptor hints that promise a cycle order became reads** — `tool.brush`,
+`tool.brushCycle`, `tool.select` and `tool.selectCycle` now build the order from `FAMILY_ROWS`
+through `cycleOrder`.
+
+*(Two counting corrections, both found by review rather than by the digest. The planning digest
+listed eight prose sites and missed `tool.brushCycle`'s hint entirely. The first pass of this
+task then converted three of the four cycle hints and left `tool.brush`'s literal standing
+beside its own twin — so renaming an effect made `B` and `⇧B` promise different orders in the
+shortcuts overlay, the commit's own thesis failing in the commit that states it. Both fixed;
+`cycleOrder`'s docblock records the second, and the pin asserts four.)*
+
+That gave `action-registry/descriptors.ts` its second value import, arrow-legal for `LATTICE`'s
+reason, and `tests/action-registry/node-door.test.ts` covers the new edge — a `document`
+reference planted in `action-table.ts` fails the Node door (sabotage-verified).
+
+**The gate turned into shape pins.** With no literal left to diff, `action-table.test.ts`'s six
+comparisons became tautologies and were deleted rather than left as green cases that cannot
+fail. What replaced them: the precedence order DRIVEN one shadow at a time, the strictly-`>`
+overCap rule with both non-toning cases beside it, **one full status-line string per armed
+state** (fourteen golden strings — the line's whole content is words, it is rendered by one
+span, and nothing else holds it), the strip-prefix invariants `onStrip ≤ all.length ≤ D-6's
+cap` plus the class-shapedness the Tailwind scan depends on, and a member-ref/label alignment
+case. Seven sabotages, each verified to redden: precedence reordered, one status word edited,
+`>` → `>=`, `onStrip` past the list, a breakpoint that stops being class-shaped, a dropped
+member ref (caught by ten cases across the package), and the session verbs swapped in the
+adapter.
+
+**Two residues were adjudicated rather than closed**, both filed:
+`status-line-keycaps-restate-the-registry.md` (ten of 27 clauses lead with a cap `keycap()`
+also derives — a real duplication, but `keycap()` lives ABOVE the floor and the fix that keeps
+the arrow costs `StatusFragment`'s two-kind model) and
+`family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reaches the host directly and
+returns no `ActionResult`; unreachable-while-refused today because both surfaces pre-check,
+but "the one funnel" is not literally true).

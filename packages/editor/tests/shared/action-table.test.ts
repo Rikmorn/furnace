@@ -1,21 +1,27 @@
-// THE DERIVE-AND-DIFF GATE — foundations T3b2 Task 2's whole point.
+// THE TOOL TABLE'S SHAPE PINS — what is left to prove once the six literals are gone.
 //
-// `src/shared/action-table.ts` claims to be the ONE place a tool fact is stated. This file
-// is the proof, taken BEFORE anything switched onto it: every one of the six tables the
-// editor states today is DERIVED from the new rows and asserted deep-equal to the literal
-// still standing in its own home. Both exist side by side for exactly one commit, which is
-// what makes the comparison meaningful — a derivation checked against a transcription of
-// the literal proves only that the transcription was faithful.
+// This file WAS the derive-and-diff gate (T3b2 Task 2): every one of the six tables the
+// editor stated was derived from `src/shared/action-table.ts`'s rows and asserted deep-equal
+// to the literal still standing in its own home, side by side for exactly one commit. Six
+// derivations, zero mismatches. Task 5 switched the consumers and deleted the literals, and
+// the diff half went with them — a derivation compared against a derivation is a tautology
+// wearing an assertion's clothes, and leaving those cases in place would have been six green
+// tests that could no longer fail.
 //
-// WHAT A FAILURE HERE MEANS, in the order to check it: (1) the row model is missing a fact
-// the literal carries, or (2) two of today's tables disagree with each other and the source
-// had to pick one. (2) is the drift class the slice exists to kill and is a FINDING, not a
-// formatting problem — never weaken an assertion to make it pass.
+// WHAT REPLACED THEM, and what each kind is for:
+//   (0) the type-identity pins, which OUTLIVE the literals — the table declares unions whose
+//       homes are above the floor it sits on, and only `bun run typecheck` catches drift.
+//   (1) the two JOINS the module does not make, which is the same claim it always was.
+//   (2)–(3) the CHROME's half: the ids resolve in the registry, and the live `TOOL_FAMILIES`
+//       closures follow the rule fields the rows state.
+//   (4) the STATUS LINE, string for string — the precedence, the tone, and one full line per
+//       armed state. These are golden strings on purpose: they are the one surface whose
+//       whole content is words, they are not rendered anywhere a DOM test can read them
+//       cheaply, and the diff gate they replace is the only thing that has ever held them.
+//   (5)–(8) the row invariants and the three host constants.
 //
-// Task 5 switches the six consumers onto the derivations and deletes the literals. When it
-// does, most of this file goes with them: a gate comparing a derivation against a deleted
-// literal has nothing left to say. What SURVIVES is the type-identity pin below, which is
-// the standing guard over the one duplication this task could not remove.
+// NEVER WEAKEN AN ASSERTION HERE TO MAKE IT PASS. A failure means the rows changed; decide
+// whether the change was intended, and if it was, change the pin deliberately.
 import { expect, test } from "bun:test";
 import type {
   FieldTool,
@@ -25,32 +31,16 @@ import type {
   ViewportGesture,
 } from "../../src/field-host/index.ts";
 import { armedKeymap } from "../../src/frontend/components/shell/status-keymap.ts";
-import {
-  SELECT_MODES,
-  STRIP_PARAMS_MIN,
-} from "../../src/frontend/components/shell/ToolStrip.tsx";
-import type {
-  BrushEffect as BrushEffectToday,
-  ParamId as ParamIdToday,
-} from "../../src/frontend/components/shell/tool-params.tsx";
-import { TOOL_OPTIONS } from "../../src/frontend/components/shell/tool-params.tsx";
-import type { ActionCtx } from "../../src/frontend/lib/actions.ts";
 import { byId, TOOL_FAMILIES } from "../../src/frontend/lib/actions.ts";
-import {
-  SESSION_VERBS,
-  sessionStateTag,
-} from "../../src/frontend/lib/field-session.ts";
+import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import type {
   CellSelectId,
   DerivedFamily,
   FamilyId,
   FamilyRow,
   GestureId,
-  KeymapInput,
-  ParamId,
 } from "../../src/shared/action-table.ts";
 import {
-  deriveArmedKeymap,
   deriveFamilies,
   deriveModifierParts,
   deriveSelectModes,
@@ -59,7 +49,7 @@ import {
   EFFECT_ROWS,
   FAMILY_ROWS,
   GESTURE_ROWS,
-  STATUS_SEPARATOR,
+  STATUS_PRECEDENCE,
 } from "../../src/shared/action-table.ts";
 import type { BrushEffect } from "../../src/shared/field-brush.ts";
 import { LATTICE } from "../../src/shared/field-brush.ts";
@@ -124,8 +114,31 @@ function derivedFamily(id: FamilyId): DerivedFamily {
   return family;
 }
 
+/** The armed state, in the shape the CHROME hands it over — host objects and all. Every
+ *  status-line case below goes through `armedKeymap` rather than through
+ *  `deriveArmedKeymap` directly, and that is deliberate: since Task 5 the derivation is the
+ *  only implementation, so the only thing left worth testing on this path is the ADAPTER —
+ *  the session verbs resolved by state tag, the `moving` flag, the four fields flattened. A
+ *  case written against the derivation would skip exactly the code that is still here. */
+function armed(
+  state: Partial<Omit<Parameters<typeof armedKeymap>[0], "tool">> & {
+    effect?: BrushEffect;
+  },
+): { text: string; overCap: boolean } {
+  return armedKeymap({
+    tool: { ...DIG_TOOL, effect: state.effect ?? "dig" },
+    gesture: state.gesture ?? null,
+    session: state.session ?? null,
+    pendingStamp: state.pendingStamp ?? null,
+    segment: state.segment ?? null,
+  });
+}
+
+const lineFor = (state: Parameters<typeof armed>[0]): string =>
+  armed(state).text;
+
 // ---------------------------------------------------------------------------
-// (0) The type-identity pin — the ONE duplication this task could not remove.
+// (0) The type-identity pins — the duplications this slice could NOT remove.
 // ---------------------------------------------------------------------------
 
 /** Mutual assignability, which for unions is equality. Written as a conditional rather than
@@ -133,10 +146,9 @@ function derivedFamily(id: FamilyId): DerivedFamily {
  *  only checking both directions catches a member added to one side alone. */
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
-// `shared/` sits BELOW both `field-host/` and `frontend/`, so the table cannot import the
-// unions it keys on — their homes are above it. It declares its own and this pin closes the
-// gap: a sixth gesture, or a param renamed on one side, fails `bun run typecheck` here.
-// This is the one assertion in the file that OUTLIVES Task 5.
+// `shared/` sits BELOW `field-host/`, so the table cannot import the gesture union it keys
+// on — that union's home is above it. It declares its own and these pins close the gap: a
+// sixth gesture, or one renamed on a single side, fails `bun run typecheck` here.
 const gesturesAreOneUnion: Exact<GestureId, ViewportGesture> = true;
 // The host's `SelectionMode` is DELIBERATELY absent from `field-host/index.ts` ("the chrome
 // only names the wider union"), so it is not a name this file may import — surface
@@ -147,11 +159,24 @@ const cellSelectIsOneUnion: Exact<
   CellSelectId,
   Exclude<ViewportGesture, "segment" | "pointer">
 > = true;
-const paramsAreOneUnion: Exact<ParamId, ParamIdToday> = true;
-const effectsAreOneUnion: Exact<BrushEffect, BrushEffectToday> = true;
+// TRUE BY CONSTRUCTION TODAY, and kept for the construction rather than for the equality:
+// `field-host.ts` type-imports the floor's `BrushEffect` for `FieldTool.effect`, so what this
+// catches is the host re-DECLARING the union locally instead of importing it — which is the
+// shape the gesture union is in right now, one directory over. Read off the host barrel
+// directly, ONE hop: it went through `tool-params.tsx`'s own `BrushEffect` alias until Task 5
+// deleted that alias as a third spelling, and routing a pin through an alias measures the
+// alias as much as the fact.
+const effectsAreOneUnion: Exact<BrushEffect, FieldTool["effect"]> = true;
+
+// `ParamId` HAD a fourth pin beside these and no longer needs one, for the same reason the
+// alias above went: Task 5 moved the union's HOME to `action-table.ts` and `tool-params.tsx`
+// re-exports it, so there is one declaration where there were two. Deleting a duplication is
+// the fix a pin is a substitute for. It was available for the params and not for the gestures
+// because the params are the TABLE's fact — the chrome renders them, it does not decide which
+// exist — and `ViewportGesture`'s home is above this floor either way.
 
 test("the table's ids and the host's are ONE union, in both directions", () => {
-  // THE GATE FOR THIS ONE IS `bun run typecheck`, NOT `bun test`. The four `Exact<>`
+  // THE GATE FOR THIS ONE IS `bun run typecheck`, NOT `bun test`. The three `Exact<>`
   // annotations above are the assertion, and bun TRANSPILES rather than type-checks — a
   // violated `Exact<>` is a TS2322 that runs green here (verified, not assumed). This case
   // exists so the constants are not dead code and so a reader arrives at them; it cannot
@@ -159,26 +184,13 @@ test("the table's ids and the host's are ONE union, in both directions", () => {
   expect([
     gesturesAreOneUnion,
     cellSelectIsOneUnion,
-    paramsAreOneUnion,
     effectsAreOneUnion,
-  ]).toEqual([true, true, true, true]);
+  ]).toEqual([true, true, true]);
 });
 
 // ---------------------------------------------------------------------------
-// (1)–(3), (6) The four literal tables.
+// (1) The two joins the module does NOT make.
 // ---------------------------------------------------------------------------
-
-test("deriveToolOptions() === TOOL_OPTIONS (tool-params.tsx)", () => {
-  expect(deriveToolOptions()).toEqual(TOOL_OPTIONS);
-});
-
-test("deriveStripParamsMin() === STRIP_PARAMS_MIN (ToolStrip.tsx)", () => {
-  expect(deriveStripParamsMin()).toEqual(STRIP_PARAMS_MIN);
-});
-
-test("deriveSelectModes() === SELECT_MODES (ToolStrip.tsx)", () => {
-  expect(deriveSelectModes()).toEqual(SELECT_MODES);
-});
 
 test("the cell-select strip renders exactly the modes M cycles", () => {
   // THE JOIN `deriveSelectModes` DOES NOT MAKE. It is keyed on `CellSelectId`; the `M` key
@@ -190,272 +202,6 @@ test("the cell-select strip renders exactly the modes M cycles", () => {
     "gesture" in m ? m.gesture : `effect:${m.effect}`,
   );
   expect(cycled).toEqual(Object.keys(deriveSelectModes()));
-});
-
-/** The DATA half of `TOOL_FAMILIES`, projected out of the literal so the two shapes can be
- *  compared at all. The four `(ctx) => …` predicates are not data and are not derivable —
- *  `labelRule` and `memberSource` are the table's half of them, asserted separately below.
- *
- *  `members(ctx)` is resolved against a ctx with NO generators, which is what makes the
- *  stamp family's member list empty on both sides: its members are the host's registry, and
- *  a table cannot hold them. That the stamp family is the only one whose emptiness is a
- *  SOURCE fact rather than an empty fixture is what `memberSource` states.
- *
- *  `arm`/`cycle` come out as plain `string` because `ActionDef.id` is one — the registry
- *  does not name its own ids as a union today, which is why the table's `ToolActionId` is
- *  pinned to it by RESOLUTION (`byId` throws) rather than by assignment. */
-type FamilyData = {
-  id: string;
-  name: string;
-  arm: string;
-  cycle: string | null;
-  members: { id: string; label: string; hint: string }[];
-};
-
-function familyDataToday(ctx: ActionCtx): FamilyData[] {
-  return TOOL_FAMILIES.map((family) => ({
-    id: family.id,
-    name: family.name,
-    arm: family.arm.id,
-    cycle: family.cycle?.id ?? null,
-    members: family.members(ctx).map((m) => ({
-      id: m.id,
-      label: m.label,
-      hint: m.hint,
-    })),
-  }));
-}
-
-test("deriveFamilies() === TOOL_FAMILIES' data half (actions.ts)", () => {
-  const ctx = makeCtx({ generators: [] });
-  const derived: FamilyData[] = deriveFamilies().map((f) => ({
-    id: f.id,
-    name: f.name,
-    arm: f.arm,
-    cycle: f.cycle,
-    members: f.members.map((m) => ({ id: m.id, label: m.label, hint: m.hint })),
-  }));
-  expect(derived).toEqual(familyDataToday(ctx));
-});
-
-test("every family's arm and cycle id RESOLVES in the action registry", () => {
-  // `deriveFamilies` hands surfaces an id to dispatch; `byId` throws on a miss, so this is
-  // the claim that the ids are live rather than merely well-typed.
-  for (const family of FAMILY_ROWS) {
-    expect(byId(family.arm).id).toBe(family.arm);
-    if (family.cycle !== null) expect(byId(family.cycle).id).toBe(family.cycle);
-  }
-});
-
-test("the contextual-label rule and the member source match TOOL_FAMILIES", () => {
-  // The two facts the projection above cannot compare, because on the literal's side they
-  // are closures. `stamp` is the family that diverges on BOTH, and that divergence is the
-  // reason the row carries them as data rather than the rail re-deriving it.
-  const rules = FAMILY_ROWS.map((f) => [f.id, f.labelRule, f.memberSource]);
-  expect(rules).toEqual([
-    ["pointer", "arm", "rows"],
-    ["brush", "arm", "rows"],
-    ["select", "arm", "rows"],
-    ["stamp", "running", "generators"],
-  ]);
-  // …and the literal agrees about which one it is. Measured where the two rules can be
-  // TOLD APART, which is the only place they differ: with a `maze` session standing while
-  // the ⇧S cursor is still on `hall`, `"arm"` says "Stamp Hall" and `"running"` says "Stamp
-  // Maze". Idle, all four families agree — a fact worth stating, since it is why an
-  // idle-ctx assertion here passed for the wrong reason and had to be replaced.
-  const idle = makeCtx();
-  for (const family of TOOL_FAMILIES)
-    expect([family.id, family.label(idle)]).toEqual([
-      family.id,
-      family.arm.label(idle),
-    ]);
-
-  // BOTH branches of the `running` chain, which is `pendingStamp ▸ session ▸ arm-label`
-  // (`actions.ts`): driving only the session half would pass an implementation that dropped
-  // the pending-arm one, and a stamp picked with nothing selected is the state a first-time
-  // user meets FIRST.
-  //
-  // BOTH name `maze` while the ⇧S cursor sits on `hall` (the fixture's `stampCursor` is
-  // null, so `stampMember` falls to the first generator). The mismatch is load-bearing, and
-  // measured: with `PENDING` — which IS `hall` — the two rules return the SAME string, so
-  // `takesArmLabel` is true against a `"running"` row expecting false, and this case goes
-  // RED. Not silently, and not because the branch is broken — because a fixture that cannot
-  // make the rules diverge cannot satisfy an assertion about how they differ. A diverging
-  // fixture is what turns the case from unsatisfiable into a test of the rule.
-  //
-  // (The failure mode one loop up is the OTHER one and is worth keeping distinct: an idle
-  // ctx makes all four families agree, so an assertion written there passes VACUOUSLY. One
-  // shape goes red on a bad fixture, the other goes green — hence both loops.)
-  for (const live of [
-    makeCtx({ session: { ...SESSION, generator: "maze" } }),
-    makeCtx({ pendingStamp: { id: "maze", name: "Maze" } }),
-  ])
-    for (const family of TOOL_FAMILIES) {
-      const row = familyRow(family.id);
-      const takesArmLabel = family.label(live) === family.arm.label(live);
-      expect([family.id, takesArmLabel]).toEqual([
-        family.id,
-        row.labelRule === "arm",
-      ]);
-    }
-});
-
-// ---------------------------------------------------------------------------
-// (4) armedKeymap — every branch, every state, string for string.
-// ---------------------------------------------------------------------------
-
-/** The same armed state, in the two shapes. `armedKeymap` takes the host's own objects;
- *  `deriveArmedKeymap` takes plain data, because `shared/` may not import the host — so the
- *  ONE fixture builds both and the diff cannot be an artefact of two hand-written states. */
-function bothShapes(state: {
-  effect: BrushEffect;
-  gesture: GestureId | null;
-  session: StampSession | null;
-  pendingStamp: PendingStamp | null;
-  segment: SegmentHud | null;
-}): [Parameters<typeof armedKeymap>[0], KeymapInput] {
-  const verbs =
-    state.session === null
-      ? null
-      : SESSION_VERBS[sessionStateTag(state.session)];
-  return [
-    {
-      tool: { ...DIG_TOOL, effect: state.effect },
-      gesture: state.gesture,
-      session: state.session,
-      pendingStamp: state.pendingStamp,
-      segment: state.segment,
-    },
-    {
-      effect: state.effect,
-      gesture: state.gesture,
-      session:
-        state.session === null || verbs === null
-          ? null
-          : {
-              moving: state.session.moving === true,
-              primary: verbs.primary,
-              secondary: verbs.secondary,
-            },
-      pendingStamp: state.pendingStamp,
-      segment: state.segment,
-    },
-  ];
-}
-
-/** Every armed state the status line has a branch for, and the ones it deliberately does
- *  NOT branch on — a stale segment measurement under `box`, a session standing over a
- *  pending point — because those are exactly where a re-derived answer went wrong before. */
-function keymapMatrix(): {
-  effect: BrushEffect;
-  gesture: GestureId | null;
-  session: StampSession | null;
-  pendingStamp: PendingStamp | null;
-  segment: SegmentHud | null;
-}[] {
-  const base = {
-    session: null,
-    pendingStamp: null,
-    segment: null,
-  } as const;
-  const rows = [];
-  // The brush floor: four effects, four modifier tails.
-  for (const effect of EFFECTS)
-    rows.push({ ...base, effect, gesture: null as GestureId | null });
-  // Every gesture, under every effect — the gesture must win, and for `segment` the effect
-  // must still be irrelevant to the words.
-  for (const gesture of GESTURES)
-    for (const effect of EFFECTS) rows.push({ ...base, effect, gesture });
-  // The segment READOUT, including both sides of the strictly-`>` cap rule and the boundary
-  // itself: at exactly the cap the click still COMMITS, so `>=` must not pass here.
-  for (const segment of [
-    { lenM: 0, capM: MAX_SEGMENT_M },
-    { lenM: 42.5, capM: MAX_SEGMENT_M },
-    { lenM: MAX_SEGMENT_M, capM: MAX_SEGMENT_M },
-    { lenM: MAX_SEGMENT_M + 1, capM: MAX_SEGMENT_M },
-  ])
-    rows.push({
-      ...base,
-      effect: "dig" as BrushEffect,
-      gesture: "segment" as GestureId | null,
-      segment,
-    });
-  // A measurement left standing under a gesture that is not the segment's: the line must be
-  // the box's, untoned.
-  rows.push({
-    ...base,
-    effect: "dig" as BrushEffect,
-    gesture: "box" as GestureId | null,
-    segment: { lenM: MAX_SEGMENT_M + 15, capM: MAX_SEGMENT_M },
-  });
-  // A pending stamp SHADOWS the gesture slot it was picked from.
-  for (const gesture of [null, "pointer", "box"] as (GestureId | null)[])
-    rows.push({
-      ...base,
-      effect: "dig" as BrushEffect,
-      gesture,
-      pendingStamp: PENDING,
-    });
-  // A session shadows everything, in all three of its state tags and both steerings — and
-  // once OVER a pending point with a live over-cap measurement, which is the state that
-  // proved the tone had to travel with the text.
-  for (const session of [
-    SESSION,
-    { ...SESSION, mode: "reconfigure" as const, entityId: 3 },
-    {
-      ...SESSION,
-      mode: "reconfigure" as const,
-      entityId: 3,
-      moving: true as const,
-    },
-  ])
-    rows.push({
-      ...base,
-      effect: "dig" as BrushEffect,
-      gesture: "pointer" as GestureId | null,
-      session,
-    });
-  rows.push({
-    effect: "dig" as BrushEffect,
-    gesture: "segment" as GestureId | null,
-    session: SESSION,
-    pendingStamp: PENDING,
-    segment: { lenM: 75, capM: MAX_SEGMENT_M },
-  });
-  return rows;
-}
-
-test("deriveArmedKeymap() === armedKeymap() over every armed state", () => {
-  // Compared as a LIST of labelled pairs rather than case by case: a per-row `expect` stops
-  // at the first mismatch and reports one, where the finding this gate exists to produce is
-  // the WHOLE set of places two tables disagree.
-  const rows = keymapMatrix();
-  const derived = rows.map((row) => {
-    const [, input] = bothShapes(row);
-    return deriveArmedKeymap(input);
-  });
-  const today = rows.map((row) => {
-    const [state] = bothShapes(row);
-    return armedKeymap(state);
-  });
-  expect(derived).toEqual(today);
-});
-
-test("deriveModifierParts() === the tail armedKeymap joins onto the brush line", () => {
-  // `modifierParts` is module-private in `status-keymap.ts`, so it is read where it is
-  // USED: the brush line is `LMB <effect> · [ ] radius · <the tail>`, and the tail is
-  // everything past the second clause. Structural, not a transcription of the strings.
-  for (const effect of EFFECTS) {
-    const [state] = bothShapes({
-      effect,
-      gesture: null,
-      session: null,
-      pendingStamp: null,
-      segment: null,
-    });
-    const tail = armedKeymap(state).text.split(STATUS_SEPARATOR).slice(2);
-    expect([effect, deriveModifierParts(effect)]).toEqual([effect, tail]);
-  }
 });
 
 test("the X clause is live exactly where tool.swapEffect is enabled", () => {
@@ -473,27 +219,300 @@ test("the X clause is live exactly where tool.swapEffect is enabled", () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// (2)–(3) The chrome's half of the join.
+// ---------------------------------------------------------------------------
+
+test("every family's arm and cycle id RESOLVES in the action registry", () => {
+  // The rows hand surfaces an id to dispatch; `byId` throws on a miss, so this is the claim
+  // that the ids are live rather than merely well-typed. `TOOL_FAMILIES` now calls `byId` at
+  // MODULE INIT, so a broken id takes the editor down at import — this case is what names
+  // which one, before a reader has to read a stack trace to find out.
+  for (const family of FAMILY_ROWS) {
+    expect(byId(family.arm).id).toBe(family.arm);
+    if (family.cycle !== null) expect(byId(family.cycle).id).toBe(family.cycle);
+  }
+});
+
+test("the member source picks the naming rule, and TOOL_FAMILIES obeys it", () => {
+  // The fact a data comparison cannot make, because on the chrome's side it is a CLOSURE.
+  // `stamp` is the family that diverges, and that divergence is the reason the row carries
+  // the source as data rather than the rail re-deriving it.
+  //
+  // TWO COLUMNS, not three. A separate `labelRule` stood beside `memberSource` for one commit
+  // and agreed with it on all four rows — two spellings of one distinction, deleted in Task 5.
+  // What that costs this case is nothing: `"generators"` IS the naming rule now, and the
+  // loops below drive the rule through the live table rather than reading a second field.
+  const rules = FAMILY_ROWS.map((f) => [f.id, f.memberSource]);
+  expect(rules).toEqual([
+    ["pointer", "rows"],
+    ["brush", "rows"],
+    ["select", "rows"],
+    ["stamp", "generators"],
+  ]);
+  // …and the LIVE table agrees about which one it is. Measured where the two rules can be
+  // TOLD APART, which is the only place they differ: with a `maze` session standing while
+  // the ⇧S cursor is still on `hall`, a rows-family says "Stamp Hall" and the stamp family
+  // says "Stamp Maze". Idle, all four agree — a fact worth stating, since it is why an
+  // idle-ctx assertion here passed for the wrong reason and had to be replaced.
+  const idle = makeCtx();
+  for (const family of TOOL_FAMILIES)
+    expect([family.id, family.label(idle)]).toEqual([
+      family.id,
+      family.arm.label(idle),
+    ]);
+
+  // BOTH branches of the generators chain, which is `pendingStamp ▸ session ▸ arm-label`:
+  // driving only the session half would pass an implementation that dropped the pending-arm
+  // one, and a stamp picked with nothing selected is the state a first-time user meets
+  // FIRST.
+  //
+  // BOTH name `maze` while the ⇧S cursor sits on `hall` (the fixture's `stampCursor` is
+  // null, so `stampMember` falls to the first generator). The mismatch is load-bearing, and
+  // measured: with `PENDING` — which IS `hall` — the two rules return the SAME string, so
+  // `takesArmLabel` is true against a `"generators"` row expecting false, and this case goes
+  // RED. Not silently, and not because the branch is broken — because a fixture that cannot
+  // make the rules diverge cannot satisfy an assertion about how they differ. A diverging
+  // fixture is what turns the case from unsatisfiable into a test of the rule.
+  //
+  // (The failure mode one loop up is the OTHER one and is worth keeping distinct: an idle
+  // ctx makes all four families agree, so an assertion written there passes VACUOUSLY. One
+  // shape goes red on a bad fixture, the other goes green — hence both loops.)
+  for (const live of [
+    makeCtx({ session: { ...SESSION, generator: "maze" } }),
+    makeCtx({ pendingStamp: { id: "maze", name: "Maze" } }),
+  ])
+    for (const family of TOOL_FAMILIES) {
+      const row = familyRow(family.id);
+      const takesArmLabel = family.label(live) === family.arm.label(live);
+      expect([family.id, takesArmLabel]).toEqual([
+        family.id,
+        row.memberSource === "rows",
+      ]);
+    }
+});
+
+test("a member's ref is what ARMS it, and the rail keys its rows on the label", () => {
+  // `DerivedMember` carries the REF and no `id` — Task 5's deletion pass, because `id` was
+  // `row.label` unconditionally and a second name for one string is what this module exists
+  // to remove. The consequence worth pinning is that the two halves still line up: the
+  // rail's member list (`ToolFamilyMember`) is keyed on the LABEL for a rows-family, and
+  // every one of those members carries a ref the arm can act on.
+  const ctx = makeCtx();
+  for (const row of FAMILY_ROWS) {
+    if (row.memberSource !== "rows") continue;
+    const derived = derivedFamily(row.id);
+    const live = TOOL_FAMILIES.find((f) => f.id === row.id);
+    if (live === undefined)
+      throw new Error(`TOOL_FAMILIES dropped "${row.id}"`);
+    expect(live.members(ctx).map((m) => m.id)).toEqual(
+      derived.members.map((m) => m.label),
+    );
+    // The refs survive resolution in ORDER — the cycle steps this list, so a reordering
+    // here is a reordering of what ⇧B does.
+    expect(derived.members.map((m) => m.ref)).toEqual([...row.members]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// (4) The status line — the precedence, the tone, and one full line per state.
+// ---------------------------------------------------------------------------
+
+test("THE ORDER IS THE CONTRACT — the precedence is what runs, not just what is written", () => {
+  expect([...STATUS_PRECEDENCE]).toEqual([
+    "session",
+    "pendingStamp",
+    "gesture",
+    "effect",
+  ]);
+  // Driven, one shadow at a time, from the floor up. Each state is added to the one below
+  // it and must WIN: a resolver consulted out of order would leave one of these four
+  // showing the line underneath it.
+  const floor = { effect: "dig" as BrushEffect };
+  expect(lineFor(floor)).toBe(
+    "LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",
+  );
+  expect(lineFor({ ...floor, gesture: "box" })).toBe(
+    "click ×2 spans a region · Esc clears",
+  );
+  expect(lineFor({ ...floor, gesture: "box", pendingStamp: PENDING })).toBe(
+    "click ×2 to span a region for Hall · Esc cancels",
+  );
+  expect(
+    lineFor({
+      ...floor,
+      gesture: "box",
+      pendingStamp: PENDING,
+      session: SESSION,
+    }),
+  ).toBe(
+    `← → ↑ ↓ nudge · R rotate ¼ · ⏎ ${SESSION_VERBS.STAMP.primary} · Esc ${SESSION_VERBS.STAMP.secondary}`,
+  );
+});
+
+test("the segment readout is the ONLY thing that tones a line, and the cap is strictly >", () => {
+  // At exactly the cap the click COMMITS (the host refuses on `len > MAX_SEGMENT_M`), so a
+  // `>=` here would paint a legal click as a doomed one.
+  const at = (lenM: number): boolean =>
+    armed({ gesture: "segment", segment: { lenM, capM: MAX_SEGMENT_M } })
+      .overCap;
+  expect([at(0), at(MAX_SEGMENT_M - 0.1), at(MAX_SEGMENT_M)]).toEqual([
+    false,
+    false,
+    false,
+  ]);
+  expect([at(MAX_SEGMENT_M + 0.1), at(MAX_SEGMENT_M * 2)]).toEqual([
+    true,
+    true,
+  ]);
+
+  // A measurement left standing under a gesture that is not the segment's must not tone the
+  // line — and a session opening OVER a pending point with a live over-cap measurement must
+  // not either. That second one was live: the tone was re-derived from `segment` alone and
+  // painted "⏎ commit · Esc discard" as a refusal, which is why the tone now leaves the
+  // precedence walk with the text rather than being worked out again downstream.
+  const stale: SegmentHud = { lenM: MAX_SEGMENT_M * 2, capM: MAX_SEGMENT_M };
+  expect(armed({ gesture: "box", segment: stale }).overCap).toBe(false);
+  expect(
+    armed({
+      gesture: "segment",
+      segment: stale,
+      pendingStamp: PENDING,
+      session: SESSION,
+    }).overCap,
+  ).toBe(false);
+});
+
+test("one full status line per armed state, string for string", () => {
+  // GOLDEN STRINGS, and the reason they are worth the maintenance is that they are the only
+  // thing holding these words at all: the line is rendered by one span in `StatusBar` and
+  // its content is entirely row data, so a row edited by hand reaches a user through no
+  // other gate. This is the case the derive-and-diff comparison used to be.
+  //
+  // Every one goes through `armedKeymap`, so the SESSION rows also exercise the adapter's
+  // `SESSION_VERBS[sessionStateTag(...)]` lookup — the pair used to be re-derived from
+  // `moving` alone, which collapsed STAMP into RECONFIGURE across three surfaces at once.
+  const verbs = (tag: keyof typeof SESSION_VERBS): string =>
+    `R rotate ¼ · ⏎ ${SESSION_VERBS[tag].primary} · Esc ${SESSION_VERBS[tag].secondary}`;
+
+  expect({
+    // the brush floor, one line per effect — the modifier tail is `deriveModifierParts`
+    dig: lineFor({ effect: "dig" }),
+    fill: lineFor({ effect: "fill" }),
+    paint: lineFor({ effect: "paint" }),
+    smooth: lineFor({ effect: "smooth" }),
+    // the five gestures
+    pointer: lineFor({ gesture: "pointer" }),
+    box: lineFor({ gesture: "box" }),
+    material: lineFor({ gesture: "material" }),
+    void: lineFor({ gesture: "void" }),
+    segment: lineFor({ gesture: "segment" }),
+    // the segment's second state, once a point is down
+    readout: lineFor({
+      gesture: "segment",
+      segment: { lenM: 42.5, capM: MAX_SEGMENT_M },
+    }),
+    // the two transient states, and all three session tags
+    pending: lineFor({ pendingStamp: PENDING }),
+    stamp: lineFor({ session: SESSION }),
+    reconfigure: lineFor({
+      session: { ...SESSION, mode: "reconfigure", entityId: 3 },
+    }),
+    move: lineFor({
+      session: { ...SESSION, mode: "reconfigure", entityId: 3, moving: true },
+    }),
+  }).toEqual({
+    dig: "LMB dig · [ ] radius · ⇧ smooth · ⌃ fill · X swap",
+    // SYMMETRIC: under fill the momentary swap gives DIG. A static clause that said
+    // "⌃ fill" here named the effect the user is already on.
+    fill: "LMB fill · [ ] radius · ⇧ smooth · ⌃ dig · X swap",
+    // ⌃ passes through entirely under paint and the sticky swap is disabled, so neither
+    // key is live and the line ends at the radius rather than at a dangling separator.
+    paint: "LMB paint · [ ] radius · ⇧ smooth",
+    // NOTHING is live under smooth: ⇧ derives smooth from whatever is armed.
+    smooth: "LMB smooth · [ ] radius",
+    pointer: "LMB select · G grab · F frame · ⌫ delete",
+    // "click ×2", NOT "drag": `onPointerUp` has no region branch, so a press-drag-release
+    // anchors at the PRESS and throws the release away.
+    box: "click ×2 spans a region · Esc clears",
+    material: "LMB floods the clicked material · Esc clears",
+    void: "LMB floods an air pocket · Esc clears",
+    segment: "click ×2 sweeps the brush · [ ] radius · Esc drops the point",
+    // BOTH numbers and one decimal, matching what the host's own refusal prints. The `60`
+    // is a LITERAL here on purpose: this case is what would notice `MAX_SEGMENT_M` moving
+    // under the readout, and reading the constant into the expectation would make the
+    // number agree with itself. `click ×2` is gone (one click is left); `[ ] radius`
+    // survives, because `applyRadius` re-fattens a pending capsule.
+    readout: "segment · 42.5 m / 60 m · [ ] radius · Esc drops the point",
+    pending: "click ×2 to span a region for Hall · Esc cancels",
+    stamp: `← → ↑ ↓ nudge · ${verbs("STAMP")}`,
+    reconfigure: `← → ↑ ↓ nudge · ${verbs("RECONFIGURE")}`,
+    // A move is DRAGGED where everything else is nudged — the one clause that branches on
+    // `moving`, and the flag the adapter passes through.
+    move: `drag ghost move · ${verbs("MOVE")}`,
+  });
+});
+
+test("deriveModifierParts is the tail those brush lines end in", () => {
+  // Structural rather than a second transcription: whatever the modifier derivation says is
+  // exactly what the line carries past its first two clauses, for every effect.
+  for (const effect of EFFECTS) {
+    const tail = lineFor({ effect }).split(" · ").slice(2);
+    expect([effect, deriveModifierParts(effect)]).toEqual([effect, tail]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// (5)–(6) The row invariants.
+// ---------------------------------------------------------------------------
+
 test("every row's `id` is the key it is filed under", () => {
   // `Record<K, Row>` where `Row.id: K` is one fact written twice, and TypeScript cannot
   // prove they agree — `EFFECT_ROWS.dig.id = "fill"` compiles. The `id` earns its place
   // because a row is passed around WITHOUT its key (`resolveMember`, and every descriptor
-  // Task 3 will build off these), so this is the pin that makes the redundancy safe rather
-  // than the redundancy removed.
+  // built off these), so this is the pin that makes the redundancy safe rather than the
+  // redundancy removed.
   for (const effect of EFFECTS) expect(EFFECT_ROWS[effect].id).toBe(effect);
   for (const gesture of GESTURES)
     expect(GESTURE_ROWS[gesture].id).toBe(gesture);
 });
 
 test("every effect row's status line NAMES its own id", () => {
-  // The one invariant the move to literal row text could have dropped: today's line is
-  // `LMB ${effect}`, so the id and the word cannot drift. Stated as a rule now that the row
-  // states the words, so it outlives the literal this gate diffs against.
+  // The one invariant the move to literal row text could have dropped: the line is
+  // `LMB ${effect}`, so the id and the word cannot drift.
   for (const effect of EFFECTS) {
     const first = EFFECT_ROWS[effect].statusLine[0];
     expect([effect, first]).toEqual([
       effect,
       { kind: "text", text: `LMB ${effect}` },
     ]);
+  }
+});
+
+test("the strip carries a real PREFIX of each effect's option list, within D-6's cap", () => {
+  // What is left to say about `deriveToolOptions` / `deriveStripParamsMin` once there is no
+  // literal to diff: the two capacity invariants the strip's whole degradation story rests
+  // on. `onStrip` is a slice length, so a figure past the list would silently render fewer
+  // controls than it claims, and one past FOUR would break D-6's cap in a 40 px bar.
+  const options = deriveToolOptions();
+  const classes = deriveStripParamsMin();
+  for (const effect of EFFECTS) {
+    const { all, onStrip } = options[effect];
+    expect({ effect, ok: onStrip > 0 && onStrip <= all.length }).toEqual({
+      effect,
+      ok: true,
+    });
+    expect({ effect, overCap: onStrip > 4 }).toEqual({
+      effect,
+      overCap: false,
+    });
+    // CLASS-SHAPED TEXT, which is the whole reason the breakpoint is carried as a string.
+    // Tailwind generates CSS by scanning source for class-shaped strings, so a threshold
+    // templated from a number would emit no rule and the group would never hide.
+    expect({
+      effect,
+      classShaped: /^@max-\[\d+rem\]\/strip:hidden$/.test(classes[effect]),
+    }).toEqual({ effect, classShaped: true });
   }
 });
 
@@ -506,8 +525,9 @@ test("the three host limits reach the chrome as VALUES, not as prose", () => {
   // literal — `note: "snaps to 0.5 m"` written by hand passes while `LATTICE === 0.5`, and
   // pretending otherwise is the false-confidence version of this assertion. The coupling to
   // the constant is held elsewhere, by the cases that assert the RENDERED string against a
-  // literal (`tests/chrome/tool-strip.test.tsx`, `tests/chrome/tool-rail.test.tsx`): change
-  // the constant and those go red, which is what makes the two halves a pair.
+  // literal (`tests/chrome/tool-strip.test.tsx`, `tests/chrome/tool-rail.test.tsx`, and the
+  // segment readout two cases up): change the constant and those go red, which is what
+  // makes the two halves a pair.
   expect(deriveSelectModes().box.note).toBe(`snaps to ${LATTICE} m`);
   expect(deriveSelectModes().material.note).toBe(
     `budget ${SELECTION_UI_BUDGET / 1000}k`,

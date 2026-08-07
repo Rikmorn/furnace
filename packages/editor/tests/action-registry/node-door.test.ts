@@ -87,7 +87,7 @@ test("the package export map reaches it — the daemon's route in", async () => 
   expect(Number(r.text)).toBeGreaterThan(0);
 });
 
-test("the input schemas open too — the zod half of the layer is Node-portable", () => {
+test("the input schemas open too — the zod half of the layer is Node-portable", async () => {
   // A SEPARATE DOOR because it is a separate module and a separate risk. `schemas.ts` is the
   // one file under this directory the chrome may not value-import (it carries zod, and
   // behind it `@furnace/core`), which means the barrel deliberately re-exports its TYPES
@@ -97,11 +97,10 @@ test("the input schemas open too — the zod half of the layer is Node-portable"
   //
   // No bare-specifier half: there is no export-map entry for it yet, and there should not be
   // one until the projection that reads it exists (T4). This door is by path.
-  return rowsSeenByABareRuntime(
+  const r = await rowsSeenByABareRuntime(
     join(PKG, "src", "action-registry", "schemas.ts"),
     "Object.keys(m.ACTION_INPUT_SCHEMAS).length",
-  ).then((r) => {
-    if (!r.ok) throw new Error(`a bare runtime refused the import:\n${r.text}`);
-    expect(Number(r.text)).toBe(6);
-  });
+  );
+  if (!r.ok) throw new Error(`a bare runtime refused the import:\n${r.text}`);
+  expect(Number(r.text)).toBe(6);
 });
