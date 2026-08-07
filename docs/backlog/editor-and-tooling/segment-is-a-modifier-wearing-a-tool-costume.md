@@ -40,14 +40,32 @@ facts. The first is the one the model actually implies, and it is also the most 
 to the keyboard ring, the flyout, and `armedIndex` — which is why it wants its own slice
 rather than an inline fix.
 
-**Trigger to revisit:** T3c's gesture machine — it takes pointer capture and the gesture
-lifecycle, so it is the slice that will already be holding the effect × gesture state in
-one place and is the cheapest moment to fix the presentation over it. Also fires early if a
-SECOND compositional gesture arrives (anything else that means "apply the armed brush
-along a shape"), because a second one makes the flat list untenable rather than merely
-misleading.
+**HALF OF THE TRIGGER FIRED — T3c, 2026-08-07.** The gesture machine landed
+(`packages/editor/src/field-host/field-machine.ts`), and the STATE half of this entry is
+what it settled: the `gesture` slot now lives in that module beside the sessions it
+interacts with, and the module header states the effect × gesture model in as many words —
+that `segment` is a brush EFFECT wearing a gesture's costume, and that `ViewportGesture`
+remains the 1-D CONTRACT. So the two-dimensional fact now has ONE home in the host rather
+than being reconstructed at each reader, which is the precondition this entry was waiting
+for.
 
-**Reference:** `armMember` + `brushArming` + the family-ring docblocks in
+What did NOT change, and is what remains filed here: the PRESENTATION. `ViewportGesture`
+is still one slot with `segment` as a member, the rail still shows an exclusive
+five-member list, `ToolStrip` still compensates at render time, and `armMember` still walks
+a one-dimensional ring over two-dimensional state. Changing the type is a chrome-visible
+decision with consequences for the keyboard ring, the flyout and `armedIndex`, which is
+exactly why T3c deliberately did not take it — a MOVE task is the wrong place to change a
+contract.
+
+**Trigger to revisit (what is left):** the presentation slice itself — whoever next touches
+the rail's arming model, or the arrival of a SECOND compositional gesture (anything else
+that means "apply the armed brush along a shape"), which makes the flat list untenable
+rather than merely misleading. The state side is no longer a blocker.
+
+**Reference:** the effect × gesture model as stated in
+`packages/editor/src/field-host/field-machine.ts`'s header (the state home, T3c) and the
+`ViewportGesture` TSDoc in `packages/editor/src/field-host/field-host.ts` (the contract);
+`armMember` + `brushArming` + the family-ring docblocks in
 `packages/editor/src/frontend/lib/actions.ts`; the name/suffix compensation in
 `packages/editor/src/frontend/components/shell/ToolStrip.tsx`; the segment brush itself in
 `packages/editor/src/field-host/field-segment.ts` (its `commitToolOp` path is what makes

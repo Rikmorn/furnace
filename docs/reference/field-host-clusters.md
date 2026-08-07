@@ -269,7 +269,7 @@ whose state it touches).
 | Cluster | State | Fns | Public | Partners | Edges | of which mutations |
 |---|---|---|---|---|---|---|
 | `world` | 8 | 14 | 5 | 18 | 94 | 17 |
-| `stamp` | 7 | 19 | 12 | **13** | 45 | 6 |
+| `stamp` | 7 → **1** (`ghostMeshes` stayed — substrate) | 19 → **0** | 11 (12 until `commitSession` died) | **13** | 45 | 6 — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `move` + `gesture`) |
 | `render` | 5 | 5 | 0 | 13 | 30 | 0 |
 | `lifecycle` | 5 | 1 | 2 | 11 | 76 | 24 |
 | `input` | 2 | 13 → **12** | 1 | 10 | 59 (high — §2.2) | 20 |
@@ -284,8 +284,8 @@ whose state it touches).
 | `picking` | 0 | 4 | 0 | 7 | 9 | 1 |
 | `props` | 2 | 3 | 1 | 6 | 8 → **7** as `deps` (+**9** uncounted calls — §6) | 2 |
 | `view` | 2 | 1 | 2 | **5** on data edges (6 − the `selection` phantom) · **7** if calls count (+`voidcast` out, +`tool` in — §6) | 8 → **7** as data (+**6** uncounted `sliceOpts()` calls in and **2** into `voidcast` out — §6) | 1 |
-| `move` | 3 | 7 | 1 | 5 | 20 | 5 |
-| `gesture` | 4 | 2 | 2 | 5 | 17 | 2 |
+| `move` | 3 → **0** | 7 → **0** | 1 | 5 | 20 | 5 — **EXTRACTED 2026-08-07**, inseparably from `stamp` (§7.2) |
+| `gesture` | 4 → **0** | 2 → **0** | 2 | 5 | 17 | 2 — **EXTRACTED 2026-08-07**, inside the session machine |
 | `voidcast` | 3 | 5 | 0 | 4 → **3** | 9 → **8** | **0** |
 | `history` | 2 | 2 → **3** (§6) | 3 | 4 | 7 — the module takes **1** (`log`); `stepHistory` stays and keeps the other 6 | 1 |
 | `segment` | 6 | 6 | 1 | 3 | 8 | 1 |
@@ -970,11 +970,21 @@ the copy rule, at the seam the extraction created.
 **Public members (1):** `subscribeSegmentHud`
 
 
-### Cluster: gesture
+### Cluster: gesture — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `stamp` + `move`)
 
-**Owns (state) — 4:** `gesture`@1740 · `pendingStamp`@1780 · `pendingStampChannel`@1813 · `suspendReported`@1786
+All four bindings and both functions left, and they left INSIDE the session machine rather
+than as a module of their own — `setGesture` cancels a move in flight and drops the pending
+arm, and `suspendedByStamp` reads the session, so a `gesture` module would have been a
+third of one state machine. The row below is the measurement it was sized against.
 
-**Owns (functions) — 2:** `setPendingStamp`@2992 · `suspendedByStamp`@6045
+The facade's `setGesture` BODY moved with them (it was never listed here as a function —
+the row counts closure functions, and this one lived in the `return {}` literal). What
+stayed on the host side is the box anchor it clears, which belongs to `selection`: the
+machine takes `setBoxAnchor` and `segment.setAnchor` as deps.
+
+**Owns (state) — 4:** `gesture`@1740 · `pendingStamp`@1780 · `pendingStampChannel`@1813 · `suspendReported`@1786 — **all four moved**
+
+**Owns (functions) — 2:** `setPendingStamp`@2992 · `suspendedByStamp`@6045 — **both moved**
 
 **Reads from other clusters** (1 edge):
   - `stamp` (owned by `stamp`) — 1 site: `suspendedByStamp`
@@ -997,11 +1007,33 @@ the copy rule, at the seam the extraction created.
 **Public members (2):** `setGesture`, `subscribePendingStamp`
 
 
-### Cluster: stamp
+### Cluster: stamp — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `gesture` + `move`)
 
-**Owns (state) — 7:** `stamp`@1845 · `stampGen`@1850 · `stampTouched`@1855 · `stampChannel`@1893 · `ghostMeshes`@1877 · `placementGhost`@1886 · `previewCoalescer`@4951
+**§7.5 below is the honest prediction this row's extraction was measured against, and it
+held on every count that mattered.** It cannot go without `move` (it didn't — they left
+together), and `cancelStampSession`'s 14 call sites across 7 clusters had to be inverted
+into a callback (they were — every one is `machine.cancelSession()` now). What §7.5 named
+as the precondition is what changed between the measurement and the move: the substrate
+(§7.3 step 1) exists, so the 22 inbound reads collapse to one record plus a handful of
+named thunks, and the Esc LADDER became a capture STACK, so the cluster owns its own
+cancellable state without the host holding a list of rungs.
 
-**Owns (functions) — 19:** `randomStampSeed`@3576 · `notifyStamp`@3584 · `destroyStampGhosts`@4088 · `applyStampGhost`@4156 · `sendPreviewJob`@4851 · `previewStamp`@4970 · `nudgeStampRegion`@4982 · `rotationOptions`@4994 · `rotateStampSession`@5017 · `cancelStampSession`@5038 · `reseedForArchetype`@5066 · `openStampSession`@5088 · `stampRegionClick`@5135 · `reportEmptyPreview`@5176 · `commitStampSession`@5196 · `openEntitySession`@5246 · `applyReconfigureSession`@5436 · `commitActiveSession`@5512 · `confirmActiveSession`@5532
+Two things the row could not predict, both worth recording:
+
+- **`ghostMeshes` stayed**, and it is the only one of the seven state bindings that did.
+  It is a `HostSubstrate` VALUE member because `renderScene` draws from it, so the module
+  fills the host's own Map by identity rather than owning a second one — the
+  `voidCastMeshes` precedent exactly. Its partner `placementGhost` DID move: it is a
+  CPU-only line batch with no GPU handle for `dispose` to free.
+- **Three verbs that are not on this row moved with it**, because a row measures closure
+  functions and these lived in the `return {}` literal: the bodies of `startStamp`,
+  `updateStamp` and `rerollStamp`. The first is why the machine takes a `selectionRegion`
+  thunk; the other two are why `setStamp` and `stampTouched` never had to become public
+  surface. All three facade members are one-line delegates now.
+
+**Owns (state) — 7:** `stamp`@1845 · `stampGen`@1850 · `stampTouched`@1855 · `stampChannel`@1893 · `ghostMeshes`@1877 (**STAYED** — substrate value member, see above) · `placementGhost`@1886 · `previewCoalescer`@4951 — **six of seven moved**
+
+**Owns (functions) — 19:** `randomStampSeed`@3576 · `notifyStamp`@3584 · `destroyStampGhosts`@4088 · `applyStampGhost`@4156 · `sendPreviewJob`@4851 · `previewStamp`@4970 · `nudgeStampRegion`@4982 · `rotationOptions`@4994 · `rotateStampSession`@5017 · `cancelStampSession`@5038 · `reseedForArchetype`@5066 · `openStampSession`@5088 · `stampRegionClick`@5135 · `reportEmptyPreview`@5176 · `commitStampSession`@5196 · `openEntitySession`@5246 · `applyReconfigureSession`@5436 · `commitActiveSession`@5512 · `confirmActiveSession`@5532 — **all nineteen moved**
 
 **Reads from other clusters** (22 edges):
   - `archetypeById` (owned by `catalogs`) — 1 site: `sendPreviewJob`
@@ -1099,11 +1131,18 @@ the copy rule, at the seam the extraction created.
 **Public members (8):** `setEntityFrozen`, `bakeEntity`, `deleteEntity`, `duplicateEntity`, `listEntities`, `selectEntity`, `subscribeEntitySelection`, `subscribeEntities`
 
 
-### Cluster: move
+### Cluster: move — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `stamp` + `gesture`)
 
-**Owns (state) — 3:** `moveDrag`@1910 · `moveCommitPending`@1916 · `pendingMove`@1921
+It left WITH `stamp` and could not have left without it: the move's session IS the `stamp`
+slot (§7.2), so the two share `setStamp`, `demoteStalledMove` and the one Esc rung that
+stands while either is live. All three bindings and all seven functions moved, plus two
+that post-date this measurement — `setPendingMove` and its rung `syncPendingMoveCapture`
+(T3c Task 2's canonical setter) and `moveChangedNothing` (the drop's zero-step test, which
+reads the REGION rather than the cursor since T3c Task 1).
 
-**Owns (functions) — 7:** `endMove`@5297 · `beginMoveSession`@5306 · `updateMove`@5339 · `reaimMove`@5383 · `demoteStalledMove`@5396 · `dropMove`@5400 · `cancelMoveInFlight`@6180
+**Owns (state) — 3:** `moveDrag`@1910 · `moveCommitPending`@1916 · `pendingMove`@1921 — **all three moved**
+
+**Owns (functions) — 7:** `endMove`@5297 · `beginMoveSession`@5306 · `updateMove`@5339 · `reaimMove`@5383 · `demoteStalledMove`@5396 · `dropMove`@5400 · `cancelMoveInFlight`@6180 — **all seven moved**
 
 **Reads from other clusters** (5 edges):
   - `lastPointer` (owned by `targeting`) — 3 sites: `ret.beginMove`
@@ -1750,6 +1789,19 @@ whatever T3b2 orders next: rank by inbound reads when choosing what to extract, 
 outbound calls when choosing WHEN.** Neither number is in the table above.
 
 ### 7.5 Honest assessment: extracting the stamp session
+
+**DONE — extracted 2026-08-07** to `packages/editor/src/field-host/field-machine.ts`,
+together with `move` and `gesture`, and LAST of the tranche rather than first. This section
+is why it went last, and it was right on every count: it went with `move` (it had to), the
+14 `cancelStampSession` sites became `machine.cancelSession()`, and the merge table below
+is exactly what the module's shape ended up being — `stamp`+`move`+`gesture` as ONE module,
+because every boundary drawn between the three cuts a state machine in half. What changed
+between this assessment and the move is the two preconditions it names in its last
+paragraph: the substrate (§7.3 step 1) landed at T3a/T3b1, and the Esc ladder became a
+capture stack, so the cluster could own its own cancellable state. The interactive-middle
+STORE (§7.3 step 3) was never built and turned out not to be needed — the three clusters
+that would have shared it went into one module instead. See §6's `stamp` row for the
+as-built. The assessment below stands as the measurement.
 
 **The stamp-session cluster is the worst available first extraction, not the best.** The
 evidence:
