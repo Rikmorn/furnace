@@ -93,3 +93,54 @@ export function createInputRouter(): InputRouter {
     size: () => stack.length,
   };
 }
+
+/**
+ * Wires ONE rung to the state it speaks for, and returns the RECONCILE — the
+ * call every canonical setter makes after writing its slot, and the only thing
+ * any path that writes the slot itself has to remember.
+ *
+ * The whole discipline is the handle slot it closes over: acquire on the first
+ * live read, release on the first dead one, and do NOTHING while it stays live.
+ * That last clause is what makes a REPLACE (a selection displacing another, an
+ * entity pick displacing another) keep the position its first acquisition took —
+ * acquisition order, not last-touch order, is what reproduces the old ladder's
+ * behaviour on the flows that had one.
+ *
+ * HERE rather than in each cluster, and the reason is the bug this file exists
+ * to end. Rungs stand in three modules — `field-host.ts` (the box anchor, the
+ * cell selection, the selected entity), `field-machine.ts` (the live session, the
+ * pending stamp arm, the sub-threshold move press) and `field-segment.ts` (the
+ * segment anchor) — and a copy of these six lines per module is precisely how two
+ * of them come to disagree about WHEN they acquire, which is the ordering Esc is
+ * defined by. It lived as a private factory inside `createFieldHost` until
+ * foundations T3c, where extracting the session machine made the host either
+ * export it across a module boundary or watch a second spelling appear;
+ * `field-segment.ts` had already hand-rolled a third.
+ *
+ * @param router - The stack this rung captures on.
+ * @param label - Debug/test name for the entry; nothing routes on it.
+ * @param isLive - Whether the state this rung speaks for is currently standing.
+ *   Read on every reconcile, so it must see the slot AFTER the write.
+ * @param cancel - What Esc does to that state. Invariably the canonical setter's
+ *   null — an Esc that went one rung too far then has the same way back any
+ *   other clear has.
+ * @returns The reconcile. Idempotent, and safe to call from a path that changed
+ *   nothing. Never fails.
+ */
+export function createRung(
+  router: InputRouter,
+  label: string,
+  isLive: () => boolean,
+  cancel: () => void,
+): () => void {
+  let handle: CaptureHandle | null = null;
+  return () => {
+    if (isLive()) {
+      if (handle === null) handle = router.capture(label, cancel);
+      return;
+    }
+    if (handle === null) return;
+    router.release(handle);
+    handle = null;
+  };
+}

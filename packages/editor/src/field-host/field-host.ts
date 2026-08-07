@@ -79,7 +79,7 @@ import {
 } from "./field-ghost.ts";
 import type { FieldHistory } from "./field-history.ts";
 import { createHistoryFeed } from "./field-history-feed.ts";
-import { createFieldMachine } from "./field-machine.ts";
+import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
 import { type PickCandidate, pickNearest } from "./field-pick.ts";
 import {
   FALLBACK_COLLISION,
@@ -110,7 +110,7 @@ import {
   pickAxis,
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
-import { type CaptureHandle, createInputRouter } from "./input-router.ts";
+import { createInputRouter, createRung } from "./input-router.ts";
 import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
 // The render-bookkeeping shapes live with the rest of the substrate an extracted
 // cluster is handed, so the host and its clusters name them from one place.
@@ -1764,40 +1764,28 @@ export function createFieldHost(deps?: {
   // --- the Esc capture stack (D-12, was the Esc ladder) --------------------
   // ONE key, ONE rung per press, most recent intent first — except that "most
   // recent" is now the stack's own shape rather than an order spelled out in a
-  // chain of ifs. Five states here plus the segment anchor (which `field-segment.ts`
-  // captures itself) acquire an entry when they go live and release it when they
-  // clear, so what Esc can cancel is exactly what is standing.
+  // chain of ifs. Every cancellable state acquires an entry when it goes live and
+  // releases it when it clears, so what Esc can cancel is exactly what is
+  // standing.
+  //
+  // THE RUNGS ARE NAMED HERE, NOT COUNTED, and that is a correction rather than a
+  // style choice. This comment used to open "five states here plus the segment
+  // anchor", which was wrong twice over: it was already off by one when it was
+  // written (six rungs stood in this file, not five), and T3c then moved half of
+  // them into another module the sentence had no way to mention. A tally
+  // maintained by hand in a comment is the exact shape `setStamp`'s docblock
+  // argues against — it has to be re-derived by anyone adding a rung, and nothing
+  // fails if they don't. `grep -rn "createRung(" src/field-host/` is the live
+  // list; the OWNERS are:
+  //   - this file — the box-select anchor, the cell selection, the selected entity
+  //   - `field-machine.ts` — the live session (a move rides the same entry), the
+  //     pending stamp arm, the sub-threshold move press
+  //   - `field-segment.ts` — the segment anchor
+  // Each cluster captures for the state it OWNS, which is what handing the router
+  // over whole (rather than as a capture/release callback pair) is for. The rung
+  // mechanism itself lives in `input-router.ts` beside the stack, so the three
+  // modules cannot drift apart on when they acquire.
   const router = createInputRouter();
-
-  // One rung, wired to the state it speaks for. Returns the RECONCILE — the call
-  // every canonical setter makes after writing its slot, and the only thing any
-  // path that writes the slot itself has to remember.
-  //
-  // The whole discipline is the handle slot: acquire on the first live read,
-  // release on the first dead one, and do NOTHING while it stays live. That last
-  // clause is what makes a REPLACE (a selection displacing another, an entity
-  // pick displacing another) keep the position its first acquisition took —
-  // acquisition order, not last-touch order, is what reproduces the old ladder's
-  // behaviour on the flows that had one.
-  //
-  // Shared rather than five copies of the same six lines, and not for brevity:
-  // the rungs drifting apart on when they acquire IS the bug this replaces.
-  const escRung = (
-    label: string,
-    isLive: () => boolean,
-    cancel: () => void,
-  ): (() => void) => {
-    let handle: CaptureHandle | null = null;
-    return () => {
-      if (isLive()) {
-        if (handle === null) handle = router.capture(label, cancel);
-        return;
-      }
-      if (handle === null) return;
-      router.release(handle);
-      handle = null;
-    };
-  };
 
   // --- selection state (current + Reselect, overlay) ------------------------
   //
@@ -2970,7 +2958,8 @@ export function createFieldHost(deps?: {
   // press, but the arming rules make the pair unreachable (`setGesture` drops
   // both on any switch, a stamp arm drops both), so the dual clear was guarding a
   // state that cannot happen and one entry each says the same thing honestly.
-  const syncBoxAnchorCapture = escRung(
+  const syncBoxAnchorCapture = createRung(
+    router,
     "box anchor",
     () => boxAnchor !== null,
     () => setBoxAnchor(null),
@@ -3016,7 +3005,8 @@ export function createFieldHost(deps?: {
   // `reselect`'s swap, each for its own documented reason), and both call this
   // reconcile in the same breath. A REPLACE keeps the entry's position by
   // construction — the slot is still full, so nothing is pushed.
-  const syncSelectionCapture = escRung(
+  const syncSelectionCapture = createRung(
+    router,
     "cell selection",
     () => selection !== null,
     () => setSelection(null),
@@ -3900,7 +3890,8 @@ export function createFieldHost(deps?: {
   };
 
   // The selected stamp's Esc entry (old rung 3).
-  const syncSelectedEntityCapture = escRung(
+  const syncSelectedEntityCapture = createRung(
+    router,
     "selected entity",
     () => selectedEntityId !== null,
     () => setSelectedEntity(null),
@@ -4584,11 +4575,19 @@ export function createFieldHost(deps?: {
   // --- the session + gesture machine (`field-machine.ts`) ------------------
   //
   // The stamp session, the reconfigure session, the move that rides one, the
-  // armed-gesture slot and the pending-stamp arm: 34 bindings and functions that
-  // used to thread this file from the state block ~2,600 lines up to the pointer
-  // handlers ~700 lines down. The assembly sits HERE, where the bulk of them
-  // were, on `createSegmentBrush`'s precedent — a cluster's remaining footprint
-  // marks where the cluster was.
+  // armed-gesture slot and the pending-stamp arm, as **51 top-level declarations**
+  // inside `createFieldMachine` — 10 mutable state slots, 2 view channels, 3 Esc
+  // rungs, 1 preview coalescer and 35 functions. They used to thread this file
+  // from the state block ~2,600 lines up to the pointer handlers ~700 lines down.
+  // The assembly sits HERE, where the bulk of them were, on
+  // `createSegmentBrush`'s precedent — a cluster's remaining footprint marks
+  // where the cluster was.
+  //
+  // (The composition is stated rather than the bare total because a bare total is
+  // the same hand-maintained tally the Esc-stack comment above just stopped
+  // keeping. This one is re-derivable in one command:
+  // `grep -cE "^  (const|let) " src/field-host/field-machine.ts` minus the `deps`
+  // destructure and minus everything below `return {`.)
   //
   // §7.5 of the closure map called this the WORST available extraction and it was
   // right about why (13 partner clusters, 45 cross-cluster edges, a slot shared
@@ -4613,7 +4612,7 @@ export function createFieldHost(deps?: {
   // member wrapped in an arrow.
   const machine = createFieldMachine({
     substrate,
-    escRung,
+    router,
     archetypes: () => archetypes,
     // The two facts a stamp needs off the CURRENT selection, as one call. `null`
     // covers both "nothing selected" and "selected, but no bounds" — `startStamp`
@@ -6193,7 +6192,7 @@ export function createFieldHost(deps?: {
           // arrangement, while the hall — whose structure is entirely
           // params-determined — would just end up wearing a different number for
           // an identical shape.
-          seed: def.usesSeed ? machine.randomSeed() : record.seed,
+          seed: def.usesSeed ? randomStampSeed() : record.seed,
           region,
           // `GeneratorEntity` does not record the policy its commit used, so it
           // is not recoverable — core's reconfigure and `openEntity` both fall

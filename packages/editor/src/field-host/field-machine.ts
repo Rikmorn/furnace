@@ -114,6 +114,7 @@ import {
   withRegion,
 } from "./field-stamp.ts";
 import type { Axis } from "./gizmo.ts";
+import { createRung, type InputRouter } from "./input-router.ts";
 import type { HostSubstrate } from "./substrate.ts";
 import { createViewChannel } from "./view-channel.ts";
 
@@ -140,6 +141,22 @@ export type PendingMovePress = {
 // The schema key the quarter-turn cycles. Core spells it the same way (its own
 // `ROTATION_KEY`), and both hall and maze carry it; cave and scatter do not.
 const ROTATION_PARAM = "rotation";
+
+/** A fresh small random seed for a stamp session, a re-roll or a duplicate
+ *  (uint16 keeps it readable in the panel's seed field).
+ *
+ *  MODULE SCOPE, not a {@link FieldMachine} member, and the distinction is the
+ *  module's whole organising rule: this machine's surface is the session state
+ *  and the verbs over it, and a wrapper round `crypto.getRandomValues` is neither
+ *  — it reads nothing and remembers nothing. It lives here because two of its
+ *  three callers are the session opens just below; the third is the host's
+ *  `duplicateEntity`, which rolls a fresh arrangement for a copied generator that
+ *  reads its seed. */
+export function randomStampSeed(): number {
+  const u = new Uint16Array(1);
+  crypto.getRandomValues(u);
+  return u[0] ?? 0;
+}
 
 /** The generator's JSON-Schema `properties` map, narrowed off the loosely-typed
  *  `paramSchema` — the clamp-bound source {@link deriveSizeDefaults} reads. A
@@ -177,20 +194,17 @@ export type MachineDeps = {
    *  draws them are one Map shared by identity, not two copies that could
    *  disagree about what is on screen. */
   substrate: HostSubstrate;
-  /** The host's shared Esc-rung factory: wire a rung to the state it speaks for
-   *  and get back the RECONCILE every canonical setter calls after writing its
-   *  slot.
+  /** The host's Esc capture stack. THE OBJECT, not a pair of capture/release
+   *  callbacks, and that is `field-segment.ts`'s rule read at a bigger cluster:
+   *  this module owns three pieces of cancellable state, so it owns the
+   *  acquire/release discipline over each of them too.
    *
-   *  THE FACTORY rather than `router` itself, which is where this deviates from
-   *  `field-segment.ts`'s "the object, not a callback pair". That module predates
-   *  the factory and hand-rolls its own acquire/release slot; taking `router`
-   *  here would mean a SECOND copy of those six lines, and the host's own comment
-   *  on `escRung` says what that costs in as many words — "the rungs drifting
-   *  apart on when they acquire IS the bug this replaces". The cluster still owns
-   *  its Esc entries in every sense that matters: it decides the label, what
-   *  counts as live, and what a cancel does. What it does not own is mechanics
-   *  that three other rungs must agree with it about. */
-  escRung(label: string, isLive: () => boolean, cancel: () => void): () => void;
+   *  The MECHANISM is not this module's — {@link createRung} lives beside the
+   *  stack in `input-router.ts`, shared with the host's three rungs and the
+   *  segment brush's one. Owning the rung means deciding the label, what counts
+   *  as live and what a cancel does; it does not mean keeping a private copy of a
+   *  handle slot that seven rungs have to agree about. */
+  router: InputRouter;
   /** The project's entity catalog in AUTHORED ORDER (empty until
    *  `setEntityCatalog`). A call, not an array, because the host REBUILDS it on
    *  every catalog install — a snapshot would seed archetype hints from a catalog
@@ -296,7 +310,17 @@ export type MachineDeps = {
  *  for the same reason every substrate thunk is: the values move. */
 export type FieldMachine = {
   /** The live session (null = none). Stamp, reconfigure and move are all ONE
-   *  slot — see {@link StampSession}'s `mode` and `moving`. */
+   *  slot — see {@link StampSession}'s `mode` and `moving`.
+   *
+   *  BY REFERENCE, and READ-ONLY by contract: this is the machine's own object,
+   *  not a copy. The publish seam clones ({@link subscribeStamp}) because it
+   *  crosses into the chrome, which holds what it is given; this reader does not,
+   *  because it is called from `renderScene`, `syncCursor` and the pointer
+   *  handlers — per-frame and per-event paths where a `structuredClone` of a
+   *  params record would be real cost for a caller that only ever asks whether a
+   *  session exists and what phase it is in. Mutating what comes back would move
+   *  the session behind {@link setStamp}'s capture reconcile and behind the
+   *  supersession run counter; no caller does, and none may. */
   session(): StampSession | null;
   /** What LMB does: a selection gesture, the two-click `segment` brush,
    *  `pointer`, or null for a plain brush stroke. */
@@ -384,10 +408,6 @@ export type FieldMachine = {
    *  session on the way through. */
   suspendedByStamp(): boolean;
 
-  /** A fresh small random seed (uint16 keeps it readable in the panel's seed
-   *  field). Public because `duplicateEntity` rolls one too, for a generator
-   *  that reads the seed. */
-  randomSeed(): number;
   /** Tear down BOTH halves of the stamp ghost. Public for `dispose`, which frees
    *  the GPU side before it drops the context. */
   destroyGhosts(): void;
@@ -484,7 +504,8 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // ONE, because `cancelSession` ends the move first (its own first line, before
   // the null guard), so one press has always taken both. Hence the OR: the entry
   // stands while either does.
-  const syncSessionCapture = deps.escRung(
+  const syncSessionCapture = createRung(
+    deps.router,
     "live session",
     () => stamp !== null || moveDrag !== null,
     () => cancelStampSession(),
@@ -495,7 +516,8 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // step goes first — an Esc with a corner down re-draws the region, a second one
   // leaves region-draw altogether. The stack gets that for free: the arm is
   // acquired at `startStamp`, the corner at the click after it.
-  const syncPendingStampCapture = deps.escRung(
+  const syncPendingStampCapture = createRung(
+    deps.router,
     "pending stamp",
     () => pendingStamp !== null,
     () => setPendingStamp(null),
@@ -518,7 +540,8 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // `moveDrag`. So there is never a capture outstanding while this entry stands,
   // and a release would be an unreachable line that could only ever throw on a
   // stale id.
-  const syncPendingMoveCapture = deps.escRung(
+  const syncPendingMoveCapture = createRung(
+    deps.router,
     "pending move",
     () => pendingMove !== null,
     () => setPendingMove(null),
@@ -593,14 +616,6 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // shared by every subscriber — pushed values are immutable by contract.
   const notifyStamp = (): void => {
     stampChannel.publish(stamp === null ? null : structuredClone(stamp));
-  };
-
-  // A fresh small random seed per session/reroll (uint16 keeps it readable in
-  // the panel's seed field).
-  const randomStampSeed = (): number => {
-    const u = new Uint16Array(1);
-    crypto.getRandomValues(u);
-    return u[0] ?? 0;
   };
 
   // --- the ghost ----------------------------------------------------------
@@ -763,7 +778,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   };
 
   // Latest-wins in-flight coalescing: the worker client is a plain request
-  // pipe ("callers own coalescing", field-client.ts), so the HOST collapses
+  // pipe ("callers own coalescing", field-client.ts), so THIS MODULE collapses
   // preview bursts — while one job runs, any number of previewStamp calls
   // queue ONE re-fire against the session state CURRENT at settle. A slider
   // drag costs at most one trailing job instead of a 30-60Hz queue of
@@ -876,9 +891,21 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // HERE rather than in the session card, and not by preference. The hints come off the
   // installed entity catalog, which the CHROME deliberately does not carry — `useCatalogs`
   // publishes a tick and says why ("handing over the parsed catalog would invite a
-  // consumer to read it instead of re-reading the host"). So the host owns the hints, and
-  // therefore has to own the touched-key set that filters them, or the decision would be
-  // split across two actors that can disagree.
+  // consumer to read it instead of re-reading the host"). So the decision belongs on this
+  // side of the chrome boundary, and the touched-key set that filters it has to sit with
+  // the decision rather than with the surface asking for it.
+  //
+  // THE HINTS AND THE FILTER ARE NOW IN DIFFERENT MODULES, and that is worth stating
+  // because the argument above used to end "…or the decision would be split across two
+  // actors that can disagree", which is exactly the arrangement T3c produced: the catalog
+  // is a `let` in `createFieldHost` and `stampTouched` is a `let` in here. What makes the
+  // split safe is the SHAPE of the boundary, not luck — `archetypes` arrives as a THUNK
+  // ({@link MachineDeps.archetypes}), so this reads the installed catalog at call time,
+  // not a photograph of whatever was installed when the machine was built. A value copy
+  // would have made the old sentence come true: a `setEntityCatalog` between construction
+  // and this call would leave the filter selecting keys off a catalog the project no
+  // longer has. There is still exactly ONE actor deciding — this function — and it asks
+  // the host for the catalog rather than remembering one.
   //
   // QUERY only: `stampTouched` is updated by the caller BEFORE this runs, so the incoming
   // change itself counts as touched — which is what keeps the id the user just picked from
@@ -1071,7 +1098,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // which is right for a CARVER — nothing to build means a misconfigured stamp,
   // and core's own message says so accurately. It reads as a hard failure for a
   // READER the user simply tuned down to zero props, where zero is a legitimate
-  // outcome, so for those the host tests the settled preview first and reports a
+  // outcome, so for those this gate tests the settled preview first and reports a
   // sentence in the vocabulary of the thing that came up empty, leaving the
   // session standing to re-tune. A carver keeps core's message verbatim (through
   // the callers' catch): "0 props … raise density" would be nonsense advice for
@@ -1572,7 +1599,6 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
 
     suspendedByStamp,
 
-    randomSeed: randomStampSeed,
     destroyGhosts: destroyStampGhosts,
 
     // The initial push is the channel's snapshot (the subscribeSelection remount

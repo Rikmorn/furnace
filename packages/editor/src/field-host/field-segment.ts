@@ -38,7 +38,7 @@ import {
 // links into `FieldHost`, and a type that named its consumer from across the
 // directory would be a link this side could not resolve.
 import type { SegmentHud } from "./field-host.ts";
-import type { CaptureHandle, InputRouter } from "./input-router.ts";
+import { createRung, type InputRouter } from "./input-router.ts";
 import { segmentsToBatch } from "./reference-grid.ts";
 import { createViewChannel } from "./view-channel.ts";
 
@@ -102,8 +102,16 @@ export type SegmentDeps = {
   /** The host's Esc capture stack. THE OBJECT, not a pair of capture/release
    *  callbacks, and that is the shape on purpose: this cluster owns a piece of
    *  cancellable state, so it owns the acquire/release pair over it too, and a
-   *  bespoke callback pair would be a second spelling of a seam the gesture
-   *  machine (T3c) is going to hand every extracted cluster anyway. */
+   *  bespoke callback pair would be a second spelling of a seam every extracted
+   *  cluster gets handed anyway.
+   *
+   *  This TSDoc used to predict that the T3c gesture machine would "hand every
+   *  extracted cluster" such a seam. T3c did not: it takes this same `router`
+   *  object, for these same reasons. What DID arrive is the rung mechanism —
+   *  {@link createRung} in `input-router.ts` — which this module now uses instead
+   *  of the handle slot it used to hand-roll, so no rung in this directory can
+   *  drift from another on when it acquires. The seam is the router; the shared
+   *  part is the discipline over it. */
   router: InputRouter;
 };
 
@@ -156,14 +164,20 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
   // cheap). Cleared with the anchor.
   let segmentPreviewEnd: Vec3T | null = null;
   // The anchor's entry on the host's Esc stack, held for exactly as long as the
-  // anchor is (old ladder rung 1). Null = not captured; the slot is what makes a
-  // re-arm keep its position and a double clear a no-op.
-  let anchorCapture: CaptureHandle | null = null;
-  const releaseAnchorCapture = (): void => {
-    if (anchorCapture === null) return;
-    deps.router.release(anchorCapture);
-    anchorCapture = null;
-  };
+  // anchor is (old ladder rung 1). The slot lives inside `createRung` — it is
+  // what makes a re-arm keep its position and a double clear a no-op — and this
+  // module stopped hand-rolling its own at foundations T3c, where extracting the
+  // session machine moved the rung mechanism into `input-router.ts` beside the
+  // stack it captures on. The two branches below used to spell the acquire and
+  // the release separately; one reconcile after the write says the same thing and
+  // cannot disagree with the rungs in `field-host.ts` and `field-machine.ts`
+  // about WHEN it acquires.
+  const syncAnchorCapture = createRung(
+    deps.router,
+    "segment anchor",
+    () => segmentAnchor !== null,
+    () => setSegmentAnchor(null),
+  );
   // The HUD's multicast seam. The snapshot is the (re)mount rule this seam has
   // always carried: a status bar arriving mid-gesture must not read blank
   // beside a capsule the viewport is plainly drawing.
@@ -239,16 +253,17 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
   //
   // And the same six paths are why the Esc CAPTURE is taken here rather than by the
   // host: this cluster owns the anchor, so it owns the entry that says the anchor is
-  // cancellable. The slot is checked before capturing — an arm over an arm is not
-  // reachable today (`segmentClick` only anchors from null) but the discipline is the
-  // one every rung follows, and a duplicate push would leave a dead entry behind.
+  // cancellable. The rung is reconciled AFTER the write, in both branches, which is
+  // the canonical-setter law every captured state in this directory obeys — an arm
+  // over an arm is not reachable today (`segmentClick` only anchors from null) but
+  // the rung's own slot is what makes it a no-op if it ever becomes reachable.
   const setSegmentAnchor = (p: Vec3T | null): void => {
     segmentAnchor = p;
     if (p === null) {
       segmentAnchorBatch = null;
       segmentPreviewBatch = null;
       segmentPreviewEnd = null;
-      releaseAnchorCapture();
+      syncAnchorCapture();
       publishSegmentHud();
       return;
     }
@@ -256,10 +271,7 @@ export function createSegmentBrush(deps: SegmentDeps): SegmentBrush {
       crossSegments(p, deps.anchorCrossHalfM),
       GHOST_COLOR,
     );
-    if (anchorCapture === null)
-      anchorCapture = deps.router.capture("segment anchor", () =>
-        setSegmentAnchor(null),
-      );
+    syncAnchorCapture();
     publishSegmentHud();
   };
 

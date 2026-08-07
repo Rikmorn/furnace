@@ -8,7 +8,7 @@ cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Five clusters have since left, and a sixth left in half.** `segment` was extracted to
+**Eight clusters have since left, and a ninth left in half.** `segment` was extracted to
 `packages/editor/src/field-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
 the closure. `voidcast` followed on 2026-08-06, to
@@ -25,12 +25,22 @@ taking both of its state bindings and two of its three functions. `stepHistory` 
 that row's function count, 2 → 3). Last of T3b1's five, `view` went to
 `packages/editor/src/field-host/field-view.ts`, taking both of its state bindings and its
 one function — and it is the one extraction sized by what it SUPPLIES rather than by what it
-takes (§6's `view` row, and the module's own header). Every count below still includes all
-six. They are left as measured because they are what the remaining 17 clusters were sized
-against; subtract those rows from §4 when reading them as current.
+takes (§6's `view` row, and the module's own header). Then, on 2026-08-07, **three more went
+at once** — `stamp`, `move` and `gesture`, to
+`packages/editor/src/field-host/field-machine.ts`, as ONE module rather than three because
+every boundary drawn between them cuts a state machine in half (§7.2, and §7.5, which
+predicted this extraction's whole cost and is now annotated with what it got right). Between
+them they took 13 of their 14 state bindings and all 28 of their functions; the one that
+stayed is `stamp.ghostMeshes`, and §6's `stamp` row says why.
 
-**And foundations T3a changed three things the map names.** §2.2 records exactly what, and
-which numbers below are consequently stale. Read it before trusting a site list.
+Every count below still includes all nine. They are left as measured because they are what
+the remaining 14 clusters were sized against; subtract those rows from §4 when reading them
+as current — the rows themselves are now marked, so the subtraction is a matter of skipping
+the ones whose heading says EXTRACTED rather than of remembering a list.
+
+**And foundations T3a, T3b1 and T3c each changed things the map names.** §2.2, §2.3 and
+§2.4 record exactly what, and which numbers below are consequently stale. Read them before
+trusting a site list.
 
 ## 1. The shape of the file
 
@@ -239,6 +249,38 @@ its new module. Three notes for anyone reading §4–§6 as current:
   readers rule governs ADDING a member and never declining one already declared, and state
   that acquires an owner leaves the closure rather than joining the record (`view` is the
   first instance). §7.3's recommended shape should be read against that section now.
+
+### 2.4 Changed since T3b1 — foundations T3c, 2026-08-07
+
+`stamp`, `move` and `gesture` left together, into `field-machine.ts`; §1's opening paragraph
+names the module and §6's three rows record what each took. Four notes for anyone reading
+§4–§6 as current:
+
+- **Line numbers have drifted a THIRD time, and this one is not a uniform shift.** The file
+  went 7,345 → 6,329 — a 1,016-line hole opened where the session machine was, so every
+  `@line` in §6 below the state block is short by a different amount depending on which side
+  of the extraction it sat. Do not interpolate. **Grep by name**, as §2.3 already said and
+  this makes non-negotiable.
+- **The three rows are the first EXTRACTED rows whose cluster boundary was wrong as drawn.**
+  Every earlier extraction took a row and moved it. These three could not be moved
+  separately at all — §7.2 had already recorded why (`stamp` and `move` share one slot) and
+  §7.5 had scored the merge table that says every pairing internalises fewer edges than it
+  inherits. The as-built is that table's bottom row minus `history`: one module, three rows'
+  worth of state. A reader sizing future work off §4 should treat "cluster" as a unit of
+  MEASUREMENT here and not as a unit of extraction.
+- **§7.3 step 3 was never built and is no longer needed.** The recommendation was "a small
+  internal store for the interactive middle — `stamp`+`move`+`gesture`, `tool`, `camera`,
+  `selection`", on the reasoning that passing those `let`s by value forks and passing them as
+  sub-hosts means every sub-host needs a reference to every other. The first three went into
+  ONE module instead, which internalises the forking problem rather than solving it in a
+  shared substrate. `tool`, `camera` and `selection` are still in the closure and the
+  recommendation still stands for them, if it is ever collected on.
+- **The Esc rung mechanism moved out of the closure too**, to `createRung` in
+  `input-router.ts`, and `field-segment.ts` dropped its hand-rolled handle slot for it in the
+  same change. Seven rungs now stand across three modules on one implementation. That is not
+  a cluster edge — no row here counts it — but it is the thing that made a cluster owning
+  cancellable state extractable at all, and §7.5's last paragraph names the teardown edge it
+  closes.
 
 ## 3. Where the public-surface hypothesis was wrong
 
