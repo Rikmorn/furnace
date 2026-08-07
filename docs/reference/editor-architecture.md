@@ -1473,8 +1473,11 @@ implementation, so they cannot disagree about it.
 pending-preview latch) and otherwise ends the session by mode. Both keys route through it.
 It is public rather than canvas-only because `beginMove` does NOT focus the canvas: a grab
 started from the Edit menu, or by `G` with a palette control focused, has no canvas
-listener to answer the "⏎ drop" the status bar advertises. `commitSession()` is the
-narrower "end by mode" a panel button means.
+listener to answer the "⏎ drop" the status bar advertises. It is the ONLY verb that ends
+a session from outside: T3c deleted the narrower `commitSession()` ("end by mode",
+deliberately not routing through `dropMove`) after finding zero production callers — the
+panel's Commit/Apply button already called `confirmSession`, because it wears the ⏎ keycap
+and must mean what the key means. Facade 66 → 65.
 
 **WASD/QE fly ONLY while the right button is held** (D-10, the Unity mechanism). That gate
 is what buys the bare-letter budget the registry spends: `S` is fly-backward *and* the
@@ -1715,12 +1718,13 @@ reconfigure splice.
 - Steps are whole `LATTICE` (0.5 m) units, handed to the same `nudgeStampRegion` the arrow
   keys drive. There is deliberately **no travel clamp** — the field has no world bounds, and
   the d-pad has none either.
-- `moveIsIdle` is the zero-step rule: a grab dropped where it started ends the session rather
-  than spending a history entry. Known limit, filed rather than papered over — it reads the
-  CURSOR's accumulated steps, so a grab moved only by the arrow keys reads as idle and is
-  discarded (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*`).
-  Routing both ⏎s through one verb is what keeps that a single defect rather than a
-  difference between two keys.
+- `sameRegion` is the zero-step rule: `dropMove` compares the live session's region against
+  the entity's RECORDED one and ends the session without a history entry when they match, so
+  a twitchy click never spends an undo entry on a re-splice that changed nothing. It replaced
+  `moveIsIdle`, which asked the DRAG (`d.applied === [0,0,0]`) and so only knew about the
+  cursor — an arrow-nudged grab read as idle and ⏎ discarded the user's steps, while an
+  out-and-back drag read as moved and spent an entry on a no-op. T3c; both are pinned in
+  `tests/field-host-move.test.ts`.
 
 **`field-host/gizmo.ts`** is the translate handles' pure math — `gizmoSpan` derives the
 geometry from the selected footprint and `axisLines` emits the `drawLines` pair, so the drawn

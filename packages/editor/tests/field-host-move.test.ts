@@ -314,7 +314,12 @@ test("a move commits through the reconfigure splice: ONE undo step, id preserved
     await settle();
     expect(f.session()?.phase).toBe("ready");
 
-    f.host.commitSession();
+    // `confirmSession` — the verb ⏎ runs and the only one the facade still has.
+    // It routes through `dropMove`, which is the point: the region moved by ARROWS
+    // alone (`nudgeStamp`, no cursor travel) must still land. Before T3c this exact
+    // call discarded the move, because the idle test read the drag's accumulated
+    // lattice steps instead of the region — the defect this case now pins closed.
+    f.host.confirmSession();
 
     const moved = regionOf(f.host, id);
     expect(moved.min[0]).toBeCloseTo(HALL_REGION.min[0] + 4 * LATTICE, 10);
@@ -397,7 +402,7 @@ test("undo during a move on a SURVIVING entity ends it too — the region moved 
     await settle();
     f.host.nudgeStamp(4, 0, 0);
     await settle();
-    f.host.commitSession();
+    f.host.confirmSession();
     const moved = structuredClone(regionOf(f.host, id));
     expect(moved.min[0]).toBeCloseTo(HALL_REGION.min[0] + 4 * LATTICE, 10);
 
@@ -415,6 +420,30 @@ test("undo during a move on a SURVIVING entity ends it too — the region moved 
     expect(f.session()).toBeNull();
     // …and the record stays where undo put it: no ghost lands afterwards.
     expect(regionOf(f.host, id)).toEqual(HALL_REGION);
+  } finally {
+    f.teardown();
+  }
+});
+
+test("undo ends a plain RECONFIGURE session too — not only a move", async () => {
+  const f = moveFixture();
+  try {
+    const id = f.ids[0] as number;
+    // No `beginMove` — this is the Entities row's Open button, a session with no
+    // grab and no cursor driving it. Until T3c the ⌘Z guard read `stamp?.moving`,
+    // so this one survived the step and left an enabled Apply on the session card
+    // pointing at a record the step had already replaced. The move case was fixed
+    // first only because a grab keeps the canvas focused, which made it the
+    // reachable one — not because it was the only one.
+    f.host.openEntity(id);
+    await settle();
+    expect(f.session()?.moving).toBeUndefined();
+    f.host.nudgeStamp(3, 0, 0);
+    await settle();
+
+    f.host.undo(); // takes the hall's own commit back out of the log
+
+    expect(f.session()).toBeNull();
   } finally {
     f.teardown();
   }

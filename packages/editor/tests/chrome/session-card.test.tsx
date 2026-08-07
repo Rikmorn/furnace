@@ -345,11 +345,12 @@ test("CREATE names the stamp and offers commit/discard", async () => {
 	// to say — not anything about the click. A refusal notice that fired on the gesture
 	// rather than on the reason would put an excuse on top of a commit that just worked.
 	expect(notify.getSnapshot().log.length).toBe(before);
-	// `confirmSession`, not `commitSession`: the button wears the ⏎ keycap, so it must be
-	// the same verb the ⏎ KEY runs — the one that knows a live grab is dropped rather than
-	// applied. Two spellings of one key is how they come to mean different things.
+	// `confirmSession`: the button wears the ⏎ keycap, so it must be the same verb the ⏎
+	// KEY runs — the one that knows a live grab is dropped rather than applied. This used
+	// to also assert that the rival spelling (`commitSession`, "end by mode") was NOT
+	// called; T3c deleted that member outright, having found this pin was the whole reason
+	// anyone still believed it had a caller. One spelling cannot drift from itself.
 	expect(stub.calls.confirmSession).toHaveBeenCalledTimes(1);
-	expect(stub.calls.commitSession).not.toHaveBeenCalled();
 
 	fireEvent.click(within(box).getByRole("button", { name: "discard (Esc)" }));
 	// `cancelStamp`, not `escape`: the ladder's first rung is a half-drawn box corner,

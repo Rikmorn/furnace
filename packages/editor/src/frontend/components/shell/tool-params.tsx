@@ -110,7 +110,11 @@ export const TOOL_OPTIONS = deriveToolOptions();
 export type ParamContext = {
 	tool: FieldTool;
 	radius: number;
-	setTool: (next: FieldTool) => void;
+	/** A PATCH — name only the field the control owns. Spreading `ctx.tool` back in
+	 *  is the bug this shape exists to make unspellable: under a held ⇧/⌃ `ctx.tool`
+	 *  is the DERIVED brush, so a whole-tool echo also asserted an `effect` the user
+	 *  never picked and the host adopted it as the base. See `FieldHost.setTool`. */
+	setTool: (patch: Partial<FieldTool>) => void;
 	setRadius: (r: number) => void;
 	classes: MaterialTable["classes"];
 	smoothLimits: { maxStrength: number; maxIterations: number };
@@ -201,7 +205,7 @@ function HollowThickness({
 					// Blank is MID-EDIT, not zero. `Number("")` is 0 and 0 is finite, so the
 					// emptiness has to be tested BEFORE the parse or the guard cannot see it.
 					if (e.target.value.trim() === "" || !Number.isFinite(n)) return;
-					ctx.setTool({ ...ctx.tool, hollow: n });
+					ctx.setTool({ hollow: n });
 				}}
 				onBlur={() => {
 					focused.current = false;
@@ -230,7 +234,7 @@ function HollowThickness({
 					// identical string, so normalising every settled entry costs nothing.
 					setText(String(committed));
 					if (committed === n) return;
-					ctx.setTool({ ...ctx.tool, hollow: committed });
+					ctx.setTool({ hollow: committed });
 				}}
 				aria-label="hollow thickness"
 				className="h-7 w-14 px-1.5 font-mono text-xs"
@@ -278,10 +282,7 @@ function HollowToggle({ ctx }: { ctx: ParamContext }) {
 				id={id}
 				checked={ctx.tool.hollow !== null}
 				onCheckedChange={(c) =>
-					ctx.setTool({
-						...ctx.tool,
-						hollow: c === true ? HOLLOW_DEFAULT_M : null,
-					})
+					ctx.setTool({ hollow: c === true ? HOLLOW_DEFAULT_M : null })
 				}
 				aria-label="hollow fill"
 			/>
@@ -319,7 +320,7 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 			<select
 				value={maskValue(ctx.tool.mask)}
 				onChange={(e) => {
-					ctx.setTool({ ...ctx.tool, mask: parseMask(e.target.value) });
+					ctx.setTool({ mask: parseMask(e.target.value) });
 					releaseAfterChange(e);
 				}}
 				aria-label="brush mask"
@@ -344,7 +345,7 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				classes={ctx.classes}
 				activeId={ctx.tool.materialId}
 				disableKit={ctx.tool.effect === "paint"}
-				onSelect={(id) => ctx.setTool({ ...ctx.tool, materialId: id })}
+				onSelect={(id) => ctx.setTool({ materialId: id })}
 			/>
 		</span>
 	),
@@ -367,7 +368,6 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				value={ctx.tool.smooth.strength}
 				onChange={(e) =>
 					ctx.setTool({
-						...ctx.tool,
 						smooth: { ...ctx.tool.smooth, strength: Number(e.target.value) },
 					})
 				}
@@ -386,7 +386,6 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				value={ctx.tool.smooth.iterations}
 				onChange={(e) => {
 					ctx.setTool({
-						...ctx.tool,
 						smooth: { ...ctx.tool.smooth, iterations: Number(e.target.value) },
 					});
 					releaseAfterChange(e);
@@ -410,7 +409,6 @@ const PARAM_RENDERER: Record<ParamId, (ctx: ParamContext) => ReactNode> = {
 				value={ctx.tool.smooth.mode}
 				onChange={(e) => {
 					ctx.setTool({
-						...ctx.tool,
 						smooth: {
 							...ctx.tool.smooth,
 							mode: parseSmoothMode(e.target.value),

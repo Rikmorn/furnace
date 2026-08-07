@@ -288,10 +288,14 @@ test("picking Paint while a kit class is active clamps the material to the first
 	// Fill is the effect that shows the swatches AND accepts a kit class.
 	armEffect("fill");
 	fireEvent.click(within(strip()).getByLabelText("material masonry"));
-	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toMatchObject({
-		effect: "fill",
-		materialId: 1,
-	});
+	// The swatch names the MATERIAL and nothing else — `toEqual`, not `toMatchObject`,
+	// because the absence is the claim. T3c made `setTool` take a patch precisely so a
+	// control cannot assert a field it has no opinion about: this used to spread the
+	// whole mirrored tool, which under a held ⇧/⌃ is the DERIVED one, and the host read
+	// the echoed `effect` as the base to restore to (the user's dig became a smooth when
+	// they let go). Fill staying armed below is what that absence MEANS.
+	expect(stub.calls.setTool.mock.calls.at(-1)?.[0]).toEqual({ materialId: 1 });
+	expect(within(strip()).queryAllByText("FILL").length).toBeGreaterThan(0);
 
 	// Kit masonry (id 1) is unpaintable — core rejects a sphere-shaped kit write — so the
 	// brush pick clamps to rock (id 0). The rule lives in `brushArming`, which the rail's

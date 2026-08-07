@@ -4818,7 +4818,8 @@ test("a family key during a live session refuses OUT LOUD rather than going quie
 	).toBeTruthy();
 
 	// Esc and ⏎ stay live — they are how the session ends. ⏎ goes through the MOVE-AWARE
-	// verb, not `commitSession`: a grab started from the Edit menu or by `G` with a
+	// verb (the only one left since T3c retired `commitSession`): a grab started from the
+	// Edit menu or by `G` with a
 	// palette control focused never gave the canvas focus, so this listener is the only
 	// one that can answer the "⏎ drop" the status bar advertises.
 	pressKey("Enter");

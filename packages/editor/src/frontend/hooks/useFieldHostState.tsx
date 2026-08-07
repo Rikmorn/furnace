@@ -176,8 +176,12 @@ export type FieldToolState = {
 	 *  It used to write a chrome cell first and this docblock said why: `FieldHost.setTool`
 	 *  "publishes NOTHING on the plain path", so the cell was the only thing that told the
 	 *  chrome its own tool had changed. The host publishes on every set that changes
-	 *  something now, which is what retired the cell. */
-	setTool: (next: FieldTool) => void;
+	 *  something now, which is what retired the cell.
+	 *
+	 *  A PATCH, not a whole tool: `tool` above is the DERIVED brush while ⇧ or ⌃ is
+	 *  held, so echoing it back asserted an `effect` the user never picked and the
+	 *  host adopted it as the base to restore to. See `FieldHost.setTool`. */
+	setTool: (patch: Partial<FieldTool>) => void;
 	/** Push, and read the answer off the seam — `setTool`'s shape, and TWO-WAY since the
 	 *  F4.5 holistic gate.
 	 *
@@ -767,9 +771,12 @@ export function useFieldTool(): FieldToolState {
 	// synchronously inside the call (`setTool` / `applyRadius` notify before returning), so
 	// a control still moves within the handler that touched it. What the round trip buys is
 	// that what moves is what the host CLAMPED, not what the control asked for.
+	// A PATCH — the fields the caller is speaking about. Passing the whole mirrored
+	// `tool` back would be a lie under a held ⇧/⌃, where the mirror holds the DERIVED
+	// brush: see `FieldHost.setTool`.
 	const setTool = useCallback(
-		(next: FieldTool): void => {
-			host?.setTool(next);
+		(patch: Partial<FieldTool>): void => {
+			host?.setTool(patch);
 		},
 		[host],
 	);

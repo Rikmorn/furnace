@@ -17,6 +17,7 @@
 // session, and `nudgeStampRegion`.
 import { LATTICE } from "../shared/field-brush.ts";
 import { boxCentre } from "./box-edges.ts";
+import type { StampRegion } from "./field-stamp.ts";
 import {
   AXIS_DIR,
   type Axis,
@@ -207,8 +208,28 @@ export function advanceMove(
   return { drag: { ...d, applied: want }, step };
 }
 
-/** Whether the move has handed the region NOTHING — a drag whose travel rounded
- *  to no lattice step, or a grab dropped where it started. The drop reads this
- *  to end the session without spending a history entry on a no-op. */
-export const moveIsIdle = (d: MoveDrag): boolean =>
-  d.applied[0] === 0 && d.applied[1] === 0 && d.applied[2] === 0;
+/** Whether two placement AABBs are the same six numbers.
+ *
+ *  This is the drop's ZERO-STEP rule: `dropMove` compares the live session's
+ *  region against the entity's RECORDED one and ends the session without a
+ *  history entry when they match, so a twitchy click never spends an undo entry
+ *  on a re-splice that changed nothing.
+ *
+ *  It replaced `moveIsIdle`, which asked the DRAG the same question
+ *  (`d.applied === [0,0,0]` — how far the CURSOR travelled) and got two answers
+ *  wrong, because the cursor is not the only thing that moves a region. The arrow
+ *  pad and the inspector's d-pad drive `nudgeStampRegion` without touching the
+ *  drag: `G` → ← ← ← → ⏎ read as idle and the user's three steps were discarded
+ *  with no message. The mixed case was wrong the other way — drag two steps, arrow
+ *  back two, and the drag still read "moved" while the region had returned to
+ *  where it started, spending an undo entry on a no-op. Asking the region answers
+ *  both, and is the question the rule was always trying to ask
+ *  (foundations T3c; the defect was `field-tool-follow-ons.md` § *A `G` grab moved
+ *  by the ARROW keys reads as idle, and ⏎ discards it*). */
+export const sameRegion = (a: StampRegion, b: StampRegion): boolean =>
+  a.min[0] === b.min[0] &&
+  a.min[1] === b.min[1] &&
+  a.min[2] === b.min[2] &&
+  a.max[0] === b.max[0] &&
+  a.max[1] === b.max[1] &&
+  a.max[2] === b.max[2];

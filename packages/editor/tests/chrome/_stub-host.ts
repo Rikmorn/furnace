@@ -287,7 +287,6 @@ export function makeStubHost(
     rotateStamp: mock(),
     rerollStamp: mock(),
     commitStamp: mock(),
-    commitSession: mock(),
     confirmSession: mock(),
     cancelStamp: mock(),
     escape: mock(),
@@ -378,9 +377,15 @@ export function makeStubHost(
         publishTool({ tool: armed.tool, radius: clamped });
     },
     setShading: calls.setShading,
-    setTool: (t) => {
-      calls.setTool(t);
-      const clamped = clampStubTool(t);
+    // A PATCH over the held tool, mirroring the real seam. `calls.setTool` records
+    // the patch AS SENT — what the control actually spoke about — so a suite can
+    // still assert that a slider named its param and nothing else. The momentary
+    // base the real host also maintains has no stub counterpart: the flags live
+    // behind the host's own key listeners, which is why that half is pinned in
+    // `field-host-momentary.gpu.test.ts` against a real host instead.
+    setTool: (patch) => {
+      calls.setTool(patch);
+      const clamped = clampStubTool({ ...armed.tool, ...patch });
       if (!toolsEqual(clamped, armed.tool))
         publishTool({ tool: clamped, radius: armed.radius });
     },
@@ -429,7 +434,6 @@ export function makeStubHost(
     rotateStamp: calls.rotateStamp,
     rerollStamp: calls.rerollStamp,
     commitStamp: calls.commitStamp,
-    commitSession: calls.commitSession,
     confirmSession: calls.confirmSession,
     cancelStamp: calls.cancelStamp,
     escape: calls.escape,

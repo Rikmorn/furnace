@@ -8,13 +8,14 @@ import { expect, test } from "bun:test";
 import {
   advanceMove,
   type MoveDrag,
-  moveIsIdle,
   movePoint,
   reanchored,
   resolveMapping,
+  sameRegion,
   startMove,
   unanchored,
 } from "../../src/field-host/field-move.ts";
+import type { StampRegion } from "../../src/field-host/field-stamp.ts";
 import { LATTICE } from "../../src/shared/field-brush.ts";
 
 type V3 = [number, number, number];
@@ -51,7 +52,7 @@ test("startMove reads the plane off the box FLOOR and the axis origin off its ce
   expect(d.mapping).toBe("plane");
   expect(d.fixedAxis).toBe(false);
   expect(d.anchorPoint).toBeNull();
-  expect(moveIsIdle(d)).toBe(true);
+  expect(d.applied).toEqual([0, 0, 0]);
 });
 
 test("a gizmo drag opens FIXED on its axis", () => {
@@ -198,17 +199,38 @@ test("unanchored retires the anchor AND the press pixel", () => {
   expect(fresh.applied).toEqual([4, 0, 0]);
 });
 
-test("moveIsIdle is about what reached the REGION, not about cursor travel", () => {
-  let d = reanchored(drag(), "plane", [0, 1, 0]);
-  // A wander that never crosses half a step.
-  d = advanceMove(d, [LATTICE * 0.4, 1, LATTICE * 0.3]).drag;
-  expect(moveIsIdle(d)).toBe(true);
-  d = advanceMove(d, [LATTICE * 0.6, 1, 0]).drag;
-  expect(moveIsIdle(d)).toBe(false);
-  // …and back to the anchor makes it idle again: the drop reads the NET result,
-  // which is what stops an out-and-back drag from spending a history entry.
-  d = advanceMove(d, [0, 1, 0]).drag;
-  expect(moveIsIdle(d)).toBe(true);
+test("sameRegion is the drop's zero-step rule, and it reads the REGION", () => {
+  // This replaced `moveIsIdle`, which asked the DRAG (`d.applied === [0,0,0]`)
+  // and therefore only ever knew about the CURSOR. Two things move a region and
+  // the arrow pad is the other one, so the drag's answer was wrong in both
+  // directions — see the fn's own docblock. The cases below are the ones the old
+  // predicate could not express at all, because they never mention a drag.
+  const at = (x: number): StampRegion => ({
+    min: [x, 0, 0],
+    max: [x + 1, 1, 1],
+  });
+
+  expect(sameRegion(at(0), at(0))).toBe(true);
+  expect(sameRegion(at(0), at(LATTICE))).toBe(false);
+
+  // ARROWS ONLY: the session's region left the record's without any drag at all.
+  // `moveIsIdle` read [0,0,0] here and ⏎ threw the user's nudges away.
+  const recorded = at(0);
+  const nudgedByArrows = at(3 * LATTICE);
+  expect(sameRegion(nudgedByArrows, recorded)).toBe(false);
+
+  // OUT AND BACK, mixed: dragged two steps, arrowed two back. The drag still held
+  // `applied = [2,0,0]` and read "moved", so ⏎ spent an undo entry re-splicing a
+  // span to exactly where it already was.
+  expect(sameRegion(at(0), recorded)).toBe(true);
+
+  // Every one of the six numbers counts — a max that moved is a resize, not a no-op.
+  expect(
+    sameRegion(
+      { min: [0, 0, 0], max: [1, 1, 1] },
+      { min: [0, 0, 0], max: [1, 1, 2] },
+    ),
+  ).toBe(false);
 });
 
 test("no transition writes to its argument", () => {

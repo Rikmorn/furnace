@@ -85,10 +85,10 @@ import { createHistoryFeed } from "./field-history-feed.ts";
 import {
   advanceMove,
   type MoveDrag,
-  moveIsIdle,
   movePoint,
   reanchored,
   resolveMapping,
+  sameRegion,
   startMove,
   unanchored,
 } from "./field-move.ts";
@@ -537,7 +537,7 @@ export type FieldHost = {
   }): void;
   setDigRadius(r: number): void;
   setShading(mode: FieldHostShading): void;
-  /** Selects the active brush (effect + material class + mask + smooth params
+  /** Changes the active brush (effect + material class + mask + smooth params
    *  + hollow). Default dig/rock, unmasked, solid fill. The chassis is the
    *  enforcement point for parameter ranges: smooth strength/iterations are
    *  clamped to the core ceilings and `hollow` is clamped to ≥ 0.5 m (core
@@ -557,8 +557,22 @@ export type FieldHost = {
    *  its own — a text field mid-edit — must therefore normalise that buffer
    *  itself rather than wait for an echo this seam is entitled to withhold.
    *  (`shell/tool-params.tsx`'s hollow field is the one that does; it learned
-   *  the hard way.) */
-  setTool(tool: FieldTool): void;
+   *  the hard way.)
+   *
+   *  TAKES A PATCH — the fields the caller is SPEAKING ABOUT, shallow-merged over
+   *  the held brush. A whole `FieldTool` is a valid patch (it names every field),
+   *  so this is a widening; `smooth` is one field, replaced wholesale rather than
+   *  deep-merged. The patch shape is load-bearing under a MOMENTARY modifier, and
+   *  that is why it exists: while ⇧ or ⌃ is held the brush every surface can see
+   *  is the DERIVED one, so a control that echoed the whole thing back to change
+   *  one number also said `effect: "smooth"` — and the host, which reads a set
+   *  under a held modifier as "this is the base to restore to", adopted it. The
+   *  user let go of ⇧ and their dig had permanently become a smooth. A patch
+   *  cannot say that by accident: nudge a param and the patch names the param,
+   *  pick a tool and it names the effect, and the base learns only what was
+   *  actually said. (foundations T3c; the defect was
+   *  `param-nudge-under-a-momentary-modifier-rewrites-the-base.md`.) */
+  setTool(patch: Partial<FieldTool>): void;
   /** Subscribes to the armed brush and its radius ({@link FieldToolPush}), pushing
    *  the CURRENT pair synchronously on subscribe — so a surface mounting mid-session
    *  (the tool strip, which the chrome unmounts for the whole of every stamp session)
@@ -809,34 +823,31 @@ export type FieldHost = {
    *  to core and surfaces core's own message — for a hall, "nothing to build" is
    *  a misconfiguration, and prop advice would be nonsense. */
   commitStamp(): void;
-  /** Ends the live session with whichever verb its MODE calls for —
-   *  {@link commitStamp} for a stamp, {@link applyReconfigure} for a
-   *  reconfigure. A panel commit button is this, and so is the app-level ⏎, so
-   *  the mode→verb mapping lives in ONE place instead of being re-derived from
-   *  the session a surface mirrors. Ready-phase only (both verbs are); no-op
-   *  without a session.
+  /** What ⏎ MEANS, and the ONE verb that ends a session from outside: drop a
+   *  live grab, else end the session by its MODE ({@link commitStamp} for a
+   *  stamp, {@link applyReconfigure} for a reconfigure). Both keys that spell it
+   *  route here — the canvas's own ⏎ and the app-level one — so a confirm cannot
+   *  mean two different things depending on where the focus is.
    *
-   *  A live MOVE is the one case this does NOT cover — {@link confirmSession} is
-   *  the verb for that, and for ⏎ generally. */
-  commitSession(): void;
-  /** What ⏎ MEANS: drop a live grab, else end the session by mode
-   *  ({@link commitSession}). Both keys that spell it route here — the canvas's
-   *  own ⏎ and the app-level one — so a confirm cannot mean two different things
-   *  depending on where the focus is.
+   *  There used to be a second, mode-only verb beside this one (`commitSession`,
+   *  "end by mode", deliberately NOT routing through `dropMove`). It was deleted
+   *  in foundations T3c with zero production callers repo-wide: the panel's
+   *  Commit/Apply button wears the ⏎ keycap and so must mean what the key means,
+   *  which is this. Keeping a second spelling of "end the session" only bought a
+   *  way for the two to answer differently.
    *
    *  Public because `beginMove` does NOT focus the canvas: a grab started from
    *  the Edit menu, or by `G` with a palette control focused, leaves the canvas
    *  listener unreachable, and without this the only key the status bar advertises
    *  for that state ("⏎ drop") would do nothing at all.
    *
-   *  The extra thing it does over {@link commitSession} is `dropMove`'s two rules:
-   *  the zero-step rule (a grab dropped where it started ends the session rather
-   *  than spending a history entry on a reconfigure that changed nothing) and the
-   *  pending-preview latch (a drop that lands mid-preview is spent when the
-   *  preview settles). Known limit, filed rather than fixed here: that zero-step
-   *  test reads the CURSOR's travel, so a grab moved only by the ARROW keys reads
-   *  as idle and is discarded —
-   *  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*.
+   *  Over a bare end-by-mode it adds `dropMove`'s two rules: the zero-step rule
+   *  (a grab dropped where it started ends the session rather than spending a
+   *  history entry on a reconfigure that changed nothing) and the pending-preview
+   *  latch (a drop that lands mid-preview is spent when the preview settles).
+   *  That zero-step test asks whether the session's REGION differs from the
+   *  entity's recorded one, so a grab moved only by the ARROW keys lands like any
+   *  other — it reads the region, not the cursor.
    *  Routing both ⏎s through one verb is what keeps that a single defect instead
    *  of a difference between two keys. */
   confirmSession(): void;
@@ -952,7 +963,7 @@ export type FieldHost = {
    *  A move IS a reconfigure: this opens exactly the session {@link openEntity}
    *  opens, with the same refusals (unknown id, frozen, baked, retired
    *  generator — all runtime-quiet through {@link subscribeToolError}), the same
-   *  ghost, and {@link commitSession} as its terminal verb. What it adds is a
+   *  ghost, and {@link confirmSession} as its terminal verb. What it adds is a
    *  MODE: the session is flagged {@link StampSession.moving}, and the CURSOR
    *  now drives the region — moving the pointer slides the ghost in whole 0.5 m
    *  lattice steps on the ground plane, ⇧ promotes that to the vertical axis,
@@ -5349,17 +5360,33 @@ export function createFieldHost(deps?: {
   const demoteStalledMove = (s: StampSession): StampSession =>
     moveDrag === null && s.moving === true ? withoutMoving(s) : s;
 
+  // The drop's zero-step question, asked of the REGION rather than of the drag:
+  // does the live session place the entity anywhere other than where its record
+  // already has it? `sameRegion` carries why this is not `moveIsIdle(d)` any more.
+  //
+  // No session, or no record to compare against (the entity left the log under a
+  // history step), both answer "nothing" — there is no move left to land, and a
+  // commit would either no-op or fail loudly against an entity that is gone.
+  const moveChangedNothing = (): boolean => {
+    const s = stamp;
+    if (s === null || s.entityId === null) return true;
+    const record = entityRecord(s.entityId);
+    if (record === null) return true;
+    return sameRegion(s.region, record.region);
+  };
+
   // End a move by DROPPING it — a mouse-up on a drag, LMB on a grab.
   const dropMove = (): void => {
     const d = moveDrag;
     endMove();
     if (d === null) return;
-    if (moveIsIdle(d)) {
-      // Nothing actually moved — a drag whose travel rounded to no lattice step,
-      // or a grab dropped where it started. A reconfigure would still re-splice
-      // the span with fresh op ids and still spend an undo entry, so committing
-      // here would put a no-op on the history stack for every twitchy click.
-      // End the session instead.
+    if (moveChangedNothing()) {
+      // The region is exactly where the record already has it — a drag whose
+      // travel rounded to no lattice step, a grab dropped where it started, or a
+      // move nudged out and back again. A reconfigure would still re-splice the
+      // span with fresh op ids and still spend an undo entry, so committing here
+      // would put a no-op on the history stack for every twitchy click. End the
+      // session instead.
       cancelStampSession();
       return;
     }
@@ -5465,8 +5492,9 @@ export function createFieldHost(deps?: {
 
   // Enter's ONE commit path: the session's mode picks the verb. Both are
   // ready-phase-only, so a configuring/previewing session swallows the key.
-  // Public as commitSession — the panel's button calls THIS rather than
-  // re-deriving the same mapping from the session it mirrors.
+  // Private — the only way in from outside is `confirmSession`, which reaches
+  // here after `dropMove` has had its say (T3c deleted the public `commitSession`
+  // that used to bypass that).
   const commitActiveSession = (): void => {
     if (stamp === null) return;
     if (stamp.mode === "reconfigure") applyReconfigureSession();
@@ -5479,14 +5507,14 @@ export function createFieldHost(deps?: {
   // no history entry) and the pending-preview latch, neither of which
   // `commitActiveSession` knows about.
   //
-  // The public `commitSession` (a panel button's Commit/Apply) deliberately does
-  // NOT route through here: it means "end by mode", and a move is never reachable
-  // from a panel button anyway — clicking one blurs the canvas, which cancels the
-  // move first. Keeping them apart is also what stops a filed defect from
-  // spreading: `moveIsIdle` asks whether the CURSOR moved, so a grab moved only by
-  // the ARROW keys reads as idle here and is discarded
-  // (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A `G` grab moved by the ARROW keys reads as idle, and ⏎ discards it*).
-  // Both ⏎s share that one defect rather than answering differently.
+  // This is now the ONLY way in from outside. T3c deleted the public
+  // `commitSession` — a second "end by mode" verb that deliberately did NOT route
+  // through here — after finding it had zero production callers: the panel's
+  // Commit/Apply button already called `confirmSession`, because it wears the ⏎
+  // keycap and must mean what the key means. The reason the pair was kept apart
+  // (so a filed defect in one could not silently change the other) evaporated
+  // with the defect: `dropMove`'s idle test now reads the REGION, not the cursor,
+  // so an arrow-nudged grab lands here exactly like a dragged one.
   const confirmActiveSession = (): void => {
     if (moveDrag !== null) {
       dropMove();
@@ -5510,17 +5538,21 @@ export function createFieldHost(deps?: {
       ? field.redo(store, log, table)
       : field.undo(store, log);
     markDirtyWithNeighbors(dirtied);
-    // A live MOVE cannot survive the log moving under it. The canvas binds ⌘Z
-    // itself and a `G` grab is a modal state where the canvas necessarily has
-    // focus (Esc and R are on the same listener), so this is one keypress away
-    // rather than contrived — and both halves are wrong. An undone COMMIT leaves
-    // the session naming an entity that is gone and the drop fails outright; an
+    // NO live session survives the log moving under it. Both halves are wrong and
+    // the quiet one is worse: an undone COMMIT leaves the session naming an entity
+    // that is gone and Apply fails outright with core's `unknown entity N`; an
     // undone RECONFIGURE leaves it naming an entity whose region the step just
-    // moved, and the drop then quietly re-applies the placement the user undid.
-    // Scoped to moves: whether ANY session should survive a history step is a
-    // wider question, filed as
-    // `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *A live stamp session survives a ⌘Z / ⇧⌘Z step*.
-    if (stamp?.moving === true) cancelStampSession();
+    // replaced, and Apply then silently re-lands the placement the user undid.
+    //
+    // This was scoped to MOVES until T3c, on the reasoning that a `G` grab is the
+    // one modal state where the canvas necessarily has focus, so ⌘Z-under-a-move
+    // was the reachable case. The exposure was always wider — a reconfigure opened
+    // from the Entities row leaves an enabled Apply on the session card, and the
+    // card is not the canvas — and the blanket rule is the one this file already
+    // applies twice over, at `resetWorld` and `setMaterialTable`: a session whose
+    // inputs moved must not be left offering an Apply that would build something
+    // its ghost never showed. A history step is the same class of event.
+    cancelStampSession();
     revalidateEntitySelection();
     // A step can add or remove placement ops (a scatter commit, a reconfigure
     // splice) and dirties NO chunk for them — placements write no cells — so the
@@ -6751,22 +6783,29 @@ export function createFieldHost(deps?: {
         for (const e of cm.entries)
           mesh.setMaterial(c, e.m, bucketMaterial(e.classId, e.backing));
     },
-    setTool(next) {
-      const clamped = clampTool(next); // chassis-side range enforcement
+    setTool(patch) {
       if (momentarySaved !== null) {
-        // Panel change while a momentary modifier is held: adopt it as the
-        // BASE the momentary derives from (and restores to), so releasing the
-        // modifier lands on the panel's latest choice, not a stale save.
+        // A change while a momentary modifier is held lands on the BASE the
+        // momentary derives from (and restores to), so releasing the modifier
+        // lands on the caller's latest choice rather than a stale save.
         //
-        // ABOVE the value guard, deliberately (the guard sits below this
-        // branch): while a modifier is held, `tool` is the DERIVED
-        // brush, so a set that equals it can still be a real change to the BASE the
-        // release will land on (picking smooth under a held ⇧ is exactly that). Comparing
-        // the derived tool here would drop it and let go of ⇧ restore the wrong brush.
-        momentarySaved = clamped;
+        // The patch merges over `momentarySaved`, NOT over `tool` — `tool` is the
+        // DERIVED brush right now, and merging over it would feed the derive's own
+        // `effect` back into the base on every set. That is the whole defect the
+        // patch seam closes: a param nudge names its param and nothing else, so
+        // the base keeps the effect the user actually picked, while a deliberate
+        // pick names `effect` and is adopted. Both reach this one line.
+        //
+        // ABOVE the value guard, deliberately (the guard sits below this branch):
+        // a set that equals the DERIVED tool can still be a real change to the
+        // base the release will land on — picking smooth under a held ⇧ is exactly
+        // that, and comparing the derived tool here would drop it and let go of ⇧
+        // restore the wrong brush.
+        momentarySaved = clampTool({ ...momentarySaved, ...patch });
         deriveMomentary();
         return;
       }
+      const clamped = clampTool({ ...tool, ...patch }); // chassis-side range enforcement
       if (sameTool(tool, clamped)) return; // applyRadius' `clamped === digRadius`, one type up
       tool = clamped;
       notifyTool();
@@ -6970,9 +7009,6 @@ export function createFieldHost(deps?: {
     },
     commitStamp() {
       commitStampSession();
-    },
-    commitSession() {
-      commitActiveSession();
     },
     confirmSession() {
       confirmActiveSession();

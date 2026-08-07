@@ -155,7 +155,9 @@ export function ActionContextProvider({
 				gesture,
 				classes: table.classes,
 			});
-			setTool({ ...tool, effect, materialId: arm.materialId });
+			// Names `effect` — this IS the deliberate pick, so under a held ⇧/⌃ the base
+			// adopts it and the release lands here rather than on what was armed before.
+			setTool({ effect, materialId: arm.materialId });
 			// The second clause is the pending stamp's: `setGesture` is also what cancels
 			// the arm host-side, and `brushArming` reports no disarm when there is no
 			// gesture to drop — so arming a brush from UNDER a pending stamp (gesture

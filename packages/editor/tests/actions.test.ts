@@ -380,10 +380,11 @@ test("delete asks first — the confirm carries the op count, and only its onCon
 });
 
 test("⏎ confirms through the MOVE-AWARE host verb, and the spy no longer offers the other one", () => {
-  // `commitSession` ends a session BY MODE (`commitStamp` for a stamp, `applyReconfigure` for
-  // a reconfigure) and has no production caller left at head — even the session card's footer
+  // `commitSession` ended a session BY MODE (`commitStamp` for a stamp, `applyReconfigure`
+  // for a reconfigure) and had no production caller left — even the session card's footer
   // routes ⏎ through `confirmSession` (`SessionCard.tsx`'s `onConfirm`), because the button
-  // wears the ⏎ keycap and must mean what the key means. `confirmSession` is that verb: it
+  // wears the ⏎ keycap and must mean what the key means. T3c deleted it outright; this test
+  // is why that was safe to do. `confirmSession` is the surviving verb: it
   // adds `dropMove`'s rules, and a grab started from the Edit menu or by `G` has no canvas
   // listener to answer ⏎ any other way.
   //

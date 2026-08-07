@@ -103,14 +103,11 @@ test.skipIf(!bunWebGpuAvailable())(
     // dig it was saved at. The user then lets go of ⇧ and their brush turns back into dig,
     // which is the brush changing under their hand.
     //
-    // WHAT THIS CASE CANONISES IS THE DELIBERATE PICK, and only that. The same branch is
-    // reached by any strip control nudged while a modifier is held — the controls spread
-    // `ctx.tool`, which under ⇧ is the DERIVED tool, so a strength drag sends `smooth`
-    // along with the strength and rewrites the base as a side effect. That is a live
-    // hazard, it predates this commit (the old chrome cell held the derived tool too), and
-    // it is filed rather than fixed here: `docs/backlog/editor-and-tooling/
-    // param-nudge-under-a-momentary-modifier-rewrites-the-base.md`. Read the assertion
-    // below as "the base adopts", not as "only a pick can make it adopt".
+    // WHAT THIS CASE CANONISES IS THE DELIBERATE PICK: a patch that NAMES `effect` is a
+    // pick, and the base adopts it. The param nudge — a patch that names a param and not
+    // `effect` — is the case below, and until T3c the two were indistinguishable here
+    // because every control spread the whole mirrored tool. Read the assertion below as
+    // "a patch naming the effect adopts", not as "any set adopts".
     //
     // Sabotage-proven: hoisting `sameTool` above the momentary branch fails THIS case, and
     // it is the only case in the package that notices.
@@ -146,6 +143,42 @@ test.skipIf(!bunWebGpuAvailable())(
       f.modifier("keyup", "Shift");
 
       expect(f.armed()).toBe("fill");
+    } finally {
+      f.dispose();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
+  "a PARAM nudge under a held ⇧ leaves the base's effect alone",
+  async () => {
+    // THE DEFECT T3c CLOSED. Hold ⇧ (momentary smooth), drag the strength slider, let
+    // go: the brush had permanently become smooth, and the dig the user was working with
+    // was gone. The mechanism was that every strip control spread `ctx.tool` — which
+    // under a held modifier is the DERIVED brush — so a strength change also said
+    // `effect: "smooth"`, and the branch above, which correctly reads a set under a held
+    // modifier as "this is the base to restore to", believed it.
+    //
+    // The fix is the seam's shape, not a guard: `setTool` takes a PATCH, so a control
+    // can only assert what it has an opinion about. This case and the one above are the
+    // two halves that the whole-tool seam could not tell apart, which is why neither
+    // alone is sufficient.
+    const f = await momentaryFixture();
+    try {
+      f.host.setTool(tool({ effect: "dig" }));
+      f.modifier("keydown", "Shift");
+      expect(f.armed()).toBe("smooth"); // the derive fired
+
+      // What `tool-params.tsx`'s strength slider sends: the param, and nothing else.
+      f.host.setTool({ smooth: { strength: 4, iterations: 1, mode: "both" } });
+      expect(f.armed()).toBe("smooth"); // still overridden WHILE held
+
+      f.modifier("keyup", "Shift");
+
+      // The base kept the effect the user actually picked, and took the param they
+      // actually changed.
+      expect(f.armed()).toBe("dig");
+      expect(f.pushes.at(-1)?.tool.smooth.strength).toBe(4);
     } finally {
       f.dispose();
     }

@@ -1040,7 +1040,7 @@ the copy rule, at the seam the extraction created.
 **MUTATED BY other clusters** (1 edge):
   - `stamp` (mutated by `move`) — 1 site: `dropMove`
 
-**Public members (12):** `startStamp`, `updateStamp`, `nudgeStamp`, `rotateStamp`, `rerollStamp`, `commitStamp`, `commitSession`, `confirmSession`, `cancelStamp`, `subscribeStamp`, `openEntity`, `applyReconfigure`
+**Public members (11):** `startStamp`, `updateStamp`, `nudgeStamp`, `rotateStamp`, `rerollStamp`, `commitStamp`, `confirmSession`, `cancelStamp`, `subscribeStamp`, `openEntity`, `applyReconfigure` — `commitSession` was the 12th until foundations T3c deleted it (zero production callers)
 
 
 ### Cluster: drift

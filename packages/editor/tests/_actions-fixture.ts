@@ -33,9 +33,9 @@ const wrote = () => mock(() => Promise.resolve(ACTION_OK));
  *  A SPARE verb is worse than dead weight — it is a mock that reads like coverage. This list
  *  carried `commitSession`, which no action has ever called; `session.confirm` routes through
  *  the move-aware `confirmSession` (`actions.ts`' own comment says so). `tests/chrome/
- *  _stub-host.ts` carries both, correctly — it stubs the whole `FieldHost` facade, and
- *  `commitSession` is a member of it — and two chrome suites were still caught reaching for
- *  the wrong one of its two and passing vacuously
+ *  _stub-host.ts` carried both at the time, correctly — it stubs the whole `FieldHost` facade,
+ *  and `commitSession` was a member of it — and two chrome suites were still caught reaching
+ *  for the wrong one of its two and passing vacuously
  *  (`chrome/native-select-key-gate.test.tsx`, `chrome/shell.test.tsx`). This list is not a
  *  facade stub and has no such excuse: what is here is what the table calls, so the wrong
  *  mock is not reachable to begin with. */
