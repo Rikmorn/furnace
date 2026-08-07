@@ -38,6 +38,19 @@ source that is not a fixed editor gesture (an LLM op stream, a plugin generator,
 imported oplog) reaches either function; or the first report of a world whose re-bake
 from the log produces different bytes than the live store.
 
+> **The first clause did NOT fire at T3c (verified 2026-08-07): `logApplyGroup` still has
+> ZERO occurrences anywhere under `packages/editor/`.** The gesture machine landed
+> (`packages/editor/src/field-host/field-machine.ts`) and routes no op lists through it —
+> the two commit verbs that moved into it each call a core COMPOSITE
+> (`commitGenerator` / `reconfigureGenerator`), which is the same shape as before.
+>
+> What DID change is this entry's standing rather than its content. The foundations program's
+> planned editor-side `TransactionManager` (`txn(label, fn)`) was **dropped** at T3c planning,
+> and one consequence is that `logApplyGroup` is now named as the transaction story's grouping
+> layer outright rather than as one input to a larger editor-side design. So this entry is the
+> open question about that story, not a note beside a bigger one. The drop and its evidence
+> are recorded in `docs/reference/editor-architecture.md` §23.5.
+
 **Reference:** `logApplyGroup` and its residual paragraph in
 `packages/core/src/field/ops.ts`; `commitGenerator`'s pass-1/pass-2 split in
 `packages/core/src/field/generators.ts:1001-1047`;

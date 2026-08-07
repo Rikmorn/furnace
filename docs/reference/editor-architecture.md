@@ -10,9 +10,12 @@ running system.
 **Read it in two halves.** §1–§8 are the DAEMON and the serving contract — the parts that
 have been stable since M3/M4 and that no chrome rewrite touches. §9–§18 are the FIELD
 authoring tool: the inspector module, the field host and its workers, and the three F4.5
-slices that made the chrome what it is. §19 lists what is deferred, and **§20 is foundations
-T3a** — the framework primitives the field host's decomposition is being built on. §20 sits
-after Deferred rather than before it because section numbers here are append-only.
+slices that made the chrome what it is. §19 lists what is deferred, and **§20–§23 are the
+foundations T3 tranches** — T3a's framework primitives (§20), T3b1's five cluster extractions
+and the layer chain (§21), T3b2's single-source tool and action tables (§22), and T3c's
+session/gesture machine and tool registry (§23) — the field host's decomposition, slice by
+slice. They sit after Deferred rather than before it because section numbers here are
+append-only.
 
 **What was cut, and where it went.** The editor once had a dockview chrome, a
 scene-document surface (entities panel / inspector panel / GPU-id picking / translate gizmo
@@ -185,7 +188,7 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 **The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes are SIBLINGS, not a chain: neither imports the other, and `tests/no-chrome-leakage.test.ts` pins that direction explicitly because nothing else would — the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
-- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts`. Two of the three are VALUE-imported by chrome components as well as by the host; **`catalog.ts` is the exception and always was** — the host `import type`s it at all four of its sites (`field-host.ts`, `field-placements.ts`, `field-props.ts`, `substrate.ts`), so only the chrome (`hooks/useCatalogs.tsx`) takes a value edge. It belongs here on the *type*-sharing half of the rule rather than the value-sharing half, and the earlier wording claiming otherwise was corrected in T3b2 Task 5. T3b2 added three more, all value-imported by both layers: `field-limits.ts`, `action-table.ts` (Task 5 switched the chrome onto it — §22), and `field-brush.ts`' `LATTICE` gained a registry-side reader too. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
+- **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts`. Two of the three are VALUE-imported by chrome components as well as by the host; **`catalog.ts` is the exception and always was** — the host `import type`s it at all four of its sites (`field-host.ts`, `field-placements.ts`, `field-props.ts`, `substrate.ts`), so only the chrome (`hooks/useCatalogs.tsx`) takes a value edge. It belongs here on the *type*-sharing half of the rule rather than the value-sharing half, and the earlier wording claiming otherwise was corrected in T3b2 Task 5. T3b2 added three more, all value-imported by both layers: `field-limits.ts`, `action-table.ts` (Task 5 switched the chrome onto it — §22), and `field-brush.ts`' `LATTICE` gained a registry-side reader too. T3c added a fourth, `tool-registry.ts`, value-imported by `tool-params.tsx` for the dead-control answer — and the floor is where it had to go for exactly the reason this bullet states, which §23.4 works through as three independent facts. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
 
 The guard scans `src/shared/` with no exemptions precisely because the original three modules left `src/frontend/`: a chrome file's `../../shared/catalog.ts` matches none of the specifier rules, so without the extra scan a core value-import added there would reach the chrome bundle unseen. The host-only five left the scan too, and that narrowing is deliberate — they are host files now, and the invariant that mattered is enforced at the boundary instead, since any chrome value-import of one writes a `field-host` specifier. That specifier rule ends the segment (`field-host/` or the end of the specifier) so it does not also catch `frontend/lib/field-host-mirrors.ts`, a chrome-internal helper that shares the prefix and nothing else.
 
@@ -2714,7 +2717,9 @@ nothing captured still travels on to the app-level registry.
 That is the whole law, and it is why **every mutation of a captured state must go through
 its setter**: a bare assignment that skips the reconcile leaves a capture behind, and the
 next Esc spends itself cancelling something that already ended. A shared `escRung` helper
-owns the discipline rather than five copies of it — acquire on the first live read, release
+owns the discipline rather than five copies of it *(as of foundations T3c it is exported as
+**`createRung`** from `input-router.ts` rather than being a closure inside `createFieldHost`,
+and **seven** rungs across three modules stand on it — §23.2)* — acquire on the first live read, release
 on the first dead one, and do NOTHING while it stays live, which is what makes a REPLACE (a
 selection displacing another, an entity pick displacing another) keep the position its first
 acquisition took. `cancel` runs AFTER the entry is removed, so a cancel that re-acquires (an
@@ -2735,6 +2740,15 @@ three:
   deliberately not at the transform writes that keep a live session live — a reconcile there
   would be a no-op with a cost, and worse, it would imply that a slider drag re-acquires and
   moves the session's stack position every time a param changed.
+
+  > **SUPERSEDED for `stamp` at foundations T3c (§23.2).** Only the `moveDrag` half is still
+  > a deliberate bare write. `stamp` acquired a canonical setter — **`setStamp`** in
+  > `field-machine.ts`, through which all 13 of its write sites now go — and the
+  > crossing/transform distinction the paragraph above describes as a hand-maintained list is
+  > now computed (`crossed = (stamp === null) !== (next === null)`). The distinction itself is
+  > unchanged and correct; what changed is that the structure asserts it instead of a comment.
+  > T3c also gave the sub-threshold move press a rung of its own (`setPendingMove`) — a state
+  > that had been invisible to this stack, so Esc fell past it.
 
 **The behaviour change: recency replaces a declared priority.** The old ladder's order was
 fixed, but every rung's own comment argued from recency ("an arm is by definition more recent
@@ -2763,6 +2777,16 @@ into `SegmentDeps` whole rather than the host reconciling on the extracted modul
 which is the shape every later extraction will take. **What the router does NOT take yet**:
 the nine DOM listeners and pointer capture stay in the host. T3c's gesture machine takes
 them, and finishes the same bug class for pointer capture that this finishes for Esc.
+
+> **That last sentence was half wrong, and T3c is what disconfirmed it (§23.3).** The nine
+> DOM listeners are ALL still in the host, and so is DOM pointer capture — it became one thunk
+> pair (`capturePointer` / `releasePointer`) called from four sites. What the machine took is
+> the pointer chains' ARBITRATION, not the element handling; a module with no canvas cannot
+> own `setPointerCapture`, and the keyboard three are the momentary pins' only test route.
+> The Esc bug class this section closes was, however, finished for the one state that had
+> escaped it — `input-router.ts`'s header was corrected in the same tranche to say that its
+> "capture" means THIS stack's, not the DOM's, because the two words had been sitting one
+> file apart meaning different things.
 
 ### 20.3 The substrate record
 
@@ -3694,3 +3718,341 @@ left the entire editor suite green, because nothing drove the host's own key lis
 `tests/field-host-momentary.gpu.test.ts` does: it needs a device only because `init` is what
 attaches those listeners. Dropping the guard and hoisting the guard are different failures and
 now fail different cases.
+
+## 23. Foundations T3c — the interactive middle becomes a module, and a tool becomes a registration (2026-08-07)
+
+Where T3b1 moved the CLEAN clusters (§21) and T3b2 removed restatement (§22), T3c moves the
+one the cluster map called *"the worst available first extraction"*: the stamp session, the
+move that rides it and the armed-gesture slot, out of `createFieldHost` and into
+**`src/field-host/field-machine.ts`** as ONE module. Then the pointer chain followed it, and
+a second, much smaller module — **`src/shared/tool-registry.ts`** — gave the editor its first
+answer to *"which tools exist?"* that is not a chrome literal.
+
+**The honest headline first, and it is the largest single movement this file has seen.**
+`field-host.ts` went **7,266 → 6,337 lines (−929, −12.8%)**, and its CODE column — comments
+and blanks stripped by §1's method in `docs/reference/field-host-clusters.md` — went
+**3,434 → 2,854 (−580, −16.9%)**. Closure-level `let`s went **81 → 69**. Against that, the
+two new modules are **2,198 lines** between them (`field-machine.ts` 1,936 / 833 code;
+`tool-registry.ts` 262 / 53 code), so the tranche ADDS ~1,269 lines across the three files.
+That ratio is the same one §21 recorded and for the same reason: a cluster's prose travels
+with it, the wiring left behind earns prose of its own, and a module that has to justify why
+it is one module rather than four writes that justification down. **The file is still 2,854
+lines of code — ~7.1× the ~400-line guideline — and it is not a facade.** §23.7 states that
+plainly against the tranche's own exit clause rather than leaving it to be inferred.
+
+Two properties hold across the slice. **The facade moved by exactly one member**, 66 → 65,
+and the member that went (`commitSession`) had zero production callers — §23.5. And **no
+`FieldHost` signature changed except `setTool`'s**, which widened to a patch to fix a defect
+the whole-tool seam could not express (§23.6).
+
+### 23.1 One module, because it is one state machine
+
+`field-machine.ts` is one module and not three because the three clusters are one machine,
+and the cluster map had already measured exactly that: `stamp` and `move` *"share one slot —
+the move session IS a stamp session with `moving: true`"*, so any boundary drawn between them
+cuts a state machine in half; `gesture` and the pending-stamp arm above it are the other half
+of the same click, because an arm SHADOWS the armed gesture rather than replacing it and the
+two must be read together to know what LMB does. §7.5 of that map ranked this cluster the
+worst available extraction — 13 partner clusters, 45 cross-cluster edges — and named the two
+facts that would bite: it cannot go without `move`, and `cancelStampSession` is reached from
+14 regions across 7 clusters. **Both held.** What changed is not the difficulty but the
+floor: `HostSubstrate` exists (§20.3, §21.1), so the shared reads are one record rather than
+sixteen arguments, and the Esc ladder is a capture STACK (§20.2), so a cluster can own its own
+cancellable state without the host holding a list of it.
+
+It took **13 of the three clusters' 14 state bindings** and **all 28 of their functions**. The
+one that stayed is `stamp.ghostMeshes` — a substrate value the host draws directly, and
+`substrate.ts` is where it already lived by declaration. The module is a **factory returning
+an object** (`createFieldMachine(deps): FieldMachine`, 28 members), on `createSegmentBrush`'s
+precedent, because a set of free functions would have to be handed the memory on every call.
+That is the difference from its pure siblings (`field-stamp.ts`, `field-move.ts`,
+`field-ghost.ts`): those are transitions and arithmetic over data handed in, and they were
+extractable precisely because they remember nothing. **This is the memory.**
+
+**Two things it deliberately does NOT own, and both were decided by re-reading the as-built
+rather than by the shape of the name.**
+
+- **`boxAnchor` and its two overlay batches.** By name the anchor is gesture state. By EDGES
+  it is the selection cluster's, owned jointly with `anchorBatch`, `boxPreviewBatch`,
+  `updateBoxPreview`, `boxCorner` and `selectionClick`. Taking it would have dragged the whole
+  box-select overlay across the line for the sake of two calls, so the two calls arrive as
+  deps instead (`setBoxAnchor`, `boxCorner`) — the `armMaskDropReport` precedent §21.1 set.
+- **`commitToolOp`.** It is a BRUSH verb wearing a commit's name: it applies one op through
+  `field.logApply` with the active tool's mask and pushes the history feed, and it was already
+  a `field-segment.ts` dep. The two verbs that DID move are the session's terminal pair
+  (`commitStampSession`, `applyReconfigureSession`), and they moved because leaving them
+  behind would have meant exporting `setStamp`, `destroyGhosts`, `notifyStamp`, `endMove` and
+  `reportEmptyPreview` purely to serve two callers — five private-state verbs promoted to
+  public surface, which is the opposite of what "owns its state privately" means.
+
+Every cross-cluster dependency arrives in `MachineDeps` (**39 members**), and the
+reassignable ones arrive as FUNCTIONS rather than as values — §21.1's first clause, applied.
+Two members are `let`s in the host (`archetypes`, and the selection behind `selectionRegion`),
+and either one snapshotted at construction would give the module a private copy the host's own
+writes never reach: a stamp opened after `setEntityCatalog` would seed from a catalog the
+project no longer has, and `startStamp` would arm region-draw over a selection the user made
+an hour ago.
+
+### 23.2 The canonical-setter law closes over `stamp` and `pendingMove`
+
+§20.2 states the router's law: **every mutation of a captured state must go through its
+setter**, because a bare assignment that skips the reconcile leaves a capture behind and the
+next Esc spends itself cancelling something that already ended. At T3b2 the machine's own
+central slot was the one state that did not obey it — `stamp` had **13 write sites and no
+setter**, and its Esc reconcile was a hand-maintained list of which writes crossed
+null↔non-null, kept as a comment. Nothing failed when a fourteenth write was added and the
+comment was not.
+
+**`setStamp` is that setter.** All 13 writes route through it; it computes
+`crossed = (stamp === null) !== (next === null)` and reconciles only then, so the structure
+answers what the comment used to assert. The distinction the comment was maintaining is real
+and survives: a crossing write reconciles the capture, a live→live transform does not,
+because a reconcile at a transform would be a no-op with a cost and — worse — would imply
+that a slider drag re-acquires and moves the session's stack position every time a param
+changed.
+
+**`setPendingMove` is the same law one slot over, and it is the slice's ONE sanctioned Esc
+change.** The sub-threshold press — a press on the already-selected entity, waiting to see
+whether the cursor travels far enough to mean "move" — held no capture, so Esc fell straight
+past it to the selection the user was pressing on. It now has a rung of its own, and Esc
+cancels the press. There is **no pointer-capture release on that rung**, and the omission is
+verified rather than overlooked: the branch that arms `pendingMove` does not capture — capture
+is taken at the threshold crossing, in the same breath that clears the slot — so a release
+would be a line that could only ever throw on a stale id.
+
+**The rung mechanism itself left the closure.** `escRung`, which §20.2 describes as *"a
+shared `escRung` helper"* private to `createFieldHost`, is now **`createRung`, exported from
+`input-router.ts`**, and `field-segment.ts` dropped its hand-rolled handle slot for it in the
+same change. **Seven rungs now stand across three modules on one implementation** —
+`field-host.ts` 3 (box anchor, selection, selected entity), `field-machine.ts` 3 (the session,
+the pending stamp arm, the pending move press), `field-segment.ts` 1 (its anchor). That
+promotion is what made a cluster owning its own cancellable state extractable at all, and it
+is the teardown edge §7.5 of the cluster map named as the second thing that would bite.
+
+The 14 `cancelStampSession` call sites became `machine.cancelSession()` — **nine still spelled
+in `field-host.ts`** (the world reset, the table swap, dispose, the history step, and the
+entity verbs), the rest internal to the machine.
+
+### 23.3 The machine arbitrates the pointer; the host attaches and steps aside
+
+The four pointer listeners' CHAINS moved into the machine as `pointerDown` / `pointerMove` /
+`pointerUp` / `pointerCancel`; the four functions in `field-host.ts` are now one- and two-line
+delegates. **The rule that drew the line is stated where the chain is: most of what those
+branches TEST is state the machine owns and nothing else does** — a live move, a pending stamp
+arm, the armed gesture, a stroke in progress — so the chain follows the state, while every
+branch's VERB stayed with its cluster and arrives as a dep (`eyedropper`, `applyTool`,
+`selectionClick`, `pointerPress`, the segment brush's three). Exactly three branch tests are
+NOT the machine's — `camera.look`, `selection.boxAnchor`, `segment.segmentAnchor` — and they
+travel the other way, as liveness thunks. `MachineDeps` going 22 → 39 members is the
+measurement of what the chain was already reaching for.
+
+**What stayed on the host, and why each is not an omission:**
+
+- **The listeners themselves.** `attachListeners` owns the canvas element; the machine has no
+  canvas and should not acquire one.
+- **keydown, keyup and blur.** The momentary ⇧/⌃ pins are closure-private keydown state with
+  no facade route — `tests/field-host-momentary.gpu.test.ts` reaches them ONLY through the
+  real listeners — so moving the keyboard three would have meant inventing a route to test
+  through, in a slice whose licence was a move.
+- **The wheel**, which is half camera.
+- **DOM pointer capture.** It became one host thunk pair (`capturePointer` / `releasePointer`)
+  called from four sites, three of them in the chain. §20.2 predicted that *"T3c's gesture
+  machine takes … pointer capture"*; it did not, and could not — the machine holds no element.
+  What T3c did take is the ARBITRATION, and the correction is recorded here rather than left
+  as a claim §20.2 makes about a future that arrived differently. `input-router.ts`'s own
+  header was corrected in the same tranche to say that its "capture" means the Esc stack's,
+  not the DOM's — the two words had been sitting one file apart meaning different things.
+
+The move was net **+1 line** on `field-host.ts` and drifted every line number in it anyway:
+~150 lines of chain left the input handlers near the bottom, and a comparable number arrived
+~3,000 lines higher up as the look-drag and pointer-capture verbs the machine could not take,
+plus the prose saying why. A net-zero file is not an unchanged one.
+
+### 23.4 The tool registry — existence and liveness, and the `build` that could not ship
+
+`src/shared/tool-registry.ts` answers **two questions and no others**: `toolEntries()` says
+which tools EXIST, in registration order — the enumeration T4's MCP surface needs — and
+`toolCanActivateControl(id, ctx)` says whether one of a tool's controls may render LIVE
+against the current material classes. Two tools are registered, `brush` and `segment`. The
+machinery is a factory (`createToolRegistry`, on core's `createRegistry` precedent) with the
+editor's own instance at module scope; `define` is **setup-loud** on a duplicate id, and both
+query paths are **runtime-quiet**, because every caller is inside a React render where a throw
+over one knob takes the whole strip down.
+
+**It absorbs exactly one rule, and moving it is the point.** `tool-params.tsx`'s
+`availableParams` used to spell `id === "material" ? classes.length > 1 : true` inline — a
+swatch strip with nothing to choose between is a control that cannot do anything — and was
+therefore the only place in the editor that knew a control could be dead for a reason the
+effect table cannot see. It now asks the registry, so a second surface asking the same
+question gets the same answer by construction. The filter still runs BEFORE the strip's ≤4
+cap, so a material param a one-class catalog cannot fill never eats a slot and strands a real
+control behind the ⋯.
+
+**Three deviations from the plan and the spec, all forced, all verified at source.**
+
+1. **It is on the FLOOR (`shared/`), not under `field-host/`.** Three facts each decide it
+   alone: the chrome must read the capability answer at React-render time and may not
+   value-import anything reaching under `field-host/` (§7 — the barrel carries core, and
+   `tests/frontend-no-engine-leakage.test.ts` exists to prevent a second core in the main
+   bundle); a descriptor table must be DOM-free so a daemon process can import it for MCP
+   (§22.5), and `field-host/` is the DOM-facing half by definition; and `action-registry/` —
+   the other DOM-free node — pins its file list BY NAME in that same guard, so a fifth file
+   would rewrite the pin rather than satisfy it.
+2. **There is no `build` on the row, so `ToolDeps` / `ToolInstance` do not exist and the
+   machine does not look tools up by id to arm a gesture.** The spec's §3.2 `defineTool`
+   bullet pairs a builder with the capability query on one row. They cannot share a row. The
+   only `build` that has an implementation today is `createSegmentBrush`, a VALUE in
+   `field-host/` and immovable — it value-imports `field-ghost.ts`, which value-imports
+   `@furnace/core/field` — so a row carrying it can only be WRITTEN in `field-host/`, where by
+   (1) the chrome can never read the capability answer sitting beside it. **The structural
+   fact underneath both is that the chrome and the host are two BUNDLES, not two directories
+   in one bundle**: the chrome builds from `src/frontend/index.html` plus the two worker
+   entries, while the host reaches the browser as `/engine.js`, a separate esbuild bundle the
+   chrome fetches and dynamically imports at runtime (§7). Each graph therefore gets its own
+   module instance and its own table, so a `defineTool` call written host-side never runs in
+   the chrome's graph — the strip would query an EMPTY table, take the default, and put a dead
+   control back on screen with every test green. Two ways out were considered and both fail:
+   registering the whole row from the host (dead on arrival, per the two bundles), and
+   splitting the registration so the host attaches only the builder — which makes the table's
+   CONTENTS bundle-dependent while its TYPE says otherwise (a chrome caller writing
+   `entry.build(deps)` type-checks and gets `undefined is not a function` in the browser, with
+   the suite green, because tests run UN-BUNDLED in one process where the host's attach HAS
+   run). A separate host-side registry keyed by the same ids was rejected too: it converts a
+   bundle-visibility problem into a drift class — two enumerations of one set with nothing
+   pinning them equal, which is precisely the shape §22 had just removed. **The builder half
+   is deferred whole rather than half-built.**
+3. **`canActivate` shipped as `canActivateControl`.** The spec and the plan both name the bare
+   verb; the suffix is doing real work, because the semantics changed. The question the strip
+   asks is per-CONTROL — a one-class catalog kills the swatches and leaves radius, mask and
+   hollow alone — and a tool-wide boolean could only kill all four or none. The per-TOOL
+   question ("may this tool be armed at all?") is a different one that T4's MCP surface will
+   want, and `canActivate` is the name it should get; spending the obvious name on the
+   narrower question is how the two would end up telling one story.
+
+`segment` registers with no `canActivateControl`, and that is a fact about the tool rather
+than an omission: a segment click commits a brush op built from the live effect and material,
+so the controls under it are the BRUSH's and the brush's answer governs them.
+
+**What the registry deliberately does NOT own is PRESENTATION.** `shared/action-table.ts`
+(§22) goes on owning which member a family lists, in what order, under what label, with which
+params. Registration order here is not rail order and nothing may read it as one.
+
+### 23.5 `txn` was dropped; `commitSession` was deleted
+
+**The `TransactionManager` / `txn(label, fn)` bullet in the foundations design is DROPPED — a
+user decision taken at T3c planning (2026-08-07), on measured evidence, and recorded here so
+that the fact is citable from a tracked document.** Its premises did not survive the T2–T3b
+as-builts:
+
+- **Only 3 of the 5 named commit paths are real writers**, and each owns a core composite that
+  cannot decompose (`commitGenerator` / `reconfigureGenerator` / `logApply`).
+- **`commitSession` had ZERO production callers** — T3c deleted it (below).
+- **`logApplyGroup` (§20.4, T3a) already IS the grouping layer**, and has no editor caller
+  because nothing in the editor emits a multi-op gesture yet. Verified at head: zero
+  occurrences of `logApplyGroup` anywhere under `packages/editor/`.
+- **A `txn` LABEL would author a fact `field-history.ts` already DERIVES**, and that module's
+  no-label stance is a written decision, not an accident.
+
+**The transaction story, stated once so nothing has to reconstruct it:** core's OpLog is the
+mechanism (LIFO stacks, persistence, replay) and stays in core because the game needs it;
+`logApplyGroup` is the grouping layer for the day a gesture emits a list; history labels are
+derived. There is no editor-side second undo system and none is planned. UI state (selection,
+camera, palettes) stays non-undoable — status quo, now stated. The one open question about
+`logApplyGroup` is unchanged by this and is filed:
+`docs/backlog/engine-architecture/oplog-group-apply-is-not-a-transaction.md`.
+
+**`FieldHost.commitSession` is deleted, and the facade is 65 members.** It meant "end the live
+session with whichever verb its MODE calls for", and at T3b2 it had zero production call sites
+repo-wide: the app-level ⏎ is `session.confirm` → `confirmSession`, and the session card's
+footer routes there too because the button wears the ⏎ keycap and must mean what the key
+means. The mode→verb mapping it exposed is not deleted — it survives inside the machine as
+`confirmSession`'s first step. Four comments that still described it as live were corrected by
+quotation rather than removed, and the two test callers moved onto `confirmSession`.
+
+### 23.6 Three defects fixed, and the 2-D model the state now names
+
+**`setTool` takes a PATCH** (`Partial<FieldTool>`), and the widening is a fix rather than
+ergonomics. Hold ⇧ (momentary smooth), drag the strength slider, let go — and the brush was
+permanently smooth, because every strip control spread `ctx.tool`, and under a held modifier
+`ctx.tool` is the DERIVED brush. The seam then read the echoed `effect` as a deliberate pick
+and adopted it as the base the release restores to. **The whole-tool seam could not tell the
+two apart, because a deliberate pick of the derived effect and a param echo are the same
+VALUE.** A patch separates them by construction: a control names only the field it owns. The
+alternative of spreading field-by-field host-side while keeping the host's own `effect` was
+checked and rejected on evidence — it provably breaks the deliberate-pick case the branch
+exists for. **The widening is source-compatible** — a whole `FieldTool` still satisfies
+`Partial<FieldTool>` — so no existing caller or test had to change to keep compiling, and the
+change is visible only where a caller CHOSE to narrow: the **eight** controls in
+`tool-params.tsx` dropped their `...ctx.tool` spread, and `tests/chrome/tool-strip.test.tsx`'s
+material-swatch case became a `toEqual` over a `toMatchObject`, because with a patch the
+ABSENCE of an `effect` field is the claim.
+
+**`dropMove`'s zero-step rule asks the REGION, not the drag.** It used to ask whether the
+CURSOR had travelled (`d.applied === [0,0,0]`), so `G` → ← ← ← → ⏎ discarded a grab the user
+had moved three steps with the arrow keys, silently. `sameRegion` in `field-move.ts` replaces
+`moveIsIdle` and compares the session's region to the entity's RECORDED one — which also fixes
+the other direction, an out-and-back drag that lands where it started and used to spend an
+undo entry.
+
+**A history step cancels ANY live session**, not only a moving one. `resetWorld` and
+`setMaterialTable` already applied that blanket rule, on the reasoning that a session whose
+inputs moved must not be left offering an Apply that would build something the ghost never
+showed; a ⌘Z that rewrites the log under a plain reconfigure session is the same class of
+event.
+
+**The 2-D model, which the state now names and the facade type still does not.** What LMB does
+is really TWO independent facts: an EFFECT (dig / fill / smooth / paint — the tool cluster's)
+and a GESTURE (stroke / two-click box / two-click segment / pointer — the machine's `gesture`
+slot). What runs is the product of the two, and today's `ViewportGesture` is a **1-D
+projection** of it: `segment` is a brush EFFECT wearing a gesture's costume, which is why
+arming it has to reach into the tool and why the suspension check needs a branch of its own.
+Naming the model in the STATE is what an extraction can honestly do. **`ViewportGesture` stays
+the 1-D CONTRACT**, and that half stayed presentational and filed: the rail still shows an
+exclusive five-member list, `ToolStrip` still compensates at render time, and `armMember`
+still walks a one-dimensional ring over two-dimensional state. Changing the type is a
+chrome-visible decision with consequences for the keyboard ring, the flyout and `armedIndex` —
+a MOVE task is the wrong place to change a contract
+(`docs/backlog/editor-and-tooling/segment-is-a-modifier-wearing-a-tool-costume.md`, whose
+state half T3c closed and whose presentation half it did not).
+
+### 23.7 The T3 exit, measured
+
+The foundations design's T3 exit has five clauses. Three of them are answerable at head and
+two are not, and saying which is which is the point of this subsection.
+
+| Clause | Verdict at `foundations-t3c` head |
+| --- | --- |
+| `field-host.ts` is a facade over framework + tools | **Does not hold.** 6,337 lines / **2,854 code**, 69 closure `let`s, and **14 of the map's 23 cluster rows still live** (two of them, `tool` and `input`, part-hollowed). The tranche took the largest single bite yet — −929 lines, −580 code — and the file is still ~7.1× the ~400-line guideline. |
+| 70 cross-cluster mutation edges structurally gone or ViewStore-mediated | **Partially, and NOT fully re-derived.** See below. |
+| chrome tool tables generated from the registry | **Holds**, with a split the spec did not anticipate: the six per-tool chrome tables derive from `shared/action-table.ts` (§22.7), which owns PRESENTATION, while `shared/tool-registry.ts` owns EXISTENCE and the one capability rule. Two tables, two questions, no join beyond the ids. |
+| suite green | **Holds** — 2905 pass / 1 skip / 0 fail. |
+| Chrome + Safari visual gate on the cockpit loop | **Not run.** It is the user's gate, not an executor's, and it is owed. |
+
+**On the 70 edges, honestly.** That number is the cross-cluster mutation register in
+`docs/reference/field-host-clusters.md` §5, a hand attribution taken 2026-08-03 and **never
+re-summed since** — §2.2 of that document says so, and re-deriving it is a full attribution
+sweep rather than a grep. This tranche did not run that sweep. What it CAN state is exact at
+the BINDING grain, because §5's own tables name every target and T3c annotated each affected
+row with a `Status`:
+
+- **§5.4's whole session cycle — 3 edges — is gone**, being the only bidirectional mutation
+  pair in the closure and now entirely internal to `field-machine.ts`.
+- **§5.2 loses 7 of its 20.** Five (`tool.digging` ×2, `tool.lastStroke`, `move.pendingMove`
+  ×2) have state and writers both inside the machine; two (`camera.look` ×2) were re-homed
+  in-file onto `beginLook` / `endLook`, which are camera's own.
+- **§5.5 loses 2 of its 12** (`gesture.suspendReported`, written by both session openers,
+  which are now inside the machine).
+- **§5.1 (24) and §5.3 (12) are untouched.**
+
+So roughly **12 edges are structurally gone and ~59 stand**, of which four changed MODULE
+without ceasing to be edges (`tool.maskDropReported`, `drift.drift` and
+`stats.lastReconfigureMs` from `applyReconfigureSession`, and `move.pendingMove` from the
+host's `pointerPress`, which now travels through `setPendingMove`). **Two caveats attach to
+those figures.** First, §5's subsection totals (24 + 20 + 12 + 3 + 12) sum to **71**, not the
+70 its own opening line states — a discrepancy in the original attribution that this tranche
+noticed and did not resolve, since resolving it means the sweep. Second, no `ViewStore`
+mediates any of the remainder: T3a's `ViewChannel` (§20.1) is the publish half only, and the
+slots-and-change-detection half §7.3 step 3 recommended **was never built and is no longer
+needed for these three clusters** — they went into one module instead, which internalises the
+forking problem rather than solving it in a shared store. The recommendation still stands for
+`tool`, `camera` and `selection`, which are still in the closure.

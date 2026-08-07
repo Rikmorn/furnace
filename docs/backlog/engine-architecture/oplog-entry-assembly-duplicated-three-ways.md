@@ -28,8 +28,15 @@ first-wins inverse), not the entry assembly — which would leave each caller ow
 own entry push, and would shrink the duplication rather than remove it. Worth deciding
 deliberately rather than by whoever adds the fourth copy.
 
-**Trigger to revisit:** a FOURTH site needs the block (T3c's gesture machine is the
-likely candidate if it wants a variant); or the first bug caused by the copies drifting —
+**T3c's gesture machine did NOT add a fourth copy (verified 2026-08-07).** It landed as
+`packages/editor/src/field-host/field-machine.ts`, and the two commit verbs that moved into it
+(`commitStampSession`, `applyReconfigureSession`) each call a core COMPOSITE
+(`commitGenerator` / `reconfigureGenerator`) exactly as they did from the host — the block is
+not restated editor-side, and `logApplyGroup` still has zero editor callers. The three sites
+are still three. **This entry is unchanged and its trigger is unmet.**
+
+**Trigger to revisit:** a FOURTH site needs the block (T3c's gesture machine was the
+named candidate and did not become one); or the first bug caused by the copies drifting —
 e.g. one site merging inverses last-wins, which silently breaks undo across overlapping
 ops and no existing test would catch at the other two sites.
 

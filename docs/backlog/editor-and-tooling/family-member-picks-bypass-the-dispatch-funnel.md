@@ -57,7 +57,8 @@ Any of:
 T3c Task 5's planning note expected the registry to be a third caller of `member.arm` "by
 construction", on the reading that a ToolManager owns arming. The registry that landed does
 not: `src/shared/tool-registry.ts` answers who EXISTS (`toolEntries()`) and whose controls
-are LIVE (`toolCanActivate`), and nothing else. The builder/arming half was deferred whole —
+are LIVE (`toolCanActivateControl` — the suffix is deliberate; the bare `canActivate` name is
+being kept for the per-TOOL question T4 will want). Nothing else. The builder/arming half was deferred whole —
 a `build` row cannot sit beside a chrome-read `canActivate` under the editor's layer rules
 (that module's header carries the argument), and a `build` with no caller is not surface this
 repo ships. `armMember` still has exactly its two callers, both pre-checking before the pick.

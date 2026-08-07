@@ -65,6 +65,24 @@ alongside `gizmo.ts`.
 **Trigger to revisit:** Next substantial host change (e.g. rotate/scale gizmo work in a future editor-redesign pass) or a
 dedicated cleanup tranche. Not urgent — the file is cohesive; the smell is size alone.
 
+> **The size half is being paid down by the foundations T3 tranches; the named symbols are
+> gone (checked at source, 2026-08-07).** `field-host.ts` is **6,337 lines / 2,854 code** at
+> foundations T3c, down from 7,410 at the original cluster-map pass — T3c alone took −929
+> (−12.8%), the largest single bite, by lifting the session/gesture machine and the pointer
+> chain into `field-host/field-machine.ts`.
+>
+> **None of the six symbols this entry names still exists anywhere in the repo**
+> (`tryStartGizmoDrag`, `updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `renderGizmo`,
+> `gizmoDrag`) — they belonged to the deleted scene-editing host, which is what the STALE PATH
+> note above warned about. Grepped, not assumed. The field host has a translate gizmo of its
+> own (D-9) whose pure math is ALREADY an extracted sibling module,
+> `packages/editor/src/field-host/gizmo.ts` (`gizmoSpan`, `pickAxis`, `axisLines`,
+> `closestPointParamOnAxis`); what is still in the closure is the state and the wiring —
+> `gizmo`, `gizmoBatch`, `gizmoAxisAt`, `gizmoVisible`, and the rebuild that hangs them on the
+> selection box. **So this sub-item is not the extraction it was written as.** Anyone acting on
+> it should re-scope it against the as-built first, or retire it: the thing it proposed to
+> create largely exists, and the residue is wiring rather than a controller.
+
 **Reference:** M5B Task 13 holistic review.
 
 ---
