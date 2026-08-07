@@ -974,3 +974,59 @@ test.skipIf(!bunWebGpuAvailable())(
     }
   },
 );
+
+// --- Esc on the sub-threshold press -----------------------------------------
+
+test.skipIf(!bunWebGpuAvailable())(
+  "Esc during a sub-threshold press cancels the PRESS, not the selection behind it",
+  async () => {
+    // T3c's one sanctioned change to the Esc equivalence record, and the last
+    // captured-state gap in `field-host.ts`: `pendingMove` — the press on an
+    // already-selected entity, waiting to see whether the cursor travels far
+    // enough to mean "move" — held no `escRung`, so it was invisible to the
+    // router's stack. Esc fell straight past it and cancelled the ENTITY
+    // SELECTION instead: the user pressed on a thing, changed their mind before
+    // moving it, and lost the selection they were pressing on.
+    //
+    // HERE rather than in `field-host-escape.gpu.test.ts` — which is the
+    // equivalence record and where the rest of the ladder lives — for that
+    // suite's own stated reason: it leaves the store EMPTY so clicks resolve
+    // against rock at the eye, and an empty world has no pickable entity, so a
+    // `pendingMove` cannot be armed there at all. Its header already names two
+    // scenarios that live with their subjects for the same kind of reason. This
+    // is the third.
+    const f = await moveFixture();
+    try {
+      // First press selects the hall; the second is a press on what is ALREADY
+      // selected, which is the pending state and nothing else yet.
+      f.down(CENTRE, CENTRE);
+      f.up();
+      expect(f.selected.at(-1)).toBe(f.entityId);
+
+      f.down(CENTRE, CENTRE);
+      expect(f.session()).toBeNull(); // pending: no move, no session
+
+      f.key("escape");
+
+      // The press is gone and the selection survived. Before T3c this assertion
+      // read the other way round.
+      expect(f.selected.at(-1)).toBe(f.entityId);
+
+      // …and the press really was cancelled: travel past DRAG_THRESHOLD_PX that
+      // would have started a move now starts nothing, because there is no
+      // pending press left for it to promote.
+      f.move(CENTRE + 40, CENTRE + 40);
+      await settle();
+      expect(f.session()).toBeNull();
+
+      // A second Esc now finds the SELECTION — the rung behind the one that was
+      // just spent, in the order the stack promises.
+      f.key("escape");
+      expect(f.selected.at(-1)).toBeNull();
+
+      f.up();
+    } finally {
+      f.teardown();
+    }
+  },
+);

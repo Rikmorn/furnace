@@ -2044,6 +2044,35 @@ export function createFieldHost(deps?: {
     y: number;
     pointerId: number;
   } | null = null;
+
+  // The sub-threshold press's Esc entry — the rung the ladder never had, and the
+  // last captured-state gap in this file (T3c).
+  //
+  // It is genuinely live state: between the press and the threshold the host is
+  // holding an intention, and Esc's contract is "cancel the most recent thing the
+  // user started". Without an entry the press was invisible to the stack, so Esc
+  // fell PAST it and cancelled whatever stood behind — typically the selection the
+  // press was aimed at, which the user cannot see being targeted because nothing
+  // has moved yet. Cancelling the press instead is both what Esc says and the
+  // smaller of the two actions.
+  //
+  // NO pointer-capture release here, verified rather than assumed: the branch in
+  // `pointerPress` that arms this one does not capture — capture is taken at the
+  // threshold crossing, in the same breath that clears this slot for a real
+  // `moveDrag`. So there is never a capture outstanding while this entry stands,
+  // and a release would be an unreachable line that could only ever throw on a
+  // stale id.
+  const syncPendingMoveCapture = escRung(
+    "pending move",
+    () => pendingMove !== null,
+    () => setPendingMove(null),
+  );
+
+  /** The ONE way `pendingMove` moves — `setStamp`'s law, one slot over. */
+  const setPendingMove = (next: typeof pendingMove): void => {
+    pendingMove = next;
+    syncPendingMoveCapture();
+  };
   // The SELECTED finding's cell outline (D-F4.5-15), rebuilt with every flags
   // push. The key itself lives in the flag store — beside the findings it names,
   // so `summary()` can answer "is that row still visible?" without the host
@@ -3573,12 +3602,12 @@ export function createFieldHost(deps?: {
       hit.kind !== "flag" &&
       hit.entityId === selectedEntityId
     ) {
-      pendingMove = {
+      setPendingMove({
         entityId: hit.entityId,
         x: e.clientX,
         y: e.clientY,
         pointerId: e.pointerId,
-      };
+      });
       return;
     }
     applyPointerPick(hit);
@@ -4801,7 +4830,7 @@ export function createFieldHost(deps?: {
             );
             // null = superseded — a newer preview owns the ghost.
             if (next !== null) {
-              stamp = next;
+              setStamp(next);
               applyStampGhost(res.chunks);
               // AFTER applyStampGhost, which clears both ghost halves first.
               placementGhost = placementGhostBatch(
@@ -4844,7 +4873,7 @@ export function createFieldHost(deps?: {
               // already failed, this one catches the drop that latched onto a
               // preview about to fail.
               moveCommitPending = false;
-              stamp = demoteStalledMove(next);
+              setStamp(demoteStalledMove(next));
               destroyStampGhosts();
               notifyStamp();
             }
@@ -4900,7 +4929,7 @@ export function createFieldHost(deps?: {
   // cancel-on-undo. See also commitStampSession.
   const previewStamp = (): void => {
     if (stamp === null) return;
-    stamp = toPreviewing(stamp);
+    setStamp(toPreviewing(stamp));
     previewCoalescer.request();
     notifyStamp();
   };
@@ -4912,7 +4941,7 @@ export function createFieldHost(deps?: {
   // sendPreviewJob re-snapshots chunks off the NEW region by itself.
   const nudgeStampRegion = (steps: Vec3T): void => {
     if (stamp === null) return;
-    stamp = withRegion(stamp, nudgeRegion(stamp.region, steps));
+    setStamp(withRegion(stamp, nudgeRegion(stamp.region, steps)));
     previewStamp();
   };
 
@@ -4957,11 +4986,8 @@ export function createFieldHost(deps?: {
     const at = typeof current === "string" ? turns.indexOf(current) : -1;
     const next = turns[(at + 1) % turns.length];
     if (next === undefined) return; // unreachable: turns is non-empty
-    stamp = withParams(
-      s,
-      { ...s.params, [ROTATION_PARAM]: next },
-      s.seed,
-      s.policy,
+    setStamp(
+      withParams(s, { ...s.params, [ROTATION_PARAM]: next }, s.seed, s.policy),
     );
     previewStamp();
   };
@@ -4970,23 +4996,39 @@ export function createFieldHost(deps?: {
   // because `cancelStampSession` ends the move first (its own first line, before
   // the null guard), so one press has always taken both. Hence the OR: the entry
   // stands while either does.
-  //
-  // Reconciled from the writes that CROSS null↔non-null and from those only. The
-  // dozen other `stamp = …` writes are TRANSFORMS of a session that stays live
-  // (`toPreviewing`, `withRegion`, `withParams`, `demoteStalledMove`) and a
-  // reconcile there would be a no-op with a cost — worse, it would invite the
-  // reading that a slider drag re-acquires, which would move the session's
-  // position in the stack every time a param changed.
-  //
-  // The crossing writes are: the two OPENS (`openStampSession`,
-  // `openEntitySession`), the three CLOSES (here, `commitStampSession`,
-  // `applyReconfigureSession`), plus `endMove`'s clear and `beginMoveSession`'s
-  // arm for the `moveDrag` half.
   const syncSessionCapture = escRung(
     "live session",
     () => stamp !== null || moveDrag !== null,
     () => cancelStampSession(),
   );
+
+  /** The ONE way `stamp` moves — `input-router.ts`'s canonical-setter law, which
+   *  the session slot was the last captured state in this file not to obey.
+   *
+   *  Writes that CROSS null↔non-null reconcile the capture; live→live transforms
+   *  do not, and that asymmetry is the point rather than an optimisation. A
+   *  reconcile on a transform would be a no-op with a cost today, but what it
+   *  would really do is invite the reading that a slider drag RE-ACQUIRES, which
+   *  would move the session's position in the Esc stack every time a param
+   *  changed — so a user who nudged a param after drawing a box would find Esc
+   *  taking the session before the box.
+   *
+   *  This replaces a hand-maintained list of which writes crossed, kept as a
+   *  comment beside the rung. The list was correct and stayed correct for three
+   *  tranches; the objection is that it had to be READ and re-derived by anyone
+   *  adding a fourteenth write, and nothing failed if they didn't. `crossed` is
+   *  that list become structure — every site pays one comparison and no site has
+   *  to know which kind of write it is.
+   *
+   *  `notifyStamp()` deliberately stays at the call sites: this owns the CAPTURE,
+   *  not the publish. Publish cadence is per-site today (a preview job in flight
+   *  does not push, a commit pushes after the entity list) and the suites pin it
+   *  that way. */
+  const setStamp = (next: StampSession | null): void => {
+    const crossed = (stamp === null) !== (next === null);
+    stamp = next;
+    if (crossed) syncSessionCapture();
+  };
 
   const cancelStampSession = (): void => {
     // BEFORE the null guard, so a stray move mapping can never survive a session
@@ -4996,8 +5038,7 @@ export function createFieldHost(deps?: {
     // below safe: a move with no session releases the entry there.
     endMove();
     if (stamp === null) return;
-    stamp = null;
-    syncSessionCapture();
+    setStamp(null);
     destroyStampGhosts();
     notifyStamp();
   };
@@ -5072,17 +5113,18 @@ export function createFieldHost(deps?: {
     // collide today (no generator has both an archetypeId and a size param),
     // and if one ever does, the REGION the user drew should win over a catalog
     // default.
-    stamp = startSession(
-      generator,
-      {
-        ...seedArchetypeParams(structuredClone(def.defaults), archetypes),
-        ...sizes,
-      },
-      { min: [x0, y0, z0], max: [x1, y1, z1] },
-      randomStampSeed(),
-      truncated,
+    setStamp(
+      startSession(
+        generator,
+        {
+          ...seedArchetypeParams(structuredClone(def.defaults), archetypes),
+          ...sizes,
+        },
+        { min: [x0, y0, z0], max: [x1, y1, z1] },
+        randomStampSeed(),
+        truncated,
+      ),
     );
-    syncSessionCapture();
     previewStamp();
   };
 
@@ -5181,8 +5223,7 @@ export function createFieldHost(deps?: {
       reportToolError(`stamp commit failed: ${message}`);
       return;
     }
-    stamp = null;
-    syncSessionCapture();
+    setStamp(null);
     destroyStampGhosts();
     // The commit's placement ops (a scatter's props) are new prop-layer content.
     props.rebuild();
@@ -5244,8 +5285,7 @@ export function createFieldHost(deps?: {
     // Set BEFORE previewStamp, which is what pushes the session to subscribers:
     // flagging it afterwards would publish one frame of "reconfigure" ahead of
     // the move, and the strip would flicker the wrong word.
-    stamp = moving ? { ...opened, moving: true } : opened;
-    syncSessionCapture();
+    setStamp(moving ? { ...opened, moving: true } : opened);
     previewStamp();
     return true;
   };
@@ -5255,7 +5295,7 @@ export function createFieldHost(deps?: {
   // another session opened, onto the wrong thing entirely.
   const endMove = (): void => {
     moveDrag = null;
-    pendingMove = null;
+    setPendingMove(null);
     moveCommitPending = false;
     syncSessionCapture();
   };
@@ -5403,7 +5443,7 @@ export function createFieldHost(deps?: {
     // Neither ready nor previewing: the preview had ALREADY errored when the
     // drop arrived. The session stays standing with its message, demoted.
     if (stamp !== null && stamp.moving === true) {
-      stamp = demoteStalledMove(stamp);
+      setStamp(demoteStalledMove(stamp));
       notifyStamp();
     }
   };
@@ -5462,8 +5502,7 @@ export function createFieldHost(deps?: {
     // A clean apply CLEARS the previous report: leaving it up would attribute
     // stale findings to the edit the user just made.
     drift = result.drift.length === 0 ? null : result.drift;
-    stamp = null;
-    syncSessionCapture();
+    setStamp(null);
     // The session this move rode has landed, so the mapping goes with it — the
     // cancel path's rule, from the other side.
     endMove();
@@ -6152,7 +6191,7 @@ export function createFieldHost(deps?: {
       const p = pendingMove;
       if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD_PX)
         return;
-      pendingMove = null;
+      setPendingMove(null);
       if (beginMoveSession(p.entityId, null, true, { x: p.x, y: p.y })) {
         canvasEl?.setPointerCapture(p.pointerId);
         // Anchors at the PRESS (not here) and applies this event's offset from
@@ -6198,7 +6237,7 @@ export function createFieldHost(deps?: {
       if (moveDrag?.grabbed === true) dropMove();
       // A press that never crossed the threshold: it was a click on what was
       // already selected, which has always been a no-op. Nothing to undo.
-      pendingMove = null;
+      setPendingMove(null);
     }
     digging = false;
     look = null; // the anchor a turned camera invalidated was retired in applyOrbit
@@ -6988,11 +7027,13 @@ export function createFieldHost(deps?: {
       // Record what the user has spoken about BEFORE re-seeding, so the archetype id they
       // just picked counts as touched and the filter below cannot overwrite it.
       stampTouched = touchedParamKeys(incoming, stamp.params, stampTouched);
-      stamp = withParams(
-        stamp,
-        reseedForArchetype(incoming, stamp.params),
-        seed,
-        policy,
+      setStamp(
+        withParams(
+          stamp,
+          reseedForArchetype(incoming, stamp.params),
+          seed,
+          policy,
+        ),
       );
       previewStamp();
     },
@@ -7004,7 +7045,9 @@ export function createFieldHost(deps?: {
     },
     rerollStamp() {
       if (stamp === null) return;
-      stamp = withParams(stamp, stamp.params, randomStampSeed(), stamp.policy);
+      setStamp(
+        withParams(stamp, stamp.params, randomStampSeed(), stamp.policy),
+      );
       previewStamp();
     },
     commitStamp() {

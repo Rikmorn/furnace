@@ -12,6 +12,16 @@
 // anchor/entity/selection walk ("Esc cancels ONE thing per press, most recent
 // intent first", field-host-camera.gpu.test.ts). Both pass unmodified.
 //
+// SIX became SEVEN in T3c: `pendingMove` — the sub-threshold press on an
+// already-selected entity — gained the rung it never had, so Esc now cancels the
+// PRESS instead of falling past it to the selection the user was pressing on.
+// That case is the third scenario living with its subject rather than here
+// ("Esc during a sub-threshold press cancels the PRESS, not the selection behind
+// it", field-host-move.gpu.test.ts), and for a reason specific to this fixture:
+// the empty store below has no pickable entity, so the state cannot be armed in
+// this world at all. Every case in THIS file is unchanged by that addition —
+// none of the six can stand beside a pending press.
+//
 // It needs a device for the reason every host GPU suite does: a click resolves
 // through `cursorRay` → `screenToRay`, and there is no camera until `init` has a
 // context. HERE and not in `tests/field-host/` because `bun test` runs a
