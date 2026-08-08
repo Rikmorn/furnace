@@ -1370,6 +1370,24 @@ describe("hollow fill (F2b)", () => {
     // non-positive thickness rejected (fill effect, organic material)
     expect(() => assertOpValid(fillBoxOp(1, 0), TABLE)).toThrow(/hollow/);
     expect(() => assertOpValid(fillBoxOp(1, -0.5), TABLE)).toThrow(/hollow/);
+    // …and the two the old `!(hollow > 0)` spelling let through, which are the
+    // ones that read as legal thicknesses (T4a). An INFINITE hollow makes
+    // `sdf > op.hollow` never true, so the shell band covers the whole shape and
+    // a hollow fill silently becomes a SOLID one; the STRING "0.5" is what a
+    // JSON decoder hands over, and `"0.5" > 0` coerces to true.
+    expect(() =>
+      assertOpValid(fillBoxOp(1, Number.POSITIVE_INFINITY), TABLE),
+    ).toThrow(
+      /hollow must be a FINITE positive thickness \(metres\), got Infinity/,
+    );
+    expect(() =>
+      assertOpValid(fillBoxOp(1, "0.5" as unknown as number), TABLE),
+    ).toThrow(
+      /hollow must be a FINITE positive thickness \(metres\), got 0\.5/,
+    );
+    expect(() => assertOpValid(fillBoxOp(1, Number.NaN), TABLE)).toThrow(
+      /hollow must be a FINITE positive thickness/,
+    );
     // kit-class fills: the shell's INNER faces must land on lattice planes,
     // so the thickness must be a positive multiple of 0.5 m
     expect(() => assertOpValid(fillBoxOp(2, 0.25), TABLE)).toThrow(/lattice/);

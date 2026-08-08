@@ -6,7 +6,11 @@ import {
   parseChunkKey,
 } from "./chunks.ts";
 import { meshChunkField } from "./mesher.ts";
-import { assertPatchStructure, assertPlacementsValid } from "./ops.ts";
+import {
+  assertOpStructure,
+  assertPatchStructure,
+  assertPlacementsValid,
+} from "./ops.ts";
 import { skinChunkKit } from "./skin.ts";
 import type {
   BrushMask,
@@ -268,6 +272,34 @@ function typeTag(v: unknown): string {
  *  would otherwise vanish from the message instead of reading as "undefined". */
 const jsonTag = (v: unknown): string => JSON.stringify(v) ?? "undefined";
 
+/** Runs an engine value-predicate over one decoded op and re-throws whatever it
+ *  says under this file's locator. The decoder owns WHERE, the predicate owns
+ *  WHAT: `field oplog: op 7 — field op: sphere radius must be a finite positive
+ *  length (metres)`.
+ *
+ *  It exists because the predicates were written for the COMMIT path, where the
+ *  op in hand is the one the user just drew and needs no locator. On the load
+ *  path there is a file of them, and "which op" is the whole question — the gap
+ *  {@link assertPlacementsValid}'s locator-free messages have always had. The
+ *  original rides `cause`, so a caller that wants the predicate's own message
+ *  back can still have it.
+ *
+ *  The locator is the op's wire `id`, not its array index, because that is what
+ *  every other message in this file names, what {@link decodeOp} has already
+ *  proved is an integer, and what an author of a hand- or agent-written log sees
+ *  when they look at the record. A corrupt log CAN repeat an id, which the index
+ *  would disambiguate — but a second locator style in one function's output
+ *  costs more than that, and duplicate ids are a structural fault this decoder
+ *  does not check either way. */
+function atOp<T>(id: number, run: () => T): T {
+  try {
+    return run();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`field oplog: op ${id} — ${detail}`, { cause: e });
+  }
+}
+
 /** Decodes one required base64 field of a patch slice.
  *
  *  @throws {@link Error} if it is absent, not a string, or not valid base64 —
@@ -326,7 +358,8 @@ function decodePatchChunk(raw: unknown): PatchChunk {
 }
 
 /** @throws {@link Error} if the op has no chunks array, or if the reconstructed
- *   patch fails {@link assertPatchStructure}. */
+ *   patch fails {@link assertPatchStructure} (under this op's locator — see
+ *   {@link atOp}). */
 function decodePatchOp(raw: Record<string, unknown>, id: number): PatchOp {
   const chunks = raw["chunks"];
   if (!Array.isArray(chunks))
@@ -336,13 +369,25 @@ function decodePatchOp(raw: Record<string, unknown>, id: number): PatchOp {
     kind: "patch",
     chunks: chunks.map(decodePatchChunk),
   };
-  assertPatchStructure(op);
+  atOp(id, () => assertPatchStructure(op));
   return op;
 }
 
-/** Narrows an untrusted JSON value to exactly `len` numbers — the shape half of
- *  a placement record's vector fields; {@link assertPlacementsValid} checks the
- *  values (finite, unit quat).
+/** Narrows an untrusted JSON value to exactly `len` numbers — the SHAPE half of
+ *  every fixed-length vector on the wire: a placement record's
+ *  `position`/`quat`/`scale`, a brush shape's `center`/`halfExtents`/capsule
+ *  endpoints, an embedded selection's `seed` or region bounds, an entity
+ *  record's `region` bounds and `opSpan`. The matching engine predicate checks
+ *  the VALUES; this is what stops it meeting a scalar or an absent field and
+ *  raising a raw TypeError off `.every` or a destructure.
+ *
+ *  It does NOT check finiteness — the value predicate downstream does, with a
+ *  message that names the quantity ("radius", "region bounds") rather than the
+ *  container. Note which cases actually reach it from a FILE: JSON has no `NaN`
+ *  and no `Infinity` literal, and `JSON.stringify` writes both as `null`, so a
+ *  laundered NaN arrives as `[null, 1, 2]` and dies HERE, on `typeof`. The one
+ *  spelling that survives to the predicate is an out-of-range exponent —
+ *  `JSON.parse("1e999")` is `Infinity`. Both are pinned in `artifact.test.ts`.
  *
  *  @throws {@link Error} if it is not an array of `len` numbers. */
 function numberArray(
@@ -357,7 +402,7 @@ function numberArray(
     raw.some((n) => typeof n !== "number")
   )
     throw new Error(
-      `field oplog: placement op ${id} ${what} must be an array of ${len} numbers`,
+      `field oplog: op ${id} ${what} must be an array of ${len} numbers`,
     );
   return raw;
 }
@@ -408,7 +453,8 @@ function decodePlacementRecord(raw: unknown, id: number): PlacementRecord {
 
 /** @throws {@link Error} if the op has no records array, a record has a bad JSON
  *   shape ({@link decodePlacementRecord}), or a record's values are invalid
- *   ({@link assertPlacementsValid} — non-unit quat, non-finite vector, etc.). */
+ *   ({@link assertPlacementsValid} — non-unit quat, non-finite vector, etc.,
+ *   under this op's locator — see {@link atOp}). */
 function decodePlacementOp(
   raw: Record<string, unknown>,
   id: number,
@@ -421,7 +467,7 @@ function decodePlacementOp(
     kind: "placement",
     records: records.map((r) => decodePlacementRecord(r, id)),
   };
-  assertPlacementsValid(op.records);
+  atOp(id, () => assertPlacementsValid(op.records));
   return op;
 }
 
@@ -503,12 +549,64 @@ function optionalRecord(
   return value;
 }
 
-/** The mask leg: its own discriminator, plus an embedded selection's. Class ids
- *  (`mask.classId`, `selection.classId`) need a MaterialTable and stay
- *  unchecked — the DISCRIMINATORS do not.
+/** The array-valued keys of one union member — the only fields the tables below
+ *  may list, derived from the member's own type rather than restated. */
+type ArrayKeys<T> = {
+  [K in keyof T]-?: T[K] extends readonly unknown[] ? K : never;
+}[keyof T];
+
+/** Shape of a per-member vector table: every member of the union, each mapping
+ *  ITS OWN array fields to their required length.
+ *
+ *  Three failure modes, all compile errors — verified by building each against
+ *  the shipped types. A missing member is TS1360 (key exhaustiveness in both
+ *  directions, same as the discriminator tables above). A MISSPELT field is
+ *  TS2561, `'centre' does not exist … Did you mean to write 'center'?` — which
+ *  a `readonly string[]` value type cannot catch at all, and the runtime cost of
+ *  that typo is total: the narrowing would reject every valid op of that member.
+ *  A non-array field listed as a vector (`radius: 3`) is TS2353, because
+ *  {@link ArrayKeys} filters the keys by their VALUE type.
+ *
+ *  The length is data in the table, not a literal at the call site, so a future
+ *  4-vector field (an oriented box's quat, say) is narrowed to 4 by writing 4
+ *  here — where a hardcoded `numberArray(…, 3, …)` in the loop would have
+ *  silently truncated it. */
+type VectorFieldsOf<U extends { kind: string }> = {
+  [K in U["kind"]]: Readonly<
+    Partial<Record<ArrayKeys<Extract<U, { kind: K }>>, number>>
+  >;
+};
+
+/** The fixed-length vector fields each union member carries, keyed by its
+ *  discriminator.
+ *
+ *  Only the ARRAY fields are listed. A scalar (`radius`, `budget`, `classId`)
+ *  needs no narrowing: the engine predicate reaches it through
+ *  `Number.isFinite`/`Number.isInteger`, which are false for a string, for
+ *  `null` and for an absent field — so narrowing here would only duplicate the
+ *  check, with a worse message. An array field is different: the predicate
+ *  reads it with `.every` or a destructure, both of which raise a raw TypeError
+ *  on a scalar, far from the corrupt file. */
+const SHAPE_VECTORS = {
+  sphere: { center: 3 },
+  box: { center: 3, halfExtents: 3 },
+  capsule: { a: 3, b: 3 },
+} as const satisfies VectorFieldsOf<BrushShape>;
+const SELECTION_VECTORS = {
+  region: { min: 3, max: 3 },
+  "flood-material": { seed: 3 },
+  "flood-void": { seed: 3 },
+} as const satisfies VectorFieldsOf<SelectionSpec>;
+
+/** The mask leg: its own discriminator, an embedded selection's, and the array
+ *  SHAPE of whatever vectors that selection kind carries. Class ids
+ *  (`mask.classId`, `selection.classId`) are validated by {@link
+ *  assertOpStructure} for storability and by {@link assertOpValid} — which this
+ *  path does not reach — for table membership.
  *
  *  @throws {@link Error} if `mask` is present and not a record, its `kind` is
- *    off-contract, or a selection mask's `selection` is absent/off-contract. */
+ *    off-contract, a selection mask's `selection` is absent/off-contract, or one
+ *    of that selection's vectors is not an array of three numbers. */
 function assertMaskWire(raw: Record<string, unknown>, id: number): void {
   const mask = optionalRecord(raw, "mask", id);
   if (mask === undefined) return;
@@ -520,10 +618,22 @@ function assertMaskWire(raw: Record<string, unknown>, id: number): void {
       `field oplog: op ${id} mask.selection must be an object, got ${typeTag(selection)}`,
     );
   assertOneOf(selection["kind"], SELECTION_KINDS, "mask.selection.kind", id);
+  // Boundary cast: assertOneOf just proved `kind` is an own key of
+  // SELECTION_KINDS, whose keys ARE SelectionSpec["kind"] by construction.
+  const kind = selection["kind"] as SelectionSpec["kind"];
+  for (const [name, len] of Object.entries(SELECTION_VECTORS[kind]))
+    numberArray(selection[name], len, id, `mask.selection.${name}`);
 }
 
 /** The smooth leg — its `mode` only. `strength`/`iterations` are numeric and
- *  stay unchecked here (see {@link parseOps}).
+ *  reach {@link assertSmoothValid} through {@link assertOpStructure}, which
+ *  needs no narrowing for them (see {@link SHAPE_VECTORS}).
+ *
+ *  The mode is checked whenever `smooth` is PRESENT, where the numbers are
+ *  checked only on a smooth-effect op — because `assertOpValid` ignores the
+ *  params of a non-smooth op, and the load path must not reject what the commit
+ *  path accepts. A discriminator is the one part that can be checked either way
+ *  for free, and this leg predates the numeric wiring.
  *
  *  @throws {@link Error} if `smooth` is present and not a record, or its `mode`
  *    is off-contract. */
@@ -534,9 +644,11 @@ function assertSmoothWire(raw: Record<string, unknown>, id: number): void {
 }
 
 /** The shape leg shared by a brush op and the legacy-dig upgrade; `kindLabel`
- *  names which for the message.
+ *  names which for the message. Discriminator, then the array shape of the
+ *  vectors that member carries.
  *
- *  @throws {@link Error} if the shape is absent or its `kind` is off-contract. */
+ *  @throws {@link Error} if the shape is absent, its `kind` is off-contract, or
+ *    one of its vectors is not an array of three numbers. */
 function assertShapeWire(
   shape: unknown,
   id: number,
@@ -545,11 +657,16 @@ function assertShapeWire(
   if (!isRecord(shape))
     throw new Error(`field oplog: ${kindLabel} op ${id} has no shape object`);
   assertOneOf(shape["kind"], SHAPE_KINDS, "shape.kind", id);
+  // Boundary cast: assertOneOf just proved `kind` is an own key of SHAPE_KINDS,
+  // whose keys ARE BrushShape["kind"] by construction.
+  const kind = shape["kind"] as BrushShape["kind"];
+  for (const [name, len] of Object.entries(SHAPE_VECTORS[kind]))
+    numberArray(shape[name], len, id, `shape.${name}`);
 }
 
 /** @throws {@link Error} if a brush op's `effect` or `shape.kind` is
- *   off-contract, it carries no shape object, or its OPTIONAL `mask`/`smooth`
- *   legs are off-contract. */
+ *   off-contract, it carries no shape object, a vector is not an array of three
+ *   numbers, or its OPTIONAL `mask`/`smooth` legs are off-contract. */
 function assertBrushWire(raw: Record<string, unknown>, id: number): void {
   assertOneOf(raw["effect"], BRUSH_EFFECTS, "effect", id);
   assertShapeWire(raw["shape"], id, "brush");
@@ -557,27 +674,184 @@ function assertBrushWire(raw: Record<string, unknown>, id: number): void {
   assertSmoothWire(raw, id);
 }
 
+/** Whether a value is a usable LOG ID: a non-negative integer. Ids are handed
+ *  out by `log.nextId` counting up from 0, so nothing legitimate is negative or
+ *  fractional. Every id on the wire goes through this — the op's own `id` in
+ *  {@link decodeOp}, an entity record's `entityId`, and both ends of its
+ *  `opSpan` — because they are the SAME quantity: an entity's `entityId` IS
+ *  some op's `id`, and `opSpan` names two more. Measured across the six worlds
+ *  in `packages/dungeon/worlds/`, all 4792 op ids fall in [1, 8976].
+ *
+ *  `Number.isInteger` is the whole test: it is false for a string, for `null`,
+ *  for `undefined` and for NaN, so a `typeof` guard in front of it is dead
+ *  (the same reason `assertClassId` in `ops.ts` omits one). A type predicate, so
+ *  the caller that needs the narrowed value gets it without its own cast.
+ *
+ *  Boundary cast: `Number.isInteger` narrows nothing for the type system but is
+ *  true only of numbers, so the comparison behind it is reading a number. */
+const isLogId = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 0;
+
+/** {@link isLogId} as a located assertion, for ids reached from an op that has
+ *  already been located. `decodeOp` cannot use this for the op's OWN id — that
+ *  id is the locator — so it spells the same predicate with its own message.
+ *
+ *  A bad id does not fail loudly downstream, it fails SILENTLY: a NaN or
+ *  fractional id makes every id COMPARISON false, which is how an entity's span
+ *  attribution quietly stops matching any op.
+ *
+ *  @throws {@link Error} if `value` is not a non-negative integer. */
+function assertLogId(value: unknown, what: string, id: number): void {
+  if (!isLogId(value))
+    throw new Error(
+      `field oplog: op ${id} ${what} must be a non-negative integer, got ${jsonTag(value)}`,
+    );
+}
+
+/** The numeric interior of a {@link GeneratorEntity}. Written here rather than
+ *  wired to an engine predicate because there is no engine predicate to wire:
+ *  `assertOpValid` takes a {@link BrushOp}, and NOTHING validates an entity op
+ *  on the commit path — `commitGenerator` builds the record itself from values
+ *  it already holds. That makes this the only guard the record ever gets, and it
+ *  is deliberately the ARITHMETIC one: `generator` (a def id) and `params` (a
+ *  def-specific bag) are not numbers and are not this task's business.
+ *
+ *  What each number costs when it is wrong: a non-integer `entityId` or
+ *  `opSpan` breaks the id comparisons every span verb is built on
+ *  (`reconfigureGenerator` locating its span, `placementsByEntity` attributing a
+ *  placement op); a non-finite `seed` is silently laundered into seed 0 by
+ *  `rng.create`'s `seed >>> 0`, so a reconfigure re-cooks a DIFFERENT world than
+ *  the one on disk; a non-finite `region` bound reaches `reconfigureGenerator`
+ *  and from there the generator's own sampling loop.
+ *
+ *  `opSpan` is checked for two non-negative integers and no more. Ordering is
+ *  NOT checked: `reconfigure` writes `[firstId, firstId + newSpan.length - 1]`,
+ *  which is legitimately reversed for an empty re-cooked span.
+ *
+ *  It also checks the two NON-numeric fields whose contract the boundary cast
+ *  destroys — `frozen`/`baked`, see below. Everything else on the record stays
+ *  trusted: `generator` is a def id resolved at reconfigure, and `params` is a
+ *  def-specific bag the def's own param schema owns.
+ *
+ *  @throws {@link Error} if `entityId` or either `opSpan` end is not a
+ *    non-negative integer, `seed` is not finite, `region` is not an object
+ *    with finite three-number `min`/`max`, or `frozen`/`baked` is present and
+ *    not literally `true`. */
+function assertEntityNumbers(
+  entity: Record<string, unknown>,
+  id: number,
+): void {
+  assertLogId(entity["entityId"], "entity.entityId", id);
+  const seed = entity["seed"];
+  // Number.isFinite alone: false for a string, null, undefined and NaN, so a
+  // `typeof` guard in front of it would be dead code (see isLogId).
+  if (!Number.isFinite(seed))
+    throw new Error(
+      `field oplog: op ${id} entity.seed must be a finite number, got ${jsonTag(seed)}`,
+    );
+  const region = entity["region"];
+  if (!isRecord(region))
+    throw new Error(
+      `field oplog: op ${id} entity.region must be an object, got ${typeTag(region)}`,
+    );
+  for (const bound of ["min", "max"] as const) {
+    const v = numberArray(region[bound], 3, id, `entity.region.${bound}`);
+    if (!v.every((n) => Number.isFinite(n)))
+      throw new Error(
+        `field oplog: op ${id} entity.region.${bound} must be three finite numbers`,
+      );
+  }
+  const span = numberArray(entity["opSpan"], 2, id, "entity.opSpan");
+  span.forEach((n, i) => assertLogId(n, `entity.opSpan[${i}]`, id));
+  // The two literal-`true` flags. Not numbers, but they are the ONLY fields on
+  // this record whose contract lives purely in the type system — `frozen?: true`
+  // and `baked?: true` are spelled `true`-not-`boolean` so that ABSENCE is the
+  // only way to say "no", which the boundary cast bypasses wholesale. Every
+  // consumer tests `=== true` / `!== true`, so a wire `frozen: "yes"` reads as
+  // NOT frozen and reconfigure runs on a record its own doc calls protected —
+  // failing OPEN on a guard. Two lines here beat auditing every consumer.
+  for (const flag of ["frozen", "baked"] as const) {
+    const v = entity[flag];
+    if (v !== undefined && v !== true)
+      throw new Error(
+        `field oplog: op ${id} entity.${flag} must be true or absent, got ${jsonTag(v)}`,
+      );
+  }
+}
+
 /** @throws {@link Error} if an entity op's `action` is off-contract, its
- *   `entity` is not a record, or that record's `type` is off-contract. */
+ *   `entity` is not a record, that record's `type` is off-contract, or its
+ *   numeric interior is invalid ({@link assertEntityNumbers}). */
 function assertEntityWire(raw: Record<string, unknown>, id: number): void {
   assertOneOf(raw["action"], ENTITY_ACTIONS, "action", id);
   const entity = raw["entity"];
   if (!isRecord(entity))
     throw new Error(`field oplog: entity op ${id} has no entity record`);
   assertOneOf(entity["type"], ENTITY_TYPES, "entity.type", id);
+  assertEntityNumbers(entity, id);
 }
 
 /** Maps a pre-F2 dig literal (`kind:"dig"`, as F1 baked it) forward to a
- *  brush/dig op — `effect` is supplied here, so only the shape is read.
+ *  brush/dig op — `effect` is supplied here, so only the shape is read. The
+ *  upgraded op runs the SAME value pass a native brush op does: an F1 bake is
+ *  the oldest file on disk and therefore the likeliest to be bit-rotted.
  *
- *  @throws {@link Error} if it has no shape object or an off-contract
- *    `shape.kind`. */
+ *  @throws {@link Error} if it has no shape object, an off-contract
+ *    `shape.kind`, or a shape whose numbers {@link assertOpStructure} rejects. */
 function upgradeLegacyDig(raw: Record<string, unknown>, id: number): BrushOp {
   const shape = raw["shape"];
   assertShapeWire(shape, id, "legacy dig");
-  // Boundary cast: `shape.kind` is checked above; its NUMERIC interior is not —
-  // see {@link parseOps} for what stays trusted and why.
-  return { id, kind: "brush", effect: "dig", shape: shape as BrushShape };
+  // Boundary cast: `shape.kind` is a checked SHAPE_KINDS key and each vector
+  // that member carries is a verified three-number array; assertOpStructure
+  // below then rejects any of those numbers the engine will not accept.
+  const op: BrushOp = {
+    id,
+    kind: "brush",
+    effect: "dig",
+    shape: shape as BrushShape,
+  };
+  atOp(id, () => assertOpStructure(op));
+  return op;
+}
+
+/** @throws {@link Error} if the brush op fails its wire guards
+ *   ({@link assertBrushWire}) or its numeric interior fails
+ *   {@link assertOpStructure}. */
+function decodeBrushOp(raw: Record<string, unknown>, id: number): BrushOp {
+  assertBrushWire(raw, id);
+  // Boundary cast: every closed STRING union this op carries has been checked —
+  // `effect`, `shape.kind`, `mask.kind`, `mask.selection.kind`, `smooth.mode` —
+  // and every fixed-length vector reachable from them is a verified array of
+  // its declared length, which is what makes the numeric pass below meet
+  // numbers rather than raise a TypeError inside a predicate.
+  //
+  // Those two clauses are exactly where this path is STRICTER than
+  // `assertOpValid`, which takes an already-typed BrushOp and so re-checks
+  // neither. Measured, `assertOpValid` accepts and this rejects: a `smooth`
+  // block on a non-smooth op (bad `mode`, or not a record at all — the params
+  // BEHIND it stay unchecked there, deliberately, see assertSmoothWire); a
+  // `center`/`halfExtents`/capsule endpoint of length 2 or 4, where the
+  // predicate's `.every(isFinite)` passes a short array; a region mask's
+  // `min`/`max` of the wrong length, for the same reason; plus the union tags
+  // and the op `id` itself. All one-directional — nothing the commit path
+  // rejects is accepted here.
+  const op = raw as BrushOp;
+  atOp(id, () => assertOpStructure(op));
+  return op;
+}
+
+/** @throws {@link Error} if the entity op fails its wire guards
+ *   ({@link assertEntityWire}, which includes the record's numeric
+ *   interior). */
+function decodeEntityOp(raw: Record<string, unknown>, id: number): EntityOp {
+  assertEntityWire(raw, id);
+  // Boundary cast: `action` and `entity.type` are checked union members; the
+  // entity record's every number, AND its two literal-`true` flags
+  // (`frozen`/`baked` — the fields whose contract only the type system carries),
+  // have been checked by assertEntityNumbers. What stays trusted is `generator`
+  // (a def id, resolved at reconfigure) and `params` (a def-specific bag,
+  // validated by the def's own param schema).
+  return raw as EntityOp;
 }
 
 /** One op from either envelope version — `kind:"dig"` is a v1 spelling, but
@@ -595,26 +869,23 @@ function decodeOp(raw: unknown): FieldOp {
   // it the editor's `ops.reduce((max, o) => Math.max(max, o.id), 0) + 1` yields
   // NaN, every op authored afterwards is stamped `id: NaN`, and JSON.stringify
   // writes those back to disk as `null` — a corrupt log made plausible.
-  if (typeof id !== "number" || !Number.isInteger(id))
+  //
+  // NON-NEGATIVE, not merely integer: this is the same quantity assertLogId
+  // guards for an entity's `entityId`/`opSpan`, and the two disagreeing meant a
+  // negative `opSpan` end was rejected while `{"id": -5}` LOADED. It is also
+  // this file's op LOCATOR, so it cannot be checked by assertLogId itself —
+  // hence the shared isLogId predicate and a message of its own.
+  if (!isLogId(id))
     throw new Error(
-      `field oplog: op id must be an integer, got ${jsonTag(id)}`,
+      `field oplog: op id must be a non-negative integer, got ${jsonTag(id)}`,
     );
   const kind = raw["kind"];
   if (kind === "patch") return decodePatchOp(raw, id);
   if (kind === "placement") return decodePlacementOp(raw, id);
   if (kind === "dig") return upgradeLegacyDig(raw, id);
-  if (kind === "brush") assertBrushWire(raw, id);
-  else if (kind === "entity") assertEntityWire(raw, id);
-  else throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
-  // Boundary cast: every closed STRING union on the wire has now been checked —
-  // the op's `kind` and integer `id`, a brush's `effect`, `shape.kind`,
-  // `mask.kind` and `mask.selection.kind`, its `smooth.mode`, an entity's
-  // `action` and `entity.type`. What stays trusted is every NUMERIC field
-  // (shape centres/radii/extents, `mask.classId`, `smooth.strength`/
-  // `iterations`, a flood's `seed`/`budget`, the entity record's `entityId`/
-  // `seed`/`region`/`opSpan`) — see {@link parseOps} for which of those need a
-  // MaterialTable and which are simply deferred.
-  return raw as FieldOp;
+  if (kind === "brush") return decodeBrushOp(raw, id);
+  if (kind === "entity") return decodeEntityOp(raw, id);
+  throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
 }
 
 /** Distinguishes a FUTURE oplog (a later furnace wrote it) from an
@@ -653,41 +924,59 @@ function parseOplogJson(text: string): unknown {
  * Setup-loud on an unreadable log — a corrupt oplog must never become a
  * plausible-looking one.
  *
+ * This is a SECURITY BOUNDARY, not a robustness nicety, and the framing is what
+ * sets the bar: an oplog is no longer only something this machine wrote. A
+ * shared world, or a log an agent authored, arrives as untrusted bytes and
+ * leaves here as typed engine objects that nothing downstream re-examines —
+ * loaded ops are pushed straight into `log.ops`, never pass through
+ * {@link logApply}/{@link logApplyPatch}, and {@link applyOp}/
+ * {@link applyPatchOp} trust their input by contract. Every check that is going
+ * to happen happens here.
+ *
  * WHAT IS CHECKED — the envelope's shape and version; that every op is an
  * object carrying an INTEGER `id` and a known `kind`; EVERY closed STRING union
  * that reaches the wire — a brush's `effect`, `shape.kind`, `mask.kind` and an
  * embedded `mask.selection.kind`, its `smooth.mode`, an entity's `action` and
  * `entity.type`; that an entity op carries a record and that a present optional
- * `mask`/`smooth` is one; and, for patch ops, the full table-independent
- * structure ({@link assertPatchStructure} — canonical unique chunk keys,
- * 512-byte masks, value arrays exactly as long as their mask's popcount), so a
- * truncated or garbage base64 payload is rejected rather than mis-applied; and,
- * for placement ops, each record's shape ({@link PlacementRecord} fields) AND
- * values ({@link assertPlacementsValid} — finite vectors, unit quat,
- * non-negative integer variant).
+ * `mask`/`smooth` is one; EVERY NUMERIC field a brush op carries, by running
+ * the engine's own {@link assertOpStructure} — the table-INDEPENDENT half of
+ * {@link assertOpValid}, a subset of it by construction, so an op the EDITOR
+ * could commit can never fail to load (this function is otherwise deliberately
+ * STRICTER than `assertOpValid`, which is typed and therefore re-checks no
+ * union tag and no vector LENGTH — see {@link assertOpStructure}); every
+ * numeric field of an entity record ({@link assertEntityNumbers} — the record
+ * has no commit-path validator to borrow, so this is the only guard it gets);
+ * for patch ops, the full table-independent structure
+ * ({@link assertPatchStructure} — canonical unique chunk keys, 512-byte masks,
+ * value arrays exactly as long as their mask's popcount), so a truncated or
+ * garbage base64 payload is rejected rather than mis-applied; and, for placement
+ * ops, each record's shape ({@link PlacementRecord} fields) AND values
+ * ({@link assertPlacementsValid} — finite vectors, unit quat, non-negative
+ * integer variant).
  *
- * WHAT IS NOT — every NUMERIC field: a shape's centre/radius/half-extents, a
- * brush's `material` and `mask.classId`, `smooth.strength`/`iterations`, a
- * flood selection's `seed`/`budget`, an entity record's
- * `entityId`/`seed`/`region`/`opSpan`, and a patch slice's material class ids.
- * Some of those need a {@link MaterialTable} (the class ids), which this
- * function does not take; the rest are simply deferred — note that
- * `assertSmoothValid` and {@link assertSelectionSpecValid} already own the right
- * predicates and are merely not wired to this path.
- *
- * Nothing downstream re-checks any of it: loaded ops are pushed straight into
- * `log.ops` and never pass through {@link logApply}/{@link logApplyPatch}, and
- * {@link applyOp}/{@link applyPatchOp} trust their input by contract. A bad
- * class id therefore surfaces late, at mesh time.
+ * WHAT IS NOT — whether a class id NAMES A CLASS. A brush's `material`, a
+ * `mask.classId`, a flood-material spec's `classId` and a patch slice's material
+ * bytes are all checked to be ids the material channel can store, which is the
+ * whole of the table-independent question; resolving them needs a
+ * {@link MaterialTable}, and this function takes none. The load path HAS one to
+ * hand — `FieldManifest.materialTable` is embedded in every v2 manifest — so
+ * closing it is a signature question, not a knowledge one. An unresolvable class
+ * id therefore still surfaces late, at mesh time.
  *
  * @param text - the oplog file's contents.
  * @returns freshly built ops; no input buffer is aliased.
  * @throws {@link Error} on invalid JSON, a non-array non-object payload, an
  *   unknown or future envelope version, an envelope with no `ops` array, an
- *   op with a non-integer `id`, an unknown `kind` or an off-contract union
- *   field, a patch op whose payload does not decode to a structurally valid
- *   patch (those messages carry the `field patch:` prefix), or a placement op
- *   whose records are malformed (`field placement:`/`field oplog:` prefix).
+ *   op with a non-integer `id`, an unknown `kind`, an off-contract union field,
+ *   a vector that is not an array of the right length, an entity record whose
+ *   numbers are invalid, a brush op whose numbers {@link assertOpStructure}
+ *   rejects, a patch op whose payload does not decode to a structurally valid
+ *   patch, or a placement op whose records are malformed. Messages this file
+ *   raises itself carry the `field oplog:` prefix. A wired engine predicate
+ *   keeps its own prefix (`field op:`, `field selection:`, `field patch:`,
+ *   `field placement:`) and is re-thrown behind this file's op locator —
+ *   `field oplog: op <id> — <the predicate's message>` (see {@link atOp}), with
+ *   the original on `cause`.
  */
 export function parseOps(text: string): FieldOp[] {
   const parsed = parseOplogJson(text);

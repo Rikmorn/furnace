@@ -20,8 +20,13 @@ reason its concerns deserve walls.
 ## Trigger to revisit
 
 - Any of the three sibling entries fires and its fix wants a home the mixed file blurs.
-- T4's agent op-stream work touches op validation (the parse/validate corner becomes a
-  security boundary — the sibling entries say so).
+- ~~T4's agent op-stream work touches op validation (the parse/validate corner becomes a
+  security boundary — the sibling entries say so).~~ **Fired at T4a (2026-08-08) and did
+  NOT pull the split with it:** the parse corner IS now the security boundary
+  (`assertOpStructure`, the table-independent half of `assertOpValid`, wired into
+  `parseOps`), and the change landed inside the existing file without wanting a new
+  module. One data point that the vocabulary/validation concern is not the one straining
+  the walls.
 
 ## Reference
 

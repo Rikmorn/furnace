@@ -8,6 +8,7 @@ import type {
   FieldManifest,
   FieldOp,
   FieldStore,
+  GeneratorEntity,
   MaterialTable,
   OpLog,
   PatchChunk,
@@ -16,6 +17,7 @@ import type {
   PlacementRecord,
 } from "@furnace/core/field";
 import {
+  applyOp,
   BUILTIN_TABLE,
   bakeFieldWorld,
   CHUNK_DIM,
@@ -560,8 +562,19 @@ describe("field oplog v2 codec", () => {
    *  decoder for a shape `serializeOps` would never emit. */
   const oneOp = (op: Record<string, unknown>): string => JSON.stringify([op]);
   const SPHERE: BrushShape = { kind: "sphere", center: [1, 2, 3], radius: 1 };
+  /** A well-formed generator record — the shape `commitGenerator` emits, spread
+   *  and overridden field-by-field by the numeric-interior table below. */
+  const ENTITY: GeneratorEntity = {
+    entityId: 1,
+    type: "generator",
+    generator: "hall",
+    params: { width: 4 },
+    seed: 7,
+    region: { min: [0, 0, 0], max: [4, 2, 4] },
+    opSpan: [1, 2],
+  };
 
-  test("parseOps demands an integer id on EVERY op kind", () => {
+  test("parseOps demands a NON-NEGATIVE integer id on EVERY op kind", () => {
     // The measured consequence of NOT checking: the editor's loadWorld does
     // `ops.reduce((max, o) => Math.max(max, o.id), 0) + 1`, so one id-less op
     // makes nextId NaN, every later op is stamped `id: NaN`, and JSON.stringify
@@ -575,8 +588,19 @@ describe("field oplog v2 codec", () => {
       { id: "1", kind: "brush", effect: "dig", shape: SPHERE },
       { id: null, kind: "brush", effect: "dig", shape: SPHERE },
       { id: 1.5, kind: "brush", effect: "dig", shape: SPHERE },
+      // NEGATIVE (T4a): an op's `id` IS a log id — the decoder's own locator,
+      // the editor's nextId input, and what `placementsByEntity` tests against
+      // an entity's span bounds. It was checked for integer-ness only, so
+      // `{"id": -5}` LOADED while a negative `opSpan` end was rejected: two
+      // predicates for one quantity, disagreeing. Measured across the six
+      // worlds in packages/dungeon/worlds, all 4792 op ids fall in [1, 8976],
+      // so tightening this costs nothing real.
+      { id: -5, kind: "brush", effect: "dig", shape: SPHERE },
+      { id: -1, kind: "patch", chunks: [] },
     ])
-      expect(() => parseOps(oneOp(op))).toThrow(/op id must be an integer/);
+      expect(() => parseOps(oneOp(op))).toThrow(
+        /op id must be a non-negative integer/,
+      );
 
     // …and the positive half: a parsed log always yields a finite nextId.
     const ops = parseOps(
@@ -584,6 +608,10 @@ describe("field oplog v2 codec", () => {
     );
     const nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
     expect(nextId).toBe(8);
+    // Zero is a legal id — `log.nextId` counts up FROM 0.
+    expect(() =>
+      parseOps(oneOp({ id: 0, kind: "brush", effect: "dig", shape: SPHERE })),
+    ).not.toThrow();
   });
 
   test("parseOps rejects off-contract brush/entity fields (the closed unions)", () => {
@@ -624,11 +652,24 @@ describe("field oplog v2 codec", () => {
     expect(() =>
       parseOps(oneOp({ id: 1, kind: "entity", action: "place", entity: 42 })),
     ).toThrow(/entity op 1 has no entity record/);
-    // Every legal spelling still passes.
-    for (const effect of ["dig", "fill", "paint", "smooth"])
+    // Every legal spelling still passes. `smooth` carries its params: the
+    // decoder runs assertOpStructure, which requires them for that effect
+    // exactly as assertOpValid does on the commit path.
+    for (const effect of ["dig", "fill", "paint"])
       expect(() =>
         parseOps(oneOp({ id: 1, kind: "brush", effect, shape: SPHERE })),
       ).not.toThrow();
+    expect(() =>
+      parseOps(
+        oneOp({
+          id: 1,
+          kind: "brush",
+          effect: "smooth",
+          shape: SPHERE,
+          smooth: { strength: 16, iterations: 1, mode: "both" },
+        }),
+      ),
+    ).not.toThrow();
     expect(() =>
       parseOps(
         oneOp({
@@ -726,16 +767,25 @@ describe("field oplog v2 codec", () => {
     expect(() =>
       parseOps(withField("mask", { kind: "class", classId: 1 })),
     ).not.toThrow();
-    for (const kind of ["region", "flood-material", "flood-void"])
+    // A legal spec of each kind, carrying the interior its kind requires — the
+    // discriminator alone no longer parses, because the vectors behind it are
+    // narrowed and their values validated.
+    for (const selection of [
+      { kind: "region", min: [0, 0, 0], max: [4, 4, 4] },
+      { kind: "flood-material", seed: [1, 2, 3], classId: 1, budget: 100 },
+      { kind: "flood-void", seed: [1, 2, 3], budget: 100 },
+    ])
       expect(() =>
-        parseOps(withField("mask", { kind: "selection", selection: { kind } })),
+        parseOps(withField("mask", { kind: "selection", selection })),
       ).not.toThrow();
   });
 
   test("parseOps rejects an off-contract smooth mode and entity type", () => {
     // applySmooth special-cases only erode/fill, so an unknown mode silently
-    // behaves as `both`. assertSmoothValid already owns the right predicate —
-    // it is simply never reached for a loaded op.
+    // behaves as `both`. The mode is checked whenever `smooth` is PRESENT — the
+    // params BEHIND it only on a smooth-effect op, because assertOpValid ignores
+    // a non-smooth op's params and the load path must not reject what the commit
+    // path accepts (the fixtures below ride a DIG op).
     expect(() =>
       parseOps(withField("smooth", { strength: 16, iterations: 1, mode: "x" })),
     ).toThrow(/smooth\.mode must be one of/);
@@ -755,18 +805,13 @@ describe("field oplog v2 codec", () => {
           id: 1,
           kind: "entity",
           action: "place",
-          entity: { type: "bogus" },
+          entity: { ...ENTITY, type: "bogus" },
         }),
       ),
     ).toThrow(/entity\.type must be one of/);
     expect(() =>
       parseOps(
-        oneOp({
-          id: 1,
-          kind: "entity",
-          action: "place",
-          entity: { type: "generator" },
-        }),
+        oneOp({ id: 1, kind: "entity", action: "place", entity: ENTITY }),
       ),
     ).not.toThrow();
   });
@@ -819,6 +864,638 @@ describe("field oplog v2 codec", () => {
       },
     ];
     expect(parseOps(serializeOps(ops))).toEqual(ops);
+  });
+
+  // ——— the numeric interior (T4a): the load path IS the security boundary ———
+  //
+  // Nothing downstream re-checks a loaded op — `loadWorld` pushes them straight
+  // into `log.ops`, so `assertOpValid` is never reached and `applyOp` trusts its
+  // input by contract. Every table below therefore asserts the MESSAGE, not just
+  // that something threw: on a log this machine did not write, the message is
+  // the only thing that says which op and which field.
+
+  /** JSON has no `NaN` and no `Infinity` literal, so neither can be WRITTEN into
+   *  an oplog. The one route to a non-finite number through a JSON parser is an
+   *  out-of-range EXPONENT. Both halves are asserted in the test directly below
+   *  rather than claimed here, because the whole design of the tables that
+   *  follow rests on them: they test the two spellings a hostile FILE can
+   *  actually use — a `null` where a number belongs, and `1e999`. This sentinel
+   *  embeds as a string and is rewritten into the bare literal on the way out. */
+  const INF = "@@1e999@@";
+  const oneOpWire = (op: Record<string, unknown>): string =>
+    oneOp(op).replaceAll(`"${INF}"`, "1e999");
+
+  test("what a JSON file can spell — the premise the tables below rest on", () => {
+    // Half one: NaN and Infinity do not survive serialization; both become null.
+    expect(JSON.stringify({ a: Number.NaN })).toBe('{"a":null}');
+    expect(JSON.stringify({ a: Number.POSITIVE_INFINITY })).toBe('{"a":null}');
+    expect(JSON.stringify({ c: [Number.NaN, 1, 2] })).toBe('{"c":[null,1,2]}');
+    // Half two: an out-of-range exponent parses TO Infinity — the one spelling
+    // that reaches a value predicate rather than dying on the container guard.
+    expect(JSON.parse('{"x":1e999}')).toEqual({ x: Number.POSITIVE_INFINITY });
+    expect(JSON.parse('{"x":-1e999}')).toEqual({ x: Number.NEGATIVE_INFINITY });
+    // …and there is no NaN spelling at all: JSON.parse rejects the literal.
+    expect(() => JSON.parse('{"x":NaN}')).toThrow();
+    expect(() => JSON.parse('{"x":Infinity}')).toThrow();
+    // Which is what makes the sentinel necessary — and what it produces.
+    expect(oneOpWire({ id: 1, r: INF })).toBe('[{"id":1,"r":1e999}]');
+  });
+
+  /** A valid brush op, corrupted in exactly one place per row. Id 42 so the
+   *  locator is visible in the assertions. */
+  const brush = (over: Record<string, unknown>): Record<string, unknown> => ({
+    id: 42,
+    kind: "brush",
+    effect: "dig",
+    shape: SPHERE,
+    ...over,
+  });
+  const BOX: BrushShape = {
+    kind: "box",
+    center: [1, 1, 1],
+    halfExtents: [1, 1, 1],
+  };
+  const CAPSULE: BrushShape = {
+    kind: "capsule",
+    a: [0, 0, 0],
+    b: [1, 0, 0],
+    radius: 0.5,
+  };
+  const selMask = (selection: unknown): Record<string, unknown> =>
+    brush({ mask: { kind: "selection", selection } });
+
+  test("parseOps rejects every bad NUMBER a brush op can carry, by name", () => {
+    const rows: [string, Record<string, unknown>, RegExp][] = [
+      // ── shape vectors: container shape first (this file), values second
+      //    (the engine predicate, re-thrown under the op locator)
+      [
+        "centre absent",
+        brush({ shape: { kind: "sphere", radius: 1 } }),
+        /op 42 shape\.center must be an array of 3 numbers/,
+      ],
+      [
+        "centre a scalar",
+        brush({ shape: { ...SPHERE, center: 1 } }),
+        /op 42 shape\.center must be an array of 3 numbers/,
+      ],
+      [
+        "centre two long",
+        brush({ shape: { ...SPHERE, center: [1, 2] } }),
+        /op 42 shape\.center must be an array of 3 numbers/,
+      ],
+      [
+        "centre holding a string",
+        brush({ shape: { ...SPHERE, center: [1, "2", 3] } }),
+        /op 42 shape\.center must be an array of 3 numbers/,
+      ],
+      [
+        // What a NaN or an Infinity BECOMES on the way to disk. The container
+        // guard catches it, one level before the value predicate would.
+        "centre holding a null",
+        brush({ shape: { ...SPHERE, center: [null, 2, 3] } }),
+        /op 42 shape\.center must be an array of 3 numbers/,
+      ],
+      [
+        "centre Infinity (via an out-of-range exponent)",
+        brush({ shape: { ...SPHERE, center: [1, INF, 3] } }),
+        /field op: sphere center must be three finite numbers/,
+      ],
+      // ── radii: no container narrowing — Number.isFinite is false for a
+      //    string, for null and for an absent field, so the predicate speaks
+      //    directly
+      [
+        "radius absent",
+        brush({ shape: { kind: "sphere", center: [1, 2, 3] } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      [
+        "radius a string",
+        brush({ shape: { ...SPHERE, radius: "1" } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      [
+        "radius null",
+        brush({ shape: { ...SPHERE, radius: null } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      [
+        "radius Infinity (via an out-of-range exponent)",
+        brush({ shape: { ...SPHERE, radius: INF } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      [
+        "radius zero",
+        brush({ shape: { ...SPHERE, radius: 0 } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      [
+        "radius negative",
+        brush({ shape: { ...SPHERE, radius: -1 } }),
+        /field op: sphere radius must be a finite positive length/,
+      ],
+      // ── the other two shape members reach the same predicate
+      [
+        "box half-extent zero on ONE axis",
+        brush({ shape: { ...BOX, halfExtents: [1, 0, 1] } }),
+        /field op: box halfExtents\[1\] must be a finite positive length/,
+      ],
+      [
+        "box half-extent Infinity",
+        brush({ shape: { ...BOX, halfExtents: [1, 1, INF] } }),
+        /field op: box halfExtents\[2\] must be a finite positive length/,
+      ],
+      [
+        "box half-extents absent",
+        brush({ shape: { kind: "box", center: [1, 1, 1] } }),
+        /op 42 shape\.halfExtents must be an array of 3 numbers/,
+      ],
+      [
+        "capsule endpoint Infinity",
+        brush({ shape: { ...CAPSULE, b: [INF, 0, 0] } }),
+        /field op: capsule endpoints must be three finite numbers/,
+      ],
+      [
+        "capsule endpoint absent",
+        brush({ shape: { kind: "capsule", a: [0, 0, 0], radius: 1 } }),
+        /op 42 shape\.b must be an array of 3 numbers/,
+      ],
+      [
+        "capsule radius zero",
+        brush({ shape: { ...CAPSULE, radius: 0 } }),
+        /field op: capsule radius must be a finite positive length/,
+      ],
+      // ── hollow: a fill parameter, and a finite positive one. Infinity and the
+      //    STRING "0.5" both pass the old `> 0` spelling by coercion.
+      [
+        "hollow on a dig",
+        brush({ hollow: 0.5 }),
+        /field op: hollow is a fill-effect parameter/,
+      ],
+      [
+        // Each names the offending VALUE, so the three rows are distinguishable
+        // — the point of the `got …` idiom: to an author who passed Infinity or
+        // "0.5", a bare "must be a positive thickness" reads as FALSE.
+        "hollow Infinity",
+        brush({ effect: "fill", material: 1, hollow: INF }),
+        /hollow must be a FINITE positive thickness \(metres\), got Infinity/,
+      ],
+      [
+        "hollow a string",
+        brush({ effect: "fill", material: 1, hollow: "0.5" }),
+        /hollow must be a FINITE positive thickness \(metres\), got 0\.5/,
+      ],
+      [
+        "hollow zero",
+        brush({ effect: "fill", material: 1, hollow: 0 }),
+        /hollow must be a FINITE positive thickness \(metres\), got 0/,
+      ],
+      // ── class ids: the ARITHMETIC half only. Table membership needs a
+      //    MaterialTable parseOps does not take (see its TSDoc).
+      [
+        "material null",
+        brush({ effect: "fill", material: null }),
+        /field op: material must be an integer in \[0, 255\]/,
+      ],
+      [
+        "material fractional",
+        brush({ effect: "fill", material: 3.5 }),
+        /field op: material must be an integer in \[0, 255\]/,
+      ],
+      [
+        "material negative",
+        brush({ effect: "fill", material: -1 }),
+        /field op: material must be an integer in \[0, 255\]/,
+      ],
+      [
+        "material past the byte channel",
+        brush({ effect: "fill", material: 256 }),
+        /field op: material must be an integer in \[0, 255\]/,
+      ],
+      [
+        "material a string",
+        brush({ effect: "fill", material: "1" }),
+        /field op: material must be an integer in \[0, 255\]/,
+      ],
+      [
+        // `field op mask:` — the prefix assertMaskResolves uses for the TABLE
+        // half of the same question, so one grep finds both.
+        "class mask id null",
+        brush({ mask: { kind: "class", classId: null } }),
+        /field op mask: class id must be an integer in \[0, 255\]/,
+      ],
+      // ── smooth params, on a smooth op (assertOpValid ignores a dig's, so this
+      //    path must too — see the smooth-mode test above)
+      [
+        "smooth params absent",
+        brush({ effect: "smooth" }),
+        /field op: smooth effect requires smooth params/,
+      ],
+      [
+        "smooth strength null",
+        brush({
+          effect: "smooth",
+          smooth: { strength: null, iterations: 1, mode: "both" },
+        }),
+        /field op: smooth strength must be an integer in \[1, 64\]/,
+      ],
+      [
+        "smooth strength zero",
+        brush({
+          effect: "smooth",
+          smooth: { strength: 0, iterations: 1, mode: "both" },
+        }),
+        /field op: smooth strength must be an integer in \[1, 64\]/,
+      ],
+      [
+        "smooth strength past the ceiling",
+        brush({
+          effect: "smooth",
+          smooth: { strength: 65, iterations: 1, mode: "both" },
+        }),
+        /field op: smooth strength must be an integer in \[1, 64\]/,
+      ],
+      [
+        "smooth iterations past the ceiling",
+        brush({
+          effect: "smooth",
+          smooth: { strength: 16, iterations: 5, mode: "both" },
+        }),
+        /field op: smooth iterations must be an integer in \[1, 4\]/,
+      ],
+      // ── an embedded selection spec, both kinds
+      [
+        "region bound absent",
+        selMask({ kind: "region", max: [1, 1, 1] }),
+        /op 42 mask\.selection\.min must be an array of 3 numbers/,
+      ],
+      [
+        "region bound Infinity",
+        selMask({ kind: "region", min: [0, 0, 0], max: [1, INF, 1] }),
+        /field selection: region max\[1\] must be a finite world metre, got Infinity/,
+      ],
+      [
+        "flood seed absent",
+        selMask({ kind: "flood-void", budget: 10 }),
+        /op 42 mask\.selection\.seed must be an array of 3 numbers/,
+      ],
+      [
+        "flood seed fractional",
+        selMask({ kind: "flood-void", seed: [1.5, 2, 3], budget: 10 }),
+        /field selection: flood seed must be integer sample coordinates/,
+      ],
+      [
+        "flood budget zero",
+        selMask({ kind: "flood-void", seed: [1, 2, 3], budget: 0 }),
+        /field selection: flood budget must be an integer in \[1, 262144\]/,
+      ],
+      [
+        "flood budget past the ceiling",
+        selMask({ kind: "flood-void", seed: [1, 2, 3], budget: 262145 }),
+        /field selection: flood budget must be an integer in \[1, 262144\]/,
+      ],
+      [
+        "flood-material class id past the byte channel",
+        selMask({
+          kind: "flood-material",
+          seed: [1, 2, 3],
+          classId: 300,
+          budget: 10,
+        }),
+        /field op mask: selection class id must be an integer in \[0, 255\]/,
+      ],
+    ];
+    for (const [label, op, message] of rows) {
+      // The label rides the assertion so a failing row names itself.
+      expect(() => {
+        parseOps(oneOpWire(op));
+        throw new Error(`accepted: ${label}`);
+      }).toThrow(message);
+    }
+    // 40 rows and no accidental duplicates — the table is the coverage claim.
+    expect(rows.length).toBe(40);
+    expect(new Set(rows.map(([label]) => label)).size).toBe(rows.length);
+  });
+
+  test("a wired predicate's throw keeps its own message UNDER this file's op locator", () => {
+    // The decoder owns WHERE, the predicate owns WHAT. Both halves are load
+    // bearing: without the locator a 500-op file says "sphere radius" and
+    // nothing else; without the predicate's own prefix the message stops being
+    // greppable as the thing assertOpValid raises on the commit path.
+    let caught: unknown;
+    try {
+      parseOps(oneOp(brush({ shape: { ...SPHERE, radius: 0 } })));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe(
+      "field oplog: op 42 — field op: sphere radius must be a finite positive length (metres)",
+    );
+    // …and the original is still reachable, un-decorated.
+    expect((caught as Error).cause).toBeInstanceOf(Error);
+    expect(((caught as Error).cause as Error).message).toBe(
+      "field op: sphere radius must be a finite positive length (metres)",
+    );
+  });
+
+  test("parseOps rejects every bad NUMBER an entity record can carry, by name", () => {
+    const ent = (over: Record<string, unknown>): Record<string, unknown> => ({
+      id: 42,
+      kind: "entity",
+      action: "place",
+      entity: { ...ENTITY, ...over },
+    });
+    /** `ent` with a field DELETED — absence is its own failure mode, and a
+     *  spread cannot express it. */
+    const without = (name: string): Record<string, unknown> => {
+      const entity: Record<string, unknown> = { ...ENTITY };
+      delete entity[name];
+      return { id: 42, kind: "entity", action: "place", entity };
+    };
+    const rows: [string, Record<string, unknown>, RegExp][] = [
+      [
+        "entityId absent",
+        without("entityId"),
+        /op 42 entity\.entityId must be a non-negative integer, got undefined/,
+      ],
+      [
+        "entityId null (a NaN laundered by JSON.stringify)",
+        ent({ entityId: null }),
+        /op 42 entity\.entityId must be a non-negative integer, got null/,
+      ],
+      [
+        "entityId fractional",
+        ent({ entityId: 1.5 }),
+        /op 42 entity\.entityId must be a non-negative integer, got 1\.5/,
+      ],
+      [
+        "entityId negative",
+        ent({ entityId: -1 }),
+        /op 42 entity\.entityId must be a non-negative integer, got -1/,
+      ],
+      [
+        "entityId a string",
+        ent({ entityId: "1" }),
+        /op 42 entity\.entityId must be a non-negative integer, got "1"/,
+      ],
+      [
+        "seed absent",
+        without("seed"),
+        /op 42 entity\.seed must be a finite number, got undefined/,
+      ],
+      [
+        "seed null",
+        ent({ seed: null }),
+        /op 42 entity\.seed must be a finite number, got null/,
+      ],
+      [
+        "seed Infinity",
+        ent({ seed: INF }),
+        /op 42 entity\.seed must be a finite number/,
+      ],
+      [
+        "seed a string",
+        ent({ seed: "7" }),
+        /op 42 entity\.seed must be a finite number, got "7"/,
+      ],
+      [
+        "region absent",
+        without("region"),
+        /op 42 entity\.region must be an object, got undefined/,
+      ],
+      [
+        "region a scalar",
+        ent({ region: 42 }),
+        /op 42 entity\.region must be an object, got number/,
+      ],
+      [
+        "region.min absent",
+        ent({ region: { max: [1, 1, 1] } }),
+        /op 42 entity\.region\.min must be an array of 3 numbers/,
+      ],
+      [
+        "region.max two long",
+        ent({ region: { min: [0, 0, 0], max: [1, 1] } }),
+        /op 42 entity\.region\.max must be an array of 3 numbers/,
+      ],
+      [
+        "region.max Infinity",
+        ent({ region: { min: [0, 0, 0], max: [1, INF, 1] } }),
+        /op 42 entity\.region\.max must be three finite numbers/,
+      ],
+      [
+        // BOTH bounds are checked, not just the one the loop reaches last.
+        "region.min Infinity",
+        ent({ region: { min: [INF, 0, 0], max: [1, 1, 1] } }),
+        /op 42 entity\.region\.min must be three finite numbers/,
+      ],
+      [
+        "region.min holding a null",
+        ent({ region: { min: [null, 0, 0], max: [1, 1, 1] } }),
+        /op 42 entity\.region\.min must be an array of 3 numbers/,
+      ],
+      [
+        "opSpan absent",
+        without("opSpan"),
+        /op 42 entity\.opSpan must be an array of 2 numbers/,
+      ],
+      [
+        "opSpan three long",
+        ent({ opSpan: [1, 2, 3] }),
+        /op 42 entity\.opSpan must be an array of 2 numbers/,
+      ],
+      [
+        "opSpan end fractional",
+        ent({ opSpan: [1, 2.5] }),
+        /op 42 entity\.opSpan\[1\] must be a non-negative integer/,
+      ],
+      [
+        "opSpan start negative",
+        ent({ opSpan: [-1, 2] }),
+        /op 42 entity\.opSpan\[0\] must be a non-negative integer/,
+      ],
+    ];
+    for (const [label, op, message] of rows)
+      expect(() => {
+        parseOps(oneOpWire(op));
+        throw new Error(`accepted: ${label}`);
+      }).toThrow(message);
+    expect(rows.length).toBe(20);
+    expect(new Set(rows.map(([label]) => label)).size).toBe(rows.length);
+    // A REVERSED span is legal, not a fault: reconfigure writes
+    // `[firstId, firstId + newSpan.length - 1]`, reversed for an empty re-cook.
+    expect(() => parseOps(oneOp(ent({ opSpan: [5, 4] })))).not.toThrow();
+  });
+
+  test("an entity's literal-`true` flags fail CLOSED, not open", () => {
+    // `frozen?: true` / `baked?: true` are spelled `true`-not-`boolean` so that
+    // ABSENCE is the only way to say "no" — a contract only the type system
+    // carries, and exactly what the decoder's boundary cast bypasses. Every
+    // consumer tests `=== true` / `!== true`, so an unchecked `frozen: "yes"`
+    // reads as NOT frozen and reconfigure runs on a record its own doc calls
+    // protected: a guard failing OPEN.
+    const withFlag = (flag: string, value: unknown): string =>
+      oneOp({
+        id: 42,
+        kind: "entity",
+        action: "place",
+        entity: { ...ENTITY, [flag]: value },
+      });
+    for (const flag of ["frozen", "baked"])
+      for (const bad of ["yes", 1, 0, false, null, {}])
+        expect(() => parseOps(withFlag(flag, bad))).toThrow(
+          new RegExp(`op 42 entity\\.${flag} must be true or absent`),
+        );
+    // `true` and ABSENT are the two legal spellings, and both survive.
+    for (const flag of ["frozen", "baked"])
+      expect(() => parseOps(withFlag(flag, true))).not.toThrow();
+    expect(() =>
+      parseOps(
+        oneOp({ id: 42, kind: "entity", action: "place", entity: ENTITY }),
+      ),
+    ).not.toThrow();
+  });
+
+  test("an F1 legacy dig op runs the same numeric pass a native brush op does", () => {
+    // The oldest files on disk are the likeliest to be bit-rotted, and the
+    // upgrade path used to hand its shape straight through.
+    expect(() =>
+      parseOps(oneOp({ id: 7, kind: "dig", shape: { ...SPHERE, radius: -1 } })),
+    ).toThrow(
+      /op 7 — field op: sphere radius must be a finite positive length/,
+    );
+    expect(() =>
+      parseOps(oneOp({ id: 7, kind: "dig", shape: { ...SPHERE, center: 0 } })),
+    ).toThrow(/op 7 shape\.center must be an array of 3 numbers/);
+  });
+
+  test("a hostile op cannot reach applyOp — and the applier shows what that buys", () => {
+    // The positive control FIRST, so the guard is measured against a real
+    // consequence rather than asserted against itself. A NaN-centred dig is
+    // what a hand-edited or agent-written log makes trivially: applyOp accepts
+    // it (its contract is that logged ops were validated on the way IN), burns
+    // no cells, and reports success.
+    const hostile: BrushOp = {
+      id: 2,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [Number.NaN, 2, 2], radius: 2 },
+    };
+    const store = createFieldStore();
+    const { dirty } = applyOp(store, hostile, TABLE);
+    expect(dirty.size).toBe(0); // silent divergence: the replayed world != the baked one
+
+    // The same op inside an otherwise-valid three-op log. parseOps is
+    // all-or-nothing — `ops.map(decodeOp)` throws on the first bad op, so a
+    // partially-decoded list can never reach `log.ops`.
+    const good = (id: number): FieldOp => ({
+      id,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [1, 1, 1], radius: 1 },
+    });
+    const text = JSON.stringify({
+      version: 3,
+      ops: [good(1), hostile, good(3)],
+    });
+    // Note WHICH guard fires: `JSON.stringify` renders the NaN as `null`, so
+    // the container narrowing catches it one level before the value predicate
+    // would. That is the only spelling a JSON file can carry — the value
+    // predicate's own leg is reached by `1e999`, exercised in the table above.
+    expect(() => parseOps(text)).toThrow(
+      /op 2 shape\.center must be an array of 3 numbers/,
+    );
+    // Drop the hostile op and the same file parses — so the throw above is the
+    // ONE op being rejected, not the log's shape, and the two valid ops that
+    // flank it are provably decodable. `parseOps` returning nothing at all for
+    // that file is what keeps the pair from ever reaching `log.ops` without it.
+    expect(
+      parseOps(JSON.stringify({ version: 3, ops: [good(1), good(3)] })).length,
+    ).toBe(2);
+  });
+
+  test("a valid log carrying every op kind round-trips BYTE-identically", () => {
+    // The other half of a security boundary: it must not reject what the engine
+    // emits. Every numeric field sits at a legal EXTREME — the ranges' own
+    // endpoints — so a guard written one comparison too tight fails here.
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(
+      s,
+      log,
+      {
+        id: 0,
+        kind: "brush",
+        effect: "fill",
+        material: 0,
+        hollow: 0.5,
+        shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+      },
+      TABLE,
+    );
+    logApplyPatch(
+      s,
+      log,
+      patch(1, [
+        slice({
+          densityMask: maskOf(bitOf(2, 2, 2)),
+          density: Int8Array.from([-20]),
+          materialMask: maskOf(bitOf(2, 2, 2)),
+          materials: Uint8Array.from([1]),
+        }),
+      ]),
+      TABLE,
+    );
+    const extremes: FieldOp[] = [
+      {
+        id: 2,
+        kind: "brush",
+        effect: "smooth",
+        // both ranges at their ceilings: [1, 64] and [1, 4]
+        smooth: { strength: 64, iterations: 4, mode: "erode" },
+        shape: { kind: "capsule", a: [0, 0, 0], b: [2, 0, 0], radius: 0.25 },
+      },
+      {
+        id: 3,
+        kind: "brush",
+        effect: "paint",
+        material: 255, // the highest id the byte channel stores
+        mask: {
+          kind: "selection",
+          selection: {
+            kind: "flood-void",
+            seed: [0, 0, 0],
+            budget: 262144, // MAX_SELECTION_BUDGET exactly
+          },
+        },
+        shape: { kind: "sphere", center: [-1e6, 0, 1e6], radius: 1e-6 },
+      },
+      {
+        id: 4,
+        kind: "entity",
+        action: "place",
+        entity: { ...ENTITY, entityId: 4, seed: -0.5, opSpan: [0, 3] },
+      },
+      {
+        id: 5,
+        kind: "placement",
+        records: [
+          {
+            archetypeId: "torch",
+            position: [1.5, 2, -3],
+            quat: [0, 0, 0, 1],
+            scale: [1, 1, 1],
+            variantIndex: 0,
+          },
+        ],
+      },
+    ];
+    for (const op of extremes) log.ops.push(op);
+    const text = serializeOps(log.ops);
+    expect(parseOps(text)).toEqual(log.ops);
+    // Byte-identical, not merely deep-equal: nothing in the decode path
+    // normalizes, defaults or drops a field on the way through.
+    expect(serializeOps(parseOps(text))).toBe(text);
   });
 
   test("a legacy dig op decodes the same inside a v2 envelope as in a v1 array", () => {

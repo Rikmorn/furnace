@@ -220,4 +220,63 @@ describe("field selection", () => {
     expect(selectionHas(sel, 8, 2, 2, 0.25)).toBe(false); // still outside
     expect(selectionHas(sel, 2, -2, 2, 0.25)).toBe(false); // still below min
   });
+
+  test("a region's bounds must be FINITE — and the count says why (T4a)", () => {
+    // The region leg was "always valid" until T4a, which was true of its shape
+    // and false of its numbers. MEASURE the consequence first, on the predicate
+    // itself, so the guard is justified against a real outcome: 512 samples,
+    // x/y/z each −4..3 at a 0.25 m cell (world −1.00 .. 0.75 m), against a
+    // finite control of (−0.5,−0.5,−0.5)→(0.5,0.5,0.5) m.
+    const INF = Number.POSITIVE_INFINITY;
+    const count = (
+      min: [number, number, number],
+      max: [number, number, number],
+    ): number => {
+      let n = 0;
+      for (let z = -4; z < 4; z++)
+        for (let y = -4; y < 4; y++)
+          for (let x = -4; x < 4; x++)
+            if (selectionHas({ kind: "region", min, max }, x, y, z, 0.25)) n++;
+      return n;
+    };
+    const LO: [number, number, number] = [-0.5, -0.5, -0.5];
+    const HI: [number, number, number] = [0.5, 0.5, 0.5];
+    expect(count(LO, HI)).toBe(64); // the finite control: 4³ of 8³
+    // An infinity on the OPEN side does not fail the comparison, it makes it
+    // ALWAYS TRUE — the region becomes unbounded and the op writes across every
+    // chunk its shape reaches. This is the dangerous half, and it is the one a
+    // "passes no cell" reading of the bug would have missed entirely.
+    expect(count([-INF, -INF, -INF], HI)).toBe(216); // 6³
+    expect(count(LO, [INF, INF, INF])).toBe(216); // 6³
+    expect(count([-INF, -INF, -INF], [INF, INF, INF])).toBe(512); // everything
+    expect(count([-INF, -0.5, -0.5], HI)).toBe(96); // one axis: 6·4·4
+    // An infinity on the CLOSED side, or a NaN anywhere, matches NOTHING —
+    // every comparison against NaN is false. The silent no-op half.
+    expect(count([INF, INF, INF], [INF, INF, INF])).toBe(0);
+    expect(count([Number.NaN, -0.5, -0.5], HI)).toBe(0);
+    expect(count(LO, [0.5, Number.NaN, 0.5])).toBe(0);
+
+    // So the predicate rejects both, naming the BOUND and the AXIS — six
+    // numbers is too many to hunt, and this is an agent-facing boundary.
+    const region = (
+      min: [number, number, number],
+      max: [number, number, number],
+    ): SelectionSpec => ({ kind: "region", min, max });
+    const store = createFieldStore();
+    expect(() =>
+      materializeSelection(store, region([-INF, -0.5, -0.5], HI)),
+    ).toThrow(/region min\[0\] must be a finite world metre, got -Infinity/);
+    expect(() =>
+      materializeSelection(store, region(LO, [0.5, INF, 0.5])),
+    ).toThrow(/region max\[1\] must be a finite world metre, got Infinity/);
+    expect(() =>
+      materializeSelection(store, region(LO, [0.5, 0.5, Number.NaN])),
+    ).toThrow(/region max\[2\] must be a finite world metre, got NaN/);
+    // An INVERTED region stays legal: it is a legible empty selection, not a
+    // number that reads as a region.
+    expect(() =>
+      materializeSelection(store, region([1, 1, 1], [0, 0, 0])),
+    ).not.toThrow();
+    expect(() => materializeSelection(store, region(LO, HI))).not.toThrow();
+  });
 });

@@ -14,6 +14,7 @@ import {
   classOf,
   cloneChunkMaterials,
   getMaterial,
+  MAX_MATERIAL_CLASS_ID,
   setMaterial,
 } from "./materials.ts";
 import {
@@ -123,12 +124,32 @@ export function opBounds(op: BrushOp): {
   };
 }
 
-/** Mask leg of {@link assertOpValid}: class-mask ids (and an embedded
- *  flood-material spec's class id) must resolve in the table; embedded
- *  selection specs must pass assertSelectionSpecValid. Throws carry "field op
- *  mask" context so a bad mask id is distinguishable from a bad
+/** Table-INDEPENDENT half of the mask leg: an embedded selection spec's own
+ *  numbers, plus the arithmetic half of every class id a mask carries. Splitting
+ *  the id question in two is what lets the oplog decoder run this half —
+ *  "is it an id at all" needs no table, "does it name a class" needs one.
+ *
+ *  Both halves speak under `field op mask:`, which is the point of that prefix:
+ *  {@link assertMaskResolves} adopted it so a bad MASK id stays distinguishable
+ *  from a bad `op.material` (whose `classOf` throw says "material table"), and a
+ *  split that answered half the id question under a different prefix would have
+ *  made a grep for it miss the arithmetic failures. */
+function assertMaskStructure(mask: BrushMask): void {
+  if (mask.kind === "class") {
+    assertClassId(mask.classId, "field op mask: class id");
+    return;
+  }
+  if (mask.kind !== "selection") return;
+  assertSelectionSpecValid(mask.selection);
+  if (mask.selection.kind === "flood-material")
+    assertClassId(mask.selection.classId, "field op mask: selection class id");
+}
+
+/** Table-DEPENDENT half of the mask leg: class-mask ids (and an embedded
+ *  flood-material spec's class id) must resolve in the table. Throws carry
+ *  "field op mask" context so a bad mask id is distinguishable from a bad
  *  `op.material` (whose classOf throw says "material table"). */
-function assertMaskValid(
+function assertMaskResolves(
   mask: BrushMask | undefined,
   table: MaterialTable,
 ): void {
@@ -138,16 +159,37 @@ function assertMaskValid(
       throw new Error(`field op mask: unknown class id ${mask.classId}`);
     return;
   }
-  if (mask.kind === "selection") {
-    assertSelectionSpecValid(mask.selection);
-    if (
-      mask.selection.kind === "flood-material" &&
-      table.classes[mask.selection.classId] === undefined
-    )
-      throw new Error(
-        `field op mask: unknown selection class id ${mask.selection.classId}`,
-      );
-  }
+  if (
+    mask.kind === "selection" &&
+    mask.selection.kind === "flood-material" &&
+    table.classes[mask.selection.classId] === undefined
+  )
+    throw new Error(
+      `field op mask: unknown selection class id ${mask.selection.classId}`,
+    );
+}
+
+/** The arithmetic half of a material class id: an integer the material CHANNEL
+ *  can store ({@link MAX_MATERIAL_CLASS_ID} — the channel is a byte channel, so
+ *  a larger id wraps rather than failing). Says nothing about whether the id is
+ *  DEFINED; {@link classOf} against a real table answers that, and is the half
+ *  the oplog decoder cannot run.
+ *
+ *  Typed `number` but reached from parsed JSON, so the guard is written to be
+ *  true-or-throw on any runtime value: `Number.isInteger` is false for a string,
+ *  for `null` and for `undefined`, where `value > 255` would coerce and pass.
+ *
+ *  `subject` is the WHOLE message prefix, not a noun glued behind a fixed one,
+ *  because the two families this serves do not share a prefix: a material id
+ *  speaks as `field op:` and a mask id as `field op mask:` — the context
+ *  {@link assertMaskResolves} adopted so a bad mask id stays distinguishable
+ *  from a bad `op.material`. Gluing would have put the arithmetic half of the
+ *  mask question under a prefix a grep for the table half misses. */
+function assertClassId(value: number, subject: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_MATERIAL_CLASS_ID)
+    throw new Error(
+      `${subject} must be an integer in [0, ${MAX_MATERIAL_CLASS_ID}], got ${String(value)}`,
+    );
 }
 
 /** Per-application ceiling on {@link SmoothParams} `strength` (int8 units).
@@ -161,8 +203,8 @@ export const SMOOTH_MAX_STRENGTH = 64;
  *  hardcoding it. */
 export const SMOOTH_MAX_ITERATIONS = 4;
 
-/** Smooth leg of {@link assertOpValid}: params must be PRESENT (an op record
- *  is explicit — validation never defaults them), with integer strength in
+/** Smooth leg of {@link assertOpStructure}: params must be PRESENT (an op
+ *  record is explicit — validation never defaults them), with integer strength in
  *  [1, SMOOTH_MAX_STRENGTH], integer iterations in
  *  [1, SMOOTH_MAX_ITERATIONS], and a known mode (op records may arrive from
  *  parsed JSON, so the mode is checked at runtime too). */
@@ -189,8 +231,8 @@ function assertSmoothValid(p: SmoothParams | undefined): void {
     throw new Error(`field op: unknown smooth mode "${String(p.mode)}"`);
 }
 
-/** Shape leg of {@link assertOpValid}: every number a brush shape carries must
- *  be finite, and every LENGTH it carries (a sphere's or capsule's `radius`,
+/** Shape leg of {@link assertOpStructure}: every number a brush shape carries
+ *  must be finite, and every LENGTH it carries (a sphere's or capsule's `radius`,
  *  each of a box's `halfExtents`) a finite POSITIVE one. One helper over all
  *  three members, because none of the failures below is particular to a shape —
  *  it started life as a capsule-only leg (F3b: the capsule was the first shape
@@ -276,12 +318,88 @@ function assertShapeValid(shape: BrushShape): void {
   const _exhaustive: never = shape;
 }
 
+/** Hollow leg of {@link assertOpStructure}: a shell-band thickness is a FILL
+ *  parameter (every other effect rejects it outright rather than ignoring it)
+ *  and a finite positive number of metres.
+ *
+ *  `Number.isFinite` first, not `!(hollow > 0)` alone. That older spelling
+ *  rejected NaN by luck (every comparison against NaN is false) and let two
+ *  values through that read as thicknesses and are not: `Infinity`, under which
+ *  `sdf > op.hollow` is never true, so the shell band covers the whole shape and
+ *  a hollow fill silently becomes a SOLID one; and the STRING `"0.5"`, which
+ *  `> 0` coerces and passes — the shape a JSON decoder hands over.
+ *
+ *  The message says FINITE and prints the value, because those are exactly the
+ *  two rejections a bare "must be a positive thickness" reads as FALSE for: the
+ *  author of an `Infinity` or a `"0.5"` believes they passed a positive
+ *  thickness, and they are not wrong about the sign. Same `got …` idiom as
+ *  {@link assertClassId}. */
+function assertHollowValid(op: BrushOp): void {
+  if (op.hollow === undefined) return;
+  if (op.effect !== "fill")
+    throw new Error("field op: hollow is a fill-effect parameter");
+  if (!Number.isFinite(op.hollow) || op.hollow <= 0)
+    throw new Error(
+      `field op: hollow must be a FINITE positive thickness (metres), got ${String(op.hollow)}`,
+    );
+}
+
 /**
- * Setup-loud per-op validation — also the replay / LLM-stream guard. Validates
+ * The table-INDEPENDENT half of {@link assertOpValid} — everything a brush op
+ * can be judged on without a {@link MaterialTable}. Named for
+ * {@link assertPatchStructure}, which stands in exactly this relation to
+ * {@link assertPatchValid}, and exists for exactly the same reason: the oplog
+ * decoder (`parseOps` in `artifact.ts`) has no table, so this is the half it can
+ * run.
+ *
+ * Because `assertOpValid` is defined as this PLUS the table legs, THIS
+ * PREDICATE is a subset of it by construction — not by anyone remembering to
+ * keep two copies aligned, which is the whole reason it exists. That is a claim
+ * about the predicate, NOT about the decoder around it: `parseOps` is
+ * deliberately STRICTER, because it must re-establish at runtime what the type
+ * system establishes statically on the commit path. `assertOpValid` takes a
+ * typed {@link BrushOp}, so it never re-checks that `effect` is one of four
+ * strings or that `center` has exactly three entries — measured, it ACCEPTS a
+ * 2-element `center`, an `effect: "carve"` and a `smooth: 42`, all of which the
+ * decoder rejects (15 of 18 probed payloads diverge, every one of them the
+ * decoder being stricter; none the other way). What follows for a producer is
+ * the thing worth relying on: an op the EDITOR could commit can never fail to
+ * load, because the editor is typed and cannot build those payloads at all.
+ *
+ * Order is shape → hollow → mask → smooth/material: the pure numbers first, so
+ * that an op wrong in two ways reports the number rather than the policy. It
+ * does NOT check the material's or mask's class ids against a table (that half
+ * is `assertOpValid`'s), only that they are ids the material channel could
+ * store.
+ *
+ * @throws {@link Error} if a shape carries a non-finite number or a radius /
+ *   half-extent that is not a finite positive length, `hollow` rides a non-fill
+ *   effect or is not a finite positive thickness, a class id (material or mask)
+ *   is not an integer the material channel can store, an embedded selection spec
+ *   has non-finite region bounds, a non-integer flood seed or an out-of-range
+ *   budget, or a smooth op's params are absent or out of range.
+ */
+export function assertOpStructure(op: BrushOp): void {
+  assertShapeValid(op.shape);
+  assertHollowValid(op);
+  if (op.mask !== undefined) assertMaskStructure(op.mask);
+  // Mirrors assertOpValid's own split: smooth never writes the material
+  // channel, so `material` is ignored — and must stay unvalidated here too, or
+  // the load path would reject an op the commit path accepts.
+  if (op.effect === "smooth") assertSmoothValid(op.smooth);
+  else if (op.material !== undefined)
+    assertClassId(op.material, "field op: material");
+}
+
+/**
+ * Setup-loud per-op validation — also the replay / LLM-stream guard. Runs the
+ * table-independent half first ({@link assertOpStructure}: shape numbers,
+ * `hollow`, class-id arithmetic, an embedded selection spec, and a smooth op's
+ * {@link SmoothParams}), then the legs that need the table. Validates
  * the mask when present (class ids must exist in the table; an embedded
- * selection spec must be well-formed, so a bad op never enters the log), then
+ * selection spec must be well-formed, so a bad op never enters the log), and
  * `hollow` when present (fill-effect only — every other effect rejects it —
- * and a positive thickness in metres). A smooth op then validates its
+ * and a finite positive thickness in metres). A smooth op validates its
  * {@link SmoothParams} (present, integer strength 1..64, integer iterations
  * 1..4, known mode) and SKIPS the material leg — smooth never writes the
  * material channel, so `material` is ignored and not validated. Every other
@@ -295,28 +413,17 @@ function assertShapeValid(shape: BrushShape): void {
  * the same non-box clause a sphere hits. Material-free, mask-free ops (plain
  * dig) are otherwise a no-op.
  *
- * @throws {@link Error} if a class id (material, class mask, or embedded
- *   flood-material spec) is unknown, an embedded selection spec has a
- *   non-integer flood seed or an out-of-range budget, `hollow` rides a
- *   non-fill effect or is not a positive thickness, a shape carries a
- *   non-finite number (a sphere's or box's `center`, a capsule's endpoints) or a
- *   radius / half-extent that is not a finite positive length, a smooth op's
- *   params are absent or out of range, or a kit-class write is not an
- *   axis-lattice-aligned box (with a lattice-multiple `hollow` when present).
+ * @throws {@link Error} for anything {@link assertOpStructure} rejects — its
+ *   numbers are checked FIRST, across the whole op, so an op with both kinds of
+ *   fault reports the arithmetic one — or if a class id (material, class mask,
+ *   or embedded flood-material spec) is unknown TO THE TABLE, or a kit-class
+ *   write is not an axis-lattice-aligned box (with a lattice-multiple `hollow`
+ *   when present).
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
-  assertMaskValid(op.mask, table);
-  assertShapeValid(op.shape);
-  if (op.hollow !== undefined) {
-    if (op.effect !== "fill")
-      throw new Error("field op: hollow is a fill-effect parameter");
-    if (!(op.hollow > 0))
-      throw new Error("field op: hollow must be a positive thickness (metres)");
-  }
-  if (op.effect === "smooth") {
-    assertSmoothValid(op.smooth);
-    return;
-  }
+  assertOpStructure(op);
+  assertMaskResolves(op.mask, table);
+  if (op.effect === "smooth") return;
   if (op.material === undefined) return;
   const cls = classOf(table, op.material); // throws "unknown class id" (setup-loud)
   if (cls.kind !== "kit") return;
@@ -366,7 +473,7 @@ type MaskGate = (x: number, y: number, z: number, d: number) => boolean;
  *  smaller table): the cell is skipped rather than throwing mid-application —
  *  a mid-loop throw would discard the local inverse and leave a partial
  *  mutation untracked by undo. Setup-loud id validation lives in
- *  assertMaskValid (direct table indexing); application stays total
+ *  assertMaskResolves (direct table indexing); application stays total
  *  (runtime-quiet). */
 function makeMaskGate(
   store: FieldStore,

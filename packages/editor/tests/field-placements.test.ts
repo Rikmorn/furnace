@@ -360,9 +360,10 @@ test("placementsByEntity attributes correctly on a log that is NOT id-ordered (t
 // Position and id agree on every log core WRITES — commitGenerator lays a span
 // immediately before its entity op, and reconfigureGenerator "requires and
 // preserves" that layout (its own contract's words). They part company on a log
-// core only READS: parseOps validates op ids and union tags and, for an entity
-// op, `action` / `entity.type` / the record's presence — never the LAYOUT. A
-// loaded oplog.json therefore carries whatever order its file has.
+// core only READS: parseOps validates op ids, union tags and every numeric field
+// — for an entity op, `action` / `entity.type` / the record's presence AND its
+// `entityId` / `seed` / `region` / `opSpan` — but never the LAYOUT. A loaded
+// oplog.json therefore carries whatever order its file has.
 //
 // So this is the discriminating case for the natural positional implementation
 // ("attribute a placement op to the next entity op after it in log order"),
@@ -435,10 +436,11 @@ test("placementOwners skips an ORPHAN placement op instead of guessing an owner"
   expect(placementOwners(ops)).toEqual([]);
 });
 
-// `opSpan` is TRUSTED numeric data on load — core's parseOps validates op ids
-// and union tags but never span bounds — so a hand-edited or truncated
-// oplog.json can carry an arbitrarily wide one. Attribution must therefore never
-// WALK the range.
+// An `opSpan`'s WIDTH is untrusted on load — core's parseOps checks that both
+// ends are non-negative integers, but not that either id exists in the log nor
+// how far apart they are — so a hand-edited or truncated oplog.json can still
+// carry an arbitrarily wide one. Attribution must therefore never WALK the
+// range.
 //
 // The budget converts ONE spelling of that regression from a hang into a red
 // test, and it is worth being exact about which. `for (let id = span[0]; id <=

@@ -22,18 +22,55 @@ import type {
 export const MAX_SELECTION_BUDGET = 262144;
 
 /**
- * Setup-loud validation of a selection spec: flood seeds must be integer
- * sample coordinates and flood budgets integers in
- * [1, {@link MAX_SELECTION_BUDGET}]; region specs are always valid. Shared by
- * {@link materializeSelection} and the op-embedded mask validation in
- * assertOpValid, so a bad spec never enters the op log and both paths throw
+ * Setup-loud validation of a selection spec: a region's world-metre bounds must
+ * be finite, flood seeds must be integer sample coordinates, and flood budgets
+ * integers in [1, {@link MAX_SELECTION_BUDGET}]. Shared by
+ * {@link materializeSelection}, the op-embedded mask validation in
+ * assertOpValid, and the oplog decoder's `assertOpStructure` leg — so a bad spec
+ * never enters the op log, is never LOADED into one, and all three paths throw
  * the same messages.
  *
- * @throws {@link Error} if a flood seed coordinate is not an integer, or the
- *   flood budget is not an integer in [1, {@link MAX_SELECTION_BUDGET}].
+ * The region leg used to be "always valid", which was true of its SHAPE and
+ * false of its numbers. `selectionHas` tests `min <= w < max` per axis, so a
+ * non-finite bound does not fail — it makes the region match NOTHING or
+ * EVERYTHING, and which one depends on the side the infinity lands on.
+ * Measured over 512 samples (x,y,z each −4..3 at a 0.25 m cell) against a
+ * finite control of (−0.5,−0.5,−0.5)→(0.5,0.5,0.5) m, which selects 64:
+ *
+ * - `min` = −Infinity on all three axes → 216, `max` = +Infinity on all three
+ *   → 216, both → 512/512. The whole probe volume, and it does not stop there:
+ *   the region is genuinely unbounded, so the op writes across every chunk the
+ *   shape reaches. One infinity on ONE axis (either side) → 96.
+ * - `min` = +Infinity (the CLOSED side) → 0, and a NaN in either bound → 0,
+ *   because every comparison against NaN is false.
+ *
+ * So the failure is not one defect but two, and the dangerous one is the
+ * unbounded WRITE, not the silent no-op. Neither is a region. Both are
+ * reachable from a hand-authored op stream, and the 0-cell half is also what a
+ * dragged-out selection would produce if its coords ever went non-finite.
+ *
+ * What stays unchecked is `min <= max`: an inverted region is a legible empty
+ * selection, not a number that reads as a region.
+ *
+ * @throws {@link Error} if a region bound is not finite (naming the bound and
+ *   the AXIS — six numbers is too many to hunt), a flood seed coordinate is not
+ *   an integer, or the flood budget is not an integer in
+ *   [1, {@link MAX_SELECTION_BUDGET}].
  */
 export function assertSelectionSpecValid(spec: SelectionSpec): void {
-  if (spec.kind === "region") return;
+  if (spec.kind === "region") {
+    for (const bound of ["min", "max"] as const) {
+      // The failing AXIS and the value, not just "one of six": the message is
+      // the remediation instruction on a path an agent authors ops over — the
+      // same reason the box half-extent leg in `ops.ts` names its axis.
+      const axis = spec[bound].findIndex((n) => !Number.isFinite(n));
+      if (axis !== -1)
+        throw new Error(
+          `field selection: region ${bound}[${axis}] must be a finite world metre, got ${String(spec[bound][axis])}`,
+        );
+    }
+    return;
+  }
   const [sx, sy, sz] = spec.seed;
   if (!Number.isInteger(sx) || !Number.isInteger(sy) || !Number.isInteger(sz))
     throw new Error(

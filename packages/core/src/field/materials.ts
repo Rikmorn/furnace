@@ -12,6 +12,21 @@ import { MAT_ROCK } from "./types.ts";
 
 const MAX_PALETTE = 32; // far above the ≤8-class F2 reality; setup-loud beyond
 
+/** Highest class id the material CHANNEL can store. Not a policy number — the
+ *  channel is a BYTE channel end to end: {@link ChunkMaterials} holds its
+ *  palette in a `Uint8Array`, and `encodeMaterialFile` writes a uniform slice's
+ *  `classId` as one byte. An id above this does not fail, it WRAPS (1000 stores
+ *  and reads back as 232), and the wrap surfaces much later as
+ *  `classOf`'s "unknown class id 232" — a message naming an id nothing ever
+ *  wrote. In-core only — not on the public field index: it bounds what the
+ *  storage can round-trip, so validators that guard the storage cite it rather
+ *  than re-deriving 255.
+ *
+ *  Distinct from table membership: an id at or below this is STORABLE, not
+ *  necessarily DEFINED — {@link classOf} against a real table is what answers
+ *  that. */
+export const MAX_MATERIAL_CLASS_ID = 255;
+
 const bitsFor = (paletteLen: number): number =>
   Math.max(1, Math.ceil(Math.log2(paletteLen)));
 
@@ -192,14 +207,26 @@ export const BUILTIN_TABLE: MaterialTable = {
 };
 
 /**
- * Setup-loud validation of a material table: ids must be contiguous from 0 and
- * class 0 must be organic (rock).
+ * Setup-loud validation of a material table: ids must be contiguous from 0, no
+ * id may exceed {@link MAX_MATERIAL_CLASS_ID}, and class 0 must be organic
+ * (rock).
  *
- * @throws {@link Error} if the table is empty, an id is non-contiguous, or
- *   class 0 is not organic.
+ * The ceiling is checked HERE, at the table that mints the ids, and not only at
+ * the ops that reference them. Without it a table of 257 classes validated
+ * clean and every op naming class 256 was rejected with "must be an integer in
+ * [0, 255]" — an error about the OP, pointing at a defect in the TABLE, which
+ * is the shape that sends someone editing the wrong file. Contiguity makes the
+ * two equivalent: the last index IS the largest id, so this is a length test.
+ *
+ * @throws {@link Error} if the table is empty, an id is non-contiguous, an id
+ *   exceeds {@link MAX_MATERIAL_CLASS_ID}, or class 0 is not organic.
  */
 export function validateMaterialTable(table: MaterialTable): void {
   if (table.classes.length === 0) throw new Error("material table: empty");
+  if (table.classes.length > MAX_MATERIAL_CLASS_ID + 1)
+    throw new Error(
+      `material table: ${table.classes.length} classes exceeds the material channel's ${MAX_MATERIAL_CLASS_ID + 1}-id capacity (ids are stored as one byte)`,
+    );
   table.classes.forEach((c, i) => {
     if (c.id !== i)
       throw new Error(

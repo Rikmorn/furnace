@@ -298,16 +298,17 @@ export const placementOwners = (ops: readonly FieldOp[]): OwnedPlacement[] => {
  *  contiguous and immediately before its entity op. Id-keying is chosen not
  *  because position is unsafe but because it leans on no invariant beyond id
  *  uniqueness, and that matters on a log core only READS: `parseOps` validates
- *  op ids and union tags (and an entity op's `action`/`entity.type`) but never
- *  the LAYOUT, so a loaded oplog carries whatever order its file has. It is also
+ *  every op's ids, union tags and numeric fields, but never the LAYOUT, so a
+ *  loaded oplog carries whatever order its file has. It is also
  *  how `generatorFootprint` already filters a span. Note the log is NOT
  *  id-ordered either — a re-cooked span carries fresh ids spliced back into the
  *  same place — so nothing here may assume ids ascend with position.
  *
  *  It TESTS each placement op's id against the span bounds rather than walking
- *  the span's id RANGE: `opSpan` is trusted numeric data on load (`parseOps`
- *  does not check its bounds), so a WALK's cost rides on span width — unbounded
- *  on one corrupt record. This shape's cost is instead two scans over `ops` plus
+ *  the span's id RANGE: `parseOps` checks that an `opSpan` is two non-negative
+ *  INTEGERS, and nothing more — not that either id exists in the log, and not
+ *  how far apart they are — so a WALK's cost still rides on span width,
+ *  unbounded on one corrupt record. This shape's cost is instead two scans over `ops` plus
  *  placement-ops × entities for the attribution, so it does still grow with the
  *  LOG: measured 0.02 ms for 5 entities × 200 records over no brush ops against
  *  0.50 ms for the same set over 50 000, and 2.3 ms at 200 entities × 500

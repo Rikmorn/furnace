@@ -820,7 +820,14 @@ The chunked sparse voxel field: 16³ Int8 density chunks (air-positive, solid-by
 uniform chunks elided — untouched world costs nothing) plus a per-chunk **material
 channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
 `setMaterial`, `MAT_ROCK` default; `MaterialTable` from the project catalog,
-`BUILTIN_TABLE` rock-only fallback, `validateMaterialTable`/`classOf`).
+`BUILTIN_TABLE` rock-only fallback, `validateMaterialTable`/`classOf`). The channel is a
+BYTE channel end to end — the per-chunk palette is a `Uint8Array` and a uniform slice's
+`classId` rides the material file as one byte — so `MAX_MATERIAL_CLASS_ID` (255, in-core,
+not on the index) bounds what it can round-trip; above it an id WRAPS rather than failing
+(1000 reads back as 232, surfacing as `classOf`'s "unknown class id 232", an id nothing
+ever wrote). `validateMaterialTable` enforces the ceiling at the TABLE (T4a), where
+contiguity makes it a length test — otherwise a 257-class table validated clean and the
+error landed on every OP referencing class 256, pointing at the wrong file.
 
 - **Store + coords** — `createFieldStore`, `getDensity`/`setDensity`,
   `extractFieldAprons` (the 20³ density+material window), `chunkKey`/`parseChunkKey`,
@@ -838,14 +845,18 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   a dig writes only the empty shape's SDF ramp into the sample margin (a silent no-op and
   a phantom write; the non-finite cases are a silent no-op and an unbounded hang). What is
   NOT checked is MAGNITUDE — a finite but absurd radius still validates and fails in the
-  applier. A kit class rejects a capsule under the same rule that rejects a sphere — kit
+  applier. The same numbers are re-checked on the LOAD path (T4a): `assertOpValid` is
+  defined as `assertOpStructure` — its table-independent half — plus the table legs, and
+  `parseOps` runs `assertOpStructure` on every brush op it decodes (see § *the oplog wire
+  format* below). A kit class rejects a capsule under the same rule that rejects a sphere — kit
   writes require a lattice-snapped box, so capsules write organic classes only.
   **Brush effects**: dig / fill / paint /
   **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
   Fill takes an optional **`hollow`** shell-band thickness (non-destructive: interior
-  skipped, never dug; kit shells validate to 0.5 m multiples). **Masks** (`BrushMask`:
+  skipped, never dug; validated a FINITE positive number of metres — an infinite one made
+  a hollow fill silently solid — and kit shells to 0.5 m multiples). **Masks** (`BrushMask`:
   organic-only / kit-only / class / solid-only / selection-embedding) evaluate per
   sample and ride the op record — a masked op replays identically; `solid-only` is the
   keep-existing-air building block. Kit lattice validation is per-op and re-checked by
@@ -900,7 +911,19 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   `materializeSelection` (6-connected BFS, budget-capped LOUDLY via `truncated`, ceiling
   `MAX_SELECTION_BUDGET`; pure query) + `selectionHas`; `MaterializedSelection` keeps
   regions as predicates and floods as chunk-keyed bitsets. Deterministic and embeddable
-  in op masks (floods re-evaluate against replayed state).
+  in op masks (floods re-evaluate against replayed state). `assertSelectionSpecValid` is
+  the setup-loud value predicate shared by `materializeSelection`, `assertOpValid`'s mask
+  leg and `parseOps`' decoder: integer flood seeds, a flood budget in
+  `[1, MAX_SELECTION_BUDGET]`, and (T4a) FINITE region bounds, naming the failing bound and
+  AXIS. The region leg was "always valid", which was true of its shape and false of its
+  numbers — and the failure is **two** defects, not one, because `selectionHas` tests
+  `min <= w < max`. Measured over 512 samples (x/y/z each −4..3 at a 0.25 m cell) against a
+  finite control selecting 64: an infinity on the **open** side makes every comparison
+  ALWAYS TRUE — 216 for `min = -Inf` on all axes, 216 for `max = +Inf`, **512/512 for both**,
+  and the region is genuinely unbounded, so the op writes across every chunk its shape
+  reaches; an infinity on the **closed** side (`min = +Inf`), or a NaN in either bound,
+  matches 0. The unbounded WRITE is the dangerous half. `min <= max` stays unchecked: an
+  inverted region is a legible empty selection.
 - **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave + scatter)** —
   `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall,
   maze, **cave**, and **scatter** (`GeneratorDef` — params authored as zod tables and
@@ -1443,36 +1466,66 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   and **v1**, a BARE JSON array with no envelope (every world baked before F3a), including
   F1's `kind:"dig"` literals, which map forward to brush/dig ops; a JSON array is never a
   JSON object, so envelope and bare-array cannot be confused.
-  It is **setup-loud**, and the line it draws is **strings vs numbers**: every closed
-  string union that reaches the wire is checked; every numeric field is not.
+  It is **setup-loud**, and it is a **security boundary**, not a robustness nicety (T4a):
+  an oplog is no longer only something this machine wrote — a shared world, or a log an
+  agent authored, arrives as untrusted bytes and leaves `parseOps` as typed engine objects
+  that nothing downstream re-examines. Every check that is going to happen happens there.
   **Checked:** malformed JSON (wrapped with the `field oplog:` locator — three JSON files
   sit side by side in a world dir); an unknown or FUTURE envelope version; a non-array
-  `ops`; an INTEGER `id` on every op (unchecked, one id-less op makes the editor's
+  `ops`; a NON-NEGATIVE INTEGER `id` on every op (unchecked, one id-less op makes the editor's
   `nextId` reduce `NaN`, every later op is stamped `id: NaN`, and `JSON.stringify` writes
   those back as `null` — a corrupt log made plausible); a known `kind`; **every** closed
   string union — a brush's `effect`, `shape.kind`, `mask.kind` and an embedded
   `mask.selection.kind`, its `smooth.mode`, an entity's `action` and `entity.type`; that a
-  present optional `mask`/`smooth` is actually a record; for patch ops, the full
-  table-independent structure (canonical unique chunk keys, 512-byte masks, value arrays
-  exactly as long as their mask's popcount), so a TRUNCATED payload is rejected at parse;
-  and, for placement ops, each record's shape (the vector field lengths + primitive types)
-  AND values (`assertPlacementsValid` — non-empty id, finite vectors, unit quat, valid
-  variant).
+  present optional `mask`/`smooth` is actually a record; **every NUMERIC field a brush op
+  carries**, by running `assertOpStructure` (below); every numeric field of an entity
+  record (`entityId`/`opSpan` non-negative integers — the same predicate the op's own `id`
+  goes through, since an `entityId` IS some op's `id` — a finite `seed`, a `region` of
+  finite three-number bounds) PLUS its two literal-`true` flags (`frozen`/`baked` must be
+  `true` or absent; every consumer tests `=== true`, so an unchecked `frozen: "yes"` would
+  fail OPEN on a guard) — the record has no commit-path validator to borrow, so the decoder
+  is the only guard it gets; for patch ops, the full table-independent structure (canonical
+  unique chunk keys, 512-byte masks, value arrays exactly as long as their mask's popcount),
+  so a TRUNCATED payload is rejected at parse; and, for placement ops, each record's shape
+  (the vector field lengths + primitive types) AND values (`assertPlacementsValid` —
+  non-empty id, finite vectors, unit quat, valid variant).
   The union tables are `satisfies Record<Union, true>` keyed records, exhaustive in BOTH
   directions — adding a member to a union in `types.ts` without extending the table is a
-  compile error (TS1360), not an op the engine emits and its own parser refuses.
-  **Not checked — every NUMERIC field:** a shape's centre/radius/half-extents/capsule
-  endpoints (`assertOpValid`'s shape leg guards the AUTHORING path, not this one), a brush's
-  `material` and `mask.classId`, `smooth.strength`/`iterations`, a flood selection's
-  `seed`/`budget`, an entity record's `entityId`/`seed`/`region`/`opSpan`, and a patch
-  slice's material class ids. The class ids need a `MaterialTable` (`parseOps` takes none);
-  the rest are deferred — `assertSmoothValid` and `assertSelectionSpecValid` already own
-  the right predicates and are simply not wired to this path.
+  compile error (TS1360), not an op the engine emits and its own parser refuses. The
+  per-member **vector tables** (`SHAPE_VECTORS`, `SELECTION_VECTORS`) are the same shape and
+  carry the same guarantee for the fixed-length arrays behind each discriminator.
+  **`assertOpStructure` is the seam**, and it is defined as the table-INDEPENDENT half of
+  `assertOpValid` (`assertOpValid` = it + the table legs), the same relation
+  `assertPatchStructure` has to `assertPatchValid`. That definition — not care — is what
+  makes **the predicate** a subset of the commit path's, so **an op the EDITOR could commit
+  can never fail to load** (the editor is typed and cannot build the payloads below). It
+  reuses the engine's own predicates rather than re-spelling them: `assertShapeValid`,
+  `assertSmoothValid`, `assertSelectionSpecValid`.
+  The **decoder around it is deliberately stricter**, and the distinction matters when
+  reading either side: `assertOpValid` takes an already-typed `BrushOp`, so it re-checks no
+  union tag and no vector LENGTH, where `parseOps` must re-establish both at runtime.
+  Measured on identical payloads, `assertOpValid` ACCEPTS and `parseOps` REJECTS: a `smooth`
+  block on a non-smooth op (bad `mode`, or not a record); a `center` / `halfExtents` /
+  capsule endpoint of length 2 or 4, where the predicate's `.every(isFinite)` passes a short
+  array; a region mask's `min`/`max` of the wrong length; every union tag; and the op `id`.
+  15 of 18 probed payloads diverge — every one the decoder being stricter, none the reverse.
+  **Not checked — whether a class id NAMES A CLASS.** A brush's `material`, a `mask.classId`,
+  a flood-material spec's `classId` and a patch slice's material bytes are all checked to be
+  ids the material channel can STORE (integers in `[0, MAX_MATERIAL_CLASS_ID]` — the channel
+  is a byte channel, so a larger id wraps rather than failing). Resolving them against a
+  `MaterialTable` is the half `parseOps` cannot run: it takes no table. The load path HAS one
+  to hand (`FieldManifest.materialTable` is embedded in every v2 manifest), so closing it is a
+  signature question, not a knowledge one — an unresolvable class id still surfaces late, at
+  mesh time.
+  **Note what a JSON file can actually spell:** there is no `NaN` and no `Infinity` literal,
+  and `JSON.stringify` writes both as `null`. The two reachable spellings of a bad number are
+  therefore a `null` where a number belongs (caught by the container narrowing) and an
+  out-of-range exponent — `JSON.parse("1e999")` is `Infinity` (caught by the value
+  predicates). Both are pinned in `artifact.test.ts`.
   **Nothing downstream re-checks any of it:** loaded ops are pushed straight into
   `log.ops` and never pass through `logApply`/`logApplyPatch`, and `applyOp`/`applyPatchOp`
-  trust their input by contract — so a bad class id surfaces late, at mesh time. The writer
-  trusts its input (`logApplyPatch` already validated everything in the log); the reader
-  does not.
+  trust their input by contract. The writer trusts its input (`logApplyPatch` already
+  validated everything in the log); the reader does not.
 
 ---
 

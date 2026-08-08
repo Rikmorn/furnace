@@ -86,7 +86,7 @@ export const RADIUS_MAX = 4;
 
 /** The thinnest shell band a hollow fill may carve, in metres.
  *
- *  Core accepts any positive thickness (it cannot clamp against the cell size); the host
+ *  Core accepts any FINITE positive thickness (it cannot clamp against the cell size); the host
  *  applies this floor because a sub-cell shell on an organic shape comes out holey. Stated
  *  as the `min` of the strip's thickness field, which is also where the chrome re-applies it
  *  on blur — a settled sub-floor value would otherwise DISPLAY 0.2 while strokes carved 0.5.
