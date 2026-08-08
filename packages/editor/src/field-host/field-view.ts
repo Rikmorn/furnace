@@ -92,7 +92,11 @@
 // `view` — a `camera.Camera` — so a closure-level `view` would be shadowed inside
 // the very function that reads this module fourteen times, and `view.layers()`
 // would be a type error there. The compiler proves the collision rather than the
-// reader having to spot it; the binding is named for the state it holds.
+// reader having to spot it; the binding is named for the state it holds. Those
+// three functions moved to `field-render.ts` on 2026-08-08 (foundations T3d),
+// which takes `layers` as a plain ref off this seam and carried the hoist
+// argument above with it verbatim — the collision that named this binding is now
+// in another file, and the binding keeps the name for the same reason it got it.
 import type { FieldLayers } from "./field-host.ts";
 import type { HostSubstrate } from "./substrate.ts";
 

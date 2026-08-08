@@ -57,10 +57,11 @@
 // that reason. It also has a second extracted reader (`field-picking.ts`, through
 // `substrate.flagStore`), so it is genuinely shared state rather than this
 // cluster's private store. It therefore stays a closure `const` and a substrate
-// value member — the `propMeshes` / `ghostMeshes` / `voidCastMeshes` disposition,
-// which the map's §1 accounting classifies as a SUBSTRATE LEFTOVER rather than as
-// cluster state. This module reads it through the record like any other member,
-// and the verdict is written at its declaration in `field-host.ts`.
+// value member — the `propMeshes` / `ghostMeshes` / `voidCastMeshes` disposition
+// (`litByClass` joined them at T3d Task 3), which the map's §1 accounting
+// classifies as a SUBSTRATE LEFTOVER rather than as cluster state. This module
+// reads it through the record like any other member, and the verdict is written
+// at its declaration in `field-host.ts`.
 //
 // THE LAW, applied (see `substrate.ts`'s doc header for the argument):
 //
@@ -71,18 +72,18 @@
 //     functions in this file are `if (disposed) return` guards over an async
 //     settlement, and a snapshot would read `false` forever — every one of them
 //     would wave a post-teardown callback through.
-//   - `flagMarkerMat` and `worldEpoch` are host `let`s that are NOT in the record
-//     and this is each one's only extracted reader, so both ride as
-//     SINGLE-CONSUMER FUNCTION DEPS — `field-props.ts`'s `kitMat` precedent, and
-//     the two-extracted-readers bar in its active form. Widening the substrate
-//     for a single consumer charges every future cluster's assembly for this
-//     one's convenience.
-//     // MIGRATION (until T3d Task 3): "only extracted reader" is true of
-//     `flagMarkerMat` only while `materials` is still in the closure. When it
-//     leaves, this dep becomes `materials.flagMarkerMat` and the sentence above
-//     stops describing a substrate-bar decision at all. `field-props.ts`'s header
-//     carries the IDENTICAL exposure for `kitMat` — same cluster, same task, two
-//     headers to rewrite, and neither knows about the other.
+//   - `worldEpoch` is a host `let` that is NOT in the record and this is its only
+//     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP —
+//     `field-props.ts`'s `kitMat` precedent, and the two-extracted-readers bar in
+//     its active form. Widening the substrate for a single consumer charges every
+//     future cluster's assembly for this one's convenience.
+//   - `flagMarkerMat` was the second of that pair until 2026-08-08 (foundations
+//     T3d), when the material layer got an owner: the dep is now a plain ref onto
+//     `field-materials.ts`'s seam, the substrate was never widened, and the
+//     substrate-bar argument no longer applies to it at all. The CALL is
+//     unchanged and so is its reason — the material is built at `init` and nulled
+//     at `dispose`. `field-props.ts`'s header records the identical expiry for
+//     `kitMat`, which was the same cluster on the same day.
 //     // MIGRATION (until T3d Task 6): the same for `worldEpoch` when `world`
 //     leaves — and that one is not a rename. See the note at its declaration in
 //     `field-host.ts`: `resetWorld` calls this module and this module reads
@@ -197,8 +198,9 @@ const ANALYZER_IDLE_MS = 500;
 /** What the walkability advisor needs from the rest of the host.
  *
  *  Six entries beside the substrate. Two are the host's own funnels
- *  (`reportToolError`, `chunkCopy`), two name host `let`s this module must read
- *  live (`flagMarkerMat`, `worldEpoch`), and two name an ACT in another cluster
+ *  (`reportToolError`, `chunkCopy`), one names a host `let` this module must read
+ *  live (`worldEpoch`), one names another module's material (`flagMarkerMat`,
+ *  `field-materials.ts`'s since T3d), and two name an ACT in another cluster
  *  (`frameCameraOn`, `selectionOutline`) — this module's header says why those
  *  last two are not spelled as the four bindings they close over. */
 export type AnalyzerDeps = {
@@ -226,8 +228,8 @@ export type AnalyzerDeps = {
   chunkCopy(density: Int8Array): ArrayBuffer;
   /** The marker layer's material, or `null` before the first `init` and after
    *  `dispose`. The GPU guard: {@link Analyzer.rebuildMarkers} settles its count
-   *  and then refuses to upload without it. A call because the materials cluster
-   *  builds this `let` at `init` and nulls it at `dispose`, so a value copy would
+   *  and then refuses to upload without it. A call because `field-materials.ts`
+   *  builds the handle at `init` and nulls it at `dispose`, so a value copy would
    *  be `null` forever or would outlive the device. */
   flagMarkerMat(): material.Material | null;
   /** The world generation, bumped by every world reset. A verify is seconds long

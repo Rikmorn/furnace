@@ -4,17 +4,14 @@
 // runs a continuous rAF (fly movement integrates per frame and the dirty-set
 // drains across frames) and creates NO physics world (colliders are derived at
 // dungeon-load time, T11).
-import * as binding from "@furnace/core/binding";
+import type * as binding from "@furnace/core/binding";
 import * as camera from "@furnace/core/camera";
 import * as field from "@furnace/core/field";
-import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
-import * as material from "@furnace/core/material";
+import type * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
-import * as shader from "@furnace/core/shader";
-import { vec4 } from "@furnace/core/transform";
 import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
 import {
   type BrushEffect,
@@ -66,13 +63,12 @@ import {
 import {
   boxCorners,
   crossSegments,
-  GHOST_COLOR,
   generatorFootprint,
-  sphereGhostSegments,
 } from "./field-ghost.ts";
 import type { FieldHistory } from "./field-history.ts";
 import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
+import { createMaterials } from "./field-materials.ts";
 import { createPicking } from "./field-picking.ts";
 import {
   type PlacedArchetype,
@@ -82,6 +78,7 @@ import {
 } from "./field-placements.ts";
 import { createProps } from "./field-props.ts";
 import type { WireBucket } from "./field-protocol.ts";
+import { createRender } from "./field-render.ts";
 import { createSegmentBrush } from "./field-segment.ts";
 import {
   SELECTION_DISPLAY_CAP,
@@ -101,7 +98,7 @@ import {
 } from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
 import { createInputRouter, createRung } from "./input-router.ts";
-import { buildGridLines, segmentsToBatch } from "./reference-grid.ts";
+import { segmentsToBatch } from "./reference-grid.ts";
 // The render-bookkeeping shapes live with the rest of the substrate an extracted
 // cluster is handed, so the host and its clusters name them from one place.
 import {
@@ -110,11 +107,7 @@ import {
   type PropRender,
 } from "./substrate.ts";
 import { createViewChannel } from "./view-channel.ts";
-import {
-  cursorAffordance,
-  type ViewportCursor,
-  viewportCursor,
-} from "./viewport-cursor.ts";
+import { type ViewportCursor, viewportCursor } from "./viewport-cursor.ts";
 
 /** How the field is lit. `studio` is the DEFAULT and the state of seeing (D-F4.5-17):
  *  per-class lit materials under a camera-following key light plus a hemisphere fill,
@@ -1405,51 +1398,15 @@ const EDITOR_FOV_Y = Math.PI / 3;
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
 const RADIUS_WHEEL_STEP = 0.1;
 
-const CLEAR = vec4.fromValues(0.03, 0.03, 0.045, 1);
-// The studio key light: camera-following, warm, and the only light in the scene.
-const STUDIO_KEY_COLOR: Vec3T = [1, 0.95, 0.85];
-const STUDIO_KEY_INTENSITY = 6;
-const STUDIO_KEY_RANGE = 18;
-// Hemisphere fill, low enough that the key still shapes the surface. These are the
-// dungeon-torch numbers this mode started as: D-F4.5-17 wants them TUNED for form +
-// material legibility, and P5 (the slice's own readability check) is what decides
-// whether that tuning is needed — untouched until it says so.
-const STUDIO_AMBIENT: frame.Ambient = {
-  sky: [0.4, 0.42, 0.48],
-  ground: [0.16, 0.16, 0.2],
-  intensity: 0.28,
-};
-// The debug mode draws through shader.normalColor, which ignores lights and ambient
-// entirely. Full white is what keeps the kit's instanced-lit pieces (no unlit variant
-// exists) readable beside it.
-const NORMALS_AMBIENT: frame.Ambient = {
-  sky: [1, 1, 1],
-  ground: [1, 1, 1],
-  intensity: 1,
-};
-
-const DEFAULT_GRID: Vec3T = [0.42, 0.42, 0.46];
-const GRID_MINOR_DIM = 0.5; // minors dimmed vs majors (two-tone depth cue)
-
-// Shared specular for every lit bucket / kit material (color-only variation).
-const LIT_SPECULAR: [number, number, number, number] = [0.06, 0.06, 0.06, 16];
-
-// Kit-fill ghost cube opacity: translucent enough to read the field through
-// the hologram volume, solid enough to make "fill writes this whole box"
-// unmistakable (the fill-tool-solid-volume-surprise fix).
-const GHOST_CUBE_ALPHA = 0.25;
-
-// Stamp-ghost surface opacity — a touch denser than the kit-fill cube: the
-// ghost is a real surface mesh (walls occlude walls), so it needs presence to
-// read as "this is what commit builds" while the field stays visible through it.
-const STAMP_GHOST_ALPHA = 0.35;
-
-// Void-cast X-ray (D-F3-15) — a dim CYAN, deliberately off the hologram-blue
-// GHOST_COLOR: the cast is ambient context (what the air already is), never a
-// preview of a pending action. Dimmer than either ghost because it can cover
-// the whole viewport.
-const VOID_CAST_COLOR: Vec3T = [0.25, 0.85, 0.75];
-const VOID_CAST_ALPHA = 0.3;
+// The FRAME's eight constants — the clear colour, the studio key light's three,
+// both ambient terms and the reference grid's two — left with `field-render.ts`
+// on 2026-08-08 (foundations T3d). The MATERIAL layer's six went to
+// `field-materials.ts` the same day: the shared specular, both ghost alphas, the
+// void cast's cyan and its alpha, and the selection cell's. Each had readers in
+// exactly one of the two clusters, so each travelled with it. The two that did
+// NOT are `SELECTION_COLOR` and `ANCHOR_CROSS_HALF_M` below — read by `selection`
+// as well — and `SELECTED_COLOR`, read by `selection`'s outline; all three are
+// handed to the modules that need them as plain value deps.
 
 const clampRadius = (r: number): number =>
   Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
@@ -1480,12 +1437,6 @@ const SELECTION_COLOR: [number, number, number, number] = INFO_TINT;
 const SELECTED_COLOR: [number, number, number, number] = [
   0.048, 0.271, 0.536, 1,
 ];
-// How opaque one selected CELL cube is. Low on purpose: the display's job is to
-// show a flood's SHAPE from inside it, and cells stack six deep along any view
-// ray through a solid blob — at a readable single-cube alpha the far side of a
-// room would be an opaque wall of blue. 0.18 keeps a single cell visible against
-// rock while a thick stack still reads through.
-const SELECTION_CELL_ALPHA = 0.18;
 // Box-select anchor cross: half-length of each of the three axis strokes (m).
 const ANCHOR_CROSS_HALF_M = 0.25;
 
@@ -1648,32 +1599,32 @@ export function createFieldHost(deps?: {
   const worker = new FieldWorkerClient(deps?.spawnWorker);
   const chunkMeshes = new Map<string, ChunkRender>();
 
-  // ONE material for the `normals` debug mode (normalColor): every class looks
-  // identical under it — the v0 coarseness is deliberate (structure legibility over
-  // class colour, which is what `studio` is for).
-  let normalsMat: material.Material | null = null;
   // Per-class lit materials keyed `c<classId>` (surface) / `b<classId>` (kit
   // backing), rebuilt from `table` at init and on setMaterialTable.
+  //
+  // THE ONE PIECE OF THE MATERIAL LAYER THAT STAYS, by decision rather than by
+  // omission — the other sixteen bindings left on 2026-08-08 (foundations T3d)
+  // for `field-materials.ts`, and this cache has been that module's private
+  // store all along: nothing outside its four functions has ever read it. The
+  // `field-view.ts` rule would therefore send it into the file with its owner.
+  // It cannot go, because it is ALREADY a `HostSubstrate` VALUE member, declared
+  // there at T3a ahead of any consumer. Removing a member is a different decision
+  // from declining to add one: the two-extracted-readers bar governs ADDITIONS
+  // (`field-props.ts` says so at `archetypeById`), and paying for a tidier record
+  // by editing a behavioural fixture is not a trade this tranche makes. It is a
+  // FIFTH substrate leftover beside `propMeshes`, `ghostMeshes`, `voidCastMeshes`
+  // and `flagStore` — and the first whose owning cluster is also its only reader.
+  //
+  // MEASURED rather than reasoned: deleting the member gives EIGHT type errors,
+  // exactly ONE of them in a test (`field-history-feed.test.ts`, which hands its
+  // literal to `createHostSubstrate` and so gets excess-property checking). The
+  // three other test files that name it build it inside a spread helper, where
+  // that check does not reach — so they would go SILENTLY STALE rather than red.
+  // `field-materials.ts`'s header carries the argument for why that matters.
   const litByClass = new Map<
     string,
     { mat: material.Material; bind: binding.Binding }
   >();
-  // ONE instanced-lit material for all kit pieces (white base; per-instance tint
-  // carries the piece colour).
-  let kitMat: material.Material | null = null;
-  let kitBind: binding.Binding | null = null;
-  // Filled kit-fill ghost: ONE unit cube + ONE translucent hologram-blue
-  // material, positioned + scaled to the snapped box per frame (mesh.setScale
-  // exists — no per-size rebuild needed) and pushed into the render list only
-  // while a kit-fill ghost is live.
-  let ghostMat: material.Material | null = null;
-  let ghostBind: binding.Binding | null = null;
-  let ghostCube: mesh.Mesh | null = null;
-  let ghostCubeGeo: geometry.Geometry | null = null;
-  // Studio is the state of seeing (D-F4.5-17), so it is what a host with no chrome
-  // attached already renders — the chrome pushing its own default is agreement, not
-  // the thing that turns the lights on.
-  let shading: FieldHostShading = "studio";
 
   // --- the `catalogs` cluster: DECLARED FACADE-RESIDENT, foundations T3d ------
   //
@@ -1838,7 +1789,11 @@ export function createFieldHost(deps?: {
   // The committed prop layer: one instanced draw per archetype, rebuilt from the
   // op log's placement records by `field-props.ts`. Stays in the closure as a
   // `HostSubstrate` value member because `renderScene` draws it — the module
-  // empties and refills the host's own array rather than a copy of it.
+  // empties and refills the host's own array rather than a copy of it. Since T3d
+  // Task 3 `renderScene` is `field-render.ts`'s and reads this through the same
+  // record, so both ends of the sharing are now modules and the array is what
+  // they share; every other `renderScene` mention below means that function, in
+  // that file.
   const propMeshes: PropRender[] = [];
 
   // The walkability advisor's findings store (what the analyzer found, what the
@@ -1847,7 +1802,7 @@ export function createFieldHost(deps?: {
   // THE ONE PIECE OF THE ADVISOR THAT STAYS, by decision rather than by omission
   // — the rest of the cluster left on 2026-08-07 (foundations T3d) for
   // `field-analyzer.ts`, and this handle could not go with it. It is a
-  // `HostSubstrate` VALUE member, and the substrate is assembled ~180 lines below
+  // `HostSubstrate` VALUE member, and the substrate is assembled ~190 lines below
   // this line and ~1,800 lines ABOVE where the advisor is now constructed; a
   // record whose value members are read eagerly cannot be built above one of
   // them, which is why T3b1 hoisted this declaration here in the first place. It
@@ -1855,30 +1810,22 @@ export function createFieldHost(deps?: {
   // `field-picking.ts`, both through `substrate.flagStore` — so it is genuinely
   // shared state and not one cluster's private store.
   //
-  // That makes it a FOURTH substrate leftover beside `propMeshes`, `ghostMeshes`
-  // and `voidCastMeshes`, which the closure map's §1 accounting classifies as
-  // substrate rather than as cluster state.
+  // That makes it one of FIVE substrate leftovers, beside `propMeshes`,
+  // `ghostMeshes`, `voidCastMeshes` and `litByClass` — which the closure map's §1
+  // accounting classifies as substrate rather than as cluster state.
   //
-  // MIGRATION (until T3d Task 3): the sentence that used to follow — "those three
-  // stay because `renderScene` DRAWS them, this one stays because the substrate
-  // has to HAND it out before its owner exists; same class, different force" — is
-  // true only while `render` is still in this closure. The moment it leaves, those
-  // three are read by an EXTRACTED module through the substrate, which is
-  // structurally what `field-analyzer.ts` and `field-picking.ts` already do with
-  // this one. The two forces converge and the distinction dissolves; what survives
-  // is the plain fact that all four are substrate leftovers. The same sentence is
-  // written a second time in `docs/reference/field-host-clusters.md` §2.7 and both
-  // ends rot together — grep `MIGRATION (until T3d Task 3)` to find the pair.
+  // Until 2026-08-08 the paragraph here drew a distinction between them: those
+  // three stayed because `renderScene` DREW them, this one because the substrate
+  // had to hand it out before its owner existed. The first half of that expired
+  // when `render` left the closure for `field-materials.ts`'s neighbour
+  // `field-render.ts` — the three containers are now read by an EXTRACTED module
+  // through the record, which is structurally what `field-analyzer.ts` and
+  // `field-picking.ts` already did with this one, so both forces are the same
+  // force. `litByClass` arrived on the list the same day by a third route (its
+  // owner left and the record already named it) and lands in the same place. What
+  // survives all three routes is the plain fact: a substrate leftover is state the
+  // record hands out and no single extracted module may own.
   const flagStore = createFlagStore();
-
-  // The marker layer's material and binding. The LAYER itself — the instanced
-  // mesh, its count and the selected finding's outline — left with
-  // `field-analyzer.ts`; these two stayed because they are `materials` cluster
-  // state, built by `initMaterials` and freed by `dispose` alongside every other
-  // material here. The advisor reads the material through a single-consumer
-  // function dep (`field-props.ts`'s `kitMat` precedent) and never sees the bind.
-  let flagMarkerMat: material.Material | null = null;
-  let flagMarkerBind: binding.Binding | null = null;
 
   // The cell-level selection display (f2b gate item 1): ONE translucent instanced
   // cube per drawn cell of a `cells` selection, so a flood the camera is standing
@@ -1887,10 +1834,15 @@ export function createFieldHost(deps?: {
   // init. `selectionCellsCount` is the twin of the advisor marker layer's own
   // count (`field-analyzer.ts`) — decided by every rebuild, uploaded only when a
   // context exists.
+  //
+  // The cubes' MATERIAL and binding left with `field-materials.ts` — same split
+  // as the advisor's marker layer, and for the same reason: they are built by one
+  // `init` and freed by one `dispose` alongside every other GPU material, while
+  // the instanced mesh is rebuilt per selection change and belongs here.
+  // `rebuildSelectionCells` reads the material as `materials.selectionCell()` and
+  // never sees the bind.
   let selectionCells: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
     null;
-  let selectionCellMat: material.Material | null = null;
-  let selectionCellBind: binding.Binding | null = null;
   let selectionCellsCount = 0;
 
   // --- view state (layers + slice plane) ----------------------------------
@@ -1898,7 +1850,7 @@ export function createFieldHost(deps?: {
   // Both `let`s left with `field-view.ts`, and the assembly did NOT stay here to
   // mark the spot the way the other four extractions' did: `createView` takes
   // the void cast's `discard` and `request`, so it cannot be constructed above
-  // `createVoidCast` — search `const viewState =`, ~1,900 lines down. What every
+  // `createVoidCast` — search `const viewState =`, ~1,800 lines down. What every
   // reader of this block wants to know is that the flags and the plane are still
   // the host's own state, read as `viewState.layers()` / `viewState.sliceY()`.
 
@@ -1919,7 +1871,7 @@ export function createFieldHost(deps?: {
   // where all four could reach it. The READERS are what decided — there are two
   // and both are the module's — so the writers got a two-verb seam
   // (`drift.set` + `drift.notify`) and the state went with what reads it. The
-  // assembly is ~1,450 lines down, below `entityFootprints`, which is the one
+  // assembly is ~1,300 lines down, below `entityFootprints`, which is the one
   // thing the payload cannot derive from itself.
 
   // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
@@ -1930,12 +1882,13 @@ export function createFieldHost(deps?: {
   // Ghost render state: one entry per previewed chunk, every bucket drawn with
   // the ONE translucent stamp-ghost material. Rebuilt per preview response;
   // destroyed on cancel/commit/re-preview/world-reset + dispose.
+  // Their MATERIAL and binding left with `field-materials.ts`: one translucent
+  // hologram-blue shared by every ghost bucket, built at init and freed at
+  // dispose, read here as `materials.stampGhost()`.
   const ghostMeshes = new Map<
     string,
     { m: mesh.Mesh; g: geometry.Geometry }[]
   >();
-  let stampGhostMat: material.Material | null = null;
-  let stampGhostBind: binding.Binding | null = null;
   // The ghost's other half — the previewed PLACEMENTS' wireframe batch — left
   // with the machine, unlike the meshes above: it is a CPU-only line batch with
   // no GPU handle to free at dispose, so nothing here needs to reach it.
@@ -1988,12 +1941,13 @@ export function createFieldHost(deps?: {
   // `renderScene` draws from it: it is a `HostSubstrate` value member, so the
   // module that fills it and the loop that draws it share one identity rather
   // than two copies that could disagree about what is on screen.
+  // The cast's MATERIAL and binding left with `field-materials.ts` on the stamp
+  // ghost's precedent above; `field-voidcast.ts` reads it as
+  // `materials.voidCast()` through the dep it already took.
   const voidCastMeshes = new Map<
     string,
     { m: mesh.Mesh; g: geometry.Geometry }[]
   >();
-  let voidCastMat: material.Material | null = null;
-  let voidCastBind: binding.Binding | null = null;
 
   let digRadius = 1.25;
   // The stroke's two slots — LMB-is-down and the throttle's last timestamp —
@@ -2007,9 +1961,10 @@ export function createFieldHost(deps?: {
   // the DOM owned it. It did not: the last cursor position is the ARGUMENT every
   // cursor-to-world function takes, cached — so it went with the five functions
   // that are pure functions of it, the two delegates now call
-  // `targeting.notePointer` on the way past, and the three readers on this side
-  // (`ghostState`, `renderCursorAffordance`, `ret.beginMove`) ask
-  // `targeting.pointer()`.
+  // `targeting.notePointer` on the way past, and its three readers ask
+  // `targeting.pointer()`. Two of those three (`ghostState`,
+  // `renderCursorAffordance`) left this file for `field-render.ts` at T3d Task 3
+  // and the third, the facade's `beginMove`, is the only one still here.
   let lastRemeshMs = 0;
   // Monotonic remesh counter (see the FieldStats TSDoc): bumped once per
   // remesh completion so the panel's entity refresh has an event-driven
@@ -2111,22 +2066,12 @@ export function createFieldHost(deps?: {
   // events (see onWheel, its only reader).
   let dollyPixels = 0;
 
-  // Reference grid — world-static, so both batches are built once and reused.
-  const gridSegments = buildGridLines();
-  const gridMinor = segmentsToBatch(gridSegments.minorSegments, [
-    DEFAULT_GRID[0] * GRID_MINOR_DIM,
-    DEFAULT_GRID[1] * GRID_MINOR_DIM,
-    DEFAULT_GRID[2] * GRID_MINOR_DIM,
-    1,
-  ]);
-  const gridMajor = segmentsToBatch(gridSegments.majorSegments, [
-    DEFAULT_GRID[0],
-    DEFAULT_GRID[1],
-    DEFAULT_GRID[2],
-    1,
-  ]);
+  // The reference grid's two batches and the segments they are built from left
+  // with `field-render.ts`, and they are the only state that cluster owns besides
+  // the ghost cube's two scratch vectors: world-static, built once at
+  // construction, drawn under the `grid` layer gate and read nowhere else.
 
-  // --- camera + materials -------------------------------------------------
+  // --- camera --------------------------------------------------------------
 
   const cameraEye = (): Vec3T => toEyeTarget(orbitState).eye;
 
@@ -2214,186 +2159,37 @@ export function createFieldHost(deps?: {
     canvasEl?.releasePointerCapture(pointerId);
   };
 
-  // Build the per-class lit material cache from `table`: a surface material per
-  // class (its colour) plus a backing material per kit class (its backingColor).
-  const buildLitMaterials = async (c: Context): Promise<void> => {
-    const litShd = await shader.lit(c);
-    for (const cls of table.classes) {
-      const surfBind = binding.create(c, litShd);
-      binding.set(c, surfBind, { color: cls.color, specular: LIT_SPECULAR });
-      const surfMat = await material.create(c, {
-        shader: litShd,
-        binding: surfBind,
-      });
-      litByClass.set(`c${cls.id}`, { mat: surfMat, bind: surfBind });
-      if (cls.kind === "kit") {
-        const backBind = binding.create(c, litShd);
-        binding.set(c, backBind, {
-          color: cls.kit.backingColor,
-          specular: LIT_SPECULAR,
-        });
-        const backMat = await material.create(c, {
-          shader: litShd,
-          binding: backBind,
-        });
-        litByClass.set(`b${cls.id}`, { mat: backMat, bind: backBind });
-      }
-    }
-  };
-
-  const destroyLitMaterials = (c: Context): void => {
-    for (const [, e] of litByClass) {
-      material.destroy(c, e.mat);
-      binding.destroy(c, e.bind);
-    }
-    litByClass.clear();
-  };
-
-  const initMaterials = async (c: Context): Promise<void> => {
-    const normalsShd = await shader.normalColor(c); // unlit, normal-distinct faces
-    normalsMat = await material.create(c, { shader: normalsShd });
-    const kitShd = await shader.litInstanced(c);
-    kitBind = binding.create(c, kitShd);
-    // White base color — per-instance tint carries the piece colour.
-    binding.set(c, kitBind, { color: [1, 1, 1, 1], specular: LIT_SPECULAR });
-    kitMat = await material.create(c, { shader: kitShd, binding: kitBind });
-    // Kit-fill ghost cube: GHOST_COLOR's hologram-blue as a premultiplied
-    // translucent volume (unlit; color = rgb·a so blend.premultiplied
-    // composes correctly), depth write OFF so it never occludes the field.
-    const ghostShd = await shader.unlit(c);
-    ghostBind = binding.create(c, ghostShd);
-    binding.set(c, ghostBind, {
-      color: [
-        GHOST_COLOR[0] * GHOST_CUBE_ALPHA,
-        GHOST_COLOR[1] * GHOST_CUBE_ALPHA,
-        GHOST_COLOR[2] * GHOST_CUBE_ALPHA,
-        GHOST_CUBE_ALPHA,
-      ],
-    });
-    ghostMat = await material.create(c, {
-      shader: ghostShd,
-      binding: ghostBind,
-      blend: material.blend.premultiplied,
-      depth: { write: false },
-    });
-    ghostCubeGeo = geometry.cube(c, { size: 1 });
-    ghostCube = mesh.create(c, { geometry: ghostCubeGeo, material: ghostMat });
-    // Stamp-ghost material: the same premultiplied hologram-blue recipe as the
-    // kit-fill cube, denser (STAMP_GHOST_ALPHA), shared by ALL ghost buckets —
-    // the ghost shows the stamp's SHAPE; classes/kit appear on commit.
-    stampGhostBind = binding.create(c, ghostShd);
-    binding.set(c, stampGhostBind, {
-      color: [
-        GHOST_COLOR[0] * STAMP_GHOST_ALPHA,
-        GHOST_COLOR[1] * STAMP_GHOST_ALPHA,
-        GHOST_COLOR[2] * STAMP_GHOST_ALPHA,
-        STAMP_GHOST_ALPHA,
-      ],
-    });
-    stampGhostMat = await material.create(c, {
-      shader: ghostShd,
-      binding: stampGhostBind,
-      blend: material.blend.premultiplied,
-      depth: { write: false },
-    });
-    // Void-cast material: the stamp-ghost recipe with two deliberate changes.
-    // The tint is cyan (context, not a pending action), and depth COMPARES
-    // ALWAYS — the load-bearing one, because an X-ray that respects depth is
-    // not an X-ray. Under the default `less`, ANY front-facing opaque surface
-    // between eye and cast hides it: a ground/terrain top surface (front-facing
-    // from above, and it writes depth) buries every cave beneath it, and so do
-    // a nearer cavity's far wall, kit pieces, and placed props — which is
-    // exactly the "see the network from outside" case the tool exists for.
-    //
-    // NOT for z-fighting: the cast's triangles ARE the field's, same diagonal
-    // wound backwards (mesher.ts), so with the engine's default `cullMode:
-    // "back"` exactly one of any coincident pair survives culling and the two
-    // never contend for a pixel. And NOT `depth: false`, which builds a
-    // depth-LESS pipeline — invalid in frame.render's depth-having pass
-    // (engine-conventions §Depth buffer).
-    voidCastBind = binding.create(c, ghostShd);
-    binding.set(c, voidCastBind, {
-      color: [
-        VOID_CAST_COLOR[0] * VOID_CAST_ALPHA,
-        VOID_CAST_COLOR[1] * VOID_CAST_ALPHA,
-        VOID_CAST_COLOR[2] * VOID_CAST_ALPHA,
-        VOID_CAST_ALPHA,
-      ],
-    });
-    voidCastMat = await material.create(c, {
-      shader: ghostShd,
-      binding: voidCastBind,
-      blend: material.blend.premultiplied,
-      depth: { write: false, compare: "always" },
-    });
-    // Walkability markers: UNLIT instanced, white base, so the per-instance
-    // severity tint is the pixel and nothing else. Deliberately not the kit's
-    // litInstanced material — a marker that dims when the studio key light looks
-    // away is a marker that stops doing its job in the mode the editor lives in.
-    const markerShd = await shader.unlitInstanced(c);
-    flagMarkerBind = binding.create(c, markerShd);
-    binding.set(c, flagMarkerBind, { color: [1, 1, 1, 1] });
-    flagMarkerMat = await material.create(c, {
-      shader: markerShd,
-      binding: flagMarkerBind,
-    });
-    // Selection cells: the same UNLIT instanced shader, premultiplied and
-    // depth-write-free like the ghosts — a selection has to read from inside the
-    // volume it encloses, which is the whole point (f2b item 1), and a
-    // depth-writing translucent would hide the cells behind it. The colour is the
-    // material's, not the instances': every cube is the same `--primary` and
-    // `createInstanced` already seeds each tint slot white.
-    selectionCellBind = binding.create(c, markerShd);
-    binding.set(c, selectionCellBind, {
-      color: [
-        SELECTED_COLOR[0] * SELECTION_CELL_ALPHA,
-        SELECTED_COLOR[1] * SELECTION_CELL_ALPHA,
-        SELECTED_COLOR[2] * SELECTION_CELL_ALPHA,
-        SELECTION_CELL_ALPHA,
-      ],
-    });
-    selectionCellMat = await material.create(c, {
-      shader: markerShd,
-      binding: selectionCellBind,
-      blend: material.blend.premultiplied,
-      depth: { write: false },
-    });
-    await buildLitMaterials(c);
-  };
-
-  const stampGhostMaterial = (): material.Material => {
-    if (!stampGhostMat)
-      throw new Error("field-host: stamp ghost material not initialized");
-    return stampGhostMat;
-  };
-
-  const voidCastMaterial = (): material.Material => {
-    if (!voidCastMat)
-      throw new Error("field-host: void cast material not initialized");
-    return voidCastMat;
-  };
-
-  // Material for one surface/backing bucket under the current shading mode. The
-  // `normals` debug mode collapses every class to normalsMat; `studio` looks up the
-  // per-class lit material (falling back to class-0 surface if the key is missing).
-  const bucketMaterial = (
-    classId: number,
-    backing: boolean,
-  ): material.Material => {
-    if (shading === "normals") {
-      if (!normalsMat) throw new Error("field-host: materials not initialized");
-      return normalsMat;
-    }
-    const key = (backing ? "b" : "c") + classId;
-    const hit = litByClass.get(key) ?? litByClass.get("c0");
-    if (!hit) throw new Error("field-host: lit materials not initialized");
-    return hit.mat;
-  };
-
-  const kitInstancedMat = (): material.Material => {
-    if (!kitMat) throw new Error("field-host: kit material not initialized");
-    return kitMat;
-  };
+  // Every GPU material the viewport draws with, lifted out whole
+  // (`field-materials.ts`): fifteen handles and the shading mode. What stayed is
+  // `litByClass` — a substrate value member since T3a, so it could not follow its
+  // own owner; the verdict is at its declaration ~540 lines up.
+  //
+  // THE ASSEMBLY SITS WHERE THE FUNCTIONS WERE, on `createSegmentBrush`'s
+  // precedent (a cluster's remaining footprint marks where the cluster was), and
+  // for once that position is also the one the ordering forces. It has to be
+  // ABOVE `createProps` ~110 lines down, which takes `kitMat` and `kitInstanced`,
+  // and above `createAnalyzer` ~1,580 lines down, which takes `flagMarker` —
+  // `createAnalyzer` being the closure's ordering pivot, whose own block names
+  // this line as one of the two constraints this task adds to it. `substrate` is
+  // its only other requirement and is ~190 lines up, so nothing here is forced
+  // any higher.
+  //
+  // NO FORWARD REFERENCE AT ALL, which is worth recording because the map
+  // predicted one. §6's `materials` row lists a read of `stamp` in
+  // `stampGhostMaterial`, which would have made this assembly depend on the
+  // machine ~1,670 lines below. Grepping the function finds no such read: the only
+  // occurrence of the word is inside its own throw message, "field-host: stamp
+  // ghost material not initialized". A §2.1 phantom, on a binding name the map's
+  // own list of ordinary English words already names. The cluster's real outbound
+  // reads are three, all on the substrate.
+  const materials = createMaterials({
+    substrate,
+    // The editor's `--primary`, premultiplied into the cell-selection material.
+    // Passed as a VALUE rather than moved, because `selectedBoxOutline` reads the
+    // same constant and that function is `selection`'s — `field-segment.ts`'s
+    // `anchorCrossHalfM` precedent, and the module's header argues it.
+    selectedColor: SELECTED_COLOR,
+  });
 
   // --- dirty set + remesh -------------------------------------------------
 
@@ -2460,7 +2256,7 @@ export function createFieldHost(deps?: {
     const g = geometry.cube(c, { size: 1 });
     const im = mesh.createInstanced(c, {
       geometry: g,
-      material: kitInstancedMat(),
+      material: materials.kitInstanced(),
       count: kit.length,
     });
     const [cx, cy, cz] = field.parseChunkKey(key);
@@ -2482,17 +2278,23 @@ export function createFieldHost(deps?: {
   // where the functions were, on `createSegmentBrush`'s precedent — a cluster's
   // remaining footprint marks where the cluster was.
   //
-  // The two arrows below FORWARD-REFERENCE bindings declared hundreds of lines
-  // down (`kitMat` is above, but `advisor` is not). That is safe for the reason
+  // The arrow below FORWARD-REFERENCES a binding declared hundreds of lines down
+  // (`materials` is above, but `advisor` is not). That is safe for the reason
   // spelled out at the `createVoidCast` assembly below — nothing between this
   // closure's brace and its `return {` ever RUNS, so an arrow body cannot be
   // evaluated before the declarations it names. The object literal itself is
-  // eager, which is why `substrate` and `kitInstancedMat` are both declared above
-  // this line.
+  // eager, which is why `substrate` and `materials` are both declared above this
+  // line.
+  //
+  // The two material deps were `() => kitMat` and `kitInstancedMat` — a thunk
+  // over a host `let` and the host's own throwing getter over it — until
+  // 2026-08-08 (foundations T3d), when the material layer got an owner. Both are
+  // now plain refs onto that module's seam. What the CALL bought has not changed;
+  // what changed is who answers it.
   const props = createProps({
     substrate,
-    kitMat: () => kitMat,
-    kitInstancedMat,
+    kitMat: materials.kitMat,
+    kitInstancedMat: materials.kitInstanced,
     // Straight through to the advisor's verb of the same name, which is where the
     // act now lives: the two analyzer flags AND the pump request, as ONE named
     // thing. The three lines were one statement of intent inside `rebuildProps`,
@@ -2543,7 +2345,7 @@ export function createFieldHost(deps?: {
       });
       const m = mesh.create(c, {
         geometry: g,
-        material: bucketMaterial(bucket.classId, bucket.backing),
+        material: materials.bucket(bucket.classId, bucket.backing),
       });
       mesh.setPosition(c, m, origin);
       entries.push({ m, g, classId: bucket.classId, backing: bucket.backing });
@@ -2926,13 +2728,17 @@ export function createFieldHost(deps?: {
     // context has still decided it.
     selectionCellsCount = plan?.displayed ?? 0;
     const c = ctx;
-    if (!c || !selectionCellMat) return;
+    // Bound to a local because the material is a CALL now (`field-materials.ts`):
+    // the guard and the upload are two reads of one slot, and narrowing does not
+    // survive a call boundary.
+    const cellMat = materials.selectionCell();
+    if (!c || !cellMat) return;
     destroySelectionCells(c);
     if (plan === null || plan.displayed === 0) return;
     const g = geometry.cube(c, { size: 1 });
     const im = mesh.createInstanced(c, {
       geometry: g,
-      material: selectionCellMat,
+      material: cellMat,
       count: plan.displayed,
     });
     // One cell cube per instance, the flag-marker matrix layout: uniform scale on
@@ -3234,7 +3040,7 @@ export function createFieldHost(deps?: {
   // preference: the press interrogates `entityFootprints`, `gizmoAxisAt`,
   // `setSelectedEntity`, `viewState` and the advisor's `setSelectedFlag`, all of
   // which are declared BELOW this point, and the deps literal is eager. Assembling it here
-  // would have cost five arrows to save two. Search `const picking =`, ~690
+  // would have cost five arrows to save two. Search `const picking =`, ~750
   // lines down, immediately above the machine that dispatches it.
 
   // The named-history feed (`field-history-feed.ts`): its channel, its change
@@ -3260,7 +3066,7 @@ export function createFieldHost(deps?: {
   // `notifyHistory()`, which was declared on this same line. Safe for the reason
   // spelled out at the `createVoidCast` assembly below — nothing between this
   // closure's brace and its `return {` ever RUNS. No hoist was needed: the one dep
-  // is `substrate`, assembled ~1,200 lines above.
+  // is `substrate`, assembled ~1,070 lines above.
   const historyFeed = createHistoryFeed({ substrate });
 
   // The entity-list tick. Fired by every path that can add, remove or rewrite
@@ -3793,7 +3599,7 @@ export function createFieldHost(deps?: {
   // extraction lands in this same region and inherits it.
   //
   // This binding is USED ABOVE where it is DECLARED: `markDirtyWithNeighbors`
-  // (~1,350 lines up) calls `voidcast.invalidate()`. That is legal, and it is
+  // (~1,400 lines up) calls `voidcast.invalidate()`. That is legal, and it is
   // FORCED rather than chosen — `snapshotAllChunks` is a dep and is declared
   // just above, so the construction cannot move up past it.
   //
@@ -3818,7 +3624,7 @@ export function createFieldHost(deps?: {
     reportToolError,
     snapshotAllChunks,
     chunkOrigin,
-    voidCastMaterial,
+    voidCastMaterial: materials.voidCast,
   });
 
   // The layer flags + the slice plane (`field-view.ts`). Named `viewState`, not
@@ -3831,17 +3637,19 @@ export function createFieldHost(deps?: {
   // over it. The map records `view`'s only outbound edge as `world.dirty`,
   // because a cross-cluster CALL is not a data edge (§2.1); making the two verbs
   // constructor deps is what turns the omission into something the compiler
-  // enforces. The cluster's own state block, ~1,900 lines up, says where it went.
+  // enforces. The cluster's own state block, ~1,780 lines up, says where it went.
   //
-  // Everything that READS this is a forward reference from inside a function
-  // body — `renderScene` and `remeshOne` sit above it, as does the arrow pair the
-  // `createTargeting` assembly hands `field-targeting.ts` — which is safe for the
-  // reason spelled out at the `createVoidCast` assembly above: nothing between
-  // this closure's brace and its `return {` ever RUNS, so no function body can be
-  // evaluated before this declaration executes. No hoist was needed, and none was
-  // taken. (`field-picking.ts` reads it too and does NOT forward-reference: that
-  // assembly is deliberately below this line, which is half of why it is where it
-  // is.)
+  // What still READS this from ABOVE is a forward reference from inside a
+  // function body — `remeshOne`, and the arrow pair the `createTargeting`
+  // assembly hands `field-targeting.ts` — which is safe for the reason spelled
+  // out at the `createVoidCast` assembly above: nothing between this closure's
+  // brace and its `return {` ever RUNS, so no function body can be evaluated
+  // before this declaration executes. No hoist was needed, and none was taken.
+  // Two modules read it from BELOW and so do not forward-reference at all:
+  // `field-picking.ts`, whose assembly is deliberately under this line, and
+  // `field-render.ts` since T3d Task 3 — which took `renderScene` and its
+  // fourteen `layers` sites out of this file entirely, so the densest reader of
+  // this binding is now a plain `layers: viewState.layers` on a deps record.
   const viewState = createView({
     substrate,
     discardVoidCast: voidcast.discard,
@@ -3857,7 +3665,7 @@ export function createFieldHost(deps?: {
   //
   // `world`'s state and NOT the advisor's, which is why it did not travel with
   // the verify verb that reads it: `resetWorld` writes it and the entity
-  // footprint cache's log signature reads it too (~500 lines up). It sat inside
+  // footprint cache's log signature reads it too (~540 lines up). It sat inside
   // the advisor block until 2026-08-07 and moved to this line, directly above the
   // assembly.
   //
@@ -3887,7 +3695,7 @@ export function createFieldHost(deps?: {
   //
   // The whole cluster left on 2026-08-07 (foundations T3d): 18 of its 19 state
   // bindings, all 14 of its functions, the worker handle, the flags channel and
-  // four module-scope constants. The nineteenth binding is `flagStore`, ~1,980
+  // four module-scope constants. The nineteenth binding is `flagStore`, ~1,940
   // lines up, and the verdict recorded at its declaration is that it CANNOT
   // travel — it is a substrate value member, and the substrate is assembled above
   // every module that could own it.
@@ -3907,7 +3715,7 @@ export function createFieldHost(deps?: {
   // measures the seam.
   //
   // THE POSITION IS FORCED from above and constrains what sits below. Above:
-  // `chunkCopy` is a dep and is declared ~130 lines up, so this cannot rise past
+  // `chunkCopy` is a dep and is declared ~150 lines up, so this cannot rise past
   // it — the `createVoidCast` shape exactly. Below: `createPicking` and
   // `createStatsMeter` both take verbs of this module as PLAIN refs, so neither
   // may be assembled above this line, and each says so at its own end.
@@ -3916,12 +3724,14 @@ export function createFieldHost(deps?: {
   // tasks each add a constraint to it rather than relieving one. Stated once here
   // instead of discovered three more times:
   //
-  //   - Task 3 (`render`) joins the BELOW list — its module takes
-  //     `advisor.markerMesh` and `advisor.selectionBatch` as plain refs, making
-  //     three modules that may not rise above this line.
-  //   - Task 3 (`materials`) joins the ABOVE list — `flagMarkerMat: () =>
-  //     flagMarkerMat` becomes `materials.flagMarkerMat`, which forces
-  //     `createMaterials` above this assembly.
+  //   - `field-render.ts` JOINED THE BELOW LIST on 2026-08-08 (T3d Task 3): it
+  //     takes `advisor.markerMesh` and `advisor.selectionBatch` as plain refs, so
+  //     three modules may not rise above this line.
+  //   - `field-materials.ts` JOINED THE ABOVE LIST the same day, and it is the
+  //     dep two lines below that says so: `flagMarkerMat: () => flagMarkerMat`
+  //     became `materials.flagMarker`, which pins `createMaterials` above this
+  //     assembly. It sat ~1,500 lines up already, so the constraint cost nothing
+  //     — but it is now checked by the compiler rather than by luck.
   //   - Task 6 (`world`) is the one that is not merely an ordering fact: see the
   //     MIGRATION note at `worldEpoch`'s declaration directly above. `resetWorld`
   //     calls into this module and this module reads `world`'s epoch, so
@@ -3933,7 +3743,7 @@ export function createFieldHost(deps?: {
   // is what this task did.
   //
   // Everything that reads `advisor` from ABOVE — `markDirtyWithNeighbors` and the
-  // `createProps` seam's arrow, both ~1,400 lines up — is a forward reference
+  // `createProps` seam's arrow, both ~1,500 lines up — is a forward reference
   // from inside a function body, which is safe for the reason spelled out at the
   // `createVoidCast` assembly: nothing between this closure's brace and its
   // `return {` ever RUNS.
@@ -3958,7 +3768,7 @@ export function createFieldHost(deps?: {
     spawnAnalyzer: deps?.spawnAnalyzer,
     reportToolError,
     chunkCopy,
-    flagMarkerMat: () => flagMarkerMat,
+    flagMarkerMat: materials.flagMarker,
     worldEpoch: () => worldEpoch,
     frameCameraOn,
     selectionOutline: selectedBoxOutline,
@@ -4010,7 +3820,7 @@ export function createFieldHost(deps?: {
   // that arbitrates between them, as **56 top-level declarations** inside
   // `createFieldMachine` — 12 mutable state slots, 2 view channels, 3 Esc rungs,
   // 1 preview coalescer and 38 functions. They used to thread this file from the
-  // state block ~2,100 lines up to the pointer handlers ~630 lines down. The
+  // state block ~2,260 lines up to the pointer handlers ~360 lines down. The
   // assembly sits HERE, where the bulk of them were, on `createSegmentBrush`'s
   // precedent — a cluster's remaining footprint marks where the cluster was.
   //
@@ -4029,7 +3839,7 @@ export function createFieldHost(deps?: {
   // one record plus 39 named deps — 22 for the sessions, 17 more for the pointer
   // chain, and that second group is a MEASUREMENT of what the seven-way
   // arbitration was reaching for rather than a cost the move added: those calls
-  // were being made either way, from a handler 700 lines below the state it was
+  // were being made either way, from a handler ~360 lines below the state it was
   // reading. The 14 `cancelStampSession` call sites land as
   // `machine.cancelSession()` — the teardown edge §7.5 said had to be inverted
   // into a callback, inverted.
@@ -4046,7 +3856,7 @@ export function createFieldHost(deps?: {
   //
   // The object literal itself IS eager, which is what decides the position: every
   // plain function ref below has to be declared above this line, and the one that
-  // is not — `stats.noteReconfigureMs`, constructed ~600 lines down — is the one
+  // is not — `stats.noteReconfigureMs`, constructed ~270 lines down — is the one
   // member wrapped in an arrow.
   const machine = createFieldMachine({
     substrate,
@@ -4070,7 +3880,7 @@ export function createFieldHost(deps?: {
     markDirtyWithNeighbors,
     snapshotChunks,
     chunkOrigin,
-    stampGhostMaterial,
+    stampGhostMaterial: materials.stampGhost,
     cursorRay: targeting.cursorRay,
     boxCorner,
     setBoxAnchor,
@@ -4082,7 +3892,7 @@ export function createFieldHost(deps?: {
     rebuildProps: props.rebuild,
     notifyEntities,
     // An ARROW, alone among the function members, because `field-stats.ts` is
-    // constructed ~600 lines below this one and the literal is eager. Same shape
+    // constructed ~230 lines below this one and the literal is eager. Same shape
     // as the forward reference `applyReconfigureSession` made when it lived here.
     noteReconfigureMs: (ms) => stats.noteReconfigureMs(ms),
     // The report is `field-drift.ts`'s since T3d, so the apply gets that module's
@@ -4221,341 +4031,94 @@ export function createFieldHost(deps?: {
     applyOrbit();
   };
 
-  // The studio key light rides the eye, so a surface the user turns toward is a
-  // surface that lights up. `normals` needs no lights at all (normalColor ignores
-  // them), and an empty list is what says that to frame.render.
-  const sceneLights = (): frame.Light[] =>
-    shading === "studio"
-      ? [
-          {
-            type: "point",
-            position: cameraEye(),
-            color: STUDIO_KEY_COLOR,
-            intensity: STUDIO_KEY_INTENSITY,
-            range: STUDIO_KEY_RANGE,
-          },
-        ]
-      : [];
-
-  // --- ghost target marker ------------------------------------------------
-
-  // Scratch vectors for the ghost cube's per-frame pose (setPosition/setScale
-  // copy, so reuse is safe — no per-frame allocation).
-  const ghostPos = new Float32Array(3);
-  const ghostScale = new Float32Array(3);
-
-  // This frame's ghost preview state: the brush centre under the last cursor
-  // position + the snapped lattice box when the active tool is a kit fill
-  // (null centre = nothing to preview). Computed ONCE per frame — shared by
-  // the translucent cube (inside frame.render) and the edge/ring lines
-  // (drawn after it).
-  type GhostState = {
-    center: Vec3T;
-    kitBox: ReturnType<typeof snappedKitBox> | null;
-  };
-  const ghostState = (): GhostState | null => {
-    // Bound to a local, like every other read of the substrate's thunk side: the
-    // guard and the two coordinate reads are one synchronous expression over one
-    // `let`, and narrowing does not survive a call boundary.
-    const last = targeting.pointer();
-    if (last === null) return null;
-    const center = targeting.computeTarget(last.x, last.y);
-    if (!center) return null;
-    const kitBox = isKitFillTool() ? snappedKitBox(center, digRadius) : null;
-    return { center, kitBox };
-  };
-
-  // Draw the ghost preview lines, occlude:false so they read through solid
-  // rock: a kit fill previews its snapped box's 12 edges; every sphere tool
-  // previews the two brush rings. Corner/ring math lives in field-ghost.ts.
-  const renderGhostLines = (
-    c: Context,
-    view: camera.Camera,
-    g: GhostState,
-  ): void => {
-    const batch = g.kitBox
-      ? boxEdges(boxCorners(g.kitBox.center, g.kitBox.halfExtents), GHOST_COLOR)
-      : segmentsToBatch(sphereGhostSegments(g.center, digRadius), GHOST_COLOR);
-    frame.drawLines(c, {
-      vertices: batch.vertices,
-      colors: batch.colors,
-      camera: view,
-      occlude: false,
-    });
-  };
-
-  // The cursor mark a two-click gesture shows before its first click. Built per
-  // FRAME rather than stored per pointer-move, because it has to track the
-  // camera as well as the cursor — a right-drag with the pointer still moves the
-  // world point under it. That costs one `selectionPoint` raycast per frame, the
-  // same cost the brush ghost has always paid on the frames it draws, and only
-  // while a two-click gesture is armed and unanchored.
+  // The frame, lifted out whole (`field-render.ts`): the light list, this frame's
+  // ghost state, the ghost's lines, the cursor affordance and the draw-list build
+  // itself, plus the reference grid's two batches and the ghost cube's two scratch
+  // vectors. NOTHING of it stayed — like `field-stats.ts` and unlike the seven
+  // extractions that left a container behind, this cluster shared no state with
+  // the substrate, because nothing outside it ever read its own five bindings.
   //
-  // Colour follows the shape, because each mark previews a specific thing: the
-  // amber cross is the box/region ANCHOR the click will leave (`setBoxAnchor`),
-  // and the hologram ring is the segment's own radius (`setSegmentAnchor` is
-  // hologram too). Neither changes colour when the click lands.
-  const renderCursorAffordance = (c: Context, view: camera.Camera): void => {
-    const shape = cursorAffordance({
-      gesture: machine.gesture(),
-      pendingStamp: machine.pendingStamp() !== null,
-      anchored: boxAnchor !== null || segment.anchor() !== null,
-    });
-    // Split rather than folded into one `||`, to keep the short-circuit the
-    // closure's `if (shape === null || !lastPointer)` had: with no gesture armed
-    // — the common frame — the cursor is not asked for at all.
-    if (shape === null) return;
-    const last = targeting.pointer();
-    if (last === null) return;
-    const p = targeting.selectionPoint(last.x, last.y);
-    if (!p) return;
-    const batch =
-      shape === "ring"
-        ? segmentsToBatch(sphereGhostSegments(p, digRadius), GHOST_COLOR)
-        : segmentsToBatch(
-            crossSegments(p, ANCHOR_CROSS_HALF_M),
-            SELECTION_COLOR,
-          );
-    frame.drawLines(c, {
-      vertices: batch.vertices,
-      colors: batch.colors,
-      camera: view,
-      occlude: false,
-    });
-  };
-
-  const renderScene = (c: Context, view: camera.Camera): void => {
-    // Layer gating happens HERE, at draw-list build time: the host has no
-    // per-mesh visibility flag — it reconstructs the frame.render lists (and
-    // issues the drawLines calls) every frame, so a hidden layer is simply
-    // never pushed/drawn. GPU chunk state stays resident either way.
-    const meshes: mesh.Mesh[] = [];
-    const instanced: mesh.InstancedMesh[] = [];
-    for (const cm of chunkMeshes.values()) {
-      if (viewState.layers().field)
-        for (const e of cm.entries) meshes.push(e.m);
-      if (viewState.layers().kit && cm.kit) instanced.push(cm.kit);
-    }
-    // Committed placed props: proxy primitives on the shared instanced-lit
-    // material, their own layer gate (they are entities, not field — the "if you
-    // can dig it, it's field" jurisdiction line drawn in the layer strip).
-    if (viewState.layers().props)
-      for (const p of propMeshes) instanced.push(p.im);
-    // The walkability advisor's markers: ONE opaque unlit instanced draw covering
-    // every visible finding. Their own gate — the findings keep arriving while it
-    // is off (the analyzer is not a display layer), this only stops drawing them.
-    // Bound to a local because narrowing does not survive a call boundary: the
-    // gate and the push are two reads of `field-analyzer.ts`'s layer slot. The
-    // seam hands over the MESH rather than the `{ im, g }` pair behind it — the
-    // geometry is the module's to free and this loop never wanted it.
-    const flagMarkerMesh = advisor.markerMesh();
-    if (viewState.layers().flags && flagMarkerMesh)
-      instanced.push(flagMarkerMesh);
-    // The cell-level selection display, under the `selection` layer with the
-    // outlines below (hiding the layer hides the DISPLAY; the selection itself
-    // stays live and keeps masking ops). Premultiplied and depth-write-free, so
-    // it sorts into frame.render's blended group with the ghosts.
-    //
-    // DISCLOSED AS UNPINNED, the third of this task's three (see
-    // `rebuildFlagSelection` in `field-analyzer.ts` for the other two): THIS GATE
-    // is unobservable. The only window onto the layer is `selectionCellCount()`,
-    // which reports what the rebuild DECIDED and not what the frame drew — by
-    // design, since it is the marker-count twin and settles before the context
-    // guard. So switching
-    // `selection` off while a flood is selected is an eyeball check, not a test.
-    // A `drawnSelectionCells()` accessor would be a second count whose only
-    // consumer is one assertion, and two counts that can disagree is worse than
-    // one that is honest about its scope.
-    if (viewState.layers().selection && selectionCells)
-      instanced.push(selectionCells.im);
-    // The void cast goes in FIRST of the three translucents on purpose. All
-    // three sort after every opaque (frame.render's blended group), so this
-    // position decides nothing against the field — but within the blended group
-    // submission order is preserved, and that is what decides how the three
-    // compose against EACH OTHER. The cast ignores depth outright
-    // (compare: "always"), so submitted last it would wash cyan over every ghost
-    // in the frame; submitted first, the two ghosts keep their hologram-blue and
-    // read on top of it. Right priority: a ghost is the action the user is
-    // steering right now, the cast is the room around it.
-    if (viewState.layers().voidCast)
-      for (const entries of voidCastMeshes.values())
-        for (const e of entries) meshes.push(e.m);
-    // Filled kit ghost (the fill-tool-solid-volume-surprise fix): pose the ONE
-    // translucent unit cube at the snapped box and push it into the mesh list.
-    // When there is no kit-fill ghost this frame the mesh is simply not drawn.
-    // Its position in this list no longer decides compositing against OPAQUES:
-    // frame.render records every blended draw after every opaque one, so the
-    // hologram (no depth write) survives the field AND the instanced kit
-    // pieces. Order still matters WITHIN the blended group — submission order
-    // is preserved there — so this cube's position relative to the stamp
-    // ghosts below (also premultiplied, also no depth write) is what decides
-    // how those two translucents composite against each other.
-    // THREE independent ghost gates: the LAYER flag is user intent; the gesture
-    // suppression and the session suppression are both mode coherence — nothing
-    // on screen may promise a stroke the next click will not make.
-    //  - while ANY gesture is armed LMB doesn't stroke, so a sphere/box brush
-    //    preview would promise an action that won't happen. `segment` is
-    //    included: its click anchors or sweeps a capsule, never stamps the
-    //    sphere this ghost draws (its own affordances are the cursor ring below
-    //    and, once anchored, the capsule preview). `pointer` being the DEFAULT
-    //    gesture is why a freshly opened world shows no brush ghost at all until
-    //    a brush is armed.
-    //  - while a SESSION stands the brush is suspended (D-F4.5-7 — see
-    //    onPointerDown), so the same promise would be false with no gesture
-    //    armed at all.
-    const ghost =
-      viewState.layers().ghost &&
-      machine.gesture() === null &&
-      machine.session() === null
-        ? ghostState()
-        : null;
-    if (ghost?.kitBox && ghostCube) {
-      ghostPos.set(ghost.kitBox.center);
-      ghostScale[0] = ghost.kitBox.halfExtents[0] * 2;
-      ghostScale[1] = ghost.kitBox.halfExtents[1] * 2;
-      ghostScale[2] = ghost.kitBox.halfExtents[2] * 2;
-      mesh.setPosition(c, ghostCube, ghostPos);
-      mesh.setScale(c, ghostCube, ghostScale);
-      meshes.push(ghostCube);
-    }
-    // Stamp ghosts share the ghost LAYER gate only (no selection-mode
-    // suppression — the session, not LMB, owns their promise) and draw after
-    // the opaque field like the kit-fill cube (premultiplied, no depth write).
-    if (viewState.layers().ghost)
-      for (const entries of ghostMeshes.values())
-        for (const e of entries) meshes.push(e.m);
-    // Kit instances always render with the lit-instanced material, even in the
-    // `normals` debug mode — there is no normal-coloured instanced variant, and
-    // NORMALS_AMBIENT (full white) is what keeps them readable there. A deliberate
-    // v0 choice.
-    frame.render(c, {
-      meshes,
-      instanced,
-      camera: view,
-      clearColor: CLEAR,
-      lights: sceneLights(),
-      ambient: shading === "studio" ? STUDIO_AMBIENT : NORMALS_AMBIENT,
-      effects: [],
-    });
-    // Depth-tested grid (occlude:true): solid geometry hides it. Minors, then majors.
-    if (viewState.layers().grid) {
-      frame.drawLines(c, {
-        vertices: gridMinor.vertices,
-        colors: gridMinor.colors,
-        camera: view,
-        occlude: true,
-      });
-      frame.drawLines(c, {
-        vertices: gridMajor.vertices,
-        colors: gridMajor.colors,
-        camera: view,
-        occlude: true,
-      });
-    }
-    // Selection overlay: the amber cell-selection AABB + pending box-select
-    // anchor cross + the pending-region preview, and the SELECTED ENTITY's
-    // footprint box in the chrome's primary blue — all occlude:false so a
-    // selection reads through rock. Batches are prebuilt on selection change
-    // (the box preview on pointer move) — nothing is materialized per frame.
-    // Hiding the layer hides the DISPLAY only: both selections stay live (the
-    // cell one keeps masking ops, the entity one keeps feeding its seam).
-    if (viewState.layers().selection) {
-      if (selectionBatch)
-        frame.drawLines(c, {
-          vertices: selectionBatch.vertices,
-          colors: selectionBatch.colors,
-          camera: view,
-          occlude: false,
-        });
-      if (anchorBatch)
-        frame.drawLines(c, {
-          vertices: anchorBatch.vertices,
-          colors: anchorBatch.colors,
-          camera: view,
-          occlude: false,
-        });
-      if (boxPreviewBatch)
-        frame.drawLines(c, {
-          vertices: boxPreviewBatch.vertices,
-          colors: boxPreviewBatch.colors,
-          camera: view,
-          occlude: false,
-        });
-      if (entitySelectionBatch)
-        frame.drawLines(c, {
-          vertices: entitySelectionBatch.vertices,
-          colors: entitySelectionBatch.colors,
-          camera: view,
-          occlude: false,
-        });
-      // The translate gizmo, LAST of the selection overlays and occlude:false
-      // like them: a handle behind the box it moves must still be grabbable, and
-      // what the user sees has to be what `gizmoAxisAt` hit-tests.
-      if (gizmoBatch && gizmoVisible())
-        frame.drawLines(c, {
-          vertices: gizmoBatch.vertices,
-          colors: gizmoBatch.colors,
-          camera: view,
-          occlude: false,
-        });
-    }
-    // The selected FINDING's cell outline, in the same primary blue as the entity
-    // box above (D-F4.5-15's "reuse --primary, no new hue") — but under the FLAGS
-    // gate, not the selection one, because it is an emphasis on a marker rather
-    // than a selection overlay of its own. With `flags` off there are no markers,
-    // so an outline here would box empty air; the pick is gated the same way, so
-    // a flag selection cannot even be made while the layer is hidden.
-    // occlude:false like every other selection overlay: a finding inside rock is
-    // exactly the kind the advisor is for. A local for the same reason the marker
-    // layer above takes one — three reads of one slot behind a call.
-    const flagSelectionBatch = advisor.selectionBatch();
-    if (viewState.layers().flags && flagSelectionBatch)
-      frame.drawLines(c, {
-        vertices: flagSelectionBatch.vertices,
-        colors: flagSelectionBatch.colors,
-        camera: view,
-        occlude: false,
-      });
-    // The stamp's PLACEMENT proxies — one merged batch of oriented wireframe
-    // boxes, occlude:false like every other ghost overlay so props previewed
-    // inside a cave read through its walls. Under the ghost layer gate with the
-    // hologram meshes: they are two halves of one preview.
-    const placements = machine.placementGhost();
-    if (viewState.layers().ghost && placements)
-      frame.drawLines(c, {
-        vertices: placements.vertices,
-        colors: placements.colors,
-        camera: view,
-        occlude: false,
-      });
-    // The segment brush's pending anchor + capsule preview. Under the GHOST
-    // layer, not `selection`: they preview a brush op the next click commits.
-    if (viewState.layers().ghost) {
-      const anchorLines = segment.anchorBatch();
-      if (anchorLines)
-        frame.drawLines(c, {
-          vertices: anchorLines.vertices,
-          colors: anchorLines.colors,
-          camera: view,
-          occlude: false,
-        });
-      const previewLines = segment.previewBatch();
-      if (previewLines)
-        frame.drawLines(c, {
-          vertices: previewLines.vertices,
-          colors: previewLines.colors,
-          camera: view,
-          occlude: false,
-        });
-    }
-    // Ghost target preview last so it draws over the scene + grid (occlude:false).
-    if (ghost) renderGhostLines(c, view, ghost);
-    // The armed-but-unanchored cursor affordance (f2b item 10 / D-F4.5-7): what
-    // a two-click gesture shows BEFORE its first click, so arming one is not a
-    // mode with no affordance at all. Which mark to draw is `cursorAffordance`'s
-    // decision, pinned in the pure module; here is only the drawing.
-    if (viewState.layers().ghost) renderCursorAffordance(c, view);
-  };
+  // FIVE FUNCTIONS OUT, ONE VERB ON THE SEAM, and a deps record of twenty-nine.
+  // That is `field-picking.ts`'s shape at four times the width: the four helpers
+  // each have exactly one caller — the fifth — and the fifth has exactly one, the
+  // `tick` directly below. So the interface is `render.scene(c, cam)` and the
+  // COST of this extraction is entirely in what the frame has to be handed.
+  //
+  // THE POSITION IS FORCED FROM ABOVE and constrains nothing below TODAY. The
+  // literal is eager, so every plain ref in it must be declared above this line:
+  // FIFTEEN of the twenty-nine deps are refs onto sibling modules' seams, drawn
+  // from SIX files (`viewState` 1, `materials` 2, `advisor` 2, `machine` 4,
+  // `segment` 3, `targeting` 3), and the LOWEST of those assemblies is
+  // `createFieldMachine` ~200 lines up, so this line cannot rise past it.
+  // `createAnalyzer`'s own block names this module as one of the three that may
+  // not rise above the closure's ordering pivot; the machine is simply lower
+  // still. The rest of the record is 1 substrate + 8 thunks over host `let`s + 3
+  // plain refs to host `const` arrows + 2 constants by value = 29.
+  //
+  // "Nothing takes `render`, so nothing is pinned below it" is TRUE TODAY AND NOT
+  // SETTLED, and the two deps that unsettle it are already in the literal below.
+  // `cameraEye` reads `orbitState` and `gizmoVisible` reads the gizmo span; when
+  // Tasks 4 and 5 give `camera` and `entities` owners, each becomes a module ref
+  // and each turns its assembly into a new LOWER bound on this line. This block
+  // will then have constraints from both directions, like `createAnalyzer`'s.
+  //
+  // ELEVEN DEPS NAME STATE THAT STILL LIVES IN THIS CLOSURE and will not for
+  // long. Each is a NARROW named thunk or a plain ref rather than a slice of a
+  // module record, which is what makes those later tasks cost one line each HERE
+  // and no change of SHAPE inside `field-render.ts` — `() => digRadius` becomes
+  // `tool.digRadius`, and what the module sees is a comment rewrite, not a new
+  // signature. Every affected site over there carries its own marker.
+  //   // MIGRATION (until T3d Task 4): the brush radius and the kit-fill test
+  //   (`tool`), the camera eye (`camera`).
+  //   // MIGRATION (until T3d Task 5): the four selection batches, the anchor and
+  //   the cell mesh (`selection`); the entity box, the gizmo batch and its
+  //   visibility (`entities`).
+  const render = createRender({
+    substrate,
+    layers: viewState.layers,
+    shading: materials.shading,
+    ghostCube: materials.ghostCube,
+    flagMarkerMesh: advisor.markerMesh,
+    flagSelectionBatch: advisor.selectionBatch,
+    gesture: machine.gesture,
+    session: machine.session,
+    pendingStamp: machine.pendingStamp,
+    placementGhost: machine.placementGhost,
+    segmentAnchor: segment.anchor,
+    segmentAnchorBatch: segment.anchorBatch,
+    segmentPreviewBatch: segment.previewBatch,
+    pointer: targeting.pointer,
+    computeTarget: targeting.computeTarget,
+    selectionPoint: targeting.selectionPoint,
+    digRadius: () => digRadius,
+    isKitFillTool,
+    cameraEye,
+    // `?.im ?? null` rather than an explicit guard, and the `typescript.md` rule
+    // it will be tested against ("don't paper over nullability with `?.`") is
+    // satisfied rather than bypassed: `selectionCells` is a `{ im, g } | null`
+    // pair written as one unit, so the chain is null EXACTLY when the pair is
+    // null — there is no partially-built state for it to hide. It hands over the
+    // MESH alone on `advisor.markerMesh`'s precedent; the geometry is the
+    // selection's to free and the frame never wanted it.
+    // MIGRATION (until T3d Task 5): this arrow is a REQUIREMENT on that task, not
+    // a detail. The selection module must publish a mesh-only accessor of its own
+    // (as `field-analyzer.ts` does), or this `?.im ?? null` migrates into the new
+    // module rather than disappearing with the closure `let`.
+    selectionCellMesh: () => selectionCells?.im ?? null,
+    selectionBatch: () => selectionBatch,
+    anchorBatch: () => anchorBatch,
+    boxPreviewBatch: () => boxPreviewBatch,
+    boxAnchor: () => boxAnchor,
+    entitySelectionBatch: () => entitySelectionBatch,
+    gizmoBatch: () => gizmoBatch,
+    gizmoVisible,
+    // Two module-scope constants passed by VALUE, on `field-segment.ts`'s
+    // `anchorCrossHalfM` precedent — which is literally one of the two. Both have
+    // readers in `selection` that are not this cluster's, so they stay declared
+    // where both can see them.
+    selectionColor: SELECTION_COLOR,
+    anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
+  });
 
   // The live stats readout, lifted out whole (`field-stats.ts`): its channel, its
   // reconfigure timing, its four cache bindings and `currentLogStats` all left,
@@ -4581,8 +4144,9 @@ export function createFieldHost(deps?: {
   // order matter at all, and since T3d (2026-08-07) `advisor` is the reason this
   // line may not rise: it was a closure `const` before and is now a module verb.
   //
-  // The one FORWARD reference runs the other way: `applyReconfigureSession`, ~500
-  // lines up, calls `stats.noteReconfigureMs`. That is safe for the reason spelled
+  // The one FORWARD reference runs the other way: `applyReconfigureSession`, now
+  // `field-machine.ts`'s, calls `stats.noteReconfigureMs` through the arrow
+  // above. That is safe for the reason spelled
   // out at the `createVoidCast` assembly above — nothing between this closure's
   // brace and its `return {` ever RUNS, so a function body cannot be evaluated
   // before the declaration it names. No hoist was needed.
@@ -4647,7 +4211,7 @@ export function createFieldHost(deps?: {
       // The twenty lines this replaced read four other clusters, which is why
       // they were never `tick`'s to own.
       stats.publishIfWatched();
-      renderScene(c, cam);
+      render.scene(c, cam);
     }
     raf = requestAnimationFrame(tick);
   };
@@ -4678,10 +4242,10 @@ export function createFieldHost(deps?: {
   // opposite reason. The binding it used to assign went to `field-targeting.ts`
   // with the five cursor-to-world functions it is the cached ARGUMENT of, so the
   // line is now `targeting.notePointer(...)`. Nothing about the argument above
-  // changed — the machine still must not own this write — and the two remaining
-  // readers on this side (`ghostState`, `renderCursorAffordance`) plus the
-  // facade's `beginMove`, which anchors a `G` grab at the last known cursor, ask
-  // `targeting.pointer()` for it.
+  // changed — the machine still must not own this write — and its three readers
+  // ask `targeting.pointer()` for it: `ghostState` and `renderCursorAffordance`,
+  // both `field-render.ts`'s since T3d Task 3, and the facade's `beginMove`,
+  // which anchors a `G` grab at the last known cursor and is the one left here.
 
   const onPointerDown = (e: PointerEvent): void => {
     targeting.notePointer(e.clientX, e.clientY); // feeds the per-frame ghost
@@ -5067,7 +4631,7 @@ export function createFieldHost(deps?: {
       });
       applyOrbit();
       unbindCamera = camera.bindToCanvas(ctx, cam);
-      await initMaterials(ctx);
+      await materials.init(ctx);
       // A world can be loaded BEFORE the GPU exists (the panel's Load races
       // init, and every headless caller never inits at all), and
       // `props.rebuild()` no-ops without a context — so build the layer once
@@ -5121,40 +4685,27 @@ export function createFieldHost(deps?: {
         destroySelectionCells(c);
         machine.destroyGhosts();
         voidcast.discard();
-        if (normalsMat) material.destroy(c, normalsMat);
-        destroyLitMaterials(c);
-        if (kitMat) material.destroy(c, kitMat);
-        if (kitBind) binding.destroy(c, kitBind);
-        if (ghostCube) mesh.destroy(c, ghostCube);
-        if (ghostCubeGeo) geometry.destroy(c, ghostCubeGeo);
-        if (ghostMat) material.destroy(c, ghostMat);
-        if (ghostBind) binding.destroy(c, ghostBind);
-        if (stampGhostMat) material.destroy(c, stampGhostMat);
-        if (stampGhostBind) binding.destroy(c, stampGhostBind);
-        if (voidCastMat) material.destroy(c, voidCastMat);
-        if (voidCastBind) binding.destroy(c, voidCastBind);
-        if (flagMarkerMat) material.destroy(c, flagMarkerMat);
-        if (flagMarkerBind) binding.destroy(c, flagMarkerBind);
-        if (selectionCellMat) material.destroy(c, selectionCellMat);
-        if (selectionCellBind) binding.destroy(c, selectionCellBind);
+        // Sixteen STATEMENTS in this exact order behind ONE verb since
+        // 2026-08-08 (`field-materials.ts`) — fifteen of them guarded
+        // `material.destroy` / `binding.destroy` / `mesh.destroy` /
+        // `geometry.destroy` calls, and the sixteenth `destroyLitMaterials(c)`,
+        // whose own cost is `2 × litCount` calls over the per-class cache. The
+        // count that matters to the register is the fifteen BINDINGS, which is
+        // what §5.1 lists. The GPU half of that module's
+        // teardown, beside `props.destroy(c)` and `advisor.destroyMarkers(c)`
+        // above and before `gpu.dispose` below; the FORGETTING half runs outside
+        // this block, because a host disposed before it ever initialized still
+        // has slots to clear and no context to free them with.
+        materials.destroy(c);
         unbindCamera?.();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
-      normalsMat = null;
-      kitMat = null;
-      kitBind = null;
-      ghostCube = null;
-      ghostCubeGeo = null;
-      ghostMat = null;
-      ghostBind = null;
-      stampGhostMat = null;
-      stampGhostBind = null;
-      voidCastMat = null;
-      voidCastBind = null;
-      flagMarkerMat = null;
-      flagMarkerBind = null;
-      selectionCellMat = null;
-      selectionCellBind = null;
+      // The closure map's biggest single mutation fan-out — fifteen bare
+      // assignments from this one function into another cluster's state
+      // (§5.1) — is ONE call since 2026-08-08. Unconditional, unlike the
+      // `materials.destroy(c)` above it: a host disposed before `init` never
+      // acquired a context and still has to read as uninitialized afterwards.
+      materials.release();
       // Unlike the selection (CPU-only, survives dispose), the stamp session
       // dies with its GPU ghost: a "ready" session with no ghost after a
       // re-init would promise a commit the user can no longer see.
@@ -5257,12 +4808,7 @@ export function createFieldHost(deps?: {
       applyRadius(r);
     },
     setShading(mode) {
-      shading = mode;
-      const c = ctx;
-      if (!c) return;
-      for (const cm of chunkMeshes.values())
-        for (const e of cm.entries)
-          mesh.setMaterial(c, e.m, bucketMaterial(e.classId, e.backing));
+      materials.setShading(mode);
     },
     setTool(patch) {
       if (momentarySaved !== null) {
@@ -5354,8 +4900,11 @@ export function createFieldHost(deps?: {
         try {
           for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
           chunkMeshes.clear();
-          destroyLitMaterials(c);
-          await buildLitMaterials(c); // yields; dispose() may land here
+          // ONE verb rather than the destroy/build pair it replaced: a swap that
+          // freed the old per-class materials and did not build the new ones
+          // would leave every chunk drawing from an empty cache. YIELDS —
+          // dispose() may land inside it, which is what the guard below is for.
+          await materials.rebuildForTable(c);
           if (disposed) return;
           for (const key of store.chunks.keys()) dirty.add(key);
         } catch (err) {

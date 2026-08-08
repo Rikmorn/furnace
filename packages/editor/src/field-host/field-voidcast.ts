@@ -12,11 +12,11 @@
 // this move could therefore only mean the extraction changed behaviour.
 //
 // AND ITS DATA SURFACE WAS ALREADY THE SUBSTRATE'S. `store`, `worker`, `ctx()`,
-// `disposed()` and the `voidCastMeshes` map that the host's `renderScene` still
-// draws from are five of the sixteen members `substrate.ts` had declared and
-// left unconsumed. That is what shapes the deps record below: ONE substrate
-// member carrying everything shared, and four function refs beside it carrying
-// what is not.
+// `disposed()` and the `voidCastMeshes` map that `renderScene` still draws from
+// (`field-render.ts`'s since T3d, the host's before that) are five of the sixteen
+// members `substrate.ts` had declared and left unconsumed. That is what shapes
+// the deps record below: ONE substrate member carrying everything shared, and
+// four function refs beside it carrying what is not.
 //
 // THE LAW THE SPLIT IS OBEYING — stated exactly, because the next extraction
 // will copy this paragraph. Nothing reassignable rides as a VALUE; it rides
@@ -25,10 +25,13 @@
 //
 //   - `ctx` and `disposed` are host `let`s with several readers, so they ride as
 //     SUBSTRATE THUNKS — `deps.substrate.ctx()`, `deps.substrate.disposed()`.
-//   - `voidCastMat` is a host `let` too (`field-host.ts`'s materials cluster
-//     builds it at `init` and nulls it at `dispose`), but this is its only
-//     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP —
-//     `deps.voidCastMaterial()`, the host's own getter over that `let`.
+//   - the void material was a host `let` too, and while it was, this module's
+//     being its only extracted reader is what kept it off the record — a
+//     SINGLE-CONSUMER FUNCTION DEP, `deps.voidCastMaterial()`, over the host's
+//     own getter. Since 2026-08-08 (foundations T3d) the handle belongs to
+//     `field-materials.ts` and the dep is a plain ref onto that module's seam.
+//     The CALL and its reason are unchanged; what is gone is the substrate-bar
+//     framing, because there is no longer a host `let` to decline to widen for.
 //
 // So "reassignable" does NOT imply "substrate member": the substrate earns a
 // member at two extracted readers, not one (see {@link VoidCastDeps}), and a
@@ -71,22 +74,22 @@ const VOID_CAST_CHUNK_BUDGET = 512;
  *
  *  Two groups, split by READER COUNT rather than by mutability — the header's
  *  law, applied. What several extracted modules will want rides in
- *  {@link HostSubstrate}; what only this one wants rides here as a function, and
- *  that includes the reassignable `voidCastMaterial`, which is a host `let`
- *  reached through the host's own getter. `HostSubstrate` earns a member at two
- *  extracted readers, not one, so widening it for a single consumer would charge
- *  every future cluster's assembly for this one's convenience.
+ *  {@link HostSubstrate}; what only this one wants rides here as a function.
+ *  `HostSubstrate` earns a member at two extracted readers, not one, so widening
+ *  it for a single consumer would charge every future cluster's assembly for this
+ *  one's convenience.
  *
- *  All four here are `const` arrows in the host, so the BINDINGS pass safely by
- *  reference; what any of them reads behind that binding is the callee's
- *  business, evaluated per call, which is exactly what keeps a `let` honest. */
+ *  Three of the four are `const` arrows in the host and the fourth is a verb off
+ *  `field-materials.ts`, so every BINDING passes safely by reference; what any of
+ *  them reads behind that binding is the callee's business, evaluated per call,
+ *  which is exactly what keeps a `let` honest. */
 export type VoidCastDeps = {
   /** The host's shared state. Five members are read: `store` (the chunk count
    *  the budget is checked against, and the cell size the job is sized in),
    *  `worker` (the request pipe), `ctx()` and `disposed()` (the two liveness
    *  guards), and `voidCastMeshes` — the map this module fills and empties and
-   *  the host's `renderScene` draws from, shared BY IDENTITY, which is the only
-   *  reason the two halves can never disagree about what is on screen. */
+   *  `field-render.ts`'s `renderScene` draws from, shared BY IDENTITY, which is
+   *  the only reason the two halves can never disagree about what is on screen. */
   substrate: HostSubstrate;
   /** Report something the user should see (console + the panel subscriber).
    *  FIVE call sites, one per message: the staleness drop (`invalidateVoidCast`),
@@ -102,16 +105,17 @@ export type VoidCastDeps = {
   /** The world-space origin of chunk (cx, cy, cz), in metres. */
   chunkOrigin(cx: number, cy: number, cz: number): Float32Array;
   /** The ONE translucent void material every cast mesh is drawn with. A call
-   *  because it is the materials cluster's getter over a `let` that `init`
-   *  builds and `dispose` nulls — it throws before the first `init`, which is
+   *  because it is `field-materials.ts`'s getter over a handle that `init` builds
+   *  and `dispose` nulls — it throws before the first `init`, which is
    *  unreachable from here (every path is behind a context guard). */
   voidCastMaterial(): material.Material;
 };
 
 /** The X-ray layer's three verbs and the one fact the host still reads off it.
  *
- *  No state is exposed. The meshes live in the substrate because `renderScene`
- *  draws them, and the two generations are private because nothing outside ever
+ *  No state is exposed. The meshes live in the substrate because
+ *  `field-render.ts`'s `renderScene` draws them, and the two generations are
+ *  private because nothing outside ever
  *  had a use for either — the map's whole outbound surface was `voidCastJobGen`
  *  read by `tick`, which {@link VoidCast.jobGen} is.
  *

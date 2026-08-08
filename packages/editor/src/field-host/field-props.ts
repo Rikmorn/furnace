@@ -21,7 +21,10 @@
 //
 // The closure map (`docs/reference/field-host-clusters.md` §6) recorded ONE
 // inbound edge — `render.renderScene` reading `propMeshes` — and that edge is
-// real and unchanged. The nine calls stand beside it uncounted, because the
+// real and unchanged, though since 2026-08-08 it crosses a MODULE line rather
+// than a cluster one: `renderScene` is `field-render.ts`'s, and it reaches the
+// array through the same substrate record this module fills it through. The nine
+// calls stand beside it uncounted, because the
 // map's edges are over DATA bindings and a cross-cluster CALL is not one (§2.1's
 // second correction, which `segment` found and this cluster is the loudest
 // instance of). Size this cluster off its row and you read it as something the
@@ -49,17 +52,18 @@
 //     the two-reader bar governs ADDING a member, not declining one that is
 //     already sitting in the record. Reading a declared member costs nothing
 //     new.
-//   - `kitMat` is a host `let` that is NOT in the record, and this is its only
-//     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP instead of
-//     being added to one. That is the bar in its active form: widening the
-//     substrate for a single consumer charges every future cluster's assembly
-//     for this one's convenience.
-//     // MIGRATION (until T3d Task 3): "its only extracted reader" is true only
-//     while `materials` is still in `createFieldHost`. When that cluster leaves,
-//     this dep becomes `materials.kitMat` and the paragraph above stops
-//     describing a substrate-bar decision at all. `field-analyzer.ts`'s header
-//     carries the IDENTICAL exposure for `flagMarkerMat` — same cluster, same
-//     task, two headers, and neither file references the other.
+//   - `kitMat` WAS a host `let` that is not in the record, and while it was, this
+//     module's being its only extracted reader is what kept it off the substrate:
+//     the bar in its active form, since widening the record for a single consumer
+//     charges every future cluster's assembly for this one's convenience. That
+//     argument EXPIRED on 2026-08-08 (foundations T3d), when the material layer
+//     got an owner. `kitMat` and `kitInstancedMat` are now plain refs onto
+//     `field-materials.ts`'s seam, and the substrate is not involved in either
+//     direction. What survives is the CALL and the reason for it — the material
+//     is built at `init` and nulled at `dispose`, so a value copy would be `null`
+//     forever or would outlive the device — and what is gone is the claim that
+//     this is a substrate-bar decision. It is now simply reading another module.
+//     The bar itself still stands and is still worked at `archetypeById` above.
 //
 // So the split is not `let` vs `const`, and it is not reader count alone — it is
 // whether the member is ALREADY declared. What is universal is the CALL: all
@@ -91,28 +95,29 @@ import type { HostSubstrate } from "./substrate.ts";
 /** What the prop layer needs from the rest of the host.
  *
  *  Three entries beside the substrate, and each one is a CALL for a different
- *  reason: `kitMat` because it names a host `let` this module must read live,
- *  `kitInstancedMat` because it is the host's own throwing getter over that same
- *  `let` (shared with the kit-piece layer, so it stays the host's), and
- *  `markPlacementsStale` because it is a WRITE into another cluster's state and
- *  a write that crossed the boundary as anything but a named call would be a
- *  flag this module could set and the host never see. */
+ *  reason: `kitMat` because it names a handle `field-materials.ts` replaces at
+ *  `init` and `dispose`, `kitInstancedMat` because it is that module's throwing
+ *  getter over the same handle (shared with the chunk kit-piece draws, so it
+ *  stays there rather than being duplicated here), and `markPlacementsStale`
+ *  because it is a WRITE into another cluster's state and a write that crossed
+ *  the boundary as anything but a named call would be a flag this module could
+ *  set and the host never see. */
 export type PropsDeps = {
   /** The host's shared state. Four members are read: `log` (the placement ops
    *  the whole layer is derived from), `archetypeById()` (the catalog that
    *  decides each archetype's proxy primitive and tint), `ctx()` (the GPU
-   *  guard), and `propMeshes` — the array this module fills and empties and the
-   *  host's `renderScene` draws from, shared BY IDENTITY. */
+   *  guard), and `propMeshes` — the array this module fills and empties and
+   *  `field-render.ts`'s `renderScene` draws from, shared BY IDENTITY. */
   substrate: HostSubstrate;
   /** The kit material, or `null` before the first `init` and after `dispose`.
    *  The NULLABLE read, and the layer's GPU guard: `rebuild` refuses to upload
-   *  without it. A call because the materials cluster builds this `let` at
-   *  `init` and nulls it at `dispose`, so a value copy would be `null` forever
-   *  or would outlive the device. */
+   *  without it. A call because `field-materials.ts` builds the handle at `init`
+   *  and nulls it at `dispose`, so a value copy would be `null` forever or would
+   *  outlive the device. */
   kitMat(): material.Material | null;
-  /** The same material as the THROWING getter — the host's own, shared with the
-   *  chunk kit-piece draws. Used only past the `kitMat()` guard above, so the
-   *  throw is unreachable from here. */
+  /** The same material as the THROWING getter — `field-materials.ts`'s, shared
+   *  with the chunk kit-piece draws. Used only past the `kitMat()` guard above,
+   *  so the throw is unreachable from here. */
   kitInstancedMat(): material.Material;
   /** Tell the walkability advisor that the placement colliders moved, and that
    *  the next pass is the whole-world one.
@@ -128,8 +133,9 @@ export type PropsDeps = {
 
 /** The prop layer's two verbs and the one fact the host publishes off it.
  *
- *  No state is exposed. The meshes live in the substrate because `renderScene`
- *  draws them; the per-archetype counts are private because the only thing that
+ *  No state is exposed. The meshes live in the substrate because
+ *  `field-render.ts`'s `renderScene` draws them; the per-archetype counts are
+ *  private because the only thing that
  *  ever read them is `FieldHost.propInstanceCounts`, which
  *  {@link Props.instanceCounts} now is.
  *

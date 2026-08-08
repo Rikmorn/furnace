@@ -213,8 +213,9 @@ function generatorSchemaProperties(
 export type MachineDeps = {
   /** The shared substrate: the store, the log, the worker, the material table,
    *  the entity catalog index, the GPU context, the disposed latch, and the
-   *  `ghostMeshes` map this module fills and `renderScene` draws from. That map
-   *  stays a substrate VALUE member rather than moving here, on the
+   *  `ghostMeshes` map this module fills and `field-render.ts`'s `renderScene`
+   *  draws from. That map stays a substrate VALUE member rather than moving
+   *  here, on the
    *  `voidCastMeshes` precedent: the meshes this module builds and the loop that
    *  draws them are one Map shared by identity, not two copies that could
    *  disagree about what is on screen. */
@@ -264,9 +265,9 @@ export type MachineDeps = {
   /** A chunk's world origin, for posing the ghost meshes built at chunk-local
    *  coordinates. */
   chunkOrigin(cx: number, cy: number, cz: number): Float32Array;
-  /** The ONE translucent material every ghost bucket draws with. Setup-loud: it
-   *  throws before GPU init, which is why the ghost build guards on the context
-   *  first. */
+  /** The ONE translucent material every ghost bucket draws with
+   *  (`field-materials.ts`). Setup-loud: it throws before GPU init, which is why
+   *  the ghost build guards on the context first. */
   stampGhostMaterial(): material.Material;
   /** Cursor → world ray, for the move's screen→world mapping. Null when there is
    *  no camera or the view is singular. Narrower here than the host's own return
