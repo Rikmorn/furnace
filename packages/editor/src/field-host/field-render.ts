@@ -23,26 +23,25 @@
 // handle it asks for by call. A record this wide would be a design smell if any
 // of it were a write-thunk; as reads it is a photograph of what a frame IS.
 //
-// ELEVEN OF THE TWENTY-NINE ARE TEMPORARY IN THEIR SPELLING AND PERMANENT IN
+// EIGHT OF THE TWENTY-NINE ARE TEMPORARY IN THEIR SPELLING AND PERMANENT IN
 // THEIR SUBSTANCE, and stating which is the honest version of "this record will
-// churn".
+// churn". It was ELEVEN until 2026-08-08.
 //
-// MIGRATION (until T3d Task 4): `digRadius` and `isKitFillTool` are `tool`'s,
-// `cameraEye` is `camera`'s. When those clusters leave, all three become module
-// refs at the assembly.
 // MIGRATION (until T3d Task 5): `boxAnchor`, `selectionBatch`, `anchorBatch`,
 // `boxPreviewBatch` and `selectionCellMesh` are `selection`'s;
-// `entitySelectionBatch`, `gizmoBatch` and `gizmoVisible` are `entities`'. Same
-// change, one task later.
+// `entitySelectionBatch`, `gizmoBatch` and `gizmoVisible` are `entities`'.
 //
-// When they go, each one's ASSEMBLY-SITE spelling changes from `() => digRadius`
-// to `tool.digRadius` and **the shape of this file does not change at all** —
-// no signature, no body, no type. Six COMMENT sites change wording, and each
-// carries a marker above so the boundary grep finds them. That is exactly why
-// they are eleven NARROW named deps here rather than three module records passed
-// whole: a deps record that names what it reads survives its neighbours'
-// extractions; one that names WHO it reads from has to be rewritten every time
-// somebody else moves.
+// THE PREDICTION WAS MADE AT TASK 3 AND MEASURED AT TASK 4, which is the reason
+// to keep reading this paragraph rather than to trim it. It said each dep's
+// ASSEMBLY-SITE spelling would change from `() => digRadius` to `tool.digRadius`
+// and **the shape of this file would not change at all** — no signature, no body,
+// no type. `tool` and `camera` left on 2026-08-08 and took three of the eleven
+// (`digRadius`, `isKitFillTool`, `cameraEye`); this file's whole diff for that
+// task was SIX comment sites and zero lines of code. That is exactly why these
+// are eight NARROW named deps rather than three module records passed whole: a
+// deps record that names what it reads survives its neighbours' extractions; one
+// that names WHO it reads from has to be rewritten every time somebody else
+// moves.
 //
 // THE LAW, applied (see `substrate.ts`'s doc header for the argument):
 //
@@ -56,22 +55,20 @@
 //     disposition was always waiting for.
 //   - The other TWENTY-SIX are CALLS, and the split — counted off the assembly
 //     literal in `field-host.ts`, not off this paragraph's memory of it — is
-//     **15 / 8 / 3**: FIFTEEN plain refs onto sibling modules' seams, drawn from
-//     six files (`field-view.ts` 1, `field-materials.ts` 2, `field-analyzer.ts`
-//     2, `field-machine.ts` 4, `field-segment.ts` 3, `field-targeting.ts` 3);
-//     EIGHT thunks over host `let`s; and THREE plain refs to host `const`
-//     arrows (`isKitFillTool`, `cameraEye`, `gizmoVisible`). 1 substrate + 15 +
-//     8 + 3 + 2 values = 29. A value copy of ANY of the 26 is the photograph
+//     **18 / 7 / 1**: EIGHTEEN plain refs onto sibling modules' seams, drawn from
+//     eight files (`field-view.ts` 1, `field-materials.ts` 2, `field-analyzer.ts`
+//     2, `field-machine.ts` 4, `field-segment.ts` 3, `field-targeting.ts` 3,
+//     `field-tool.ts` 2, `field-camera-rig.ts` 1); SEVEN thunks over host `let`s;
+//     and ONE plain ref to a host `const` arrow (`gizmoVisible`). 1 substrate +
+//     18 + 7 + 1 + 2 values = 29. A value copy of ANY of the 26 is the photograph
 //     `substrate.ts` describes — and here it would be a photograph re-shown
 //     sixty times a second, which is the one place a stale read is guaranteed to
 //     be seen.
-//     // MIGRATION (until T3d Task 4): this classification rots TWICE. When
-//     `tool` and `camera` leave, `isKitFillTool` and `cameraEye` become module
-//     refs and the split is 17 / 8 / 1.
-//     // MIGRATION (until T3d Task 5): when `selection` and `entities` follow,
-//     `gizmoVisible` joins them and the eight thunks go with their owners — the
-//     split ends at 26 / 0 / 0, every call a module ref, which is the shape this
-//     record is heading for.
+//     // MIGRATION (until T3d Task 5): this classification rots once more. When
+//     `selection` and `entities` follow, `gizmoVisible` becomes a module ref and
+//     the seven thunks go with their owners — the split ends at 26 / 0 / 0, every
+//     call a module ref, which is the shape this record is heading for. It was
+//     15 / 8 / 3 until Task 4 spent three of the eleven.
 //   - `selectionColor` and `anchorCrossHalfM` are neither: module-scope `const`s
 //     in `field-host.ts` with readers in `selection` that are not this cluster's,
 //     so they travel as plain VALUE deps on `field-segment.ts`'s
@@ -281,21 +278,17 @@ export type RenderDeps = {
    *  gesture is armed and unanchored. */
   selectionPoint(clientX: number, clientY: number): Vec3T | null;
   /** The brush radius. A call because the wheel, `[`/`]` and the panel slider
-   *  all move it.
-   *  // MIGRATION (until T3d Task 4): `tool` is still in the closure, so this is
-   *  a thunk over a host `let`; it becomes `tool.digRadius` when that cluster
-   *  leaves. */
+   *  all move it. `field-tool.ts`'s `digRadius` since 2026-08-08; it was a thunk
+   *  over a host `let` before that, and this line is the whole difference. */
   digRadius(): number;
   /** Whether the armed tool fills kit rather than carving. Decides whether the
-   *  ghost is a snapped box or a sphere.
-   *  // MIGRATION (until T3d Task 4): a plain ref to a host `const` arrow while
-   *  `tool` is in the closure; becomes a module ref when it leaves. */
+   *  ghost is a snapped box or a sphere. `field-tool.ts`'s `isKitFill` — the seam
+   *  drops the noun the record already carries, and the dep keeps it. */
   isKitFillTool(): boolean;
   /** The camera's eye position, which the studio key light rides.
-   *  // MIGRATION (until T3d Task 4): a plain ref to a host `const` arrow while
-   *  `camera` is in the closure; becomes a module ref when it leaves — and see
-   *  the assembly in `field-host.ts`, where this dep is one of the two that will
-   *  give `createRender` a lower bound it does not have today. */
+   *  `field-camera-rig.ts`'s `eye` since 2026-08-08, which makes
+   *  `createCameraRig` a real (if slack) LOWER bound on `createRender` — the
+   *  first of the two the assembly block said would settle it. */
   cameraEye(): Vec3T;
   /** The cell-selection display's instanced mesh, or `null`. Handed over as the
    *  MESH on the `flagMarkerMesh` precedent above.
@@ -323,8 +316,9 @@ export type RenderDeps = {
   /** Whether the gizmo is drawn at all — a separate question from whether it
    *  exists. What is drawn has to be what `gizmoAxisAt` hit-tests.
    *  // MIGRATION (until T3d Task 5): a plain ref to a host `const` arrow while
-   *  `entities` is in the closure; it is also the second of the two deps that
-   *  will give `createRender` a lower bound — see the assembly. */
+   *  `entities` is in the closure, and the LAST of the 29 that is. It is also the
+   *  second of the two deps that give `createRender` a lower bound; `cameraEye`
+   *  became the first on 2026-08-08. */
   gizmoVisible(): boolean;
   /** The editor's selection accent, used for the box-anchor cross. A plain VALUE
    *  because it is a module-scope `const` with readers in `selection` too; see

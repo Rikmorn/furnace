@@ -9,7 +9,7 @@ cluster, and every read and write that crosses a cluster line is listed.
 This is a **description, not a proposal**. §7 is the one forward-looking section and is
 marked as such.
 
-**Fourteen clusters have since left, a fifteenth left in half, and one has been examined
+**Sixteen clusters have since left, a seventeenth left in half, and one has been examined
 and DECLARED to stay.** `segment` was extracted to
 `packages/editor/src/field-host/field-segment.ts` on 2026-08-03 — its six state bindings,
 its six functions and its one boundary mutation (`tool.maskDropReported`) are no longer in
@@ -55,24 +55,33 @@ substrate leftover) and `render` to `packages/editor/src/field-host/field-render
 bindings, all 5 functions, nothing left behind, and a seam of exactly ONE verb against a
 29-member deps record). §2.8 says what each one found, including a §2.1 string-literal
 phantom struck out of the `materials` row and the coverage measurement that says this map's
-two zero-mutation "pure reader" rows are cheap to extract and nearly unverified.
+two zero-mutation "pure reader" rows are cheap to extract and nearly unverified. **Task 4
+then took `tool` and `camera` on 2026-08-08** — `tool` to
+`packages/editor/src/field-host/field-tool.ts` (its 8 remaining bindings and all 14
+functions) and `camera` to `packages/editor/src/field-host/field-camera-rig.ts` (all 8
+bindings and all 14 functions), with **nothing left behind on either side** and no new
+substrate leftover. §2.9 says what they found: the first pair whose state is written from
+DOM key listeners that did not move and will not, the `digRadius` disposition that cleared
+T3a's substrate bar and stayed off the record anyway, and a second lane for Task 3's
+coverage finding.
 
-Every count below still includes all fifteen. They are left as measured because they are
-what the 8 clusters still standing at head were sized against (5 whole — `world`,
-`lifecycle`, `entities`, `selection`, `camera` — plus `catalogs` declared resident, plus
-`tool` and `input` part-hollowed — plus `history`'s stayed half, which is a verb and an edge rather than a
+Every count below still includes all seventeen. They are left as measured because they are
+what the 6 clusters still standing at head were sized against (4 whole — `world`,
+`lifecycle`, `entities`, `selection` — plus `catalogs` declared resident, plus `input`
+part-hollowed — plus `history`'s stayed half, which is a verb and an edge rather than a
 cluster; the counts through T3c are re-derived at §2.5's sweep, not inherited); subtract
 those rows from §4 when reading them
 as current — the rows themselves are now marked, so the subtraction is a matter of skipping
-the ones whose heading says EXTRACTED rather than of remembering a list. **The two rows
-marked PARTIALLY HOLLOWED are the exception to that instruction and must not be skipped:**
-they are live clusters whose edge lists are part stale, and each stale line is annotated
-where it stands rather than removed. **So is the one marked DECLARED FACADE-RESIDENT**,
-which is live, complete and staying — an unmarked row means "not yet reached".
+the ones whose heading says EXTRACTED rather than of remembering a list. **The one row still
+marked PARTIALLY HOLLOWED (`input`) is the exception to that instruction and must not be
+skipped:** it is a live cluster whose edge lists are part stale, and each stale line is
+annotated where it stands rather than removed. **So is the one marked DECLARED
+FACADE-RESIDENT**, which is live, complete and staying — an unmarked row means "not yet
+reached".
 
 **And foundations T3a, T3b1, T3c and T3d each changed things the map names.** §2.2, §2.3,
-§2.4, §2.6, §2.7 and §2.8 record exactly what, and which numbers below are consequently
-stale.
+§2.4, §2.6, §2.7, §2.8 and §2.9 record exactly what, and which numbers below are
+consequently stale.
 Read them before trusting a site list — and note that §2.5's "every `@line` anchor is
 valid" reset applies only to rows T3d did not touch.
 
@@ -519,12 +528,13 @@ module-scope constants. Five things a reader of §4–§6 should take from it.
 - **§1's table is now two tasks stale and deliberately so** (three after Task 3), on Task 1's precedent: the
   measured rows there are the T3c review's epoch and the deltas live in §2.6 and here. Two
   of its cells are wrong if read as current — "14 still live at head" and "the other 8 rows
-  are EXTRACTED" are T3c figures. **After Task 3 (2026-08-08) §4's twenty-three rows split
-  exactly as follows, and the arithmetic is checkable against the table itself:** **14
-  EXTRACTED**, **1 FACADE-RESIDENT** (`catalogs`), **2 PARTIALLY HOLLOWED** (`tool`,
-  `input`), **1 half-stayed** (`history`), and **5 untouched and whole** — `world`,
-  `lifecycle`, `entities`, `selection`, `camera`, which are precisely the clusters Tasks 4–6
-  own. 14 + 1 + 2 + 1 + 5 = 23. T3d's closing task re-derives the table.
+  are EXTRACTED" are T3c figures. **After Task 4 (2026-08-08) §4's twenty-three rows split
+  exactly as follows, and the arithmetic is checkable against the table itself:** **16
+  EXTRACTED**, **1 FACADE-RESIDENT** (`catalogs`), **1 PARTIALLY HOLLOWED** (`input`),
+  **1 half-stayed** (`history`), and **4 untouched and whole** — `world`, `lifecycle`,
+  `entities`, `selection`, which are precisely the clusters Tasks 5–6 own.
+  16 + 1 + 1 + 1 + 4 = 23. (After Task 3 it was 14 / 1 / 2 / 1 / 5, with `tool` and `camera`
+  in the last two groups.) T3d's closing task re-derives the table.
 - **THE WHOLE OF §5'S LINE COLUMN WAS RE-DERIVED HERE**, §5.1 through §5.5, by grep and not
   by interpolation. It needed it: §5.1's entries were 5,680–5,821 against a file that is now
   5,688 lines, i.e. every anchor in the teardown table pointed past the end of the file it
@@ -664,6 +674,138 @@ take from it.
   moved + `render`'s 5), **+2 records**. On this instrument the data side is **75** = 55
   cluster-owned + 5 substrate leftovers + 15 records, against 94 = 76 + 5 + 13 before.
 
+### 2.9 Changed since Task 3 — foundations T3d Task 4, 2026-08-08
+
+Two clusters left, and they are the first pair whose state is driven from the host's own
+KEY LISTENERS rather than through a method: **`tool` →
+`packages/editor/src/field-host/field-tool.ts`** (all 8 remaining bindings, all 14
+functions) and **`camera` → `packages/editor/src/field-host/field-camera-rig.ts`** (all 8
+bindings, all 14 functions, counting the `frameCameraOn` Task 2 hoisted beside
+`frameSelection` precisely so this task would move one *named* thing). **Nothing stayed on
+either side** — the tranche's second and third whole-row extractions after `render`, and
+the first task to move two whole rows at once. Eight things a reader of §4–§6 should take
+from it.
+
+- **THE LISTENERS DID NOT MOVE, AND THAT IS THE ROW'S WHOLE SHAPE.** `onWheel`,
+  `onKeyDown`, `onKeyUp` and `onBlur` are still declared in `field-host.ts`, exactly as the
+  four pointer handlers have been since T3c, because `input` IS the listener/delegate layer
+  and `attachListeners` owns the canvas element. **The status word matters here and this
+  bullet used to overstate it:** `input` is PARTIALLY HOLLOWED in §4's registry, not
+  FACADE-RESIDENT — `catalogs` is still the only row carrying that marker, and declaring
+  `input` is Task 6's to do. What Task 4 supplies is the EVIDENCE such a declaration would
+  rest on (the listeners own the canvas element and cannot follow their targets), not the
+  declaration. What moved is what each body DOES:
+  `momentaryShift = true` became `tool.noteModifierDown("shift")`, `keys.add(k)` became
+  `cameraRig.noteKeyDown(k)`, the wheel's banked travel became `cameraRig.wheelDolly(e)`.
+  So §5.2's table did not lose rows to an extraction the way §5.1's fifteen did — **every
+  standing row in it is still a write from a function in this file**, and what changed is
+  that the write is now a call. The DECISION each handler keeps is the one that is a fact
+  about the EVENT rather than about a cluster: which of the wheel's two bindings this
+  scroll is, which key this is, that ⌘Z must be claimed before anything else looks at it.
+- **`digRadius` CLEARED T3a'S SUBSTRATE BAR AND DID NOT JOIN THE SUBSTRATE**, which is the
+  disposition this task most had to get right. By the time it moved it had THREE extracted
+  readers (`field-segment.ts`, `field-targeting.ts`, `field-render.ts`), each holding a
+  `() => digRadius` thunk — past the two-extracted-readers bar. The bar did not apply: it
+  governs state the HOST still owns and shares, and state that acquires an OWNER rides on
+  that owner's seam instead (`editor-architecture.md` §21.1; the `view` row here is the
+  precedent — `layers` and `sliceY` had five reader clusters between them and became
+  `viewState.layers()`). All three thunks are `tool.digRadius` now and nothing inside those
+  three modules changed. **The general rule, which this row states more sharply than `view`
+  did: reader COUNT is the wrong question once a cluster has an owner; the substrate is for
+  state with no owner to ride on.** The verdict is recorded at source, at the deleted
+  binding's old position in `field-host.ts`.
+- **THE SUBSTRATE LEFTOVER LIST DID NOT GROW, for the first time in four tasks.** It is
+  still `propMeshes`, `ghostMeshes`, `voidCastMeshes`, `flagStore`, `litByClass` — five —
+  because neither cluster had a binding the record already named, neither filled a
+  container someone else draws, and neither had to hand a handle out before its owner
+  existed. `field-camera-rig.ts` goes further and takes **no substrate at all**, the first
+  extracted module that does not: `frameWorld`'s two world facts arrive as `worldBox()` and
+  `occupiedTopY()` — a box and a ceiling, not a store — on §2.7's argument-vs-dependency
+  rule, and nothing else in the cluster reads host state that is not already a named dep.
+- **THE TWO SEAMS ARE THE SAME SHAPE AS EACH OTHER AND BOTH ARE MOSTLY NEW SURFACE.**
+  `field-tool.ts` exports **15 verbs** over a 14-function row and `field-camera-rig.ts`
+  exports **22** over a 14-function row; SEVEN and FIVE of those fourteen are private in
+  their new files. So of the 37 verbs, 21 are new — and every one of the 21 is the same
+  act: state the closure let a neighbour read or write directly now has a verb named for
+  what it DOES. `bind`/`unbind`/`release` for `ret.init`/`ret.dispose`'s four camera
+  assignments; `noteModifierDown`/`noteModifierUp`/`releaseModifiers` and
+  `noteKeyDown`/`noteKeyUp`/`releaseKeys` for the keyboard's twelve; `wheelDolly` and
+  `stepRadius` for the wheel's two. **This is the FOURTH mechanism, and it is the one the
+  earlier three did not name: a cluster whose state is written from OUTSIDE by a
+  facade-resident function gets one verb per writing SITE-GROUP, not one per binding.**
+  §2.7 measured a seam bigger than its row and called the surplus "inbound mutations";
+  this row says which mutations do it — the ones whose writer cannot follow.
+- **A PRIVATE FUNCTION'S OUTSIDE CALLERS ARE THE SEAM IT NEEDS, and `applyOrbit` is the
+  worked example.** It had EIGHT call sites in the closure, the most of any camera
+  function. FIVE were other camera functions (`lookDrag`, `frameCameraOn`, `frameWorld`,
+  `snapView`, `applyFlyMove`), which is why it is module-private now. The other three were
+  `onWheel`, `ret.init` and the facade's `frameChunks` — and each of those three is exactly
+  why one of `wheelDolly`, `bind` and `centreOn` exists. Counting a function's callers by
+  cluster predicts its seam better than counting anything in §4's row.
+- **THE COVERAGE MEASUREMENT IS AGAIN THE UNCOMFORTABLE PART, and the first write-up of it
+  was WRONG in the one way this section exists to catch.** Eight probes now, all against the
+  full 2,912-test suite. The momentary contract is well pinned: deleting `deriveMomentary()`
+  from `noteModifierUp` reddens **3 of the 4** cases in `field-host-momentary.gpu.test.ts`,
+  and inverting the flag-write/derive ORDER in `noteModifierDown` reddens **all 4**. On the
+  camera side, deleting `aimCamera(...)` from `wheelDolly` reddens **2** in
+  `field-host-camera.gpu.test.ts` while deleting `applyOrbit()` from the line below it is
+  **fully green** — because those suites' `eye()` probe reads
+  `exportArtifact().playerStart`, i.e. `toEyeTarget(orbitState).eye`, so what they assert
+  about "where the camera is" is an assertion about the module's own `let`.
+
+  **The sentence that followed — "so the three `camera.setPosition/setTarget/setUp` calls
+  are unpinned" — was written, was false, and was caught at review.** Deleting exactly those
+  three lines reddens **20 tests across six files**: `field-host-pointer.gpu` 8,
+  `field-host-move.gpu` 6, `field-host-segment.gpu` 2, `field-host-selection-cells.gpu` 2,
+  `field-host-stamp-entry.gpu` 1, `field-host-analyzer.gpu` 1 — not one of them a camera
+  test. Everything that RAYCASTS through the camera pins those writes. Moving the pose
+  publish below the `cam` guard reddens **5** more. **So the finding is not Task 3's in a
+  second lane; it is a different and more useful shape: a cluster whose own suites prove
+  almost nothing about it, whose real pins are held by five unrelated lanes that never
+  mention it.** What IS unpinned, measured: the whole focus-loss path — gutting BOTH
+  `tool.releaseModifiers()` and `cameraRig.releaseKeys()` is 2912/0, because the only test
+  in the package that fires `blur` (`field-host-move.gpu.test.ts:835`) asserts
+  `cancelMoveInFlight` alone — and `applyRadius`'s `rebuildSegmentPreview()` call. Both
+  module headers carry all of it.
+
+- **THIS TRANCHE HAS EXACTLY TWO RECURRING DEFECTS AND THEY ARE THE SAME DEFECT.** The first
+  is **arithmetic that was narrated rather than computed** (three slips in Task 2, three in
+  Task 3, one in Task 4 caught by re-deriving at the end); the fix that works is *refuse to
+  write a number you have not just computed from the artifact*. The second is **an inference
+  that outran its measurement**, and Task 4 is where it showed up in its pure form: two
+  probes against the CAMERA suites came back green, and the word "therefore" turned that
+  into a claim about the whole suite that no probe had tested. The fix is the same shape:
+  *refuse to write "unpinned" without having deleted the line and run the suite.* §2.8's
+  "green is not a covered path" is the rule; both defects are ways of not applying it, one
+  to counts and one to coverage. A reviewer found this instance; the discipline is what
+  stops the next one needing a reviewer.
+- **Line numbers have drifted an EIGHTH time.** The file went 5,237 → **4,763** (code 1,979
+  → **1,613**, comment 3,092 → **3,015**, blank 166 → **135**); `createFieldHost` spans
+  **3,277** lines from **1,487**, its `return {` is at **4,169**, and the closure holds
+  **117** bindings (**26 `let` / 91 `const`**) against 159 — 42 left, 2 module records
+  arrived, and the record count is now **17**. On the Task-3 instrument the data side is
+  **61** = 39 cluster-owned + 5 substrate leftovers + 17 records, against 75 = 55 + 5 + 15
+  before; the function side is **56** against 84. Both deltas are exact and checkable:
+  **−28 function bindings** (= `tool`'s 14 + `camera`'s 14) and **−16 non-record data
+  bindings** (= 8 + 8). `field-tool.ts` is **755** lines (342 code / 382 comment / 31 blank)
+  and `field-camera-rig.ts` is **602** (227 / 353 / 22) — 1,357 lines of module against 474
+  off the host, the same widening ratio Task 3 recorded and for the same reason.
+  **EVERY NUMBER IN THIS BULLET, AND EVERY `field-host.ts` LINE ANCHOR IN §5, IS NOW
+  GENERATED RATHER THAN TYPED**, and that is the durable half of this task. Both went stale
+  twice inside one task — measured, then overtaken by a later prose pass, in the same
+  commit whose §2.9 declares "refuse to write a number you have not just computed". A
+  promise to re-derive is not a fix, because the promise is kept at the wrong moment. What
+  replaced it: the figures are rewritten from the artifact by a script run immediately
+  before the commit, and the anchors are DERIVED from `(token, enclosing function)` by one
+  shared module that both the writer and the checker call — so the three copies that used to
+  exist (source, map, checker) are one. The checker is sabotage-verified in both lanes: a
+  stale in-file anchor and a stale cross-file anchor each make it exit non-zero.
+  **Do not interpolate; grep by name.**
+- **The register's TALLY is unchanged for the FOURTH tranche running and 10 dispositions
+  moved.** No edge became structurally gone. §5.7 carries the arithmetic — and the shape of
+  it is new: these ten crossed the line without their WRITER moving, because the writer is a
+  listener that is never going to move.
+
 ## 3. Where the public-surface hypothesis was wrong
 
 The clusters were first hypothesised from the `FieldHost` type. Following the code changed
@@ -702,14 +844,14 @@ sweep.
 | `stamp` | 7 → **1** (`ghostMeshes` stayed — substrate) | 19 → **0** | 11 (12 until `commitSession` died) | **13** | 45 | 6 — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `move` + `gesture`); at head **2 stand as cross-module calls** (`setDrift`, `noteReconfigureMs` — §5.5) and **4 are gone**, internalised |
 | `render` | 5 → **0** | 5 → **0** | 0 | 13 | 30 | 0 — **EXTRACTED 2026-08-08** (`field-render.ts`, T3d Task 3); nothing stayed. Its 30 read edges all became module reads: 4 through the substrate, 26 through a 29-member deps record. Its SEAM is **ONE** verb — `picking`'s shape at four times the width (§2.8) |
 | `lifecycle` | 5 | 1 | 2 | 11 | 76 | 24 — **all 24 stand** (§5.1); **3 cross a module line since 2026-08-07** — the analyzer flags `ret.dispose` re-arms, now one `advisor.dispose()` call |
-| `input` | 2 | 13 → **14** (12 of the original 13 — `escapeLadder` deleted — plus the capture pair) | 1 | 10 → **3 clusters** (`tool`, `camera`, `targeting`) **+ the machine module** | 59 → **23** (10 reads out, 1 read in, 12 writes out — re-derived; the 8 machine-accessor read sites and the four handler delegations are CALLS and counted nowhere, per the map's own rule) | 20 → **12** — **PARTIALLY HOLLOWED 2026-08-07**: all 12 in this file, keyboard/wheel/`lastPointer` (§5.2) |
-| `catalogs` | 3 | 0 | 3 | 10 | 26 | 2 — both stand · **DECLARED FACADE-RESIDENT 2026-08-07** (T3d): probed and it stays — 0 functions, and all three setters are facade members. `table()` + `archetypeById()` already ride the substrate; `archetypes` is barred from it (one extracted reader) and rides as a function dep. Verdict at source, `field-host.ts` @1739 |
+| `input` | 2 | 13 → **14** (12 of the original 13 — `escapeLadder` deleted — plus the capture pair) | 1 | 10 → **0 clusters + 3 modules** (`field-tool.ts`, `field-camera-rig.ts`, `field-targeting.ts`, all as WRITES) | 59 → **13** (**0** reads out since 2026-08-08, 1 read in, 12 writes out — re-derived; every read it had left was a `tool`/`camera` binding and each went inside the verb the listener now calls, and the 8 machine-accessor read sites plus the handler delegations are CALLS counted nowhere, per the map's own rule) | 20 → **12** — **PARTIALLY HOLLOWED 2026-08-07**: **all 12 now cross a module line while every writer stayed** (§5.2), which is the disposition no other subsection has |
+| `catalogs` | 3 | 0 | 3 | 10 | 26 | 2 — both stand · **DECLARED FACADE-RESIDENT 2026-08-07** (T3d): probed and it stays — 0 functions, and all three setters are facade members. `table()` + `archetypeById()` already ride the substrate; `archetypes` is barred from it (one extracted reader) and rides as a function dep. Verdict at source, `field-host.ts` @1536 |
 | `entities` | 8 | 9 → **10** (+its Esc-rung sync, `syncSelectedEntityCapture`) | 8 | 9 | 28 | 0 |
 | `selection` | 9 | 17 → **19** (+2 rung syncs) | 4 | 9 | 21 → **19** (two phantoms struck: `view`'s at T3b1, `tool`'s at this review — §6) | 2 — both stand |
 | `materials` | 17 → **1** (`litByClass` stayed — substrate) | 7 → **0** | 1 | 8 | 40 → **39** (the `stamp` phantom struck — §2.8, §6) | 15 — **EXTRACTED 2026-08-08** (`field-materials.ts`, T3d Task 3); **all 15 stand and all 15 now cross a module line**, arriving as ONE call (`materials.release()`). Its SEAM is **14** verbs, not 7: the surplus is inbound READS, the third mechanism (§2.8) |
 | `analyzer` | 19 → **1** (`flagStore` stayed — substrate) | 14 → **0** | 6 | 8 | 39 | 14 — **EXTRACTED 2026-08-07** (`field-analyzer.ts`, T3d Task 2); **all 14 stand and all 14 now cross a module line** — 12 closure→MODULE, 2 MODULE→MODULE (the `props` pair, through the host's `markPlacementsStale` arrow). Its SEAM is 18 verbs, not 14: see §2.7 |
-| `tool` | 10 → **8** | 12 → **14** (+`toolPush` at T3a, +`armMaskDropReport` named at T3c) | 4 | 8 → 7 → **6 clusters + 2 modules** (`field-segment.ts`, `field-machine.ts`) | 35 → 34 → 29 → **28** (the `toolMask` phantom — §2.5) | 11 → **8** — **PARTIALLY HOLLOWED 2026-08-07**: 6 stand in-file (the momentary pins), 2 stand cross-MODULE (`maskDropReported`) |
-| `camera` | 8 | 10 → **13** (+the look-drag verbs, T3c) | 4 | 8 | 25 | 10 → **8** — the `look` pair re-homed in-file into this cluster's own verbs (§5.2) |
+| `tool` | 10 → 8 → **0** | 12 → 14 → **0** | 4 | 8 → 7 → **6 clusters + 2 modules** (`field-segment.ts`, `field-machine.ts`) | 35 → 34 → 29 → **28** (the `toolMask` phantom — §2.5) | 11 → **8** — **EXTRACTED 2026-08-08** (`field-tool.ts`, T3d Task 4; PARTIALLY HOLLOWED at T3c before that); **all 8 stand and all 8 now cross a module line** — the 6 momentary pins closure→MODULE (the key listeners STAYED and call verbs), the 2 `maskDropReported` MODULE→MODULE. Its SEAM is **15** verbs over a 14-function row |
+| `camera` | 8 → **0** | 10 → 13 → 14 → **0** (+the look-drag verbs at T3c, +`frameCameraOn` named at T3d Task 2) | 4 | 8 | 25 | 10 → **8** — **EXTRACTED 2026-08-08** (`field-camera-rig.ts`, T3d Task 4); the `look` pair was re-homed in-file at T3c (§5.2), and **all 8 survivors stand and all 8 now cross a module line** — 4 from `ret.init`/`ret.dispose` as three calls (`bind`, `unbind`, `release`), 4 from the key/wheel listeners as four verbs. Its SEAM is **22** verbs over a 14-function row, the widest in the tranche |
 | `targeting` | 1 → **0** | 6 → **0** | 0 | 7 | 14 | 2 — **EXTRACTED 2026-08-07** (`field-targeting.ts`); both stand, now cross-MODULE — the delegates call `targeting.notePointer` |
 | `picking` | 0 | 4 → **0** | 0 | 7 | 9 → **8** (the `canvasEl` edge struck — §2.6) | 1 — **EXTRACTED 2026-08-07** (`field-picking.ts`); stands, now MODULE→MODULE (`field-picking.ts` → `machine.setPendingMove`). Four functions out, **ONE** verb on the seam |
 | `props` | 2 | 3 | 1 | 6 | 8 → **7** as `deps` (+**9** uncounted calls — §6) | 2 — both stand, **MODULE→MODULE since 2026-08-07**: the arrow is still in this file but both ends have left it |
@@ -747,10 +889,11 @@ binding never moves and the mutation goes through the object. (The two-site pair
 gone.** Every table below carries the disposition per edge; §5.7 is the tally the T3 exit
 clause reads.
 
-### 5.1 Teardown fan-out — `lifecycle.ret.dispose` (24 edges — **all 24 stand at head; 18 cross a module line**)
+### 5.1 Teardown fan-out — `lifecycle.ret.dispose` (24 edges — **all 24 stand at head; 22 cross a module line**)
 
 `ret.dispose` nulls all 15 `materials` bindings, both `camera` handles (`cam`,
-`unbindCamera`), clears `world.chunkMeshes`, and re-arms three `analyzer` flags
+`unbindCamera` — through `cameraRig.unbind()` + `cameraRig.release()` since
+2026-08-08), clears `world.chunkMeshes`, and re-arms three `analyzer` flags
 (`analyzerResync`, `analyzerPlacementsStale`, `analyzerIdle`). `ret.init` writes `cam`,
 `unbindCamera` and `world.dirty`. One function owns the whole lifetime of state that six
 clusters read. T3c moved none of it — every edge in this table is exactly where the birth
@@ -760,43 +903,60 @@ task's 380-line hole, which is how a stale anchor column stops being a nit). **T
 moved the three
 analyzer TARGETS out of the closure** (2026-08-07): all three still stand, all three now
 cross a module line, and all three arrive as ONE call — `advisor.dispose()`, which the
-module owns because terminating the worker is what MAKES the re-arm owed.
+module owns because terminating the worker is what MAKES the re-arm owed. **T3d Task 4
+moved the two camera TARGETS out** (2026-08-08) on the same shape, and the whole line
+column below was re-grepped at that task: only TWO of this table's 24 edges are still
+cluster-to-cluster, and both are `world`'s.
 
 | Target | Written by | Line | Status (2026-08-07) |
 |---|---|---|---|
-| `materials.normalsMat` … `materials.selectionCellBind` (15 bindings) | `ret.dispose` | `field-materials.ts` `release` (call at 4708) | **all 15 stand, all 15 cross-MODULE since 2026-08-08** — as ONE call, `materials.release()`. The register's biggest single fan-out is now one line. The GPU frees that used to sit beside them are the module's `destroy(c)`, a SECOND verb, because they run under the context guard and these do not (§2.8) |
-| `camera.cam` | `ret.init` / `ret.dispose` | 4626 / 4734 | stands, in this file |
-| `camera.unbindCamera` | `ret.init` / `ret.dispose` | 4633 / 4733 | stands, in this file |
-| `world.chunkMeshes` | `ret.dispose` | 4682 | stands, in this file |
-| `world.dirty` | `ret.init` | 4652 | stands, in this file |
+| `materials.normalsMat` … `materials.selectionCellBind` (15 bindings) | `ret.dispose` | `field-materials.ts` `release` (call at 4256) | **all 15 stand, all 15 cross-MODULE since 2026-08-08** — as ONE call, `materials.release()`. The register's biggest single fan-out is now one line. The GPU frees that used to sit beside them are the module's `destroy(c)`, a SECOND verb, because they run under the context guard and these do not (§2.8) |
+| `camera.cam` | `ret.init` / `ret.dispose` | `cameraRig.bind` (call at 4181) / `cameraRig.release` (call at 4285) | **stands, cross-MODULE since 2026-08-08** — `field-camera-rig.ts`. `init`'s three statements (perspective, pose, canvas bind) are ONE call, and the ORDER inside them went with the module |
+| `camera.unbindCamera` | `ret.init` / `ret.dispose` | `cameraRig.bind` (4181) / `cameraRig.release` (4285) | **stands, cross-MODULE since 2026-08-08** — the dispose half is SPLIT in two on `field-materials.ts`'s precedent: `cameraRig.unbind()` at 4248 runs the callback INSIDE the context block (it must precede `gpu.dispose`), `cameraRig.release()` at 4285 nulls both slots OUTSIDE it |
+| `world.chunkMeshes` | `ret.dispose` | 4230 | stands, in this file |
+| `world.dirty` | `ret.init` | 4200 | stands, in this file |
 | `analyzer.analyzerResync` | `ret.dispose` | `field-analyzer.ts` `dispose` | **stands, cross-MODULE since 2026-08-07** — through `advisor.dispose()` |
 | `analyzer.analyzerPlacementsStale` | `ret.dispose` | `field-analyzer.ts` `dispose` | **stands, cross-MODULE since 2026-08-07** — same call |
 | `analyzer.analyzerIdle` | `ret.dispose` | `field-analyzer.ts` `dispose` | **stands, cross-MODULE since 2026-08-07** — same call (the `clearTimeout` pair went with the slot) |
 
-### 5.2 DOM handlers driving other clusters — `input` (20 edges at birth → **13 stand: 10 in this file + 3 cross-module; 7 gone**)
+### 5.2 DOM handlers driving other clusters — `input` (20 edges at birth → **13 stand: ALL 13 now cross a module line; 7 gone**)
 
 The `input` cluster owns almost no state of its own (`canvasEl`, `lastCursor`). It is a
-driver: it reassigns state in five other clusters — **three of them since 2026-08-07**
-(`tool`, `camera`, `targeting`; the `move` rows and three of the five `tool` rows left the
-file with the pointer chain).
+driver: it reassigns state in five other clusters — and since 2026-08-08 **every one of the
+thirteen standing rows crosses a module boundary while its WRITER stayed exactly where the
+birth pass found it.**
 
-**Five of these ten rows changed at T3c, and the `Status` column says how.** The line
-numbers ARE re-derived — every standing row's site was re-grepped at T3d Task 2, having
-last been derived at `7bb353a5` (§2.5) and gone stale through two tranches since. The pattern is worth reading whole, because it is what "the machine arbitrates, the
-tools act" cost this table: every row a POINTER handler drove either left the file with the
-state it drove, or stayed and became a call.
+**That is this table's whole T3d Task 4 story, and it is a shape no other subsection has.**
+Everywhere else in this register a row crossed the line because the target moved and the
+writer might follow later. Here the writer is *never* going to follow: `onKeyDown`,
+`onKeyUp`, `onBlur` and `onWheel` are DOM listeners, `attachListeners` owns the canvas
+element, and `input` is the adapter that turns DOM events into calls (§7.2). So the ten rows
+that were still "in this file" at Task 3 did not move — they became CALLS in place:
+`momentaryShift = true` is `tool.noteModifierDown("shift")`, `keys.add(k)` is
+`cameraRig.noteKeyDown(k)`, `dollyPixels = banked.banked` is inside `cameraRig.wheelDolly(e)`.
+**Eleven of the thirteen standing EDGES target `tool` or `camera`** (5 of the 6 standing
+rows; the odd one is `targeting.lastPointer`, which crossed at Task 1), which is why this
+table is the one Task 4 rewrote and §5.1 only edited two lines of.
 
-| Target | Written by | Line (head) | Status (re-audited 2026-08-07) |
+The pattern across both halves of the table is worth reading whole, because between T3c and
+T3d it went from "the DOM writes six clusters' state" to "the DOM calls six clusters'
+verbs" without a single listener moving: every row a POINTER handler drove either left the
+file with the state it drove, or stayed and became a call; every row a KEY or WHEEL handler
+drove stayed and became a call. **Line numbers re-derived at T3d Task 4** (every standing
+row re-grepped by token AND enclosing function, in-file anchors and cross-FILE ones alike
+— see the checker note at the end of §5.7).
+
+| Target | Written by | Line (head) | Status (re-audited 2026-08-08) |
 |---|---|---|---|
-| `tool.momentaryShift` | `onKeyDown` / `onKeyUp` / `onBlur` | 4438 / 4452 / 4476 | **stands** — keyboard (3 edges) |
-| `tool.momentaryCtrl` | `onKeyDown` / `onKeyUp` / `onBlur` | 4442 / 4456 / 4477 | **stands** — keyboard (3 edges) |
+| `tool.momentaryShift` | `onKeyDown` / `onKeyUp` / `onBlur` | 3999 / 4007 / 4029 | **stands, cross-MODULE since 2026-08-08** — keyboard (3 edges). `field-tool.ts`'s `noteModifierDown` / `noteModifierUp` / `releaseModifiers`; the repeat guard and the derive-after-write ORDER went INTO the verbs, which is what a `setMomentaryShift(v)` seam would have left behind |
+| `tool.momentaryCtrl` | `onKeyDown` / `onKeyUp` / `onBlur` | 4000 / 4008 / 4029 | **stands, cross-MODULE since 2026-08-08** — keyboard (3 edges), same three verbs. `onBlur` reaches BOTH flags through the single `releaseModifiers()` at 4029 |
 | `tool.digging` | `onPointerDown` / `onPointerUp` | — | **GONE** (2 edges) — state and writers both in `field-machine.ts` |
 | `tool.lastStroke` | `onPointerMove` | — | **GONE** (1 edge) — same |
-| `tool.maskDropReported` | `field-machine.ts`'s `pointerDown` | machine 1820 → thunk 1702 | **stands, cross-MODULE** (1 edge) — through `armMaskDropReport`; the binding stayed at 1695 |
-| `targeting.lastPointer` | `onPointerDown` / `onPointerMove` | 4251 / 4256 | **stands, cross-MODULE since 2026-08-07** (2 edges) — the delegates still write it on the way past, now as `targeting.notePointer(e.clientX, e.clientY)`. The slot went with the five cursor-to-world functions it is the cached ARGUMENT of (`field-targeting.ts`); this table filed it under the DOM because the DOM writes it, which is exactly the misfiling §2.1's fourth correction describes |
-| `camera.look` | ~~`onPointerDown` / `onPointerUp`~~ | 2117 / 2144 | **GONE as an edge** (2 edges) — re-homed in-file: the writers are `beginLook` / `endLook`, which are `camera`'s own, so `camera` writes its own state and no cluster line is crossed |
-| `camera.dollyPixels` | `onWheel` | 4298 | **stands** (1 edge) — wheel |
-| `camera.keys` (`const` Set) | `onKeyDown` / `onKeyUp` / `onBlur` | 4445 / 4450 / 4474 | **stands** — keyboard (3 edges) |
+| `tool.maskDropReported` | `field-machine.ts`'s `pointerDown` | `field-machine.ts` 1830 → dep 3515 | **stands, MODULE→MODULE since 2026-08-08** (1 edge) — it was cross-MODULE from T3c (the writer left); Task 4 moved the TARGET out too, so both ends have now left the closure. Still one spelling, `tool.armMaskDropReport` |
+| `targeting.lastPointer` | `onPointerDown` / `onPointerMove` | 3822 / 3827 | **stands, cross-MODULE since 2026-08-07** (2 edges) — the delegates still write it on the way past, as `targeting.notePointer(e.clientX, e.clientY)`. The slot went with the five cursor-to-world functions it is the cached ARGUMENT of (`field-targeting.ts`); this table filed it under the DOM because the DOM writes it, which is exactly the misfiling §2.1's fourth correction describes |
+| `camera.look` | ~~`onPointerDown` / `onPointerUp`~~ | — | **GONE as an edge** (2 edges) — re-homed in-file at T3c: the writers are `beginLook` / `endLook`, which are `camera`'s own. Both are `field-camera-rig.ts`'s now, so the re-homing that deleted the edge also carried it out of the file |
+| `camera.dollyPixels` | `onWheel` | 3863 | **stands, cross-MODULE since 2026-08-08** (1 edge) — wheel. The whole banked-travel branch is `cameraRig.wheelDolly(e)`; what stayed in the listener is the SPLIT (`machine.gesture() === "pointer"`), which is a fact about the event and neither cluster's |
+| `camera.keys` (`const` Set) | `onKeyDown` / `onKeyUp` / `onBlur` | 4001 / 4006 / 4028 | **stands, cross-MODULE since 2026-08-08** — keyboard (3 edges), as `noteKeyDown` / `noteKeyUp` / `releaseKeys`. A `const` Set could legally have ridden the substrate by value; it did not, because it acquired an owner (§2.9's `digRadius` rule read on the `const` side) |
 | `move.pendingMove` | `onPointerMove` / `onPointerUp` | — | **GONE** (2 edges) — state and writers both in `field-machine.ts` |
 
 ### 5.3 World reset / load fan-out — `world` (12 edges — **all 12 stand at head; 10 cross a module line**)
@@ -814,15 +974,15 @@ is in another file.
 
 | Target | Written by | Line (head) | Status (2026-08-07) |
 |---|---|---|---|
-| `analyzer.analyzerStale` (`const` Set) | `resetWorld`, through `advisor.retireWorld` | 4539 | **stands, cross-MODULE since 2026-08-07** |
-| `analyzer.analyzerDirty` (`const` Set) | `resetWorld` (`retireWorld`), `markDirtyWithNeighbors` (`noteDensityWritten`) | 4539, 2223 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
-| `analyzer.analyzerResync` | `resetWorld` (`retireWorld`) / `ret.loadWorld` (`noteWorldLoaded`) | 4539 / 4777 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
-| `analyzer.analyzerSeeds` | `resetWorld` (`retireWorld`) / `ret.loadWorld` (`noteWorldLoaded`) | 4539 / 4777 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
-| `analyzer.analyzerWholeWorld` | `ret.loadWorld`, through `advisor.noteWorldLoaded` | 4777 | **stands, cross-MODULE since 2026-08-07** |
-| `analyzer.flagStore` (`const`, `.clear()`) | `resetWorld`, through `advisor.retireWorld` | 4539 | **stands, cross-MODULE since 2026-08-07** — and it is the register's one edge where the TARGET stayed in the closure (a substrate value member) while the WRITE moved into a module: the identity the substrate hands out is what makes that legal, exactly as `world.dirty ← field-view.ts` does in §5.5 |
-| `selection.selection` | `resetWorld` | 4568 | stands — a bare write, deliberately not `setSelection(null)` (the Reselect slot), with `syncSelectionCapture()` paying the Esc stack back at 4570 |
-| `selection.lastSelection` | `resetWorld` | 4569 | stands |
-| `drift.drift` | `resetWorld` | 4587 | **stands, cross-MODULE since 2026-08-07** — the slot is `field-drift.ts`'s; the two lines are `drift.set(null)` + `drift.notify()` |
+| `analyzer.analyzerStale` (`const` Set) | `resetWorld`, through `advisor.retireWorld` | 4089 | **stands, cross-MODULE since 2026-08-07** |
+| `analyzer.analyzerDirty` (`const` Set) | `resetWorld` (`retireWorld`), `markDirtyWithNeighbors` (`noteDensityWritten`) | 4089, 2000 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
+| `analyzer.analyzerResync` | `resetWorld` (`retireWorld`) / `ret.loadWorld` (`noteWorldLoaded`) | 4089 / 4328 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
+| `analyzer.analyzerSeeds` | `resetWorld` (`retireWorld`) / `ret.loadWorld` (`noteWorldLoaded`) | 4089 / 4328 | **stands, cross-MODULE since 2026-08-07** (2 edges) |
+| `analyzer.analyzerWholeWorld` | `ret.loadWorld`, through `advisor.noteWorldLoaded` | 4328 | **stands, cross-MODULE since 2026-08-07** |
+| `analyzer.flagStore` (`const`, `.clear()`) | `resetWorld`, through `advisor.retireWorld` | 4089 | **stands, cross-MODULE since 2026-08-07** — and it is the register's one edge where the TARGET stayed in the closure (a substrate value member) while the WRITE moved into a module: the identity the substrate hands out is what makes that legal, exactly as `world.dirty ← field-view.ts` does in §5.5 |
+| `selection.selection` | `resetWorld` | 4118 | stands — a bare write, deliberately not `setSelection(null)` (the Reselect slot), with `syncSelectionCapture()` paying the Esc stack back at 4120 |
+| `selection.lastSelection` | `resetWorld` | 4119 | stands |
+| `drift.drift` | `resetWorld` | 4137 | **stands, cross-MODULE since 2026-08-07** — the slot is `field-drift.ts`'s; the two lines are `drift.set(null)` + `drift.notify()` |
 
 ### 5.4 The session cycle — `stamp` ↔ `move` (bidirectional, 2 edges over 3 sites — **all structurally GONE 2026-08-07**)
 
@@ -858,6 +1018,8 @@ reference below is the birth measurement; the mechanism now lives whole in
 
 ### 5.5 The remainder (12 edges at birth → **10 stand: 2 in this file, 8 cross-module; 2 gone**)
 
+**Line column re-derived at T3d Task 4** (2026-08-08), by token + enclosing function.
+
 The subsection T3b1 and T3c reshaped most, because it is where the extracted clusters'
 boundary writes live. Standing rows carry head lines; a site in another file says whose.
 
@@ -873,17 +1035,17 @@ other.
 
 | Target | Written by | Line (head) | Status (re-audited 2026-08-07) |
 |---|---|---|---|
-| `analyzer.analyzerPlacementsStale` | `props` — the `markPlacementsStale` arrow at the `createProps` call | arrow 2305–2306; `field-analyzer.ts` `markPlacementsStale` | **stands, MODULE→MODULE since 2026-08-07** — the arrow is still in this file and both of its ends have now left it. The verb kept the name the host gave the act when `props` went, which is why the two sites read identically across three epochs |
-| `analyzer.analyzerWholeWorld` | same arrow | arrow 2300–2301; `field-analyzer.ts` `markPlacementsStale` | **stands, MODULE→MODULE since 2026-08-07** |
-| `gesture.suspendReported` | `stamp.openStampSession` / `stamp.openEntitySession` | — | **GONE** (2 edges) — latch and writers all machine-internal (`field-machine.ts` 1092 / 1345) |
-| `drift.drift` | `field-machine.ts`'s `applyReconfigureSession`, through `drift.set` | dep 3902; machine 1595 | **stands, MODULE→MODULE since 2026-08-07** — it was closure→module while the slot was a host `let`; T3d moved the slot to `field-drift.ts` and the write-thunk became that module's own verb, so both ends have now left |
-| `drift.drift` | `history.stepHistory` | 3972 | **stands, cross-MODULE since 2026-08-07** — the guard is `drift.standing()`, and it is the ONLY conditional clear of the four (`ViewChannel.publish` has no change detection, so an unconditional clear would push `null` on every ⌘Z) |
-| `stats.lastReconfigureMs` | `field-machine.ts`'s `applyReconfigureSession`, through the `noteReconfigureMs` arrow | arrow 3897; machine 1588; `field-stats.ts` 283 | **stands, MODULE→MODULE** — both ends have left the closure and the edge now joins two extracted files across the host's one arrow |
+| `analyzer.analyzerPlacementsStale` | `props` — the `markPlacementsStale` arrow at the `createProps` call | arrow 2082–2084; `field-analyzer.ts` `markPlacementsStale` | **stands, MODULE→MODULE since 2026-08-07** — the arrow is still in this file and both of its ends have now left it. The verb kept the name the host gave the act when `props` went, which is why the two sites read identically across three epochs |
+| `analyzer.analyzerWholeWorld` | same arrow | arrow 2082–2084; `field-analyzer.ts` `markPlacementsStale` | **stands, MODULE→MODULE since 2026-08-07** |
+| `gesture.suspendReported` | `stamp.openStampSession` / `stamp.openEntitySession` | — | **GONE** (2 edges) — latch and writers all machine-internal (`field-machine.ts` 1104 / 1357, the two `suspendReported = false` re-arms) |
+| `drift.drift` | `field-machine.ts`'s `applyReconfigureSession`, through `drift.set` | dep 3495; `field-machine.ts` 1600 | **stands, MODULE→MODULE since 2026-08-07** — it was closure→module while the slot was a host `let`; T3d moved the slot to `field-drift.ts` and the write-thunk became that module's own verb, so both ends have now left |
+| `drift.drift` | `history.stepHistory` | 3565 | **stands, cross-MODULE since 2026-08-07** — the guard is `drift.standing()`, and it is the ONLY conditional clear of the four (`ViewChannel.publish` has no change detection, so an unconditional clear would push `null` on every ⌘Z) |
+| `stats.lastReconfigureMs` | `field-machine.ts`'s `applyReconfigureSession`, through the `noteReconfigureMs` arrow | arrow 3490; `field-machine.ts` 1593; `field-stats.ts` 283 | **stands, MODULE→MODULE** — both ends have left the closure and the edge now joins two extracted files across the host's one arrow |
 | `move.pendingMove` (the machine's, since T3c) | `picking.pointerPress`, through `machine.setPendingMove` | `field-picking.ts` 343 | **stands, MODULE→MODULE since 2026-08-07** — it was the register's only edge where the CLOSURE wrote INTO a module, and T3d retired that distinction by extracting the writer: `field-picking.ts` reaches `field-machine.ts` through the arrow pair in its deps record |
-| `tool.maskDropReported` | `field-segment.ts`'s commit, through `armMaskDropReport` | `field-segment.ts` 350 → thunk 1702 | **stands, cross-MODULE** — the same thunk §5.2's machine row uses; two callers, one spelling |
-| `world.chunkMeshes` | `catalogs.ret.setMaterialTable` | 4902 | **stands, in this file** |
-| `world.dirty` | `catalogs.ret.setMaterialTable` | 4909 | **stands, in this file** |
-| `world.dirty` | `field-view.ts`'s `setSlice` (`substrate.dirty.add`) | `field-view.ts` 217 | **stands, cross-MODULE** — the substrate's value side carrying a boundary write, as designed (§7.3) |
+| `tool.maskDropReported` | `field-segment.ts`'s commit, through `armMaskDropReport` | `field-segment.ts` 356 → dep 2574 | **stands, MODULE→MODULE since 2026-08-08** — cross-MODULE since 2026-08-03, when `field-segment.ts` took the writer out (`f6c4771e`, the first extraction of all), and Task 4 took the TARGET out to `field-tool.ts` as well. The same verb §5.2's machine row uses; two callers, one spelling |
+| `world.chunkMeshes` | `catalogs.ret.setMaterialTable` | 4429 | **stands, in this file** |
+| `world.dirty` | `catalogs.ret.setMaterialTable` | 4436 | **stands, in this file** |
+| `world.dirty` | `field-view.ts`'s `setSlice` (`substrate.dirty.add`) | `field-view.ts` 221 | **stands, cross-MODULE** — the substrate's value side carrying a boundary write, as designed (§7.3) |
 
 ### 5.6 Clusters with zero mutation edges in either direction
 
@@ -959,11 +1121,43 @@ So cross-module 24 + 15 = **39**, of which MODULE→MODULE is unchanged at **5**
 cluster-to-cluster 35 − 15 = **20**; 39 + 20 = **59**, and the gone count is untouched at
 **11**. `render` contributes nothing to any of it, which is §5.6's row stated as arithmetic.
 
-**Two thirds of the register now crosses a module line** (39 of 59), and the crossing point
-is worth noting for the T3 exit clause: at T3c it was 6, at Task 1 ten, at Task 2 twenty-four.
-The remaining 20 are §5.1's six (`lifecycle`→`camera` ×4, `lifecycle`→`world` ×2), §5.2's
-ten (`input`'s keyboard and wheel pins into `tool` and `camera`), §5.3's two
-(`world`→`selection`) and §5.5's two (`catalogs`→`world`) — i.e. exactly the clusters Tasks 4–6 own.
+**Re-tallied at foundations T3d Task 4, 2026-08-08: 11 gone and 59 standing are UNCHANGED
+for the FOURTH tranche running — `tool` left with all 8 of its inbound edges intact and
+`camera` with all 8 of its. 53 now cross a module boundary (7 of them MODULE→MODULE) and
+just 6 remain cluster-to-cluster inside the closure.** The arithmetic, from Task 3's
+39 / 20 split:
+
+- §5.1's four (`camera.cam` ← `ret.init`/`ret.dispose`, `camera.unbindCamera` ← the same
+  two) — the TARGETS left, the writer stayed: **+4 closure→MODULE**, arriving as three
+  calls (`bind`, `unbind`, `release`), split across the context guard on
+  `field-materials.ts`'s precedent.
+- §5.2's ten (`tool.momentaryShift` ×3, `tool.momentaryCtrl` ×3, `camera.keys` ×3,
+  `camera.dollyPixels` ×1 ← the key and wheel listeners): **+10 closure→MODULE** — and
+  this is the group with a shape the register has not seen before. **The WRITER did not
+  move and is never going to**: the listeners own the
+  canvas element, and each write became a call in place. Every other closure→MODULE
+  conversion in this register happened because a target moved out from under a writer that
+  might follow one day; these ten are permanent by design.
+- The two `tool.maskDropReported` rows (§5.2's machine one, §5.5's segment one) were
+  ALREADY cross-MODULE — the machine's writer left at T3c, the segment's on 2026-08-03 with
+  `field-segment.ts` itself (`f6c4771e`), which predates T3b1 — and Task 4 moved the target
+  out too: **both become MODULE→MODULE**, which changes the cross-module total not at all
+  and the MODULE→MODULE sub-count by two.
+
+So cross-module 39 + 4 + 10 = **53**, of which MODULE→MODULE 5 + 2 = **7**;
+cluster-to-cluster 20 − 14 = **6**; 53 + 6 = **59**, and the gone count is untouched at
+**11**.
+
+**Nine tenths of the register now crosses a module line** (53 of 59), and the crossing point
+is worth noting for the T3 exit clause: at T3c it was 6, at Task 1 ten, at Task 2
+twenty-four, at Task 3 thirty-nine. **The remaining SIX are §5.1's two (`lifecycle`→`world`),
+§5.3's two (`world`→`selection`) and §5.5's two (`catalogs`→`world`)** — i.e. exactly the
+FOUR clusters Tasks 5 and 6 own (`lifecycle`, `world`, `selection`, `catalogs`), and nothing
+else. **`world` is an endpoint of all six** — the target of four and the writer of two — so
+extracting `world` alone takes the residual to zero, whatever order the rest go in. (This
+read "three clusters", and gave the reason as "`world` and `lifecycle` are both ends of four
+of the six", until the Task-4 review: `catalogs` is the fourth cluster and writes two of the
+six, and only §5.1's two rows have `world`+`lifecycle` at both ends.)
 
 The direction of travel is worth naming because it is what an extraction tranche does to
 this register: **it converts cluster-to-cluster edges into module boundaries rather than
@@ -1013,7 +1207,7 @@ so the three counts do not reconcile and never did. That is pre-existing map sla
     2026-08-07**: folded into `advisor.dispose()` (`field-analyzer.ts`)
   - ~~`analyzer` (owned by `analyzer`) — 1 site: `ret.dispose`~~ — **GONE as a read
     2026-08-07**: same call; the worker client is module-private
-  - `cam` (owned by `camera`) — 3 sites: `ret.init`, `tick`
+  - `cam` (owned by `camera`) — 3 sites: `ret.init`, `tick` — **cross-MODULE since 2026-08-08** (`field-camera-rig.ts`): `ret.init`'s READ is inside `cameraRig.bind(ctx)` (its WRITE is the MUTATED-BY row below, counted there and not here), and `tick` binds `cameraRig.cam()` to a local because the frame needs it twice
   - `chunkMeshes` (owned by `world`) — 1 site: `ret.dispose`
   - `flagMarkerBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `flagMarkerMat` (owned by `materials`) — 2 sites: `ret.dispose`
@@ -1036,7 +1230,7 @@ so the three counts do not reconcile and never did. That is pre-existing map sla
   - `stampGhostMat` (owned by `materials`) — 2 sites: `ret.dispose`
   - `statsChannel` (owned by `stats`) — 1 site: `tick` ‡
   - `store` (owned by `world`) — 2 sites: `ret.init`, ~~`tick`~~ ‡
-  - `unbindCamera` (owned by `camera`) — 1 site: `ret.dispose`
+  - `unbindCamera` (owned by `camera`) — 1 site: `ret.dispose` — **cross-MODULE since 2026-08-08**, as `cameraRig.unbind()`
   - `voidCastBind` (owned by `materials`) — 2 sites: `ret.dispose`
   - `voidCastJobGen` (owned by `voidcast`) — 1 site: `tick` ‡
   - `voidCastMat` (owned by `materials`) — 2 sites: `ret.dispose`
@@ -1049,7 +1243,7 @@ so the three counts do not reconcile and never did. That is pre-existing map sla
     since 2026-08-07**, same call
   - `analyzerResync` (owned by `analyzer`) — 1 site: `ret.dispose` — **cross-MODULE since
     2026-08-07**, same call
-  - `cam` (owned by `camera`) — 2 sites: `ret.dispose`, `ret.init`
+  - `cam` (owned by `camera`) — 2 sites: `ret.dispose`, `ret.init` — **cross-MODULE since 2026-08-08**, as `cameraRig.release()` / `cameraRig.bind(ctx)`
   - `chunkMeshes` (owned by `world`) — 1 site: `ret.dispose`
   - `dirty` (owned by `world`) — 1 site: `ret.init`
   - `flagMarkerBind` (owned by `materials`) — 1 site: `ret.dispose`
@@ -1065,7 +1259,7 @@ so the three counts do not reconcile and never did. That is pre-existing map sla
   - `selectionCellMat` (owned by `materials`) — 1 site: `ret.dispose`
   - `stampGhostBind` (owned by `materials`) — 1 site: `ret.dispose`
   - `stampGhostMat` (owned by `materials`) — 1 site: `ret.dispose`
-  - `unbindCamera` (owned by `camera`) — 2 sites: `ret.dispose`, `ret.init`
+  - `unbindCamera` (owned by `camera`) — 2 sites: `ret.dispose`, `ret.init` — **cross-MODULE since 2026-08-08** — the dispose half SPLIT across the context guard (`unbind()` inside, `release()` outside), on `field-materials.ts`'s precedent
   - `voidCastBind` (owned by `materials`) — 1 site: `ret.dispose`
   - `voidCastMat` (owned by `materials`) — 1 site: `ret.dispose`
 
@@ -1209,7 +1403,7 @@ The largest edges-per-call ratio in the register — `advisor.retireWorld` carri
   - ~~`analyzePump` (owned by `analyzer`) — 3 sites: `markDirtyWithNeighbors`, `ret.loadWorld`, `ret.newWorld`~~ — **GONE as reads 2026-08-07**: `advisor.noteDensityWritten(changed)` at the choke point, `advisor.requestPass()` at the two world verbs
   - `ctx` (owned by `lifecycle`) — 2 sites: `remeshOne`, `resetWorld`
   - `disposed` (owned by `lifecycle`) — 2 sites: `remeshOne`
-  - `orbitState` (owned by `camera`) — 1 site: `ret.exportArtifact`
+  - `orbitState` (owned by `camera`) — 1 site: `ret.exportArtifact` — **cross-MODULE since 2026-08-08**, as `cameraRig.pose().yaw` — the pose, not the state
   - `sliceY` (owned by `view`) — 1 site: `remeshOne`
   - `table` (owned by `catalogs`) — 4 sites: `buildKit`, `compactLoadedLog`, `remeshOne`, `ret.exportArtifact`
 
@@ -1246,10 +1440,10 @@ The largest edges-per-call ratio in the register — `advisor.retireWorld` carri
   - `log` (read in `props`) — 1 site: `rebuildProps`
   - `log` (read in `stamp`) — 3 sites: `applyReconfigureSession`, `commitStampSession`, `openEntitySession`
   - `log` (read in `stats`) — 8 sites: `cachedLogStats`, `currentLogStats`
-  - `log` (read in `tool`) — 1 site: `commitToolOp`
+  - `log` (read in `tool`) — 1 site: `commitToolOp` — **cross-MODULE since 2026-08-08**, through `substrate.log`
   - `remeshVersion` (read in `lifecycle`) — 1 site: `tick`
   - `store` (read in `analyzer`) — 7 sites: `analyzerHasWork`, `postMirrorSync`, `rebuildFlagMarkers`, `rebuildFlagSelection`, `selectFlagImpl` — **cross-MODULE since 2026-08-07**, through `substrate.store`
-  - `store` (read in `camera`) — 1 site: `frameWorld`
+  - `store` (read in `camera`) — 1 site: `frameWorld` — **STRUCK 2026-08-08, RE-HOMED**: the rig takes `worldBox()` (this cluster's `chunkSetBox` over the store's keys) rather than the store, so `field-camera-rig.ts` names neither and takes no substrate
   - `store` (read in `catalogs`) — 1 site: `ret.setMaterialTable`
   - `store` (read in `drift`) — 1 site: `driftedEntities` — **cross-MODULE since 2026-08-07**,
     through `substrate.store`
@@ -1263,7 +1457,7 @@ The largest edges-per-call ratio in the register — `advisor.retireWorld` carri
   - `store` (read in `targeting`) — 8 sites: `computeTarget`, `cursorRay`, `materialSeedVoxel`, `selectionPoint`, `voidSeedVoxel` — **cross-MODULE since 2026-08-07**, through
     `substrate.store`. The densest single-cluster read of this binding after `render`'s, and
     all eight crossed the boundary on the record with nothing added to it
-  - `store` (read in `tool`) — 4 sites: `commitToolOp`, `eyedropper`
+  - `store` (read in `tool`) — 4 sites: `commitToolOp`, `eyedropper` — **cross-MODULE since 2026-08-08**, through `substrate.store`
   - `store` (read in `view`) — 1 site: `ret.setSlice`
   - `store` (read in `voidcast`) — 2 sites: `requestVoidCast`
   - `worker` (read in `lifecycle`) — 1 site: `ret.dispose`
@@ -1343,7 +1537,7 @@ stay**
   - `table` (read in `materials`) — 1 site: `buildLitMaterials` — **cross-MODULE since
     2026-08-08**, through `substrate.table()`
   - `table` (read in `stamp`) — 3 sites: `applyReconfigureSession`, `commitStampSession`, `sendPreviewJob`
-  - `table` (read in `tool`) — 3 sites: `commitToolOp`, `eyedropper`, `isKitFillTool`
+  - `table` (read in `tool`) — 3 sites: `commitToolOp`, `eyedropper`, `isKitFillTool` — **cross-MODULE since 2026-08-08**, through `substrate.table()` — a CALL, because `setMaterialTable` replaces it wholesale
   - `table` (read in `world`) — 4 sites: `buildKit`, `compactLoadedLog`, `remeshOne`, `ret.exportArtifact`
 
 **MUTATED BY other clusters** (0 edges):
@@ -1440,28 +1634,43 @@ facade now returns `props.instanceCounts()`, which makes the defensive copy the 
 to make. `field-stamp.test.ts` pins it 19 times and ran unmodified.
 
 
-### Cluster: tool — **PARTIALLY HOLLOWED 2026-08-07** (T3c: `digging` + `lastStroke` → `field-machine.ts`)
+### Cluster: tool — **EXTRACTED 2026-08-08** (`field-tool.ts`, foundations T3d Task 4)
 
-Two of the ten state bindings left with the POINTER CHAIN (T3c's second half, which moved
-the four pointer handlers' bodies into `field-machine.ts`): `digging` and `lastStroke` are
-the plain brush's stroke state, and those four handlers were their only readers anywhere in
-the file — so they went with the chain rather than staying behind a pair of thunks. The
-other eight bindings and all twelve functions are still in the closure. `maskDropReported`
-is the interesting one that stayed: its BINDING did, while the site that re-arms it moved,
-so the edge survives as a call through an `armMaskDropReport` thunk that `field-segment.ts`
-was already taking.
+Lives in `packages/editor/src/field-host/field-tool.ts` — the armed brush, its radius, the
+momentary overrides and the whole op path. **PARTIALLY HOLLOWED at T3c first** (`digging`
+and `lastStroke` went with the pointer chain into `field-machine.ts`), and the other eight
+bindings plus all fourteen functions left at Task 4. Nothing stayed.
 
-**This is the first row here hollowed in PART with the cluster still standing**, and §1's
-"subtract the marked rows" instruction does not cover it: skipping this row under-reports,
-because eight of its ten bindings and all twelve of its functions are still in the closure.
-Read the row, and read the struck edges below as the correction.
+**THE ROW'S DISTINGUISHING FACT is that six of its eight inbound mutation edges come from
+DOM key listeners that did not move and will not.** `input` is the listener layer, so
+`onKeyDown` / `onKeyUp` / `onBlur` are still in `field-host.ts` and now call
+`noteModifierDown` / `noteModifierUp` / `releaseModifiers`. Everything the momentary
+contract depends on — the one saved slot, the per-flag repeat guard, and the ORDER of the
+flag write before the derive — went INTO those three verbs, because a `setMomentaryShift(v)`
+seam would have handed the listener back exactly what it was giving up. §5.2 is the table
+this row is read against.
 
-**Owns (state) — 10 → 8:** `tool`@1720 · `momentarySaved`@1726 · `momentaryShift`@1727 · `momentaryCtrl`@1728 · `toolChannel`@1744 · `toolErrorChannel`@1750 · `maskDropReported`@1757 · `digRadius`@1986 · ~~`digging`~~ — **moved to `field-machine.ts` 2026-08-07** (module-private at its line 585) · ~~`lastStroke`~~ — **moved 2026-08-07** (586)
+**SEAM: 15 verbs over 14 functions.** SEVEN of the fourteen are module-private (`sphereShape`,
+`toolMask`, `toolOp`, `strokeShape`, `notifyTool`, `deriveMomentary`, `toolPush`); the eight
+new verbs are the radius accessor and its two movers, the tool patch, the two channel
+subscriptions and the three modifier verbs. DEPS: 8, five of them arrows over modules
+assembled below the `createTool` line — which sits as high as its own deps allow, because
+`reportToolError` has nine call sites in `field-host.ts` and six other modules take it.
 
-**Owns (functions) — 12 → 14:** `reportToolError`@2609 · `sphereShape`@2597 · `toolMask`@2627 · `toolOp`@2657 · `strokeShape`@2690 · `commitToolOp`@2718 · `isKitFillTool`@2736 · `eyedropper`@2831 · `applyTool`@2879 · `applyRadius`@3275 · `notifyTool`@4825 · `deriveMomentary`@4837 — plus two that post-date the measurement: `toolPush`@1740 (the channel's one payload builder, from T3a's seam rework) and `armMaskDropReport`@1764 (the re-arm, an inline arrow until T3c gave it a name because its second caller left the file)
+**Owns (state) — 10 → 8 → 0:** ~~`tool`~~@1720 · ~~`momentarySaved`~~@1726 · ~~`momentaryShift`~~@1727 · ~~`momentaryCtrl`~~@1728 · ~~`toolChannel`~~@1744 · ~~`toolErrorChannel`~~@1750 · ~~`maskDropReported`~~@1757 · ~~`digRadius`~~@1986 — **all eight to `field-tool.ts` 2026-08-08** · ~~`digging`~~ / ~~`lastStroke`~~ — **moved to `field-machine.ts` 2026-08-07** (585 / 586)
+
+**`digRadius` IS THE DISPOSITION TO READ THIS ROW FOR.** It reached Task 4 with THREE
+extracted readers, past T3a's two-extracted-readers bar for ADDING a `HostSubstrate` member
+— and it did not become one. The bar governs state the HOST still owns and shares; state
+that acquires an OWNER rides on that owner's seam (`editor-architecture.md` §21.1, and the
+`view` row below, where `layers` + `sliceY` had five reader clusters between them and became
+`viewState.layers()`). All three thunks are `tool.digRadius` now and no reader changed.
+**Reader count is the wrong question once a cluster has an owner.**
+
+**Owns (functions) — 12 → 14 → 0:** `reportToolError`@2609 · `sphereShape`@2597 · `toolMask`@2627 · `toolOp`@2657 · `strokeShape`@2690 · `commitToolOp`@2718 · `isKitFillTool`@2736 · `eyedropper`@2831 · `applyTool`@2879 · `applyRadius`@3275 · `notifyTool`@4825 · `deriveMomentary`@4837 · `toolPush`@1740 (T3a) · `armMaskDropReport`@1764 (named at T3c) — **all fourteen moved 2026-08-08.** The `@line` anchors are the pre-extraction record. `setTool`'s BODY moved with them, out of the facade member, because it reads `momentarySaved` and its branch order is the momentary contract.
 
 **Reads from other clusters** (7 edges → **6** — a phantom struck at the T3c review):
-  - `log` (owned by `world`) — 1 site: `commitToolOp`
+  - `log` (owned by `world`) — 1 site: `commitToolOp` — **cross-MODULE since 2026-08-08**, through `substrate.log`
   - ~~`selection` (owned by `selection`) — 5 sites: `toolMask`~~ — **PHANTOM, struck
     2026-08-07 (§2.5).** `toolMask` has never read the `selection` binding — verified at the
     production commit `b507d3f6` as well as at head — it asks `currentSelectionSpec()`, a
@@ -1470,48 +1679,57 @@ Read the row, and read the struck edges below as the correction.
     word twice inside one refusal message, and the `selection:` property key of the returned
     mask literal. Both §2.1 phantom classes in one row, and the first multi-site phantom —
     the single-site heuristic there would never have flagged it. The COUPLING is real and
-    one function deep; it is call-shaped, exactly like the nine `rebuildProps` callers the
-    `props` row names.
-  - `store` (owned by `world`) — 4 sites: `commitToolOp`, `eyedropper`
-  - `table` (owned by `catalogs`) — 3 sites: `commitToolOp`, `eyedropper`, `isKitFillTool`
+    one function deep; it is call-shaped, and at the extraction it became the
+    `currentSelectionSpec` dep — which is to say the phantom's REFUTATION is what named the
+    dep correctly
+  - `store` (owned by `world`) — 4 sites: `commitToolOp`, `eyedropper` — **cross-MODULE since 2026-08-08**, through `substrate.store`
+  - `table` (owned by `catalogs`) — 3 sites: `commitToolOp`, `eyedropper`, `isKitFillTool` — **cross-MODULE since 2026-08-08**, through `substrate.table()` (a CALL, because `setMaterialTable` replaces it wholesale)
 
 **MUTATES other clusters** (0 edges):
   - none
 
 **Read by other clusters** (17 → **16** → **14** edges):
-  - `digRadius` (read in `input`) — 2 sites: `onKeyDown`, `onWheel`
+  - `digRadius` (read in `input`) — 2 sites: `onKeyDown`, `onWheel` — **GONE as reads
+    2026-08-08**: both were `applyRadius(digRadius + notches * RADIUS_WHEEL_STEP)`, and both
+    are `tool.stepRadius(notches)` now. The listener says which direction and how many
+    notches; the module holds what a notch is worth. A read that becomes an ARGUMENT to the
+    owner's own verb leaves this map entirely (§2.7's second bullet, on the read side)
   - `digRadius` (read in `render`) — 3 sites: `ghostState`, `renderCursorAffordance`,
-    `renderGhostLines` — **cross-MODULE since 2026-08-08** (`field-render.ts`) as a thunk (`() => digRadius`). Becomes `tool.digRadius` at Task 4 with no change inside the module
-  - `digRadius` (read in `segment`) — 2 sites: `rebuildSegmentPreview`, `segmentClick`
+    `renderGhostLines` — **cross-MODULE since 2026-08-08** (`field-render.ts`), now
+    `tool.digRadius` instead of `() => digRadius`. The module did not change
+  - `digRadius` (read in `segment`) — 2 sites: `rebuildSegmentPreview`, `segmentClick` — **cross-MODULE since 2026-08-03**, and MODULE→MODULE since 2026-08-08
   - `digRadius` (read in `targeting`) — 1 site: `computeTarget` — **cross-MODULE since
-    2026-08-07**, as a `digRadius()` thunk dep. The SECOND extracted reader of this `let`
-    after `field-segment.ts`'s, and it is still not a substrate member: the bar governs
-    ADDING one, and two named function deps spelled the same way is the cheaper answer while
-    nothing else asks
+    2026-08-07**, MODULE→MODULE since 2026-08-08. It was the SECOND extracted reader of this
+    `let`; the third (`render`) took it past the substrate bar, and the disposition above is
+    why that did not matter
   - ~~`digging` (read in `input`) — 1 site: `onPointerMove`~~ — **NOT AN EDGE since 2026-08-07:**
     binding and reader are now both inside `field-machine.ts`, which is what made the move
     free. Same for `lastStroke` below and for both mutations further down.
   - ~~`lastStroke` (read in `input`) — 1 site: `onPointerMove`~~ — **internalised 2026-08-07**
-  - `momentaryCtrl` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `momentaryShift` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
+  - `momentaryCtrl` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — **GONE
+    as reads 2026-08-08**: all three were the guard on the write beside them, and the guard
+    went inside the verb
+  - `momentaryShift` (read in `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — **GONE
+    as reads 2026-08-08**, same
   - ~~`tool` (read in `voidcast`) — 1 site: `requestVoidCast`~~ — **PHANTOM, deleted
     2026-08-06.** `requestVoidCast` never read the `tool` binding; the match was the word
     inside a refusal string. See §2.1's third correction for the class of error.
 
-**MUTATED BY other clusters** (11 → **8** edges):
+**MUTATED BY other clusters** (11 → **8** edges — all 8 stand, all 8 cross a module line since 2026-08-08):
   - ~~`digging` (mutated by `input`) — 2 sites: `onPointerDown`, `onPointerUp`~~ — **internalised 2026-08-07**
   - ~~`lastStroke` (mutated by `input`) — 1 site: `onPointerMove`~~ — **internalised 2026-08-07**
   - `maskDropReported` (mutated by `input`) — 1 site: **`field-machine.ts`'s `pointerDown`**
-    since 2026-08-07 (was `onPointerDown` in this file), through the `armMaskDropReport`
-    thunk. The binding stayed and the mutator left — still one edge, now a cross-MODULE one.
+    since 2026-08-07, through the `armMaskDropReport` verb. **MODULE→MODULE since
+    2026-08-08**: the writer left at T3c and the target at Task 4
   - `maskDropReported` (mutated by `segment`) — 1 site: `segmentClick`, through the same
-    thunk (a named `const` since 2026-08-07; it was an inline arrow when only one caller
-    needed it)
-  - `momentaryCtrl` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `momentaryShift` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
+    verb. **MODULE→MODULE since 2026-08-08**, same reason
+  - `momentaryCtrl` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` —
+    **cross-MODULE since 2026-08-08**, as `noteModifierDown("ctrl")` /
+    `noteModifierUp("ctrl")` / `releaseModifiers()`
+  - `momentaryShift` (mutated by `input`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` —
+    **cross-MODULE since 2026-08-08**, the same three verbs with the other argument
 
-**Public members (4):** `setDigRadius`, `setTool`, `subscribeTool`, `subscribeToolError`
-
+**Public members (4):** `setDigRadius`, `setTool`, `subscribeTool`, `subscribeToolError` — all four are one-line delegates now (`tool.applyRadius`, `tool.set`, `tool.subscribe`, `tool.subscribeError`)
 
 ### Cluster: view — **EXTRACTED 2026-08-06**
 
@@ -1643,11 +1861,11 @@ back at T3b2 is the precedent.
 
 **Reads from other clusters** (9 edges) — **all nine became `TargetingDeps` members, and
 the split across the substrate is the whole of what T3a bought**:
-  - `cam` (owned by `camera`) — 2 sites: `cursorRay` — a host `let` NOT in the record, and
+  - `cam` (owned by `camera`) — 2 sites: `cursorRay` — **MODULE→MODULE since 2026-08-08** (`() => cameraRig.cam()`, the one forward arrow the rig's low assembly costs). It was a host `let` NOT in the record, and
     this is its ONLY extracted reader, so it rides as a single-consumer function dep
     (`field-props.ts`'s `kitMat` precedent). The substrate bar refuses it
   - `canvasEl` (owned by `input`) — 2 sites: `toNdc` — SUBSTRATE thunk
-  - `digRadius` (owned by `tool`) — 1 site: `computeTarget` — a host `let`, one extracted
+  - `digRadius` (owned by `tool`) — 1 site: `computeTarget` — **MODULE→MODULE since 2026-08-08** (`tool.digRadius`). It was a host `let`, one extracted
     reader beside `field-segment.ts`'s, so a named function dep like that module's
   - `sliceY` (owned by `view`) — 2 sites: `cursorRay` — `field-view.ts`'s, as an ARROW
     because `createView` is assembled ~900 lines BELOW the `createTargeting` call and the
@@ -1671,7 +1889,7 @@ the split across the substrate is the whole of what T3a bought**:
     own `sliceY` local states
 
 **MUTATED BY other clusters** (2 edges — both stand, cross-MODULE since 2026-08-07, §5.2):
-  - `lastPointer` (mutated by `input`) — 2 sites: `onPointerDown`@5037, `onPointerMove`@5042
+  - `lastPointer` (mutated by `input`) — 2 sites: `onPointerDown`@3822, `onPointerMove`@3827
     — the assignment became `targeting.notePointer(e.clientX, e.clientY)`; the handlers did
     not move
 
@@ -1702,7 +1920,7 @@ the split across the substrate is the whole of what T3a bought**:
   - `boxPreviewBatch` (read in `render`) — 3 sites: `renderScene` — **cross-MODULE since 2026-08-08** (`field-render.ts`)
   - `selectionBatch` (read in `render`) — 3 sites: `renderScene` — **cross-MODULE since 2026-08-08** (`field-render.ts`)
   - `selectionCells` (read in `render`) — 2 sites: `renderScene` — **cross-MODULE since 2026-08-08** (`field-render.ts`) — and NARROWED on the way: the seam hands over the instanced MESH, not the `{ im, g }` pair, on `advisor.markerMesh`'s precedent
-  - `selection` (read in `camera`) — 2 sites: `frameTargetBox`
+  - `selection` (read in `camera`) — 2 sites: `frameTargetBox` — **STRUCK 2026-08-08, RE-HOMED into one composed dep**: the rig takes `selectionBox()` and names neither `selection` nor `selectionAabb`. What a framing verb wants is a box
   - `selection` (read in `input`) — 1 site: `escapeLadder`†
   - `selection` (read in `stamp`) — 1 site: `ret.startStamp` — since T3c the read lives in
     the `selectionRegion` thunk on the machine's deps record (@4708–4718)
@@ -1732,10 +1950,10 @@ mutation (§5.5), and — since T3c — the machine reaching `segment.click` / `
 **Owns (functions) — 6:** `publishSegmentHud`@3181 · `publishSegmentHudThrottled`@3203 · `setSegmentAnchor`@3219 · `rebuildSegmentPreview`@3255 · `updateSegmentPreview`@3263 · `segmentClick`@3309
 
 **Reads from other clusters** (2 edges):
-  - `digRadius` (owned by `tool`) — 2 sites: `rebuildSegmentPreview`, `segmentClick`
+  - `digRadius` (owned by `tool`) — 2 sites: `rebuildSegmentPreview`, `segmentClick` — **MODULE→MODULE since 2026-08-08** (`tool.digRadius`). The edge also became TWO-WAY in that task: `applyRadius` calls this module's `rebuildPreview` back, through one arrow at `createTool`
 
 **MUTATES other clusters** (1 edge):
-  - `maskDropReported` (owned by `tool`) — 1 site: `segmentClick`
+  - `maskDropReported` (owned by `tool`) — 1 site: `segmentClick` — **MODULE→MODULE since 2026-08-08**, through `tool.armMaskDropReport`
 
 **Read by other clusters** (5 edges):
   - `segmentAnchorBatch` (read in `render`) — 3 sites: `renderScene` — **MODULE→MODULE since 2026-08-08**
@@ -1772,7 +1990,7 @@ machine takes `setBoxAnchor` and `segment.setAnchor` as deps.
   - none
 
 **Read by other clusters** (14 edges):
-  - `gesture` (read in `camera`) — 1 site: `orbitPivot`
+  - `gesture` (read in `camera`) — 1 site: `orbitPivot` — **cross-MODULE since 2026-08-08**, as an arrow onto `machine.gesture()` (the rig is assembled ABOVE the machine)
   - `gesture` (read in `entities`) — 1 site: `gizmoVisible`
   - `gesture` (read in `input`) — 8 sites: `onPointerDown`, `onPointerMove`, `onWheel`, `syncCursor`
   - `gesture` (read in `render`) — 2 sites: `renderCursorAffordance`, `renderScene` — **MODULE→MODULE since 2026-08-08**
@@ -1938,8 +2156,8 @@ module line):
 **Read by other clusters** (6 edges):
   - `entitySelectionBatch` (read in `render`) — 3 sites: `renderScene` — **cross-MODULE since 2026-08-08** (`field-render.ts`)
   - `gizmoBatch` (read in `render`) — 3 sites: `renderScene` — **cross-MODULE since 2026-08-08** (`field-render.ts`)
-  - `gizmo` (read in `camera`) — 2 sites: `orbitPivot`
-  - `selectedEntityId` (read in `camera`) — 2 sites: `frameTargetBox`
+  - `gizmo` (read in `camera`) — 2 sites: `orbitPivot` — **cross-MODULE since 2026-08-08**, as a `() => gizmo` thunk — and ONE read in the module, since the short-circuit was preserved as two statements
+  - `selectedEntityId` (read in `camera`) — 2 sites: `frameTargetBox` — **cross-MODULE since 2026-08-08**, as a thunk
   - `selectedEntityId` (read in `input`) — 1 site: `escapeLadder`†
   - `selectedEntityId` (read in `picking`) — 3 sites: `pointerPress` — **cross-MODULE since
     2026-08-07**, as a `selectedEntityId()` thunk dep (one extracted reader, so the substrate
@@ -2294,51 +2512,93 @@ backs them is 18 verbs: the 6 above plus `setSelectedFlag`, `markerMesh`, `selec
 fourth bullet says why that is bigger than the row and what it means for sizing the next one.
 
 
-### Cluster: camera
+### Cluster: camera — **EXTRACTED 2026-08-08** (`field-camera-rig.ts`, foundations T3d Task 4)
 
-**Owns (state) — 8:** `cam`@1680 · `orbitState`@2054 · `cameraAimed`@2062 · `cameraPoseChannel`@2008 · `keys`@2088 · `look`@2095 · `dollyPixels`@2099 · `unbindCamera`@1682
+Lives in `packages/editor/src/field-host/field-camera-rig.ts` — the orbit pose, the engine
+`Camera` handle, the RMB look drag, the fly key set, the banked wheel travel and the four
+verbs that put the camera on a box. **ALL eight bindings and ALL fourteen functions
+travelled; nothing stayed.**
 
-**Owns (functions) — 10 → 13:** `aimCamera`@2078 · `placeCamera`@2085 · `cameraEye`@2118 · `applyOrbit`@2131 · `orbitPivot`@3804 · `frameTargetBox`@3813 · `frameSelection`@3822 · `frameWorld`@3937 · `snapView`@3969 · `applyFlyMove`@4868 — plus the three look-drag verbs T3c carved out of the pointer handlers and re-homed HERE (`beginLook`@2158 · `lookDrag`@2167 · `endLook`@2185): the machine calls them as deps, and their arrival is what deleted the `look ← input` mutation pair (§5.2)
+**WHY NOT `field-camera.ts`.** That name was taken by the pure INPUT-arithmetic module
+(`WheelEvent`/keys/pixels in, numbers out), and `camera-control.ts` by the pure ORBIT MATH
+(`OrbitState` in, `OrbitState` out). This file is the RIG those two serve — the state they
+read and write, the handle, the channel and the policy — and `field-camera.ts`'s own header
+already used the word "rig" for it. `field-picking.ts`-beside-`field-pick.ts` is the
+precedent for the pairing; the module header argues the three-way line.
+
+**SEAM: 22 verbs over 14 functions — the widest ratio in the tranche.** FIVE of the fourteen
+are module-private (`aimCamera`, `placeCamera`, `applyOrbit`, `orbitPivot`,
+`frameTargetBox`), and THIRTEEN verbs are new surface. `applyOrbit` is the one to read the
+split by: it had EIGHT call sites, five of them other camera functions (hence private) and
+three of them NOT (`onWheel`, `ret.init`, `frameChunks`) — and each of those three is
+exactly why one of `wheelDolly`, `bind` and `centreOn` exists. **A private function's
+outside callers are the seam it needs, one verb each.**
+
+**DEPS: 9, and NO SUBSTRATE — the first extracted module that takes none.** `frameWorld`'s
+two world facts arrive as `worldBox()` and `occupiedTopY()`, a box and a ceiling rather than
+a store, on §2.7's argument-vs-dependency rule; `frameTargetBox`'s two selection reads
+collapse the same way into `selectionBox()`.
+
+**Owns (state) — 8 → 0:** ~~`cam`~~@1680 · ~~`orbitState`~~@2054 · ~~`cameraAimed`~~@2062 · ~~`cameraPoseChannel`~~@2008 · ~~`keys`~~@2088 · ~~`look`~~@2095 · ~~`dollyPixels`~~@2099 · ~~`unbindCamera`~~@1682 — **all eight moved 2026-08-08.** The `@line` anchors are the pre-extraction record
+
+**Owns (functions) — 10 → 13 → 14 → 0:** `aimCamera`@2078 · `placeCamera`@2085 · `cameraEye`@2118 · `applyOrbit`@2131 · `orbitPivot`@3804 · `frameTargetBox`@3813 · `frameSelection`@3822 · `frameWorld`@3937 · `snapView`@3969 · `applyFlyMove`@4868 · `beginLook`@2158 · `lookDrag`@2167 · `endLook`@2185 (the three look-drag verbs T3c carved out of the pointer handlers and re-homed here) · `frameCameraOn` (named at T3d Task 2, hoisted beside `frameSelection` precisely so this task would move one *named* thing rather than rediscover an anonymous arrow in the advisor's deps literal) — **all fourteen moved 2026-08-08**
 
 **Reads from other clusters** (5 edges):
-  - `gesture` (owned by `gesture`) — 1 site: `orbitPivot`
-  - `gizmo` (owned by `entities`) — 2 sites: `orbitPivot`
-  - `selectedEntityId` (owned by `entities`) — 2 sites: `frameTargetBox`
-  - `selection` (owned by `selection`) — 2 sites: `frameTargetBox`
-  - `store` (owned by `world`) — 1 site: `frameWorld`
+  - `gesture` (owned by `gesture`) — 1 site: `orbitPivot` — **cross-MODULE since 2026-08-08**, as an arrow onto `machine.gesture()` (the rig is assembled ABOVE the machine)
+  - `gizmo` (owned by `entities`) — 2 sites: `orbitPivot` — **cross-MODULE since 2026-08-08**, as a `() => gizmo` thunk. Collapsed to ONE read in the module: the closure's single expression became two statements to keep the short-circuit, so the gizmo is not read at all under a brush
+  - `selectedEntityId` (owned by `entities`) — 2 sites: `frameTargetBox` — **cross-MODULE since 2026-08-08**, as a thunk
+  - `selection` (owned by `selection`) — 2 sites: `frameTargetBox` — **STRUCK as a binding read 2026-08-08, RE-HOMED into one composed dep.** The two lines were `selection === null ? null : selectionAabb(selection)`, which is the SELECTION's own answer to "what box is selected"; the rig takes `selectionBox()` and names neither the binding nor `selectionAabb`. §2.7's third bullet, applied to a read this time
+  - `store` (owned by `world`) — 1 site: `frameWorld` — **STRUCK the same way**: the line was `chunkSetBox(store.chunks.keys())` and the rig takes `worldBox()`. The rig therefore reads no host container at all and takes no substrate
 
 **MUTATES other clusters** (0 edges):
   - none
 
 **Read by other clusters** (10 edges):
-  - `cam` (read in `lifecycle`) — 3 sites: `ret.init`, `tick`
+  - `cam` (read in `lifecycle`) — 3 sites: `ret.init`, `tick` — **cross-MODULE since
+    2026-08-08**. `ret.init`'s two are inside `cameraRig.bind(ctx)` now; `tick` binds
+    `cameraRig.cam()` to a local because the frame needs the handle twice (the liveness
+    guard and `render.scene(c, liveCam)`)
   - `cam` (read in `targeting`) — 2 sites: `cursorRay` — **cross-MODULE since 2026-08-07**,
-    as a `cam()` thunk dep. This is `cam`'s ONLY extracted reader, so it stays out of the
-    substrate on T3a's bar — `field-props.ts`'s `kitMat` precedent
-  - `dollyPixels` (read in `input`) — 1 site: `onWheel`
+    MODULE→MODULE since 2026-08-08. It was `cam`'s ONLY extracted reader, which kept it out
+    of the substrate on T3a's bar; the disposition held all the way to the extraction, and
+    the dep is now `() => cameraRig.cam()` — **the one forward arrow the rig's low assembly
+    costs**, since `createTargeting` sits ~500 lines above it
+  - `dollyPixels` (read in `input`) — 1 site: `onWheel` — **GONE as a read 2026-08-08**: the
+    whole banked-travel branch is `cameraRig.wheelDolly(e)`
   - `look` (read in `input`) — 7 sites: `onPointerMove` — **gone since T3c**: the reads are
     inside `lookDrag`, which is this cluster's own; the machine asks liveness through the
-    `looking` thunk (@4758) instead of reading the binding
+    `looking` thunk instead of reading the binding. That thunk is `cameraRig.looking` now
   - ~~`orbitState` (read in `analyzer`) — 1 site: `selectFlagImpl`~~ — **STRUCK 2026-08-07,
     RE-HOMED into this cluster's own verbs** (the `look` precedent in §5.2, read on the
     other side of the ledger): the two lines were `aimCamera(frameBox(orbitState, …))` +
     `applyOrbit()`, so the composition stayed here behind one named dep (`frameCameraOn`)
-    and `field-analyzer.ts` hands over a box. §2.7's third bullet states the rule
+    and `field-analyzer.ts` hands over a box. §2.7's third bullet states the rule — **and
+    Task 4 is what collected on it**: the composition moved to `field-camera-rig.ts` as
+    `frameOn` and `field-analyzer.ts` did not change a line
   - `orbitState` (read in `input`) — 3 sites: `onPointerMove`, `onWheel` — the
-    `onPointerMove` sites went with the look drag; `onWheel`@5364 survives
-  - `orbitState` (read in `world`) — 1 site: `ret.exportArtifact`
-  - `unbindCamera` (read in `lifecycle`) — 1 site: `ret.dispose`
+    `onPointerMove` sites went with the look drag at T3c; `onWheel`'s went inside
+    `wheelDolly` at Task 4. **All three gone as reads**
+  - `orbitState` (read in `world`) — 1 site: `ret.exportArtifact` — **cross-MODULE since
+    2026-08-08**, as `cameraRig.pose().yaw`. The one place outside the rig that still asks
+    for a number off the pose, and it asks for the POSE rather than the state
+  - `unbindCamera` (read in `lifecycle`) — 1 site: `ret.dispose` — **cross-MODULE since
+    2026-08-08**, as `cameraRig.unbind()`
 
-**MUTATED BY other clusters** (10 edges → **8**, §5.2):
-  - `cam` (mutated by `lifecycle`) — 2 sites: `ret.dispose`@5821, `ret.init`@5680
-  - `dollyPixels` (mutated by `input`) — 1 site: `onWheel`@5359
-  - `keys` (mutated by `input`) — 3 sites: `onBlur`@5535, `onKeyDown`@5506, `onKeyUp`@5511
+**MUTATED BY other clusters** (10 edges → **8**, §5.2 — all 8 stand, all 8 cross a module line since 2026-08-08):
+  - `cam` (mutated by `lifecycle`) — 2 sites: `ret.dispose`, `ret.init` — through
+    `cameraRig.release()` (4285) and `cameraRig.bind(ctx)` (4181)
+  - `dollyPixels` (mutated by `input`) — 1 site: `onWheel`@3863 — through `cameraRig.wheelDolly(e)`
+  - `keys` (mutated by `input`) — 3 sites: `onBlur`@4016, `onKeyDown`@3992, `onKeyUp`@3997 —
+    through `releaseKeys` / `noteKeyDown` / `noteKeyUp`. A `const` Set that could legally
+    have ridden the substrate BY VALUE, and did not, because it acquired an owner
   - ~~`look` (mutated by `input`) — 2 sites: `onPointerDown`, `onPointerUp`~~ — **GONE as an
-    edge 2026-08-07**: the writes are `beginLook`/`endLook` now, this cluster's own verbs
-  - `unbindCamera` (mutated by `lifecycle`) — 2 sites: `ret.dispose`@5820, `ret.init`@5687
+    edge 2026-08-07**: the writes are `beginLook`/`endLook`, this cluster's own verbs. The
+    re-homing that deleted the edge is what later carried it out of the file
+  - `unbindCamera` (mutated by `lifecycle`) — 2 sites: `ret.dispose`, `ret.init` — the
+    dispose half SPLIT in two on `field-materials.ts`'s precedent (`unbind()` at 4248 inside
+    the context guard, `release()` at 4285 outside it)
 
-**Public members (4):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking`
-
+**Public members (4):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking` — all four delegate now; `frameChunks` keeps `chunkSetBox` (`world`'s) on this side and hands the box to `cameraRig.centreOn`
 
 ### Cluster: render — **EXTRACTED 2026-08-08** (`field-render.ts`, foundations T3d Task 3)
 
@@ -2383,7 +2643,7 @@ per-site counts below are the birth epoch, per §2.5's read-side caveat):
   - `boxAnchor` (owned by `selection`) — 1 site: `renderCursorAffordance`
   - `boxPreviewBatch` (owned by `selection`) — 3 sites: `renderScene`
   - `chunkMeshes` (owned by `world`) — 1 site: `renderScene`
-  - `digRadius` (owned by `tool`) — 3 sites: `ghostState`, `renderCursorAffordance`, `renderGhostLines`
+  - `digRadius` (owned by `tool`) — 3 sites: `ghostState`, `renderCursorAffordance`, `renderGhostLines` — **MODULE→MODULE since 2026-08-08** (`tool.digRadius`), with no change inside `field-render.ts`
   - `entitySelectionBatch` (owned by `entities`) — 3 sites: `renderScene`
   - `flagMarkers` (owned by `analyzer`) — 2 sites: `renderScene` — **cross-MODULE since
     2026-08-07**, through `advisor.markerMesh()` bound to a local
@@ -2554,26 +2814,33 @@ The header sums and the MUTATES table below ARE re-derived now (§2.5's sweep, w
 "full attribution sweep" §1's rule demanded); the per-binding read bullets keep their birth
 site counts, with the disposition each carries from the block above.
 
-**Owns (state) — 2:** `canvasEl`@1681 · `lastCursor`@5240 — **both stayed**
+**Owns (state) — 2:** `canvasEl`@1681 · `lastCursor`@5240 — **both stayed**, and after T3d Task 4 they are the ONLY state any listener in this file touches
 
-**Owns (functions) — 12 → 14** (was 13; `escapeLadder` was deleted 2026-08-05, §2.2)**:** `syncCursor`@5241 · `onPointerDown`@5312 · `onPointerMove`@5317 · `onPointerUp`@5326 · `onPointerCancel`@5330 · `onWheel`@5353 · `onContextMenu`@5373 · `onKeyDown`@5377 · `onKeyUp`@5509 · `onBlur`@5533 · `attachListeners`@5543 · `detachListeners`@5559 — **all twelve still declared here; four are now delegates (see above) — plus the capture pair T3c carved out of them, `capturePointer`@2197 · `releasePointer`@2200** (the only two places `canvasEl`'s DOM capture is spelled; the machine and `pointerPress` call them)
+**Owns (functions) — 12 → 14** (was 13; `escapeLadder` was deleted 2026-08-05, §2.2)**:** `syncCursor`@5241 · `onPointerDown`@5312 · `onPointerMove`@5317 · `onPointerUp`@5326 · `onPointerCancel`@5330 · `onWheel`@3863 · `onContextMenu`@5373 · `onKeyDown`@5377 · `onKeyUp`@5509 · `onBlur`@5533 · `attachListeners`@5543 · `detachListeners`@5559 — **all twelve still declared here; four are now delegates (see above) — plus the capture pair T3c carved out of them, `capturePointer`@2197 · `releasePointer`@2200** (the only two places `canvasEl`'s DOM capture is spelled; the machine and `pointerPress` call them)
 
-**Reads from other clusters** (37 edges → **10 stand**: `digRadius` 2 + `dollyPixels` 1 +
-`orbitState` 1 + `momentaryShift` 3 + `momentaryCtrl` 3 — everything else below is gone as
-a DATA edge, per its own annotation; what replaced part of it is 8 `machine.*()` accessor
-read SITES — `syncCursor` 4, `onKeyDown` 3, `onWheel` 1 — which are calls and counted
-nowhere, per the map's rule):
+**Reads from other clusters** (37 edges → **ZERO stand as of 2026-08-08**). The ten that
+survived T3c were `digRadius` 2, `dollyPixels` 1, `orbitState` 1, `momentaryShift` 3,
+`momentaryCtrl` 3 — every one of them a `tool` or `camera` binding, and every one of them
+now inside the verb the listener calls. `applyRadius(digRadius + notches * STEP)` is
+`tool.stepRadius(notches)`; the wheel's banked branch is `cameraRig.wheelDolly(e)`; each
+momentary read was the guard on the write beside it and went into the verb with it.
+**A driver that owns no state and reads none is what "the adapter that turns DOM events
+into calls" (§7.2) finally measures as.** What replaced part of it is 8 `machine.*()`
+accessor read SITES — `syncCursor` 4, `onKeyDown` 3, `onWheel` 1 — plus the module calls
+above, all of which are calls and counted nowhere, per the map's rule:
   - `boxAnchor` (owned by `selection`) — 2 sites: `escapeLadder`†, `onPointerMove`
-  - `digRadius` (owned by `tool`) — 2 sites: `onKeyDown`, `onWheel`
+  - `digRadius` (owned by `tool`) — 2 sites: `onKeyDown`, `onWheel` — **GONE as a data edge 2026-08-08**, into `tool.stepRadius(notches)`
   - `digging` (owned by `tool`) — 1 site: `onPointerMove`
-  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel`
+  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel` — **GONE as a data edge 2026-08-08**, into `cameraRig.wheelDolly(e)`
   - `gesture` (owned by `gesture`) — 8 sites: `onPointerDown`, `onPointerMove`, `onWheel`, `syncCursor`
   - `lastStroke` (owned by `tool`) — 1 site: `onPointerMove`
   - `look` (owned by `camera`) — 7 sites: `onPointerMove`
-  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
-  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp`
+  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — **GONE as a data edge 2026-08-08**: each was the guard on the write beside it, and the guard is inside the verb
+  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`, `onKeyDown`, `onKeyUp` — **GONE as a data edge 2026-08-08**, same
   - `moveDrag` (owned by `move`) — 7 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `onPointerUp`, `syncCursor`
-  - `orbitState` (owned by `camera`) — 3 sites: `onPointerMove`, `onWheel`
+  - `orbitState` (owned by `camera`) — 3 sites: `onPointerMove`, `onWheel` — the
+    `onPointerMove` two went with the look drag at T3c; `onWheel`'s went inside `wheelDolly`
+    on 2026-08-08. **All three GONE as data edges**
   - `pendingMove` (owned by `move`) — 2 sites: `onPointerMove`
   - `pendingStamp` (owned by `gesture`) — 5 sites: `escapeLadder`†, `onPointerDown`, `onPointerMove`, `syncCursor`
   - `segmentAnchor` (owned by `segment`) — 2 sites: `escapeLadder`†, `onPointerMove`
@@ -2581,28 +2848,35 @@ nowhere, per the map's rule):
   - `selection` (owned by `selection`) — 1 site: `escapeLadder`†
   - `stamp` (owned by `stamp`) — 5 sites: `escapeLadder`†, `onKeyDown`, `syncCursor`
 
-**MUTATES other clusters** (20 edges → **12 stand, all in this file** — this is the list
-T3c changed most; §5.2 carries the same ten rows with head lines, re-audited 2026-08-07):
+**MUTATES other clusters** (20 edges → **12 stand, and since 2026-08-08 ALL TWELVE cross a
+module line while every writer stayed exactly where it was born** — this is the list T3c
+changed most and T3d Task 4 changed second-most; §5.2 carries the same rows with head lines,
+re-audited 2026-08-08. **The shape is this cluster's whole argument**: `input` is declared
+FACADE-RESIDENT, so these writers are never going to follow their targets, and each write
+became a CALL in place rather than moving):
   - `digging` (owned by `tool`) — 2 sites: `onPointerDown`, `onPointerUp` — **GONE:** binding
     and writer both left, together
-  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel`@5359 — stands
-  - `keys` (owned by `camera`) — 3 sites: `onBlur`@5535, `onKeyDown`@5506, `onKeyUp`@5511 — stand
+  - `dollyPixels` (owned by `camera`) — 1 site: `onWheel`@3863 — **stands, cross-MODULE since 2026-08-08**, through `cameraRig.wheelDolly(e)`
+  - `keys` (owned by `camera`) — 3 sites: `onBlur`@4028, `onKeyDown`@4001, `onKeyUp`@4006 — **stand, cross-MODULE since 2026-08-08**, through `releaseKeys` / `noteKeyDown` / `noteKeyUp`
   - `lastPointer` (**since 2026-08-07 owned by `field-targeting.ts`**) — 2 sites:
-    `onPointerDown`@5037, `onPointerMove`@5042 — **stand, cross-MODULE**. They still write it
+    `onPointerDown`@3822, `onPointerMove`@3827 — **stand, cross-MODULE**. They still write it
     before handing over, now as `targeting.notePointer(e.clientX, e.clientY)`. The reasoning
     that kept the write here at T3c is unchanged and was never about where the SLOT lives:
     the chain never reads it, so handing the machine a write-thunk for it would have grown
     `MachineDeps` for someone else's benefit. T3d moved the slot to the five functions it is
     the cached argument of; the handlers did not move a line
   - `lastStroke` (owned by `tool`) — 1 site: `onPointerMove` — **GONE**, with `digging`
-  - `look` (owned by `camera`) — 2 sites: `onPointerDown`, `onPointerUp` — **re-homed inside
-    this file:** the writes are `beginLook`@2159/`endLook`@2186 now, which are `camera`'s, so
-    the edge is `camera` writing its own state and `input` no longer has it
+  - `look` (owned by `camera`) — 2 sites: `onPointerDown`, `onPointerUp` — **re-homed at
+    T3c:** the writes are `beginLook`/`endLook`, which are `camera`'s, so the edge became
+    `camera` writing its own state and `input` no longer has it. Both verbs are
+    `field-camera-rig.ts`'s since 2026-08-08 — the re-homing that deleted the edge is what
+    later carried it out of the file entirely
   - `maskDropReported` (owned by `tool`) — 1 site: `onPointerDown` — **left the file:** now
-    `field-machine.ts`'s `pointerDown` (its line 1806) through the `armMaskDropReport`
-    thunk@1764 — the edge stands, cross-MODULE, and is counted on `tool`'s side
-  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`@5538, `onKeyDown`@5503, `onKeyUp`@5517 — stand
-  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`@5537, `onKeyDown`@5499, `onKeyUp`@5513 — stand
+    `field-machine.ts`'s `pointerDown` (its line 1830) through `tool.armMaskDropReport`
+    (dep@3515) — the edge stands, **MODULE→MODULE since 2026-08-08** (the target left too),
+    and is counted on `tool`'s side
+  - `momentaryCtrl` (owned by `tool`) — 3 sites: `onBlur`@4029, `onKeyDown`@4000, `onKeyUp`@4008 — **stand, cross-MODULE since 2026-08-08**, as `noteModifierDown("ctrl")` / `noteModifierUp("ctrl")` / `releaseModifiers()`
+  - `momentaryShift` (owned by `tool`) — 3 sites: `onBlur`@4029, `onKeyDown`@3999, `onKeyUp`@4007 — **stand, cross-MODULE since 2026-08-08**, the same three verbs with the other argument. `onBlur` reaches BOTH through the single `releaseModifiers()`
   - `pendingMove` (owned by `move`) — 2 sites: `onPointerMove`, `onPointerUp` — **GONE:**
     both the binding (2026-08-07, with `move`) and both writers (T3c's chain move) are in
     `field-machine.ts`

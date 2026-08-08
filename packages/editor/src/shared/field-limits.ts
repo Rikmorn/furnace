@@ -31,7 +31,8 @@
 // `RADIUS_MIN`/`RADIUS_MAX`/`HOLLOW_MIN_M` were the strip's own literals, under a comment
 // saying they mirrored the host "by review" — the same honest-restatement shape the three
 // above carried, found in the file that task had to open anyway. Each is enforced by the
-// host (`clampRadius`, and the `hollow` floor `clampTool` applies) and each is STATED to a
+// brush layer (`clampRadius`, and the `hollow` floor `clampTool` applies — both in
+// `field-host/field-tool.ts`) and each is STATED to a
 // user as a native control's own bound, which is the strongest form of stating one: the
 // range input cannot be dragged past `RADIUS_MAX`, so a drifted copy would not merely
 // misdescribe the clamp, it would make the control refuse a value the host accepts.
@@ -74,9 +75,9 @@ export const SELECTION_UI_BUDGET = 200_000;
 
 /** The smallest brush/capsule radius the host will hold, in metres.
  *
- *  Enforced by `clampRadius` (`field-host.ts`) on every radius the chrome or the `[`/`]`
- *  keys push, and STATED as the `min` of the strip's radius range input — so the control
- *  cannot ask for a radius the clamp would move. */
+ *  Enforced by `clampRadius` (`field-host/field-tool.ts`) on every radius the chrome or
+ *  the `[`/`]` keys push, and STATED as the `min` of the strip's radius range input — so
+ *  the control cannot ask for a radius the clamp would move. */
 export const RADIUS_MIN = 0.25;
 
 /** The largest brush/capsule radius the host will hold, in metres. {@link RADIUS_MIN}'s

@@ -23,9 +23,11 @@
 // reassignable ones arrive as FUNCTIONS rather than as values. That is the whole
 // discipline of the boundary: `digRadius` is a `let` the rail's slider, the wheel
 // and `[` / `]` all move, and `maskDropReported` is a `let` this module has to
-// clear. Either one passed by value would give this module a private copy the
-// host's own writes never reach — a fork nothing would fail on, because both
-// halves would go on holding a perfectly plausible number. The three constants
+// clear. Either one passed by value would give this module a private copy their
+// owner's own writes never reach — a fork nothing would fail on, because both
+// halves would go on holding a perfectly plausible number. (That owner is
+// `field-tool.ts` since 2026-08-08, and four of the eight deps below come off it
+// now. The names did not change and neither did this file.) The three constants
 // travel by value for the mirror-image reason: nothing can move them.
 import type { BrushShape } from "@furnace/core/field";
 import {
@@ -77,10 +79,14 @@ export type SegmentDeps = {
    *  It stays in the host because it is derived there — twice the dig range, which
    *  is the geometry of two clicks from one camera (see its own TSDoc). */
   maxSegmentM: number;
-  /** The LIVE brush radius. A function, not a number, because the host's
-   *  `digRadius` is a `let` that the panel slider, the wheel and `[` / `]` all
-   *  move through `applyRadius`; a snapshot taken here would fatten the preview
-   *  capsule to a radius the committed op no longer uses. */
+  /** The LIVE brush radius. A function, not a number, because `digRadius` is a
+   *  `let` that the panel slider, the wheel and `[` / `]` all move through
+   *  `applyRadius` (`field-tool.ts`'s, both of them); a snapshot taken here would
+   *  fatten the preview capsule to a radius the committed op no longer uses.
+   *
+   *  The reverse edge is this module's `rebuildPreview`, which that funnel calls:
+   *  the two-way pair is broken by one arrow at `createTool`, ~350 lines above
+   *  this module's own assembly. */
   digRadius(): number;
   /** The surface point under a client-space pixel — `field-targeting.ts`'s
    *  `selectionPoint`, reached through the host, i.e. the RAW raycast hit and not

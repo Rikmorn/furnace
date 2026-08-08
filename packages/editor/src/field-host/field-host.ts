@@ -5,7 +5,6 @@
 // drains across frames) and creates NO physics world (colliders are derived at
 // dungeon-load time, T11).
 import type * as binding from "@furnace/core/binding";
-import * as camera from "@furnace/core/camera";
 import * as field from "@furnace/core/field";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
@@ -17,40 +16,26 @@ import {
   type BrushEffect,
   latticeClearance,
   regionSampleCount,
-  snappedKitBox,
   snapSpan,
 } from "../shared/field-brush.ts";
-// The limits the host ENFORCES and the chrome has to STATE — plus `DIG_RANGE_M`, which is
-// neither but is what `MAX_SEGMENT_M` is twice of. They live one layer down (`shared/`,
-// which the chrome may value-import and this directory may not be) so the number a user
-// reads and the number a click is refused by are ONE number rather than two that agree by
-// review — see `field-limits.ts`' header for what that used to cost.
-import {
-  DIG_RANGE_M,
-  HOLLOW_MIN_M,
-  MAX_SEGMENT_M,
-  RADIUS_MAX,
-  RADIUS_MIN,
-  SELECTION_UI_BUDGET,
-} from "../shared/field-limits.ts";
+// The limits the host ENFORCES and the chrome has to STATE. They live one layer down
+// (`shared/`, which the chrome may value-import and this directory may not be) so the
+// number a user reads and the number a click is refused by are ONE number rather than two
+// that agree by review — see `field-limits.ts`' header for what that used to cost.
+//
+// FOUR of the six left on 2026-08-08 (foundations T3d Task 4) with the brush layer:
+// `RADIUS_MIN`/`RADIUS_MAX` are `clampRadius`'s and `HOLLOW_MIN_M` is `clampTool`'s, all
+// three now in `field-tool.ts`; `DIG_RANGE_M` — neither enforced nor stated, but what
+// `MAX_SEGMENT_M` is twice of — went with the eyedropper's raycast, its only reader here.
+import { MAX_SEGMENT_M, SELECTION_UI_BUDGET } from "../shared/field-limits.ts";
 import { boxCentre, boxEdges } from "./box-edges.ts";
-import {
-  dolly,
-  flyLook,
-  flyMove,
-  frameBox,
-  type OrbitState,
-  orbitAbout,
-  snapToAxis,
-  toEyeTarget,
-} from "./camera-control.ts";
 import { createAnalyzer } from "./field-analyzer.ts";
-import {
-  bankDolly,
-  flySpeed,
-  lookDeltas,
-  readFlyMove,
-} from "./field-camera.ts";
+// The rig, and with it BOTH pure camera modules: `camera-control.ts` (the orbit math) and
+// `field-camera.ts` (the input arithmetic) each had every one of their readers inside the
+// camera cluster, so all three import blocks left this file together on 2026-08-08
+// (foundations T3d Task 4). `@furnace/core/camera` went with them — nothing here holds a
+// `Camera` any more; the frame asks `cameraRig.cam()` for the one it draws with.
+import { createCameraRig } from "./field-camera-rig.ts";
 import { FieldWorkerClient, type WorkerLike } from "./field-client.ts";
 import { createDrift } from "./field-drift.ts";
 import {
@@ -87,6 +72,7 @@ import {
 import type { StampSession } from "./field-stamp.ts";
 import { createStatsMeter } from "./field-stats.ts";
 import { createTargeting } from "./field-targeting.ts";
+import { createTool } from "./field-tool.ts";
 import { createView } from "./field-view.ts";
 import { createVoidCast } from "./field-voidcast.ts";
 import {
@@ -1394,9 +1380,12 @@ export const STROKE_MIN_MS = 40;
 // The advisor's four constants — the engine URL and verify budget stage 2 posts,
 // the drawn marker's metre size, and the whole-world debounce — left with
 // `field-analyzer.ts`. Each had exactly one reader and it went with the cluster.
-const EDITOR_FOV_Y = Math.PI / 3;
 const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
-const RADIUS_WHEEL_STEP = 0.1;
+// The CAMERA's field of view (`EDITOR_FOV_Y`) went to `field-camera-rig.ts` with
+// the one call that builds a camera, and the RADIUS wheel step to `field-tool.ts`
+// with the one funnel that spends it — the wheel and `[` / `]` now say how many
+// notches and let that module hold what a notch is worth. `MAX_FRAME_DT` stays
+// because the frame is the facade's: `tick` is what clamps `dt`.
 
 // The FRAME's eight constants — the clear colour, the studio key light's three,
 // both ambient terms and the reference grid's two — left with `field-render.ts`
@@ -1408,11 +1397,11 @@ const RADIUS_WHEEL_STEP = 0.1;
 // as well — and `SELECTED_COLOR`, read by `selection`'s outline; all three are
 // handed to the modules that need them as plain value deps.
 
-const clampRadius = (r: number): number =>
-  Math.max(RADIUS_MIN, Math.min(RADIUS_MAX, r));
-
-const clampIntRange = (v: number, lo: number, hi: number): number =>
-  Math.max(lo, Math.min(hi, Math.round(v)));
+// `clampRadius` and `clampIntRange` left with `field-tool.ts` (2026-08-08,
+// foundations T3d Task 4): the first is `applyRadius`'s and the second is
+// `clampTool`'s, and neither had a second reader anywhere in this file.
+// `field-limits.ts`' TSDoc names `clampRadius` as the enforcement point and now
+// names its new home.
 
 // Selection overlay colour — amber, deliberately distinct from the
 // hologram-blue brush ghost (GHOST_COLOR). Shared with the advisor's INFO_TINT
@@ -1465,102 +1454,15 @@ const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
 // the number climb toward the point where the next load will fold it.
 const COMPACT_THRESHOLD_OPS = 200;
 
-// Default tool: dig/rock, unmasked, SMOOTH_DEFAULTS-equivalent literal (a
-// fresh object per call — never an alias of core's shared SMOOTH_DEFAULTS).
-function defaultTool(): FieldTool {
-  return {
-    effect: "dig",
-    materialId: 0,
-    mask: { kind: "none" },
-    smooth: { ...field.SMOOTH_DEFAULTS },
-    hollow: null,
-  };
-}
-
-// Deep-enough copy so host state never aliases panel-held (or panel-handed)
-// objects: mask + smooth are the only nested fields.
-function cloneTool(t: FieldTool): FieldTool {
-  return {
-    effect: t.effect,
-    materialId: t.materialId,
-    mask: { ...t.mask },
-    smooth: { ...t.smooth },
-    hollow: t.hollow,
-  };
-}
-
-// The chassis-side parameter clamp applied on every setTool (see the FieldHost
-// TSDoc for why the chassis is the enforcement point).
-function clampTool(t: FieldTool): FieldTool {
-  const c = cloneTool(t);
-  c.smooth.strength = clampIntRange(
-    c.smooth.strength,
-    1,
-    field.SMOOTH_MAX_STRENGTH,
-  );
-  c.smooth.iterations = clampIntRange(
-    c.smooth.iterations,
-    1,
-    field.SMOOTH_MAX_ITERATIONS,
-  );
-  if (c.hollow !== null) c.hollow = Math.max(HOLLOW_MIN_M, c.hollow);
-  return c;
-}
-
-// On THIS side of the seam a weakened mask compare suppresses a PUBLISH rather than
-// merely a re-render — the chrome is never told the brush changed — so the backstop below
-// is load-bearing rather than tidy.
-function sameMask(a: FieldMaskChoice, b: FieldMaskChoice): boolean {
-  // Compiler backstop, the `toolsEqual`/`statsEqual` rider in the shape a UNION takes: the
-  // tag compare covers every TAG-ONLY member, so what must not be forgotten is a member
-  // carrying a payload BESIDE its tag. Switching on `a.kind` makes the compiler demand a
-  // branch for each, and a new kind fails the never-check in `default` — where a bare
-  // `a.kind === b.kind` would quietly call two different masks equal.
-  switch (a.kind) {
-    case "class":
-      return b.kind === "class" && a.classId === b.classId;
-    case "none":
-    case "organic-only":
-    case "kit-only":
-    case "selection":
-      return a.kind === b.kind;
-    default: {
-      const unhandled: never = a;
-      return unhandled;
-    }
-  }
-}
-
-// Value-equality over every FieldTool field — `setTool`'s no-op guard, which is
-// `applyRadius`'s `clamped === digRadius` one type up.
-//
-// A SECOND comparator rather than one shared with the chrome's `toolsEqual`
-// (`frontend/lib/field-host-mirrors.ts`), which is the same predicate: the chrome may not
-// take a VALUE edge to this file — the barrel carries core, and a second core in the chrome
-// bundle is what `tests/frontend-no-engine-leakage.test.ts` exists to prevent. Both carry
-// the destructure backstop below, so a new FieldTool field fails to compile in BOTH places
-// rather than silently weakening either guard.
-function sameTool(a: FieldTool, b: FieldTool): boolean {
-  // Compiler backstop: a future FieldTool field lands in `rest` and fails the never-check,
-  // forcing this comparator to learn it. A missed field would make two DIFFERENT tools
-  // compare equal, and the guard below would then swallow a real change — a brush the user
-  // picked that the chrome is never told about.
-  const { effect, materialId, hollow, mask, smooth, ...rest } = a;
-  void (rest satisfies Record<string, never>);
-  // The same backstop one level down: `smooth` is a nested shape whose future fields would
-  // slip past the top-level destructure unseen.
-  const { strength, iterations, mode, ...smoothRest } = smooth;
-  void (smoothRest satisfies Record<string, never>);
-  return (
-    effect === b.effect &&
-    materialId === b.materialId &&
-    hollow === b.hollow &&
-    sameMask(mask, b.mask) &&
-    strength === b.smooth.strength &&
-    iterations === b.smooth.iterations &&
-    mode === b.smooth.mode
-  );
-}
+// The brush's FIVE module-scope helpers — `defaultTool`, `cloneTool`,
+// `clampTool`, `sameMask` and `sameTool` — left with `field-tool.ts` on
+// 2026-08-08 (foundations T3d Task 4). Every one of them was reached only by that
+// cluster: the first three by the tool slot and its two funnels, and the
+// comparator pair by `setTool`'s no-op guard, which went with `setTool`'s body.
+// `sameTool`'s destructure backstop and its argument about the chrome's second
+// `toolsEqual` travelled unchanged — `tests/frontend-no-engine-leakage.test.ts`
+// is what makes two comparators the right answer, and it does not care which file
+// this side of the seam lives in.
 
 /**
  * Create an uninitialized field host. `init(canvas)` must run before any GPU
@@ -1589,9 +1491,14 @@ export function createFieldHost(deps?: {
 }): FieldHost {
   const requestContext = deps?.requestContext ?? gpu.requestContext;
   let ctx: Context | null = null;
-  let cam: camera.Camera | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
-  let unbindCamera: (() => void) | null = null;
+  // The camera HANDLE and its canvas binding left with `field-camera-rig.ts`
+  // (2026-08-08, foundations T3d Task 4) — the two slots §5.1 of the closure map
+  // lists as `ret.init`/`ret.dispose`'s camera fan-out. Four edges, three calls:
+  // `cameraRig.bind(ctx)` at init, and `unbind()` + `release()` at dispose, split
+  // by the context guard on `field-materials.ts`'s precedent. `ctx` and `canvasEl`
+  // stay because they are the FACADE's: one is what `init` acquires and every
+  // module asks the substrate for, the other is what `attachListeners` owns.
 
   const store = field.createFieldStore();
   const log = field.createOpLog();
@@ -1655,53 +1562,20 @@ export function createFieldHost(deps?: {
   // The project's resolved material table — drives the mesher's bucket split,
   // logApply validation, and the bake. Defaults rock-only until setMaterialTable.
   let table: field.MaterialTable = field.BUILTIN_TABLE;
-  let tool: FieldTool = defaultTool();
-  // Momentary tool overrides (Shift = smooth, Ctrl = dig↔fill invert). ONE
-  // saved slot: the pre-momentary tool, saved when the FIRST modifier engages
-  // and restored when BOTH are released. The effective tool is DERIVED, not
-  // stacked — a pure function of (saved, shiftHeld, ctrlHeld), so any
-  // press/release order restores the original tool (see deriveMomentary).
-  let momentarySaved: FieldTool | null = null;
-  let momentaryShift = false;
-  let momentaryCtrl = false;
-  // The chrome's mirror of the armed brush + its radius — a STATE seam like the other
-  // ten, snapshot and all. It used to be an EVENT seam, and its comment used to say so:
-  // "the mirror is an EVENT (a change the chrome did not make), and a subscriber that
-  // wants the current tool has `setTool`'s own funnel". That funnel was the whole problem
-  // — it made the chrome the only holder of a value the host owns, so a surface arriving
-  // mid-session (the tool strip, which `TopBar` unmounts for the whole of every stamp
-  // session) had nothing to read the current brush from.
+  // The BRUSH's eight bindings left on 2026-08-08 (foundations T3d Task 4) for
+  // `field-tool.ts`: the tool slot, the momentary trio, both view channels, the
+  // once-per-gesture mask-drop latch, and the radius, which sat ~270 lines
+  // further down among the render bindings. Nothing of the cluster stayed — the
+  // row is the third of the tranche to travel whole, and the only one whose
+  // state is written from a KEY listener.
   //
-  // ONE payload builder for both directions: the snapshot an arriving subscriber gets and
-  // the push `notifyTool` makes are the same value assembled the same way, so a field
-  // added to FieldToolPush cannot reach one and miss the other.
-  const toolPush = (): FieldToolPush => ({
-    tool: cloneTool(tool),
-    radius: digRadius,
-  });
-  const toolChannel = createViewChannel<[FieldToolPush]>({
-    snapshot: () => [toolPush()],
-  });
-  // The user-facing message channel (the chrome's toast stack + message log).
-  // No snapshot either — a message is an event, and re-pushing the last refusal
-  // to a remounting toast stack would resurrect one the user dismissed.
-  const toolErrorChannel = createViewChannel<[string, ToolErrorSeverity]>();
-  // Once-per-GESTURE guard for the "selection mask but no selection" report.
-  // The gesture whose repeats need suppressing is the drag: a stroke re-arms
-  // this at pointer-down, so one 40ms-throttled drag reports once. The segment
-  // brush re-arms per COMMIT instead — its unit is the two-click pair, not a
-  // drag, so sharing the stroke's re-arm point would silence every segment
-  // after the first.
-  let maskDropReported = false;
-  // The ONE re-arm, handed to BOTH brushes that own a gesture-length report: the
-  // sphere stroke re-arms it at pointer-down (the machine's chain) and the
-  // segment brush at each commit (`field-segment.ts`). A named const rather than
-  // two inline arrows over one `let`, now that neither caller is in this file —
-  // two spellings of a one-line write is how a third acquires a subtly different
-  // one.
-  const armMaskDropReport = (): void => {
-    maskDropReported = false;
-  };
+  // Which is why the interesting half of that move is not here but at
+  // `onKeyDown` / `onKeyUp` / `onBlur`, ~2,000 lines down: those three still write
+  // the momentary flags, through `tool.noteModifierDown` / `noteModifierUp` /
+  // `releaseModifiers`, because `input` is the listener layer and stays. The
+  // module's header carries the contract the three verbs have to preserve, and
+  // `tests/field-host-momentary.gpu.test.ts` reaches all of it through the real
+  // handlers — which is the only route there is.
 
   // --- the Esc capture stack (D-12, was the Esc ladder) --------------------
   // ONE key, ONE rung per press, most recent intent first — except that "most
@@ -1949,12 +1823,21 @@ export function createFieldHost(deps?: {
     { m: mesh.Mesh; g: geometry.Geometry }[]
   >();
 
-  let digRadius = 1.25;
   // The stroke's two slots — LMB-is-down and the throttle's last timestamp —
   // left with the pointer chain (`field-machine.ts`), and they were the easiest
   // of the T3c move to decide: the four pointer handlers were their only readers
-  // in this file, so nothing here lost a fact it was using. The RADIUS stayed —
-  // the wheel, `[`/`]`, the panel slider and every ghost read it.
+  // in this file, so nothing here lost a fact it was using. The RADIUS stayed one
+  // tranche longer and left at T3d Task 4 with the rest of `tool`.
+  //
+  // IT IS NOT A SUBSTRATE MEMBER AND THE NEAR MISS IS WORTH THE SENTENCE. By the
+  // time it moved, `digRadius` had THREE extracted readers — `field-segment.ts`,
+  // `field-targeting.ts` and `field-render.ts`, each holding a `() => digRadius`
+  // thunk — which is past T3a's two-extracted-readers bar for ADDING a
+  // `HostSubstrate` member. The bar did not apply: it governs state the HOST still
+  // owns and shares, and state that acquires an OWNER rides on that owner's seam
+  // instead (`editor-architecture.md` §21.1 — `layers` and `sliceY` had five
+  // reader clusters between them and became `viewState.layers()`). All three
+  // thunks are `tool.digRadius` now and nothing inside those three modules moved.
   //
   // `lastPointer` left with `field-targeting.ts`, and the map files it here (§5.2
   // lists the two pointer delegates as its writers) in a way that reads as though
@@ -1970,12 +1853,9 @@ export function createFieldHost(deps?: {
   // remesh completion so the panel's entity refresh has an event-driven
   // trigger that Safari's ~1 ms performance.now() clamp can't alias.
   let remeshVersion = 0;
-  // Snapshot (the selection seam's remount rationale): the camera does not move
-  // on its own, so a triad that waited for the first WASD step would draw the
-  // wrong orientation for as long as the user sat still.
-  const cameraPoseChannel = createViewChannel<[CameraPose]>({
-    snapshot: () => [{ yaw: orbitState.yaw, pitch: orbitState.pitch }],
-  });
+  // The camera POSE channel went with the rig (`field-camera-rig.ts`), and it is
+  // the one seam of the thirteen whose snapshot and its push were two spellings
+  // of one expression — both are `pose()` over there now.
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
@@ -2014,135 +1894,32 @@ export function createFieldHost(deps?: {
     canvasEl: () => canvasEl,
   });
 
-  // Fly camera: start a few metres up looking down at the grid origin, so the
-  // blank-canvas bootstrap digs the first hole at the ground-grid centre.
-  // POSITIVE pitch puts the eye ABOVE the target (toEyeTarget: eye.y = target.y +
-  // distance·sin(pitch)); at distance 6 this seats the eye at y ≈ 3.9. A negative
-  // pitch would sink it below the y=0 grid looking up.
-  let orbitState: OrbitState = {
-    target: [0, 1, 0],
-    distance: 6,
-    yaw: 0.6,
-    pitch: 0.5,
-  };
-  /** Backing store for {@link FieldHost.cameraAimedByHand}. Written ONLY through
-   *  {@link aimCamera} / {@link placeCamera} below, never here. */
-  let cameraAimed = false;
-  /** The user aimed the camera: every interactive gesture and every aim-at-a-thing
-   *  verb goes through this rather than assigning `orbitState` directly.
-   *
-   *  A FUNNEL rather than a flag set at each of the seven call sites, and the
-   *  reason is that the eighth is the one that would forget. The chrome's Open reads
-   *  the latch to decide whether the user has arranged this camera, so a new camera
-   *  verb that assigned `orbitState` on its own would
-   *  silently make Open start yanking an arranged view. Now it cannot: assigning
-   *  `orbitState` outside these two helpers is the only way to get it wrong, and all
-   *  SEVEN sites are pinned — `tests/field-host-camera.test.ts` takes the three that
-   *  need no GPU ({@link FieldHost.frameSelection}, {@link FieldHost.snapView},
-   *  {@link FieldHost.frameChunks}), `tests/field-host-flag-select.test.ts` takes the
-   *  flag report's click-to-frame, and `tests/field-host-camera.gpu.test.ts` takes the
-   *  three gestures that need a live camera (the fly step, the look/orbit drag, the
-   *  wheel dolly). Converting any one of them to `placeCamera` reddens exactly one. */
-  const aimCamera = (next: OrbitState): void => {
-    orbitState = next;
-    cameraAimed = true;
-  };
-  /** Move the camera WITHOUT claiming the user aimed it — {@link FieldHost.frameWorld},
-   *  including when the chrome's Open calls it. See
-   *  {@link FieldHost.cameraAimedByHand} for why framing the world is not aiming. */
-  const placeCamera = (next: OrbitState): void => {
-    orbitState = next;
-  };
-  const keys = new Set<string>();
-  // RMB-drag camera state (null when the button is up). `pivot` LATCHES which of
-  // the two drags this is, decided once at the press: a world point = orbit
-  // about it, null = fly-look. Latched rather than re-derived per move so the
-  // gesture cannot change under the user's hand — selecting something else,
-  // deleting the entity, or disarming the pointer tool mid-drag all leave the
-  // drag that is running exactly as it started.
-  let look: { lastX: number; lastY: number; pivot: Vec3T | null } | null = null;
-  // Scroll banked toward the next dolly step, in CSS pixels — the remainder
-  // `bankDolly` hands back, held here because it has to survive between wheel
-  // events (see onWheel, its only reader).
-  let dollyPixels = 0;
-
-  // The reference grid's two batches and the segments they are built from left
-  // with `field-render.ts`, and they are the only state that cluster owns besides
-  // the ghost cube's two scratch vectors: world-static, built once at
-  // construction, drawn under the `grid` layer gate and read nowhere else.
-
-  // --- camera --------------------------------------------------------------
-
-  const cameraEye = (): Vec3T => toEyeTarget(orbitState).eye;
-
-  // Write the current orbitState into the camera's position/target/up, and tell
-  // whoever is drawing the orientation triad. The publish sits ABOVE the camera
-  // guard on purpose: every path that moves the orbit ends here, and a pose change
-  // is just as true before the GPU exists as after it.
+  // The CAMERA's eight bindings and fourteen functions left on 2026-08-08
+  // (foundations T3d Task 4) for `field-camera-rig.ts`: the orbit pose and its
+  // aimed-by-hand latch, the `Camera` handle and its canvas binding, the held-key
+  // set, the look drag's slot, the banked scroll, the pose channel — and with
+  // them BOTH pure camera modules' import blocks, since every reader of
+  // `camera-control.ts` and `field-camera.ts` was inside this cluster.
   //
-  // Being the ONE place every camera path ends is also why a live move's anchor
-  // is retired here (see reaimMove): the anchor is a world point read under the
-  // old view, and it goes stale for a fly step, a wheel dolly and an `F` framing
-  // exactly as it does for a look drag. Retiring it at each of those call sites
-  // instead is how one of them ends up forgotten. Inert while no move is in
-  // flight, which is every call before F4.5b's move sessions existed.
-  const applyOrbit = (): void => {
-    machine.reaimMove();
-    cameraPoseChannel.publish({ yaw: orbitState.yaw, pitch: orbitState.pitch });
-    if (!cam) return;
-    const { eye, target, up } = toEyeTarget(orbitState);
-    camera.setPosition(cam, new Float32Array(eye));
-    camera.setTarget(cam, new Float32Array(target));
-    camera.setUp(cam, new Float32Array(up));
-  };
-
-  // --- the look drag + pointer capture -------------------------------------
+  // THE ASSEMBLY IS ~1,100 LINES DOWN rather than here, and the position is
+  // forced from BELOW for once. Two of its nine deps name `world` functions that
+  // are declared down there (`chunkSetBox`, `occupiedTopYOf`) and three more name
+  // `entities`/`selection` state in between, so `createCameraRig` sits directly
+  // where `frameWorld` and `snapView` were — which is also `createSegmentBrush`'s
+  // precedent read the other way round, since six of the fourteen functions lived
+  // exactly there. What it cost is one arrow at `createTargeting` below: that
+  // module takes `cam` and is assembled ~500 lines ABOVE the rig, so its thunk
+  // reaches forward into a `const` declared later. Safe for the reason spelled out
+  // at the `createVoidCast` assembly — nothing between this closure's brace and
+  // its `return {` ever RUNS — and cheaper than the six arrows placing the rig up
+  // here would have needed.
   //
-  // The pointer CHAIN — which of the seven things an LMB press can mean this
-  // press is — moved to `field-machine.ts` in foundations T3c, because every test
-  // in it reads that module's state and nothing else's. These five verbs are the
-  // half that could not go, for two reasons and both of them physical rather than
-  // stylistic:
-  //   - the LOOK drag is the camera cluster (`orbitState`, `aimCamera`,
-  //     `applyOrbit`, `orbitPivot` — four bindings that stay here), so the chain
-  //     asks whether the camera has the pointer and hands the drag back;
-  //   - pointer CAPTURE needs the canvas ELEMENT, which is this closure's
-  //     `canvasEl` and is reassigned by every attach/detach — the machine has no
-  //     handle on it and is not given one.
-  // So the machine arbitrates and calls these. Nothing here decides anything.
-
-  // Start an RMB drag. The pivot LATCHES here (see the `look` declaration): what
-  // this drag is gets decided once, at the press.
-  const beginLook = (clientX: number, clientY: number): void => {
-    look = { lastX: clientX, lastY: clientY, pivot: orbitPivot() };
-  };
-
-  // One drag event's worth of turn.
-  //
-  // The null guard is the compiler's, not the chain's: `pointerMove` calls this
-  // only under `looking()` one statement earlier, but `look` is a `let` in an
-  // enclosing scope and no narrowing survives the call boundary between them.
-  const lookDrag = (clientX: number, clientY: number): void => {
-    if (look === null) return;
-    const { dYaw, dPitch } = lookDeltas(
-      clientX - look.lastX,
-      clientY - look.lastY,
-    );
-    look.lastX = clientX;
-    look.lastY = clientY;
-    // The SAME angles either way, so the view turns the direction the hand
-    // moved in both drags; the pivot decides what stays still while it does.
-    aimCamera(
-      look.pivot === null
-        ? flyLook(orbitState, dYaw, dPitch)
-        : orbitAbout(orbitState, look.pivot, dYaw, dPitch),
-    );
-    applyOrbit();
-  };
-
-  const endLook = (): void => {
-    look = null; // the anchor a turned camera invalidated was retired in applyOrbit
-  };
+  // What the LOOK drag left behind is `capturePointer`/`releasePointer` below.
+  // T3c split the RMB gesture three ways and the third piece is still here: the
+  // chain arbitrates (`field-machine.ts`), the turn is the camera's
+  // (`beginLook`/`lookDrag`/`endLook`, now the rig's), and the DOM capture needs
+  // the canvas ELEMENT — this closure's `canvasEl`, reassigned by every
+  // attach/detach — which no module is given.
 
   // The DOM's pointer capture, which is unrelated to the Esc capture stack
   // despite the shared word: this one routes the pointer's events to the canvas
@@ -2396,27 +2173,37 @@ export function createFieldHost(deps?: {
     }
   };
 
-  // --- tool application ---------------------------------------------------
-
-  const sphereShape = (center: Vec3T, radius: number): field.BrushShape => ({
-    kind: "sphere",
-    center,
-    radius,
-  });
-
-  // Report something the user should see: console (developer trail, the F2a
-  // behaviour kept) + the panel subscriber.
+  // --- the brush (`field-tool.ts`) ------------------------------------------
   //
-  // `error` by default because every refusal is one, and a refusal is what almost
-  // every caller here has. A caller passes `warn` only when nothing went wrong;
-  // exactly one does today, the advisor-idle report.
-  const reportToolError = (
-    msg: string,
-    severity: ToolErrorSeverity = "error",
-  ): void => {
-    console.warn(`field-host: ${msg}`);
-    toolErrorChannel.publish(msg, severity);
-  };
+  // The armed tool, its radius, the momentary overrides and the whole op path,
+  // lifted out whole: all eight bindings and all fourteen functions. NOTHING of
+  // the cluster stayed. What is left in this region is the one function that was
+  // never the brush's — the selection spec `toolMask` asks for, directly below,
+  // which is `selection`'s and travels at Task 5.
+  //
+  // THE POSITION IS FORCED FROM BELOW, hard, and mostly by ONE member:
+  // `reportToolError` has NINE call sites in this file and SIX other modules take
+  // it as a dep. The lowest thing that must see it is nothing in particular — it
+  // is the SUM. `createTargeting` (~290 lines down) takes it and `digRadius`;
+  // `createSegmentBrush` (~350) takes four members; `createVoidCast`,
+  // `createAnalyzer`, `createFieldMachine`, `createRender` and `createCameraRig`
+  // each take one to four. So this line sits as high as its own deps allow, which
+  // is directly under `currentSelectionSpec` — the only dep it takes as a plain
+  // ref that is not declared far above.
+  //
+  // FIVE OF THE EIGHT DEPS ARE ARROWS, and they are the price of that height:
+  // `field-targeting.ts`, `field-segment.ts`, `field-history-feed.ts` and
+  // `field-view.ts` are all assembled BELOW this line, and this module reads back
+  // out of all four. The `segment` pair is a real two-way edge — four members
+  // out, `rebuildPreview` back — and it is broken exactly the way
+  // `field-props.ts`'s `markPlacementsStale` breaks its own, because an arrow
+  // body cannot run before the declaration it names.
+  //
+  // MIGRATION (until T3d Task 5): `currentSelectionSpec` is a plain ref because
+  // it is a closure `const` declared two lines up. When `selection` leaves it
+  // becomes that module's verb, and THIS assembly is then pinned below
+  // `createSelection` — or the dep becomes a sixth arrow. Either is one line; the
+  // constraint is recorded so Task 5 does not meet it as a build error.
 
   // The host's current selection spec for a selection-mask op (null = no
   // selection — toolMask drops the mask and reports once per stroke). The
@@ -2425,184 +2212,21 @@ export function createFieldHost(deps?: {
   const currentSelectionSpec = (): field.SelectionSpec | null =>
     selection?.spec ?? null;
 
-  // The active tool's mask choice as a core BrushMask (undefined = unmasked).
-  // The organic/kit/class choices are structurally the core mask variants; the
-  // selection choice embeds the current selection spec.
-  const toolMask = (): field.BrushMask | undefined => {
-    const m = tool.mask;
-    if (m.kind === "none") return undefined;
-    if (m.kind === "selection") {
-      const spec = currentSelectionSpec();
-      if (spec === null) {
-        if (!maskDropReported) {
-          maskDropReported = true;
-          reportToolError(
-            "selection mask active but there is no selection — stroke applies unmasked",
-          );
-        }
-        return undefined;
-      }
-      return { kind: "selection", selection: spec };
-    }
-    return m;
-  };
-
-  // Build the brush op for the active tool over a caller-chosen SHAPE. The
-  // shape is a parameter because two gestures build different ones from the
-  // same tool: a plain stroke sweeps nothing (sphere, or the snapped lattice
-  // box for a kit fill — see strokeShape), the segment brush hands in a
-  // capsule. Everything else — effect, material, mask, the fill's `hollow` —
-  // is the tool's and identical either way. Dig and smooth stay material-free.
-  //
-  // The kit question is asked ONCE, through isKitFillTool, and the answer is
-  // shared with strokeShape: this used to re-derive it with a bare `classOf`,
-  // which throws on an unknown id where isKitFillTool returns false — so the
-  // two disagreed on exactly the input that made one of them throw.
-  const toolOp = (shape: field.BrushShape): field.BrushOp => {
-    const mask = toolMask();
-    const base = {
-      id: 0,
-      kind: "brush",
-      shape,
-      ...(mask !== undefined && { mask }),
-    } as const;
-    if (tool.effect === "dig") return { ...base, effect: "dig" };
-    if (tool.effect === "smooth")
-      return { ...base, effect: "smooth", smooth: { ...tool.smooth } };
-    const kitFill = isKitFillTool();
-    // Kit-class hollow snaps to the 0.5 m lattice (floored) — core REJECTS
-    // non-multiples (the shell's inner faces must land on lattice planes).
-    const hollow =
-      tool.effect === "fill" && tool.hollow !== null
-        ? kitFill
-          ? Math.max(
-              HOLLOW_MIN_M,
-              Math.round(tool.hollow / HOLLOW_MIN_M) * HOLLOW_MIN_M,
-            )
-          : tool.hollow
-        : null;
-    return {
-      ...base,
-      effect: tool.effect,
-      material: tool.materialId,
-      ...(hollow !== null && { hollow }),
-    };
-  };
-
-  // The shape a plain (non-segment) stroke applies at a world centre: the
-  // snapped lattice box when the tool is a kit fill, else the brush sphere.
-  const strokeShape = (center: Vec3T): field.BrushShape =>
-    isKitFillTool()
-      ? snappedKitBox(center, digRadius)
-      : sphereShape(center, digRadius);
-
-  // BUILD the op for a shape and apply it through the log, marking the touched
-  // chunks (+ apron neighbours) dirty. Shared by the stroke and the segment
-  // commit so both carry the same failure contract: every setup-loud throw on
-  // the path — a kit fill off the lattice, a kit class under a non-box shape
-  // (reachable ONLY through the segment gesture), an unknown material class —
-  // is reported to the panel and the op DROPPED, rather than escaping the
-  // pointer handler. Reported per occurrence (each becomes its own message in
-  // the chrome); only the mask-drop report is once-per-gesture.
-  //
-  // toolOp is called INSIDE the try deliberately, though as of this commit it
-  // is TOTAL — its one throwing call became isKitFillTool, which swallows
-  // classOf's unknown-id throw. So this placement is defence in depth, not a
-  // live fix, and no test can currently tell the two apart (verified by
-  // sabotage: hoisting the build above the try breaks nothing). What it
-  // defends is real: a caller writing `commitToolOp(toolOp(shape))` evaluates
-  // the build BEFORE this function is entered, so any future build-time throw
-  // would escape the catch, back out through the machine's `pointerDown`, and
-  // skip the `capturePointer` on the line after it — stranding that chain's
-  // `digging === true` with no capture, so a pointerup outside the canvas latches
-  // the stroke on. Both the flag and the capture call moved to
-  // `field-machine.ts` in T3c; the failure mode did not move with them, because
-  // it is about the ORDER of two statements this function can still throw
-  // between.
-  const commitToolOp = (shape: field.BrushShape): void => {
-    try {
-      markDirtyWithNeighbors(field.logApply(store, log, toolOp(shape), table));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      reportToolError(`tool apply failed: ${message}`);
-    }
-    // The ONE log-mutating path that rewrites no entity record, so it is the one
-    // that cannot reach the history feed through `notifyEntities` (see there).
-    // OUTSIDE the try: a refused op leaves the log untouched and the push is a
-    // guarded no-op, and putting it in the `catch` as well would be two spellings
-    // of one call.
-    historyFeed.notify();
-  };
-
-  // Whether the active tool fills a kit class — its ghost + op use the snapped
-  // lattice box, not a sphere. Guards classOf's unknown-id throw (setup-loud) so
-  // the per-frame ghost can't crash on a stray selection; returns false instead.
-  const isKitFillTool = (): boolean => {
-    if (tool.effect !== "fill") return false;
-    try {
-      return field.classOf(table, tool.materialId).kind === "kit";
-    } catch {
-      return false;
-    }
-  };
-
-  // Alt-click eyedropper: read the material class at the TARGET voxel — the
-  // SOLID voxel the cursor ray hits (raycastField's `voxel`, never the pre-hit
-  // air voxel), or the eye's own voxel when embedded in rock — into the active
-  // tool. A miss (open air to max range) changes nothing. Never strokes.
-  const eyedropper = (clientX: number, clientY: number): void => {
-    const ray = targeting.cursorRay(clientX, clientY);
-    if (!ray) return;
-    const cs = store.cellSize;
-    let voxel: [number, number, number];
-    if (ray.eyeInRock) {
-      voxel = [
-        field.worldToVoxel(ray.origin[0], cs),
-        field.worldToVoxel(ray.origin[1], cs),
-        field.worldToVoxel(ray.origin[2], cs),
-      ];
-    } else {
-      // Slice-coherent (sliceOpts): sample the class at the VISIBLE sliced
-      // surface, never at hidden rock above the plane.
-      const rc = field.raycastField(
-        store,
-        ray.origin,
-        ray.dir,
-        DIG_RANGE_M,
-        viewState.sliceOpts(),
-      );
-      if (!rc) return;
-      voxel = rc.voxel;
-    }
-    const id = field.getMaterial(store, voxel[0], voxel[1], voxel[2]);
-    // Paint is organic-only: the swatch strip disables kit classes while
-    // paint is armed (a kit materialId arms a stroke core rejects every
-    // time) — mirror that rule here, so a kit-cell Alt-click under paint
-    // adopts nothing, like a miss. Guarded lookup, not classOf: an id
-    // missing from the table keeps the pre-existing adopt-as-is behaviour
-    // (the stroke path owns that setup-loud throw).
-    if (
-      tool.effect === "paint" &&
-      table.classes.find((c) => c.id === id)?.kind === "kit"
-    )
-      return;
-    if (id === tool.materialId) return;
-    // Immutable replacement (never in-place mutation) so the effective tool
-    // can't alias the momentary-saved slot; the saved base picks up the same
-    // material so a later momentary release keeps the eyedropped class.
-    tool = { ...tool, materialId: id };
-    if (momentarySaved !== null)
-      momentarySaved = { ...momentarySaved, materialId: id };
-    notifyTool();
-  };
-
-  // Apply the active tool at a cursor position: compute the dig-feel centre,
-  // build the op, and commit it through the shared failure contract.
-  const applyTool = (clientX: number, clientY: number): void => {
-    const at = targeting.computeTarget(clientX, clientY);
-    if (!at) return;
-    commitToolOp(strokeShape(at));
-  };
+  const tool = createTool({
+    substrate,
+    markDirtyWithNeighbors,
+    currentSelectionSpec,
+    notifyHistory: () => {
+      historyFeed.notify();
+    },
+    cursorRay: (clientX, clientY) => targeting.cursorRay(clientX, clientY),
+    computeTarget: (clientX, clientY) =>
+      targeting.computeTarget(clientX, clientY),
+    sliceOpts: () => viewState.sliceOpts(),
+    rebuildSegmentPreview: () => {
+      segment.rebuildPreview();
+    },
+  });
 
   // --- selection gestures + overlay ---------------------------------------
 
@@ -2884,11 +2508,15 @@ export function createFieldHost(deps?: {
   // module and is private there now. The module's header argues the rest.
   const targeting = createTargeting({
     substrate,
-    cam: () => cam,
-    digRadius: () => digRadius,
+    // The one arrow the camera rig's LOW assembly costs (see its block ~300
+    // lines down): `cameraRig` is a `const` declared after this line, so the
+    // thunk reaches forward. Called from `cursorRay`, i.e. on a pointer event
+    // and never during construction.
+    cam: () => cameraRig.cam(),
+    digRadius: tool.digRadius,
     sliceY: () => viewState.sliceY(),
     sliceOpts: () => viewState.sliceOpts(),
-    reportToolError,
+    reportToolError: tool.reportError,
   });
 
   // Materialize a gesture-built spec into the current selection. Runs on the
@@ -2904,11 +2532,11 @@ export function createFieldHost(deps?: {
       // built specs shouldn't trip it; swallow so a bug can't escape the
       // pointer handler.
       const message = err instanceof Error ? err.message : String(err);
-      reportToolError(`selection failed: ${message}`);
+      tool.reportError(`selection failed: ${message}`);
       return;
     }
     if (materialized.kind === "cells" && materialized.count === 0) {
-      reportToolError("selection found no matching cells at the click point");
+      tool.reportError("selection found no matching cells at the click point");
       return;
     }
     setSelection({ spec, materialized });
@@ -2919,55 +2547,33 @@ export function createFieldHost(deps?: {
   // The gesture's whole state and logic live in `field-segment.ts` — the first
   // cluster to leave this closure intact (`docs/reference/field-host-clusters.md`
   // measured it at eight external edges and ONE boundary mutation). What stays
-  // here is the wiring, and its shape is the point: the two bindings the host
-  // REASSIGNS travel as calls, not values. `digRadius` is moved by `applyRadius`
-  // below, and `maskDropReported` is re-armed by the machine's stroke branch as
-  // well as by the segment's own commit — either one handed over as a number or a
-  // boolean would give the module a private copy that diverges silently the first
-  // time the host wrote to its own. The three constants are `const` here and
-  // travel as values for the same reason read backwards. Two of the three members
-  // below now go to `field-machine.ts` as well, which is what turned the re-arm
-  // into a named const instead of an arrow written out twice.
+  // here is the wiring, and its shape is the point: the two REASSIGNED bindings
+  // travel as calls, not values. `digRadius` is moved by `applyRadius` and
+  // `maskDropReported` is re-armed by the machine's stroke branch as well as by
+  // the segment's own commit — either one handed over as a number or a boolean
+  // would give the module a private copy that diverges silently the first time
+  // its owner wrote to its own. The three constants are `const` here and travel
+  // as values for the same reason read backwards.
+  //
+  // FOUR OF THE EIGHT MEMBERS NOW COME OFF ANOTHER MODULE, and the owner is no
+  // longer this closure at all: `digRadius`, `reportToolError`, `commitToolOp`
+  // and `armMaskDropReport` are `field-tool.ts`'s since 2026-08-08. The dep NAMES
+  // did not change — which is the point of naming a dep for what it reads rather
+  // than for who it reads from — so nothing inside `field-segment.ts` moved. The
+  // edge also became two-way in the same change: that module's `rebuildPreview`
+  // is what `applyRadius` calls, and it reaches back through an arrow at
+  // `createTool` ~140 lines up, because this assembly is below it.
   const segment = createSegmentBrush({
     strokeMinMs: STROKE_MIN_MS,
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
     maxSegmentM: MAX_SEGMENT_M,
-    digRadius: () => digRadius,
+    digRadius: tool.digRadius,
     selectionPoint: targeting.selectionPoint,
-    reportToolError,
-    commitToolOp,
-    armMaskDropReport,
+    reportToolError: tool.reportError,
+    commitToolOp: tool.commitOp,
+    armMaskDropReport: tool.armMaskDropReport,
     router,
   });
-
-  // The ONE funnel for a radius change — the panel's slider, the wheel and
-  // `[` / `]` all land here. Clamped once, and the pending capsule re-fattens
-  // with it (f2b item 9): three call sites each remembering to refresh is how
-  // one of them would come to forget.
-  const applyRadius = (next: number): void => {
-    const clamped = clampRadius(next);
-    if (clamped === digRadius) return;
-    digRadius = clamped;
-    segment.rebuildPreview();
-    // MIRROR IT (F4.5 holistic gate, W-2). The wheel and `[` / `]` reach the radius
-    // without going through the chrome, so before this the strip readout kept the
-    // last number the chrome itself had set and drifted from the brush the viewport
-    // was drawing. Pushing HERE rather than at the three call sites is the same
-    // argument the clamp above already makes: this is the one funnel, so a fourth
-    // way to change the radius cannot forget to announce it.
-    //
-    // WHAT THE EARLY RETURN ABOVE DOES AND DOES NOT DO, measured rather than assumed:
-    // it suppresses a NO-OP set only. A chrome slider drag changes the value every step,
-    // so every step DOES round-trip (measured: a four-step drag pushes 1.3, 1.35, 1.4,
-    // 1.45). That is harmless for a different reason — `useFieldHostState` adopts the
-    // pushed number with a plain `setState`, and React bails out on an identical value,
-    // so the drag's own echo costs no render.
-    //
-    // The CLAMP not looping IS this guard's work: a set outside the range pushes once at
-    // the boundary, and the next out-of-range set finds the boundary already current and
-    // returns (measured: [4, 0.25], then silence).
-    notifyTool();
-  };
 
   // One LMB click while a selection mode is armed (applyTool is bypassed). The
   // mode is a PARAMETER, not a read of `gesture`: the segment gesture shares
@@ -3061,12 +2667,14 @@ export function createFieldHost(deps?: {
   // that line now lives inside `historyFeed.subscribe`, and the facade seam is a
   // one-line delegate like the other twelve.
   //
-  // The forward reference here is the one that was already there:
-  // `commitToolOp` (~500 lines up) calls `historyFeed.notify()` where it called
-  // `notifyHistory()`, which was declared on this same line. Safe for the reason
-  // spelled out at the `createVoidCast` assembly below — nothing between this
-  // closure's brace and its `return {` ever RUNS. No hoist was needed: the one dep
-  // is `substrate`, assembled ~1,070 lines above.
+  // The forward reference here is the one that was already there, one module
+  // further away since 2026-08-08: `commitToolOp` calls this feed, and it is
+  // `field-tool.ts`'s now, so the call arrives through the `notifyHistory` arrow
+  // in that module's deps record ~460 lines up rather than from a closure
+  // function. Safe for the reason spelled out at the `createVoidCast` assembly
+  // below — nothing between this closure's brace and its `return {` ever RUNS.
+  // No hoist was needed: the one dep is `substrate`, assembled ~1,070 lines
+  // above.
   const historyFeed = createHistoryFeed({ substrate });
 
   // The entity-list tick. Fired by every path that can add, remove or rewrite
@@ -3078,7 +2686,8 @@ export function createFieldHost(deps?: {
   // record and therefore already funnel through here by this seam's own contract
   // (commit, apply, freeze, unfreeze, bake, delete, duplicate, ⌘Z/⇧⌘Z, world
   // new/load). The tenth is the brush stroke, which touches no entity — so
-  // `commitToolOp` calls the feed itself, and those two are the ONLY sites.
+  // `commitToolOp` calls the feed itself (from `field-tool.ts` since 2026-08-08,
+  // through its `notifyHistory` dep), and those two are the ONLY sites.
   // Spelling it out at all ten would be ten chances to forget.
   const notifyEntities = (): void => {
     entitiesChannel.publish();
@@ -3254,73 +2863,23 @@ export function createFieldHost(deps?: {
     );
   };
 
-  // --- camera verbs -------------------------------------------------------
+  // --- what the camera can be put ON (`field-camera-rig.ts`'s two callers) ---
   //
-  // Both CUT rather than tween, and deliberately: the host has no camera
-  // animation and adding one here would need a per-frame tween arbitrating with
+  // The framing VERBS left with the rig — `orbitPivot`, `frameTargetBox`,
+  // `frameCameraOn`, `frameSelection`, `frameWorld` and `snapView` all sat here,
+  // which is why the assembly a few lines down is where it is. What stays in
+  // this region is the two `world` functions they read, `chunkSetBox` and
+  // `occupiedTopYOf`: the box arithmetic is the world's and the FRAMING is the
+  // camera's, so the rig takes a box and a ceiling rather than a store (§2.7's
+  // rule, the one that kept `orbitState` out of `field-analyzer.ts`).
+  //
+  // Both framing verbs CUT rather than tween, and deliberately: the host has no
+  // camera animation and adding one would need a per-frame tween arbitrating with
   // the fly keys, the look drag, the wheel and a live move's anchor — every one
   // of those an interruption rule of its own. It would also have to honour
   // `prefers-reduced-motion`, which the host cannot read (it touches no `window`;
   // the CHROME can). `frameChunks` has always cut, so cutting is also what keeps
   // the editor's two framing verbs behaving the same way.
-
-  // The centre of the selected entity's footprint, or null when there is nothing
-  // to pivot on. Gated on the POINTER tool for the gizmo's reason: with a brush
-  // armed the selection is not what the user is working on, and a right-drag
-  // that suddenly orbits something they are not looking at is a surprise.
-  //
-  // Read off the GIZMO rather than re-derived from the footprint memo, and the
-  // point is not brevity: `gizmoSpan(box).origin` IS the footprint centre, and
-  // `gizmo` is non-null on exactly the condition a re-derivation would test
-  // (rebuildEntitySelectionBatch nulls it when the selected entity has no box).
-  // Taking it from there makes the pivot the same number the drawn handles hang
-  // on, so the camera can never orbit a centre other than the one on screen.
-  const orbitPivot = (): Vec3T | null =>
-    machine.gesture() !== "pointer" || gizmo === null ? null : gizmo.origin;
-
-  // The box `F` frames: the selected ENTITY's footprint, else the CELL
-  // selection's AABB, else nothing. A FIXED priority, not "whichever is newer":
-  // `selectionClick` never touches `selectedEntityId` and `setSelectedEntity`
-  // never touches `selection`, so either order of arrival is reachable (select
-  // an entity from the palette, then draw a box — the entity still wins). The
-  // entity is the more SPECIFIC intent: one object rather than a volume.
-  const frameTargetBox = (): { min: Vec3T; max: Vec3T } | null => {
-    const box =
-      selectedEntityId === null
-        ? undefined
-        : entityFootprints().get(selectedEntityId);
-    if (box !== undefined) return box;
-    return selection === null ? null : selectionAabb(selection);
-  };
-
-  // Put the camera on a world box, as ONE act: fit the current orbit to it, adopt
-  // that as an aimed pose, and push the result through the one funnel every camera
-  // path ends in. Two callers — `frameSelection` directly below, and the advisor's
-  // click-to-frame through the `frameCameraOn` dep.
-  //
-  // A NAMED function rather than two spellings of the same two statements, and the
-  // naming is the point: this composition is the CAMERA cluster's act, which is the
-  // whole argument for why `field-analyzer.ts` takes it as a dep instead of taking
-  // `orbitState` + `aimCamera` + `applyOrbit` (that module's header makes the
-  // case). Left as an anonymous arrow in the advisor's deps literal it would have
-  // been invisible to a grep for any camera binding OR any camera function name —
-  // so the cluster that owns it would have had to rediscover it when it moves.
-  const frameCameraOn = (box: { min: Vec3T; max: Vec3T }): void => {
-    aimCamera(frameBox(orbitState, box));
-    applyOrbit();
-  };
-
-  const frameSelection = (): void => {
-    const box = frameTargetBox();
-    if (box === null) {
-      // Says so rather than doing nothing quietly. `F` swallows the key either
-      // way, so a silent refusal is indistinguishable from a broken binding —
-      // the same reason every other refused verb here reports.
-      reportToolError("nothing selected to frame");
-      return;
-    }
-    frameCameraOn(box);
-  };
 
   /** The world-space AABB of a set of chunk keys. Used by {@link frameChunks} (which
    *  takes its centre) and {@link frameWorld} (which fits to the whole box), because
@@ -3424,42 +2983,66 @@ export function createFieldHost(deps?: {
     return null;
   };
 
-  const frameWorld = (): void => {
-    const box = chunkSetBox(store.chunks.keys());
-    if (box === null) {
-      // Same stance as frameSelection's: an empty world is a refusal with a
-      // sentence, not a camera verb that quietly does nothing.
-      reportToolError(
-        "nothing in this world to frame yet — dig something first",
-      );
-      return;
-    }
-    // Lower the ceiling to what was BUILT rather than to the chunk column that
-    // holds it. A chunk is CHUNK_DIM samples tall, so a floor-only world fits the
-    // camera to ~16 cells of empty headroom without this.
-    //
-    // NO CLAMP AGAINST `box.min[1]`, and there is nothing to restore here: both
-    // numbers come off the SAME `store.chunks` in the same synchronous call, with
-    // the same `store.cellSize`. `box.min[1]` is `minCy · CHUNK_DIM · cellSize`;
-    // `top` is `(cy · CHUNK_DIM + ly) · cellSize` for some `cy ≥ minCy` and
-    // `ly ≥ 0`. So `top ≥ box.min[1]` always, and a lowered ceiling can never sink
-    // below the box floor.
-    const top = occupiedTopYOf();
-    const fitted =
-      top === null
-        ? box
-        : { min: box.min, max: [box.max[0], top, box.max[2]] as Vec3T };
-    // `placeCamera`, NOT `aimCamera`: framing the world is the state the automatic
-    // frame produces, so counting it as the user aiming would make one Open
-    // suppress the next one's frame.
-    placeCamera(frameBox(orbitState, fitted));
-    applyOrbit();
-  };
-
-  const snapView = (axis: Axis, sign: 1 | -1): void => {
-    aimCamera(snapToAxis(orbitState, axis, sign));
-    applyOrbit();
-  };
+  // --- the camera rig (`field-camera-rig.ts`) -------------------------------
+  //
+  // The whole cluster: eight bindings, fourteen functions, twenty-two verbs on
+  // the seam. The state block ~1,100 lines up records what left; this is where
+  // its six framing functions were, on `createSegmentBrush`'s precedent (a
+  // cluster's remaining footprint marks where the cluster was).
+  //
+  // THE POSITION IS PINNED FROM BOTH SIDES, and this is the second assembly in
+  // the file for which that is true (`createAnalyzer` was the first). From ABOVE:
+  // `occupiedTopYOf` directly overhead and `chunkSetBox` above it are `world`'s
+  // and are read by `frameWorld`; `entityFootprints` ~260 lines up and
+  // `selectionAabb` ~780 up are `entities`' and `selection`'s. From BELOW:
+  // `createAnalyzer` ~330 down takes `frameOn`, `createFieldMachine` takes four
+  // look-drag members, and `createRender` takes the eye — so this line may not
+  // sink past the first of those.
+  //
+  // TWO FORWARD arrows — that is a count of the arrows pointing DOWN, not of the
+  // record, which is 2 forward + 2 thunks over host `let`s + 2 composed arrows +
+  // 2 plain refs + 1 module ref = 9 (the module's own `CameraRigDeps` doc carries
+  // the same split and is the authority). Both forward ones reach
+  // `field-machine.ts` ~430 lines below, for the reason every arrow in this file
+  // has: the literal is eager, and a body is not. `reaimMove` is called from
+  // `applyOrbit`, which is to say from every path that turns the camera;
+  // `gesture` from the orbit pivot alone.
+  //
+  // NO SUBSTRATE, which is a first for an extracted cluster here. `frameWorld`'s
+  // two world facts arrive as `worldBox()` and `occupiedTopY()` — a box and a
+  // ceiling, not a store — because what the camera wants to know is where the
+  // world IS, and re-deriving that inside the rig would put a second copy of
+  // `chunkSetBox`'s arithmetic behind a boundary. Same shape for `selectionBox`,
+  // which collapses the two reads `frameTargetBox` used to make (`selection` +
+  // `selectionAabb`) into the one answer it wanted: the null cases are
+  // indistinguishable to a framing verb.
+  const cameraRig = createCameraRig({
+    reaimMove: () => {
+      machine.reaimMove();
+    },
+    gesture: () => machine.gesture(),
+    // MIGRATION (until T3d Task 5): all three below are `entities`' — two host
+    // `let`s and the footprint memo — and all three must be re-pointed when that
+    // cluster leaves. THE CONSTRAINT IS THE PART TO CARRY: `entityFootprints` is
+    // a PLAIN REF, so `createEntities` may not land BELOW this line without it
+    // becoming an arrow, and the two thunks would follow. This record is the one
+    // most exposed to Tasks 5–6 — three deps are `entities`', one `selection`'s,
+    // two `world`'s — so an ordering surprise lands here first.
+    gizmo: () => gizmo,
+    selectedEntityId: () => selectedEntityId,
+    entityFootprints,
+    // MIGRATION (until T3d Task 5): `selection` and `selectionAabb` are both
+    // `selection`'s. When that cluster leaves, this arrow becomes one ref onto
+    // its seam — or stays exactly as it is, if that module publishes the two
+    // halves rather than the box. The rig sees no change either way.
+    selectionBox: () => (selection === null ? null : selectionAabb(selection)),
+    // MIGRATION (until T3d Task 6): `chunkSetBox` and `occupiedTopYOf` are
+    // `world`'s and `store` rides the substrate. When `world` leaves, both
+    // become refs onto its seam and this arrow collapses to one.
+    worldBox: () => chunkSetBox(store.chunks.keys()),
+    occupiedTopY: occupiedTopYOf,
+    reportToolError: tool.reportError,
+  });
 
   // The selected stamp's Esc entry (old rung 3).
   const syncSelectedEntityCapture = createRung(
@@ -3621,7 +3204,7 @@ export function createFieldHost(deps?: {
   // which every test would catch at once.
   const voidcast = createVoidCast({
     substrate,
-    reportToolError,
+    reportToolError: tool.reportError,
     snapshotAllChunks,
     chunkOrigin,
     voidCastMaterial: materials.voidCast,
@@ -3752,25 +3335,32 @@ export function createFieldHost(deps?: {
   // they look like. Each names an ACT of another cluster rather than a binding —
   // the camera's frame-on-a-box, and what "this is selected" is drawn as — so
   // `orbitState`, `aimCamera`, `applyOrbit`, `aabbEdgeBatch` and `SELECTED_COLOR`
-  // all stay on this side of the line. The module's header argues that trade; the
-  // short version is that the advisor knows WHICH box, not how a camera frames
-  // one or what colour selected is.
+  // all stayed with their own clusters rather than crossing into the advisor. The
+  // module's header argues that trade; the short version is that the advisor knows
+  // WHICH box, not how a camera frames one or what colour selected is.
   //
-  // Both are PLAIN REFS to named closure functions, and that is deliberate rather
-  // than incidental: each is the second caller of a function that already had one
-  // (`frameSelection` and the entity footprint box), so the act each names is
-  // greppable BY NAME from its owning cluster. Written inline as arrows here they
-  // would have been two anonymous bodies a thousand lines from their twins — which
-  // the clusters that own them, `camera` and `selection`, would then have had to
-  // rediscover rather than move.
+  // Both were PLAIN REFS to named closure functions, and that was deliberate
+  // rather than incidental: each was the second caller of a function that already
+  // had one (`frameSelection` and the entity footprint box), so the act each names
+  // was greppable BY NAME from its owning cluster. Written inline as arrows here
+  // they would have been two anonymous bodies a thousand lines from their twins.
+  //
+  // THE CAMERA HALF COLLECTED ON THAT, which is the check the handoff was for.
+  // `frameCameraOn` moved to `field-camera-rig.ts` on 2026-08-08 as
+  // `cameraRig.frameOn` — found by grepping the camera's own names, exactly as
+  // the naming was meant to allow, and the line below is now a ref onto a module
+  // seam rather than onto a closure `const`. It therefore PINS this assembly
+  // below `createCameraRig` (~330 lines up), which is one more constraint on a
+  // line that already had four. `selectionOutline` is the same handoff waiting on
+  // Task 5.
   const advisor = createAnalyzer({
     substrate,
     spawnAnalyzer: deps?.spawnAnalyzer,
-    reportToolError,
+    reportToolError: tool.reportError,
     chunkCopy,
     flagMarkerMat: materials.flagMarker,
     worldEpoch: () => worldEpoch,
-    frameCameraOn,
+    frameCameraOn: cameraRig.frameOn,
     selectionOutline: selectedBoxOutline,
   });
 
@@ -3846,11 +3436,14 @@ export function createFieldHost(deps?: {
   //
   // THE FORWARD-REFERENCE INVARIANT applies to this line exactly as it does to
   // the `createVoidCast` assembly ~200 lines up, and this is the assembly that
-  // leans on it hardest: `applyOrbit`, `gizmoVisible`, `orbitPivot` and
-  // `activeGizmoAxis` all sit ABOVE here and call into the machine from inside
-  // their bodies, and `field-picking.ts` — assembled directly above — does the
-  // same through the two arrows in its deps record. Safe because nothing between this closure's
-  // brace and its `return {` ever RUNS — see that comment for the whole argument,
+  // leans on it hardest. Two EXTRACTED modules assembled above reach down into it
+  // through arrows in their own deps records — `field-picking.ts` with two, and
+  // `field-camera-rig.ts` since 2026-08-08 with `reaimMove` and `gesture` — and
+  // two closure functions still here do it directly from inside their bodies
+  // (`gizmoVisible`, `activeGizmoAxis`). The camera pair used to be that second
+  // kind: `applyOrbit` and `orbitPivot` sat above and called straight in. Safe
+  // because nothing between this closure's brace and its `return {` ever RUNS —
+  // see that comment for the whole argument,
   // and for the rule it implies (do not add an executed statement at closure
   // level).
   //
@@ -3876,7 +3469,7 @@ export function createFieldHost(deps?: {
           sel.materialized.kind === "cells" && sel.materialized.truncated,
       };
     },
-    reportToolError,
+    reportToolError: tool.reportError,
     markDirtyWithNeighbors,
     snapshotChunks,
     chunkOrigin,
@@ -3913,13 +3506,13 @@ export function createFieldHost(deps?: {
     strokeMinMs: STROKE_MIN_MS,
     capturePointer,
     releasePointer,
-    looking: () => look !== null,
-    beginLook,
-    lookDrag,
-    endLook,
-    eyedropper,
-    applyTool,
-    armMaskDropReport,
+    looking: cameraRig.looking,
+    beginLook: cameraRig.beginLook,
+    lookDrag: cameraRig.lookDrag,
+    endLook: cameraRig.endLook,
+    eyedropper: tool.eyedropper,
+    applyTool: tool.apply,
+    armMaskDropReport: tool.armMaskDropReport,
     pointerPress: picking.press,
     selectionClick,
     segmentClick: segment.click,
@@ -3976,60 +3569,15 @@ export function createFieldHost(deps?: {
     notifyEntities();
   };
 
-  // --- momentary tool overrides -------------------------------------------
-
-  // Announce the armed brush to the chrome (cloned — the chrome must never hold a
-  // reference into host state). Every path that moves the tool or the radius ends here.
-  const notifyTool = (): void => {
-    toolChannel.publish(toolPush());
-  };
-
-  // Recompute the effective tool from (saved base, held modifiers). DERIVED,
-  // not stacked: Shift (momentary smooth) wins over Ctrl (dig↔fill invert),
-  // and Ctrl inverts only dig/fill (paint/smooth pass through). Because the
-  // result is a pure function of the base + the two flags, any press/release
-  // interleaving restores the ORIGINAL tool once both are released.
-  // macOS caveat: Ctrl+CLICK is synthesized as a right-click (button 2), so a
-  // fresh Ctrl+LMB press starts a look there — the invert still applies to a
-  // stroke already in progress (LMB down, then hold Ctrl) and on Win/Linux.
-  const deriveMomentary = (): void => {
-    if (!momentaryShift && !momentaryCtrl) {
-      if (momentarySaved === null) return;
-      tool = momentarySaved;
-      momentarySaved = null;
-      notifyTool();
-      return;
-    }
-    if (momentarySaved === null) momentarySaved = tool;
-    let effect = momentarySaved.effect;
-    if (momentaryCtrl && effect === "dig") effect = "fill";
-    else if (momentaryCtrl && effect === "fill") effect = "dig";
-    if (momentaryShift) effect = "smooth";
-    tool = { ...momentarySaved, effect };
-    notifyTool();
-  };
-
   // --- render loop --------------------------------------------------------
-
-  // Fly travel is RMB-GATED (D-10): the move keys only travel while the right
-  // button is holding a look. This is the Unity/Unreal mechanism, and it is what
-  // buys the editor its whole bare-letter budget — `S` is fly-backward AND the
-  // stamp family, `B` is unbound here AND the brush family, and there is no way
-  // to have both on one keycap except by letting the button that means "I am
-  // driving the camera" decide which. The app-level gate is the same rule from
-  // the other side (`frontend/lib/actions.ts`: a bare-key action is refused
-  // while `isLooking()`), so exactly one of the two answers any letter.
   //
-  // Gated HERE rather than at the call site: `keys` still collects w/a/s/d/q/e
-  // whatever the button is doing (they have to, for the release to clear them),
-  // so this is the one place that decides whether the set means anything.
-  const applyFlyMove = (dt: number): void => {
-    if (look === null) return;
-    const move = readFlyMove(keys);
-    if (move.f === 0 && move.r === 0 && move.u === 0) return;
-    aimCamera(flyMove(orbitState, move, flySpeed(keys, dt)));
-    applyOrbit();
-  };
+  // The brush's announce + momentary derive (`notifyTool`, `deriveMomentary`)
+  // and the fly step (`applyFlyMove`) all stood here and all three left on
+  // 2026-08-08 — the first two private inside `field-tool.ts`, the third as
+  // `cameraRig.flyStep(dt)`, called from `tick` below. The fly step is the one
+  // worth a line: it is RMB-GATED (D-10), which is what buys the editor its whole
+  // bare-letter budget, and the gate reads the LOOK slot, so it could only ever
+  // have gone where that slot went.
 
   // The frame, lifted out whole (`field-render.ts`): the light list, this frame's
   // ghost state, the ghost's lines, the cursor affordance and the draw-list build
@@ -4044,32 +3592,32 @@ export function createFieldHost(deps?: {
   // `tick` directly below. So the interface is `render.scene(c, cam)` and the
   // COST of this extraction is entirely in what the frame has to be handed.
   //
-  // THE POSITION IS FORCED FROM ABOVE and constrains nothing below TODAY. The
-  // literal is eager, so every plain ref in it must be declared above this line:
-  // FIFTEEN of the twenty-nine deps are refs onto sibling modules' seams, drawn
-  // from SIX files (`viewState` 1, `materials` 2, `advisor` 2, `machine` 4,
-  // `segment` 3, `targeting` 3), and the LOWEST of those assemblies is
-  // `createFieldMachine` ~200 lines up, so this line cannot rise past it.
+  // THE POSITION IS FORCED FROM ABOVE, and the record's split is re-derived from
+  // the literal below rather than carried forward: **1 substrate + 18 refs onto
+  // sibling modules' seams + 7 thunks over host `let`s + 1 plain ref to a host
+  // `const` arrow + 2 constants by value = 29**. The eighteen are drawn from EIGHT
+  // files (`viewState` 1, `materials` 2, `advisor` 2, `machine` 4, `segment` 3,
+  // `targeting` 3, `tool` 2, `cameraRig` 1), and the LOWEST of those assemblies is
+  // `createFieldMachine` ~170 lines up, so this line cannot rise past it.
   // `createAnalyzer`'s own block names this module as one of the three that may
   // not rise above the closure's ordering pivot; the machine is simply lower
-  // still. The rest of the record is 1 substrate + 8 thunks over host `let`s + 3
-  // plain refs to host `const` arrows + 2 constants by value = 29.
+  // still.
   //
-  // "Nothing takes `render`, so nothing is pinned below it" is TRUE TODAY AND NOT
-  // SETTLED, and the two deps that unsettle it are already in the literal below.
-  // `cameraEye` reads `orbitState` and `gizmoVisible` reads the gizmo span; when
-  // Tasks 4 and 5 give `camera` and `entities` owners, each becomes a module ref
-  // and each turns its assembly into a new LOWER bound on this line. This block
-  // will then have constraints from both directions, like `createAnalyzer`'s.
+  // "Nothing takes `render`, so nothing is pinned below it" is STILL TRUE and now
+  // HALF SETTLED. The two deps that were going to unsettle it were `cameraEye`
+  // and `gizmoVisible`; T3d Task 4 collected on the first — `cameraEye` is
+  // `cameraRig.eye` now, and `createCameraRig` ~600 lines up is a real lower
+  // bound on this line, though a slack one. `gizmoVisible` is still a host `const`
+  // arrow and Task 5 is what settles the other half.
   //
-  // ELEVEN DEPS NAME STATE THAT STILL LIVES IN THIS CLOSURE and will not for
-  // long. Each is a NARROW named thunk or a plain ref rather than a slice of a
-  // module record, which is what makes those later tasks cost one line each HERE
-  // and no change of SHAPE inside `field-render.ts` — `() => digRadius` becomes
-  // `tool.digRadius`, and what the module sees is a comment rewrite, not a new
-  // signature. Every affected site over there carries its own marker.
-  //   // MIGRATION (until T3d Task 4): the brush radius and the kit-fill test
-  //   (`tool`), the camera eye (`camera`).
+  // EIGHT DEPS NAME STATE THAT STILL LIVES IN THIS CLOSURE and will not for
+  // long — down from eleven, because Task 4 spent three of them. Each is a NARROW
+  // named thunk or a plain ref rather than a slice of a module record, which is
+  // what made those three cost one line each HERE and no change of SHAPE inside
+  // `field-render.ts`: `() => digRadius` became `tool.digRadius`, and what the
+  // module saw was a comment rewrite, not a new signature. That prediction was
+  // made at Task 3 and is now measured — the module's own diff for this task is
+  // six comment sites and no code.
   //   // MIGRATION (until T3d Task 5): the four selection batches, the anchor and
   //   the cell mesh (`selection`); the entity box, the gizmo batch and its
   //   visibility (`entities`).
@@ -4090,9 +3638,9 @@ export function createFieldHost(deps?: {
     pointer: targeting.pointer,
     computeTarget: targeting.computeTarget,
     selectionPoint: targeting.selectionPoint,
-    digRadius: () => digRadius,
-    isKitFillTool,
-    cameraEye,
+    digRadius: tool.digRadius,
+    isKitFillTool: tool.isKitFill,
+    cameraEye: cameraRig.eye,
     // `?.im ?? null` rather than an explicit guard, and the `typescript.md` rule
     // it will be tested against ("don't paper over nullability with `?.`") is
     // satisfied rather than bypassed: `selectionCells` is a `{ im, g } | null`
@@ -4198,20 +3746,25 @@ export function createFieldHost(deps?: {
     if (disposed) return;
     syncCursor();
     const c = ctx;
-    if (c && cam) {
+    // Bound to a local because the camera is a CALL now, and the frame needs the
+    // same handle twice — the liveness guard and the draw. Two calls could in
+    // principle answer differently; `syncCursor`'s `moveDrag` local above is the
+    // same shape and states the same reason.
+    const liveCam = cameraRig.cam();
+    if (c && liveCam) {
       const dt =
         lastFrameT === 0
           ? 0
           : Math.min((now - lastFrameT) / 1000, MAX_FRAME_DT);
       lastFrameT = now;
-      applyFlyMove(dt);
+      cameraRig.flyStep(dt);
       drainDirty();
       // The frame's whole involvement with the readout: it ASKS, and the meter
       // decides whether anyone is listening and what to say (`field-stats.ts`).
       // The twenty lines this replaced read four other clusters, which is why
       // they were never `tick`'s to own.
       stats.publishIfWatched();
-      render.scene(c, cam);
+      render.scene(c, liveCam);
     }
     raf = requestAnimationFrame(tick);
   };
@@ -4227,10 +3780,28 @@ export function createFieldHost(deps?: {
   // `segmentAnchor`). A chain sits where most of what it decides on lives and
   // asks about the rest; `field-machine.ts`'s chain header argues it out.
   //
-  // What stays here is the attachment and the KEYBOARD, and neither is a
-  // leftover: `attachListeners` owns the canvas element, and the momentary
-  // modifier pins below are closure-private keydown state with no route out of
-  // this file at all. The wheel stays because half of it is the camera.
+  // WHAT STAYS HERE IS THE ATTACHMENT AND THE DOM, AND EVERY BODY BELOW IS NOW A
+  // DELEGATE. That is the whole of what T3d Task 4 did to this block: `keys`, the
+  // banked scroll and the momentary flags were the last closure state a listener
+  // wrote, and all three left on 2026-08-08 — so `onWheel`, `onKeyDown`,
+  // `onKeyUp` and `onBlur` join the pointer four in owning no state at all.
+  //
+  // The listeners themselves do NOT move, this tranche or after it, and the
+  // reason is the same one that kept the pointer four: `attachListeners` owns the
+  // canvas element, and `input` IS the adapter that turns DOM events into calls.
+  // What each handler keeps is the DECISION that is a fact about the EVENT rather
+  // than about a cluster — which of the wheel's two bindings this scroll is,
+  // which key this is, that ⌘Z must be claimed before anything else looks at it.
+  // Everything downstream of that decision is somebody's verb.
+  //
+  // This comment used to say the momentary pins were "closure-private keydown
+  // state with no route out of this file at all", which was true and is the exact
+  // sentence the move had to answer. They are `field-tool.ts`'s now, reached
+  // through three verbs named for the act (`noteModifierDown`, `noteModifierUp`,
+  // `releaseModifiers`) — never through a `setMomentaryShift(v)`, which would have
+  // handed this file back the assignment, the repeat guard and the derive-ordering
+  // it just gave up. `tests/field-host-momentary.gpu.test.ts` still reaches all of
+  // it through these handlers and through nothing else, and passes unmodified.
   //
   // The one statement that is not a delegation to the MACHINE is the pointer
   // note, and deliberately: it is not arbitration, and the chain never reads it.
@@ -4281,32 +3852,20 @@ export function createFieldHost(deps?: {
   // else (the brush, `segment`, the cell-selection gestures) it is the brush
   // radius it has always been. Away from the user = forward / bigger, in both.
   //
-  // The two measure the scroll DIFFERENTLY, and the asymmetry is deliberate.
-  // Travel is ACCUMULATED: `deltaY` magnitudes differ by two orders between a
-  // notched wheel (~100 px per notch, a handful of events) and a trackpad's
-  // momentum stream (many small events), so one step per EVENT would make how
-  // far the camera goes a function of the event rate rather than of how far the
-  // user scrolled. Radius keeps its per-event step because it is clamped to
-  // [RADIUS_MIN, RADIUS_MAX] — an over-long flick just pins it — and its feel
-  // was tuned at the F2b/F3a gates. Camera travel has no such clamp.
+  // The two measure the scroll DIFFERENTLY, and the asymmetry is deliberate:
+  // travel is ACCUMULATED and radius is stepped per event. Each half now argues
+  // its own side at its own verb (`cameraRig.wheelDolly`, `tool.stepRadius`),
+  // because the arithmetic went with the state it moves. What is left here is the
+  // SPLIT, which is neither cluster's — it is a fact about this event.
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
     if (machine.gesture() === "pointer") {
-      const banked = bankDolly(dollyPixels, e);
-      // Stored BEFORE the sub-threshold return, or the scroll this event just
-      // banked is dropped rather than carried.
-      dollyPixels = banked.banked;
-      // Sub-threshold scroll banks and waits. Returning is not just an
-      // optimisation: falling through would publish a pose for a camera that did
-      // not move, and retire a live move's anchor on the strength of it.
-      if (banked.steps === 0) return;
-      aimCamera(dolly(orbitState, -banked.steps)); // negative deltaY = forward
-      applyOrbit();
+      cameraRig.wheelDolly(e);
       return;
     }
     const notches = -Math.sign(e.deltaY);
     if (notches === 0) return; // a purely horizontal wheel means neither binding
-    applyRadius(digRadius + notches * RADIUS_WHEEL_STEP);
+    tool.stepRadius(notches);
   };
 
   const onContextMenu = (e: Event): void => {
@@ -4420,48 +3979,43 @@ export function createFieldHost(deps?: {
     if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
-      frameSelection();
+      cameraRig.frameSelection();
       return;
     }
-    // [ / ] step the brush radius (same clamp as the wheel); key-repeat is the
-    // hold-to-resize behaviour. Chord-guarded: ⌘[/⌘] (and ctrl+[/]) are the
-    // browser's back/forward — never intercept those.
+    // [ / ] step the brush radius (literally the same verb as the wheel's brush
+    // half, one notch at a time); key-repeat is the hold-to-resize behaviour.
+    // Chord-guarded: ⌘[/⌘] (and ctrl+[/]) are the browser's back/forward — never
+    // intercept those.
     if ((k === "[" || k === "]") && !e.metaKey && !e.ctrlKey) {
-      const step = k === "]" ? RADIUS_WHEEL_STEP : -RADIUS_WHEEL_STEP;
-      applyRadius(digRadius + step);
+      tool.stepRadius(k === "]" ? 1 : -1);
       return;
     }
-    // Momentary modifiers (repeat-guarded). Shift ALSO lands in `keys` below
-    // for the fly boost — the boost only applies while a move key is held,
-    // momentary smooth only changes what LMB does; they don't conflict.
-    if (k === "shift" && !momentaryShift) {
-      momentaryShift = true;
-      deriveMomentary();
-    }
-    if (k === "control" && !momentaryCtrl) {
-      momentaryCtrl = true;
-      deriveMomentary();
-    }
-    keys.add(k);
+    // Momentary modifiers. The repeat guard is inside the verb now — a held key
+    // auto-repeats keydown, and re-saving the DERIVED tool as the base is the
+    // defect it exists to stop. Shift ALSO lands in the fly set below, for the
+    // boost: the boost only applies while a move key is held and momentary smooth
+    // only changes what LMB does, so the two never conflict — which is why both
+    // clusters see this one keypress.
+    if (k === "shift") tool.noteModifierDown("shift");
+    if (k === "control") tool.noteModifierDown("ctrl");
+    cameraRig.noteKeyDown(k);
   };
 
   const onKeyUp = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
-    keys.delete(k);
-    if (k === "shift" && momentaryShift) {
-      momentaryShift = false;
-      deriveMomentary();
-    }
-    if (k === "control" && momentaryCtrl) {
-      momentaryCtrl = false;
-      deriveMomentary();
-    }
+    cameraRig.noteKeyUp(k);
+    if (k === "shift") tool.noteModifierUp("shift");
+    if (k === "control") tool.noteModifierUp("ctrl");
   };
 
   // Focus loss strands keydown state: a key released while focus is elsewhere
   // never keyups here, leaving fly movement running or a momentary tool stuck.
-  // Clear the fly set + both momentary flags (deriveMomentary restores the
-  // saved tool when both drop).
+  // One verb per cluster: drop the fly set, then drop both momentary flags
+  // (which re-derives, restoring the saved tool). That order matches `onKeyUp`'s,
+  // NOT `onKeyDown`'s — the keydown does the modifiers first and the fly set
+  // last. Nothing depends on it either way (the two clusters share no state), and
+  // the statement order is frozen by this extraction's zero-change bar, so it is
+  // recorded as what it is rather than given a reason it does not have.
   //
   // A move in flight is stranded the same way and is DISCARDED (D-9's blur
   // decision). A drag alt-tabbed away from never sees its pointerup, and a `G`
@@ -4471,12 +4025,8 @@ export function createFieldHost(deps?: {
   // the record is untouched until the drop.
   const onBlur = (): void => {
     machine.cancelMoveInFlight();
-    keys.clear();
-    if (momentaryShift || momentaryCtrl) {
-      momentaryShift = false;
-      momentaryCtrl = false;
-      deriveMomentary();
-    }
+    cameraRig.releaseKeys();
+    tool.releaseModifiers();
   };
 
   const attachListeners = (canvas: HTMLCanvasElement): void => {
@@ -4610,7 +4160,7 @@ export function createFieldHost(deps?: {
       field.compactRuns(store, log, table, { keepIds: new Set() });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      reportToolError(
+      tool.reportError(
         `world loaded, but log compaction was skipped: ${message}`,
       );
     }
@@ -4623,14 +4173,12 @@ export function createFieldHost(deps?: {
       ctx = await requestContext(canvas, {
         sampleCount: opts?.sampleCount ?? 4,
       });
-      cam = camera.perspective({
-        fovYRad: EDITOR_FOV_Y,
-        aspect: 1,
-        near: 0.1,
-        far: 1000,
-      });
-      applyOrbit();
-      unbindCamera = camera.bindToCanvas(ctx, cam);
+      // Three statements behind ONE verb since 2026-08-08
+      // (`field-camera-rig.ts`): build the perspective camera, write the stored
+      // orbit pose into it, bind it to the canvas for resize. The ORDER inside
+      // matters (the pose is written before the bind) and is now the module's to
+      // keep rather than this function's to remember.
+      cameraRig.bind(ctx);
       await materials.init(ctx);
       // A world can be loaded BEFORE the GPU exists (the panel's Load races
       // init, and every headless caller never inits at all), and
@@ -4697,7 +4245,7 @@ export function createFieldHost(deps?: {
         // this block, because a host disposed before it ever initialized still
         // has slots to clear and no context to free them with.
         materials.destroy(c);
-        unbindCamera?.();
+        cameraRig.unbind();
         gpu.dispose(c); // LAST — a clean shutdown is the leak check.
       }
       // The closure map's biggest single mutation fan-out — fifteen bare
@@ -4730,8 +4278,11 @@ export function createFieldHost(deps?: {
       // swallow every pointermove — box previews, segment previews and brush
       // strokes alike — until something else cleared it.
       machine.cancelSession();
-      unbindCamera = null;
-      cam = null;
+      // The camera's FORGETTING half, outside the context block for
+      // `materials.release()`'s reason directly above — a host disposed before it
+      // ever initialized still has both slots to clear and no context to free
+      // them with. `unbind()` is the other half and ran inside.
+      cameraRig.release();
       ctx = null;
     },
     newWorld() {
@@ -4805,43 +4356,19 @@ export function createFieldHost(deps?: {
       // holds the host so it needs no seam either.
     },
     setDigRadius(r) {
-      applyRadius(r);
+      tool.applyRadius(r);
     },
     setShading(mode) {
       materials.setShading(mode);
     },
     setTool(patch) {
-      if (momentarySaved !== null) {
-        // A change while a momentary modifier is held lands on the BASE the
-        // momentary derives from (and restores to), so releasing the modifier
-        // lands on the caller's latest choice rather than a stale save.
-        //
-        // The patch merges over `momentarySaved`, NOT over `tool` — `tool` is the
-        // DERIVED brush right now, and merging over it would feed the derive's own
-        // `effect` back into the base on every set. That is the whole defect the
-        // patch seam closes: a param nudge names its param and nothing else, so
-        // the base keeps the effect the user actually picked, while a deliberate
-        // pick names `effect` and is adopted. Both reach this one line.
-        //
-        // ABOVE the value guard, deliberately (the guard sits below this branch):
-        // a set that equals the DERIVED tool can still be a real change to the
-        // base the release will land on — picking smooth under a held ⇧ is exactly
-        // that, and comparing the derived tool here would drop it and let go of ⇧
-        // restore the wrong brush.
-        momentarySaved = clampTool({ ...momentarySaved, ...patch });
-        deriveMomentary();
-        return;
-      }
-      const clamped = clampTool({ ...tool, ...patch }); // chassis-side range enforcement
-      if (sameTool(tool, clamped)) return; // applyRadius' `clamped === digRadius`, one type up
-      tool = clamped;
-      notifyTool();
+      tool.set(patch);
     },
     subscribeTool(cb) {
-      return toolChannel.subscribe(cb);
+      return tool.subscribe(cb);
     },
     subscribeToolError(cb) {
-      return toolErrorChannel.subscribe(cb);
+      return tool.subscribeError(cb);
     },
     setGesture(next) {
       machine.setGesture(next);
@@ -5010,7 +4537,7 @@ export function createFieldHost(deps?: {
         field.setGeneratorFrozen(log, entityId, frozen);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        reportToolError(message);
+        tool.reportError(message);
         return;
       }
       // A freeze DOES reach a live session: the entities list stays visible
@@ -5029,7 +4556,7 @@ export function createFieldHost(deps?: {
         field.bakeGeneratorEntity(log, entityId);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        reportToolError(message);
+        tool.reportError(message);
         return;
       }
       // Unlike freeze, baking is permanent: a live session on this entity can
@@ -5054,7 +4581,7 @@ export function createFieldHost(deps?: {
         // (setEntityFrozen/bakeEntity's stance). Swallowing it would leave a
         // row delete that silently does nothing.
         const message = err instanceof Error ? err.message : String(err);
-        reportToolError(message);
+        tool.reportError(message);
         return;
       }
       markDirtyWithNeighbors(dirtied);
@@ -5081,7 +4608,7 @@ export function createFieldHost(deps?: {
     duplicateEntity(entityId) {
       const record = entityRecord(entityId);
       if (record === null) {
-        reportToolError(`entity ${entityId} is no longer in the log`);
+        tool.reportError(`entity ${entityId} is no longer in the log`);
         return;
       }
       let def: field.GeneratorDef;
@@ -5091,7 +4618,7 @@ export function createFieldHost(deps?: {
         // openEntitySession's stance: fail HERE rather than at commitGenerator,
         // where the message would arrive wrapped in a commit failure.
         const message = err instanceof Error ? err.message : String(err);
-        reportToolError(message);
+        tool.reportError(message);
         return;
       }
       // Clear of the original along X, on the lattice the stamp UI works in. The
@@ -5132,7 +4659,7 @@ export function createFieldHost(deps?: {
         // class the recipe needs since the original commit (commitStampSession's
         // stance, same sentence shape).
         const message = err instanceof Error ? err.message : String(err);
-        reportToolError(`duplicate failed: ${message}`);
+        tool.reportError(`duplicate failed: ${message}`);
         return;
       }
       markDirtyWithNeighbors(committed.dirty);
@@ -5158,15 +4685,16 @@ export function createFieldHost(deps?: {
       // `null` is the empty set, which was this method's own early return.
       const box = chunkSetBox(chunks);
       if (box === null) return;
-      aimCamera({ ...orbitState, target: boxCentre(box) });
-      // Before init this moves the target and publishes the pose, and writes no
-      // camera — applyOrbit guards on `cam`, and there is none yet.
-      applyOrbit();
+      // `centreOn`, not `frameOn`: this verb moves the PIVOT and keeps angle and
+      // distance, which is the whole of what its docblock above distinguishes.
+      // The box is `world`'s and the move is the camera's — the same split
+      // `field-analyzer.ts`'s click-to-frame makes one dep over (§2.7's rule).
+      cameraRig.centreOn(box);
     },
-    frameSelection,
-    frameWorld,
-    cameraAimedByHand: () => cameraAimed,
-    snapView,
+    frameSelection: cameraRig.frameSelection,
+    frameWorld: cameraRig.frameWorld,
+    cameraAimedByHand: cameraRig.aimedByHand,
+    snapView: cameraRig.snapView,
     subscribeEntities(cb) {
       return entitiesChannel.subscribe(cb);
     },
@@ -5217,18 +4745,16 @@ export function createFieldHost(deps?: {
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {
         name,
-        playerStart: cameraEye(), // v0 spawn = current camera position
-        playerYaw: orbitState.yaw,
+        playerStart: cameraRig.eye(), // v0 spawn = current camera position
+        playerYaw: cameraRig.pose().yaw,
       });
     },
     subscribeStats(cb) {
       return stats.subscribe(cb);
     },
-    isLooking() {
-      return look !== null;
-    },
+    isLooking: cameraRig.looking,
     subscribeCameraPose(cb) {
-      return cameraPoseChannel.subscribe(cb);
+      return cameraRig.subscribePose(cb);
     },
     subscribeSegmentHud(cb) {
       return segment.subscribeHud(cb);

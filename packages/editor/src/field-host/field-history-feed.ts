@@ -35,7 +35,10 @@
 // the smallest part. It does not even NAME this module — the push reaches here
 // through `notifyEntities`, which carries it by that seam's own contract — so
 // `stepHistory` needed no edit at all in this move. Only `commitToolOp`, the one
-// log-mutating path that rewrites no entity record, calls the feed directly.
+// log-mutating path that rewrites no entity record, calls the feed directly —
+// from `field-tool.ts` since 2026-08-08, through a `notifyHistory` arrow in that
+// module's deps record, because `createTool` is assembled ~460 lines above
+// `createHistoryFeed`.
 //
 // THE LAW, applied (see `substrate.ts`'s doc header for the argument): there is
 // exactly ONE foreign read, `log`, and it was ALREADY declared in `HostSubstrate`,

@@ -106,6 +106,15 @@
 // clusters that own those answers — which is the same trade `markPlacementsStale`
 // makes in the other direction.
 //
+// THE CAMERA HALF COLLECTED ON THAT ON 2026-08-08 (T3d Task 4), which is the
+// check the argument was making. `camera` left for `field-camera-rig.ts` and took
+// the THREE named above with it — `orbitState`, `aimCamera`, `applyOrbit`; the
+// host's `frameCameraOn` is `cameraRig.frameOn` now, and THIS FILE did not change
+// a line for it, only the assembly's dep line. Had those three been passed
+// instead, that extraction would have had to rewrite this module's deps record,
+// its header and its `selectFlagImpl`. `selectionOutline`'s two are the same bet
+// still open, on `selection` at Task 5.
+//
 // NO UNIT TEST, by the house pattern nine extractions old: the argument is
 // `tests/field-host/field-machine.test.ts`'s header and is not re-made here. The
 // host suites passing UNMODIFIED across this move ARE this module's contract, and
@@ -241,7 +250,9 @@ export type AnalyzerDeps = {
   worldEpoch(): number;
   /** Put the camera on a world box, as one act. `selectFlag` frames the finding
    *  it just adopted; the composition (`aimCamera` over `frameBox` over the
-   *  current orbit, then `applyOrbit`) is the camera cluster's and stays there. */
+   *  current orbit, then `applyOrbit`) is the camera cluster's — the host's
+   *  `frameCameraOn` until 2026-08-08, `field-camera-rig.ts`'s `frameOn` since,
+   *  and this line is the whole difference the move made here. */
   frameCameraOn(box: { min: Vec3T; max: Vec3T }): void;
   /** The 12-edge line batch that says "this is what is selected", for one world
    *  box. The batch builder and the accent colour are both the host's — this

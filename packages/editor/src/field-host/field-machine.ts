@@ -56,7 +56,9 @@
 //     {@link MachineDeps.boxCorner}) — the `armMaskDropReport` precedent.
 //   - `commitToolOp`. It is a BRUSH verb wearing a commit's name: it applies one
 //     op through `field.logApply` with the active tool's mask and pushes the
-//     history feed, and it is already a `field-segment.ts` dep. The two verbs
+//     history feed, and it is already a `field-segment.ts` dep. (It is
+//     `field-tool.ts`'s `commitOp` since 2026-08-08, which is the same answer
+//     from the other side: it went with the brush, not with the session.) The two verbs
 //     that DID move are the session's terminal pair (`commitStampSession`,
 //     `applyReconfigureSession`), and they moved because leaving them behind
 //     would have meant exporting `setStamp`, `destroyGhosts`, `notifyStamp`,
@@ -369,8 +371,10 @@ export type MachineDeps = {
    *  press ends up latched on with the button up. See `commitToolOp`. */
   releasePointer(pointerId: number): void;
   /** Is an RMB look drag live? The camera has the pointer, and everything about
-   *  that drag — `orbitState`, `aimCamera`, `applyOrbit`, `orbitPivot` — stays in
-   *  the host, so the chain asks rather than knows. */
+   *  that drag — `orbitState`, `aimCamera`, `applyOrbit`, `orbitPivot` — is the
+   *  camera cluster's (`field-camera-rig.ts` since 2026-08-08; the host closure
+   *  before that), so the chain asks rather than knows. The three verbs below are
+   *  that module's now, and this record did not change when they moved. */
   looking(): boolean;
   /** Start one: latch the drag's pivot and its last cursor point. */
   beginLook(clientX: number, clientY: number): void;
@@ -385,9 +389,9 @@ export type MachineDeps = {
    *  outcome, on the press and on every throttled move after it. */
   applyTool(clientX: number, clientY: number): void;
   /** Re-arm the once-per-stroke "selection mask but no selection" report. The
-   *  `maskDropReported` latch stays in the host with the report that reads it;
-   *  the segment brush re-arms the same latch through the same thunk, per commit
-   *  rather than per press. */
+   *  `maskDropReported` latch lives with the report that reads it — the host
+   *  closure until 2026-08-08, `field-tool.ts` since; the segment brush re-arms
+   *  the same latch through the same verb, per commit rather than per press. */
   armMaskDropReport(): void;
   /** One LMB press with `pointer` armed: gizmo handle, already-selected entity,
    *  or a plain pick. It STAYS in the host though two of its three outcomes are
@@ -555,7 +559,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // to dig, so the first click on a world can never be a destructive one. Two
   // existing behaviours fall out of that with no new rule — the brush ghost
   // hides (renderScene draws it only while `gesture === null`) and LMB bypasses
-  // applyTool (the host's pointer arbitration) — which is exactly right: nothing
+  // applyTool (this module's own arbitration) — which is exactly right: nothing
   // on screen promises a stroke that will not happen. Arming a brush effect is
   // what the chrome does to get back to `null`.
   let gesture: ViewportGesture | null = "pointer";
@@ -1723,13 +1727,18 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // gesture, a stroke in progress), and that majority is why the chains are here
   // rather than split in two; every branch's VERB belongs to some other cluster,
   // and that is why the verbs arrive in {@link MachineDeps} rather than moving.
-  // `eyedropper`, `applyTool` and `selectionClick` still live in the host, and
-  // the segment brush's three in `field-segment.ts`, exactly as they did. Two of
-  // the verbs have since left the host on their own account — `pointerPress` is
-  // `field-picking.ts`'s `press`, and `selectionClick` reaches
-  // `field-targeting.ts` for its seed voxels — which changed nothing here: a verb
-  // arrives as a dep whichever file it ends up in, and that is the point of
-  // taking verbs as deps rather than as locations.
+  // FIVE of the chain's verbs still live in the host — `selectionClick`,
+  // `boxCorner`, `updateBoxPreview` and the pointer-capture pair — and the segment
+  // brush's three in `field-segment.ts`, exactly as they did. SEVEN have since
+  // left the host on their own account and changed nothing here: `pointerPress`
+  // is `field-picking.ts`'s `press`; `eyedropper`, `applyTool` and
+  // `armMaskDropReport` are `field-tool.ts`'s; `beginLook`, `lookDrag` and
+  // `endLook` are `field-camera-rig.ts`'s (the last six all on 2026-08-08).
+  // `selectionClick` is the one to read carefully: it STAYED, and it reaches
+  // `field-targeting.ts` for its seed voxels from where it is — reaching into a
+  // module is not the same as being one. A verb arrives as a dep whichever file
+  // it ends up in, and that is the point of taking verbs as deps rather than as
+  // locations.
   //
   // THREE TESTS ARE NOT THIS MODULE'S, and they are named here rather than left
   // for a reader to trip over, because the rule stated as an absolute would send

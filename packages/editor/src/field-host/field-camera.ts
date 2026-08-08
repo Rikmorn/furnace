@@ -15,9 +15,11 @@
 // synthetic events and exact numbers, where through a live drag it is a matter
 // of opinion.
 //
-// The host keeps every decision that needs its own readers: which of the wheel's
-// two bindings is armed (`gesture`), whether fly travel is gated open at all
-// (`look`), the `orbitState` these feed, and `applyOrbit`.
+// The RIG keeps every decision that needs its own readers: whether fly travel is
+// gated open at all (`look`), the `orbitState` these feed, and `applyOrbit` —
+// `field-camera-rig.ts` since 2026-08-08, the `createFieldHost` closure before
+// that. One decision stays further out still, in the host's `onWheel`: which of
+// the wheel's two bindings this scroll is, which is a fact about the EVENT.
 
 /** A fly-travel direction, each component in [-1, 1]: `f` view-forward, `r`
  *  view-right, `u` WORLD-up — not camera-up, so the rig rises vertically whatever
@@ -59,7 +61,9 @@ function wheelPixels(e: WheelEvent): number {
  * `steps` carries `deltaY`'s OWN sign, so it is positive for a scroll TOWARD the
  * user; turning that into a dolly direction is the caller's flip, because
  * away-from-the-user is forward. Why camera travel is banked at all rather than
- * stepped per event is `onWheel`'s own argument, at the one call site.
+ * stepped per event is argued at the one call site — `cameraRig.wheelDolly`
+ * (`field-camera-rig.ts`) since 2026-08-08. The host's `onWheel` keeps only the
+ * decision that this scroll is the camera's rather than the brush's.
  */
 export function bankDolly(
   banked: number,
@@ -90,8 +94,9 @@ export const flySpeed = (keys: ReadonlySet<string>, dt: number): number =>
 
 /** A look drag's pixel motion as yaw/pitch deltas. The NEGATION is the whole
  *  content: it is what turns the view the direction the hand moved. The same two
- *  angles serve both drags — the host hands them to `orbitAbout` or to `flyLook`
- *  depending on whether the press latched a pivot. */
+ *  angles serve both drags — the RIG hands them to `orbitAbout` or to `flyLook`
+ *  depending on whether the press latched a pivot (`field-camera-rig.ts`'s
+ *  `lookDrag`, which is where that latch is read). */
 export const lookDeltas = (
   dx: number,
   dy: number,
