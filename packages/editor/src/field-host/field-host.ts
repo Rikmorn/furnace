@@ -6,13 +6,16 @@
 // dungeon-load time, T11).
 import type * as binding from "@furnace/core/binding";
 import * as field from "@furnace/core/field";
-import * as geometry from "@furnace/core/geometry";
+import type * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
-import * as mesh from "@furnace/core/mesh";
+import type * as mesh from "@furnace/core/mesh";
 import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
-import { type BrushEffect, latticeClearance } from "../shared/field-brush.ts";
+// `latticeClearance` — the duplicate offset's lattice step — left with
+// `field-entities.ts` on 2026-08-08 (foundations T3d Task 6), with the verb that
+// was its only reader here.
+import type { BrushEffect } from "../shared/field-brush.ts";
 // The limits the host ENFORCES and the chrome has to STATE. They live one layer down
 // (`shared/`, which the chrome may value-import and this directory may not be) so the
 // number a user reads and the number a click is refused by are ONE number rather than two
@@ -45,14 +48,16 @@ import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
 import { createMaterials } from "./field-materials.ts";
 import { createPicking } from "./field-picking.ts";
+// `placementsByEntity` left with `field-entities.ts` at T3d Task 6 — it was
+// `listEntities`' one-pass attribution and had no other reader here. What stays
+// is the type `FieldEntityInfo.placed` is made of, plus the two `listGenerators`
+// helpers, which are `catalogs`' and declared facade-resident.
 import {
   type PlacedArchetype,
-  placementsByEntity,
   placesProps,
   withArchetypeOptions,
 } from "./field-placements.ts";
 import { createProps } from "./field-props.ts";
-import type { WireBucket } from "./field-protocol.ts";
 import { createRender } from "./field-render.ts";
 import { createSegmentBrush } from "./field-segment.ts";
 import { createSelection } from "./field-selection.ts";
@@ -62,6 +67,7 @@ import { createTargeting } from "./field-targeting.ts";
 import { createTool } from "./field-tool.ts";
 import { createView } from "./field-view.ts";
 import { createVoidCast } from "./field-voidcast.ts";
+import { createWorld } from "./field-world.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
 // `createRung` is NOT imported any more, and that is a fact about the closure
 // rather than about this line: after T3d Task 5 there are ZERO Esc rungs left in
@@ -1352,7 +1358,13 @@ export type FieldHost = {
   subscribeSegmentHud(cb: (hud: SegmentHud | null) => void): () => void;
 };
 
-type Vec3T = [number, number, number];
+// `Vec3T` — the three-number tuple alias — is no longer declared here: its last
+// three readers in this file were `chunkSetBox`, `occupiedTopYOf` and
+// `snapshotChunks`, and all three left with `field-world.ts` on 2026-08-08
+// (foundations T3d Task 6). Seven modules declare the same alias locally, which
+// `field-camera-rig.ts`'s `Box` note argues is right on COUNT: a name is not part
+// of a structural type's identity, and the `FieldHost` surface spells its own
+// vectors out.
 
 // `SelectionState` — the stored spec + its click-time materialization — left
 // with `field-selection.ts` on 2026-08-08 (foundations T3d Task 5) and is
@@ -1366,7 +1378,12 @@ type Vec3T = [number, number, number];
 // which `field-camera-rig.ts`'s `Box` note argues is right on COUNT: a name is
 // not part of a structural type's identity.
 
-const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
+// `REMESH_PER_FRAME` — the dirty-set drain budget per rAF — left with
+// `field-world.ts` on 2026-08-08 (foundations T3d Task 6), along with
+// `COMPACT_THRESHOLD_OPS` where that one was declared ~90 lines down. Each had
+// exactly one reader in CODE (`drainDirty` and `compactLoadedLog`), so both
+// travelled by Task 3's rule. The `FieldStats` TSDoc ~1,050 lines up still names
+// the compaction ceiling by name and now names its new home.
 /** The pointer-rate cadence: how often a drag applies the brush, and (since D-25) how
  *  often the pending segment's length reaches the chrome. Exported for the segment
  *  suite's clock, which advances by exactly one window to prove the HUD's throttle
@@ -1454,12 +1471,6 @@ const ANCHOR_CROSS_HALF_M = 0.25;
 // Task 3. Its conversion argument (and the note that no test can catch a
 // double-encode, because the GPU fixtures request `surfaceFormat: "linear"`)
 // went with it; `SELECTED_COLOR` above is converted the same way and says so.
-
-// Load-time compaction fires only when the loaded log carries MORE than this
-// many foldable ops (spec D-F3-16). Named, not inlined: the meter's
-// `compactable N` reads against the SAME logStats ceiling, so a user watches
-// the number climb toward the point where the next load will fold it.
-const COMPACT_THRESHOLD_OPS = 200;
 
 // The brush's FIVE module-scope helpers — `defaultTool`, `cloneTool`,
 // `clampTool`, `sameMask` and `sameTool` — left with `field-tool.ts` on
@@ -1827,14 +1838,25 @@ export function createFieldHost(deps?: {
   // `targeting.pointer()`. Two of those three (`ghostState`,
   // `renderCursorAffordance`) left this file for `field-render.ts` at T3d Task 3
   // and the third, the facade's `beginMove`, is the only one still here.
-  let lastRemeshMs = 0;
-  // Monotonic remesh counter (see the FieldStats TSDoc): bumped once per
-  // remesh completion so the panel's entity refresh has an event-driven
-  // trigger that Safari's ~1 ms performance.now() clamp can't alias.
-  let remeshVersion = 0;
+  // `lastRemeshMs` and `remeshVersion` — the two numbers the stats meter reads
+  // off the remesh — left on 2026-08-08 (foundations T3d Task 6) with
+  // `field-world.ts`, which is the only thing that writes them. So did
+  // `worldEpoch`, which sat ~1,000 lines further down in the pre-move file, and with it the whole of what a
+  // migration marker there asked this task to reconsider:
+  // its hoist above the `createAnalyzer` assembly is undone by DELETION rather
+  // than by moving it back.
+  //
   // The camera POSE channel went with the rig (`field-camera-rig.ts`), and it is
   // the one seam of the thirteen whose snapshot and its push were two spellings
   // of one expression — both are `pose()` over there now.
+  //
+  // WHAT STAYS HERE IS `lifecycle`'s, and it is DECLARED rather than left over —
+  // see the block above `return {` for the whole argument. `raf` and `lastFrameT`
+  // are the rAF loop's; `disposed` and `ctx` back two `HostSubstrate` THUNKS that
+  // SEVEN modules read through, so their storage has to be in this closure
+  // whatever owns the verbs. The names are listed once, at the declaration above
+  // `return {`; `prose-check.py` derives the count from
+  // `grep -l "substrate\.\(ctx\|disposed\)()"`.
   let raf = 0;
   let lastFrameT = 0;
   let disposed = false;
@@ -1915,6 +1937,23 @@ export function createFieldHost(deps?: {
     canvasEl?.releasePointerCapture(pointerId);
   };
 
+  // --- THE ASSEMBLY RUN: seventeen module records, ~1,080 lines -------------
+  //
+  // From here to `createWorld` every top-level binding is a module record, and
+  // almost every one of the blocks below states its own ordering constraint AND
+  // how much slack it has. That is deliberate per-block and useless in
+  // aggregate: a reader cannot tell from this file which of the seventeen
+  // orderings are load-bearing and which are merely where something happened to
+  // land. **`docs/reference/field-host-clusters.md` is where that question is
+  // answered** — §2.6–§2.11 carry the per-task ordering findings and §6 carries
+  // the per-cluster constraint. This pointer exists so nobody builds a second
+  // map inside this file to answer it.
+  //
+  // The one invariant every block here leans on is stated once, at the
+  // `createVoidCast` assembly: nothing between this closure's brace and its
+  // `return {` ever RUNS, so an arrow body cannot be evaluated early — and its
+  // TDZ half, which is why a forward dep may never be written as a value.
+
   // Every GPU material the viewport draws with, lifted out whole
   // (`field-materials.ts`): fifteen handles and the shading mode. What stayed is
   // `litByClass` — a substrate value member since T3a, so it could not follow its
@@ -1949,86 +1988,29 @@ export function createFieldHost(deps?: {
     selectedColor: SELECTED_COLOR,
   });
 
-  // --- dirty set + remesh -------------------------------------------------
-
-  // Watertight seams need the FULL dirty set: a border write dirties the
-  // neighbour whose apron reads the changed sample (the lower-endpoint-owns
-  // rule). Add the 26 allocated neighbours of every changed chunk.
-  const markDirtyWithNeighbors = (changed: Set<string>): void => {
-    // An EMPTY set is not a field change, and saying so is load-bearing rather
-    // than defensive: a pure scatter writes no cells (core `scatter.ts`'s
-    // `{ ops: [], placements }`, and a placement op returns null from
-    // applyFieldOp — pinned by core's "commitGenerator accepts a pure scatter",
-    // which asserts `dirty.size === 0`), so committing one — or undoing it,
-    // through stepHistory — arrives here with nothing changed. Without this the
-    // void cast, which shows SHAPE and never props, would tear itself down on
-    // the commit of a scatter that could not have staled it, and announce a
-    // field change that did not happen. The loop below is already inert for an
-    // empty set; only the invalidation below is not.
-    if (changed.size === 0) return;
-    // THE density-mutation choke point (strokes, stamp commits, ⌘Z/⇧⌘Z,
-    // reconfigure apply) — and so where the void cast learns its snapshot went
-    // stale. The paths that bypass it change no density: setSlice and
-    // setMaterialTable re-mesh the DISPLAY, and a world new/load routes through
-    // resetWorld, which discards the cast with everything else.
-    voidcast.invalidate();
-    // Same choke point, second consumer: the analyzer mirrors this store, so
-    // this is where it learns what to copy across. ONE call rather than the three
-    // lines it replaced (the dirty keys, the pass request, the whole-world
-    // re-arm) because those three were one act — see the verb's own docs. The
-    // apron neighbours below are a MESH-seam rule and deliberately not part of
-    // what goes across: the worker owns that widening.
-    advisor.noteDensityWritten(changed);
-    for (const k of changed) {
-      dirty.add(k);
-      const [cx, cy, cz] = field.parseChunkKey(k);
-      for (let dz = -1; dz <= 1; dz++)
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx === 0 && dy === 0 && dz === 0) continue;
-            const nk = field.chunkKey(cx + dx, cy + dy, cz + dz);
-            if (store.chunks.has(nk)) dirty.add(nk);
-          }
-    }
-  };
-
-  const chunkOrigin = (cx: number, cy: number, cz: number): Float32Array =>
-    new Float32Array([
-      cx * field.CHUNK_DIM * store.cellSize,
-      cy * field.CHUNK_DIM * store.cellSize,
-      cz * field.CHUNK_DIM * store.cellSize,
-    ]);
-
-  // Build one chunk's instanced kit mesh: a unit cube drawn once per piece, each
-  // transformed by its (yaw · box) matrix at its world position, tinted per piece.
-  // Matrix packing + tinting live in @furnace/core/field kit-render; only GPU
-  // calls here. The unit-cube + quarter-turn no-normal-matrix invariant that
-  // makes litInstanced safe is documented on `packKitMatrices` — do NOT swap to
-  // non-axis-aligned kit geometry (it would skew normals with no test to catch).
-  const buildKit = (
-    c: Context,
-    key: string,
-    kit: field.KitInstance[],
-  ): { im: mesh.InstancedMesh; g: geometry.Geometry } | null => {
-    if (kit.length === 0) return null;
-    const g = geometry.cube(c, { size: 1 });
-    const im = mesh.createInstanced(c, {
-      geometry: g,
-      material: materials.kitInstanced(),
-      count: kit.length,
-    });
-    const [cx, cy, cz] = field.parseChunkKey(key);
-    const dim = field.CHUNK_DIM * store.cellSize;
-    mesh.setInstanceMatrices(
-      c,
-      im,
-      field.packKitMatrices(kit, [cx * dim, cy * dim, cz * dim]),
-    );
-    kit.forEach((k, i) =>
-      mesh.setInstanceTint(c, im, i, field.pieceColor(table, k)),
-    );
-    return { im, g };
-  };
+  // --- dirty set + remesh: ALL OF IT LEFT (`field-world.ts`) ---------------
+  //
+  // The choke point, the chunk-origin arithmetic, the kit builder, the render
+  // teardown, the mesh apply, the worker round trip and the paced drain — seven
+  // of the cluster's fourteen functions sat here, and the other seven were
+  // scattered across the next 1,700 lines. All fourteen left on 2026-08-08
+  // (foundations T3d Task 6), the LAST cluster out of this closure.
+  //
+  // WHAT COULD NOT LEAVE is the five bindings this region opens over: `store`,
+  // `log`, `dirty`, `worker` and `chunkMeshes` are `HostSubstrate` VALUE members
+  // (declared ~450 lines up) and the closure is the only place their backing can
+  // live while the substrate hands out their identity. `field-world.ts` reads all
+  // five back through the record, exactly as its eleven siblings do — that module's
+  // header is the authority on why a substrate value member does not belong to
+  // the cluster that writes it most.
+  //
+  // THE ASSEMBLY IS ~1,150 LINES DOWN, below `createFieldMachine`, and the
+  // position was decided by an arrow COUNT rather than by a constraint: every one
+  // of `createWorld`'s twenty-three deps names a module declared above it, so the
+  // record holds no forward arrow at all, and the price is the six one-line
+  // arrows its consumers pay (this file's `createTool`, `createVoidCast`,
+  // `createAnalyzer`, `createFieldMachine` and `createCameraRig`). Assembling it
+  // HERE instead would have inverted that at about twenty arrows to six.
 
   // The committed prop layer, lifted out whole (`field-props.ts`): its three
   // functions and its instance-count map left, `propMeshes` stayed as a
@@ -2064,95 +2046,6 @@ export function createFieldHost(deps?: {
       advisor.markPlacementsStale();
     },
   });
-
-  const destroyChunkRender = (c: Context, cm: ChunkRender): void => {
-    for (const e of cm.entries) {
-      mesh.destroy(c, e.m);
-      geometry.destroy(c, e.g);
-    }
-    if (cm.kit) mesh.destroyInstanced(c, cm.kit);
-    if (cm.kitGeo) geometry.destroy(c, cm.kitGeo);
-  };
-
-  // Replace a chunk's GPU render state with a fresh remesh result: one mesh per
-  // non-empty per-class bucket + one instanced kit mesh. Empty buckets AND empty
-  // kit (a fully re-buried chunk) destroys any stale state and creates none —
-  // never skipped, since a neighbour's owned crossing may have vanished here.
-  const applyMesh = (
-    c: Context,
-    key: string,
-    buckets: WireBucket[],
-    kit: field.KitInstance[],
-  ): void => {
-    const old = chunkMeshes.get(key);
-    if (old) {
-      destroyChunkRender(c, old);
-      chunkMeshes.delete(key);
-    }
-    const [cx, cy, cz] = field.parseChunkKey(key);
-    const origin = chunkOrigin(cx, cy, cz);
-    const entries: ChunkRender["entries"] = [];
-    for (const bucket of buckets) {
-      const indices = new Uint32Array(bucket.indices);
-      if (indices.length === 0) continue;
-      const g = geometry.create(c, {
-        positions: new Float32Array(bucket.positions),
-        normals: new Float32Array(bucket.normals),
-        uvs: new Float32Array(bucket.uvs),
-        indices,
-      });
-      const m = mesh.create(c, {
-        geometry: g,
-        material: materials.bucket(bucket.classId, bucket.backing),
-      });
-      mesh.setPosition(c, m, origin);
-      entries.push({ m, g, classId: bucket.classId, backing: bucket.backing });
-    }
-    const kitRes = buildKit(c, key, kit);
-    if (entries.length === 0 && kitRes === null) return; // re-buried chunk
-    chunkMeshes.set(key, {
-      entries,
-      kit: kitRes?.im ?? null,
-      kitGeo: kitRes?.g ?? null,
-    });
-  };
-
-  // Mesh one chunk through the worker. The client rejects on dispose and on a
-  // worker-side mesh error; callers must catch (the client does not) or a
-  // post-dispose rejection becomes an unhandled rejection.
-  const remeshOne = async (key: string): Promise<void> => {
-    const c = ctx;
-    if (!c) return;
-    const aprons = field.extractFieldAprons(store, key);
-    const t0 = performance.now();
-    try {
-      const res = await worker.mesh(
-        key,
-        aprons,
-        table,
-        store.cellSize,
-        viewState.sliceY() ?? undefined,
-      );
-      lastRemeshMs = performance.now() - t0;
-      remeshVersion++;
-      if (disposed) return;
-      applyMesh(c, key, res.buckets, res.kit);
-    } catch (err) {
-      if (disposed) return; // dispose rejects pending jobs — expected, swallow
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`field-host: remesh failed for ${key}: ${message}`);
-    }
-  };
-
-  const drainDirty = (): void => {
-    let n = 0;
-    for (const key of dirty) {
-      if (n >= REMESH_PER_FRAME) break;
-      dirty.delete(key);
-      void remeshOne(key);
-      n++;
-    }
-  };
 
   // --- the brush (`field-tool.ts`) ------------------------------------------
   //
@@ -2190,7 +2083,9 @@ export function createFieldHost(deps?: {
   // where its last functions were instead, and this dep reaches down.
   const tool = createTool({
     substrate,
-    markDirtyWithNeighbors,
+    // A SEVENTH forward arrow since T3d Task 6: this was a plain ref to a closure
+    // `const` ~100 lines above, and `createWorld` is assembled 1,418 lines below.
+    markDirtyWithNeighbors: (changed) => world.markDirtyWithNeighbors(changed),
     currentSelectionSpec: () => selection.spec(),
     notifyHistory: () => {
       historyFeed.notify();
@@ -2291,7 +2186,8 @@ export function createFieldHost(deps?: {
   // --- the selection (`field-selection.ts`) --------------------------------
   //
   // Nine bindings, twenty functions, twenty verbs on the seam. The state block
-  // ~700 lines up records what left; this is where the last of its functions
+  // 567 lines up records what left (it read ~700 until T3d Task 6 deleted the
+  // dirty-set and snapshot regions above this line); this is where the last of its functions
   // (`boxCorner` and `selectionClick`) were, on `createSegmentBrush`'s precedent.
   //
   // THE POSITION IS PINNED FROM ABOVE AND PINS TWO THINGS BELOW. From ABOVE:
@@ -2389,45 +2285,51 @@ export function createFieldHost(deps?: {
   // arrow, with the rig's two `entities` thunks following it. Nothing forced the
   // choice inside the window, so it sits at the top of it.
   //
-  // NINE DEPS, and the split is the shape a cluster read from every direction
-  // makes: substrate + router, THREE plain refs onto seams above
-  // (`historyFeed.notify`, `selection.outline`, `targeting.cursorRay`), THREE
-  // thunks reaching DOWN into `field-machine.ts` (~600 lines below — the gizmo's
-  // visibility asks it three questions and the short-circuit order between them
-  // is preserved verbatim), and ONE thunk over the host `let` `worldEpoch`, which
-  // is `world`'s and rides in the footprint memo's signature.
+  // FOURTEEN DEPS SINCE T3d TASK 6, and the split is the shape a cluster read
+  // from every direction makes: substrate + router, FIVE plain refs onto seams
+  // above (`historyFeed.notify`, `selection.outline`, `targeting.cursorRay`,
+  // `props.rebuild`, `tool.reportError`), ONE plain ref onto a module-scope
+  // function this file imports (`randomStampSeed`), and SIX thunks reaching DOWN
+  // — four into `field-machine.ts` (472 lines below; the gizmo's visibility asks
+  // it three questions and the short-circuit order between them is preserved
+  // verbatim) and two into `field-world.ts` (1,192 below).
   //
-  // WHAT DID NOT COME: the five entity VERBS on the facade — `setEntityFrozen`,
-  // `bakeEntity`, `deleteEntity`, `duplicateEntity`, `listEntities`. Each drives
-  // `markDirtyWithNeighbors`, `props.rebuild()`, `machine.cancelSession()` and
-  // `table()` as much as it drives anything in that module, so moving them would
-  // drag two clusters Task 6 owns across a boundary to buy nothing. They reach in
-  // here for the four things that are STATE (`record`, `footprints`, `select`,
-  // `revalidate`) and push through `notify`.
-  //   // MIGRATION (until T3d Task 6): this is a DEFERRAL, not a declaration, and
-  //   the distinction is the one `stepHistory` sits on the other side of. That
-  //   verb is facade-resident PERMANENTLY — its callers are listeners and facade
-  //   methods that cannot move. These five are held here only by four blockers,
-  //   and ALL FOUR resolve at Task 6: `markDirtyWithNeighbors` and `table()` go
-  //   with `world` and `catalogs`, and `props.rebuild()` / `machine.cancelSession()`
-  //   are already module verbs. So Task 6 must RE-DECIDE these five rather than
-  //   inherit the stay, and this marker is what makes its grep say so — the three
-  //   places that argue the stay all say "Task 6 owns those clusters", which reads
-  //   as a reason and not as a question.
+  // THE FIVE ENTITY VERBS CAME AFTER ALL, and the marker that sat here is the
+  // reason this is a decision rather than an inheritance. It named four blockers
+  // holding `setEntityFrozen`, `bakeEntity`, `deleteEntity`, `duplicateEntity`
+  // and `listEntities` in the facade — `markDirtyWithNeighbors`, `table()`,
+  // `props.rebuild()` and `machine.cancelSession()` — and said all four would
+  // dissolve at Task 6 and that Task 6 must RE-DECIDE. They did and it did: the
+  // first is `field-world.ts`'s verb, the second has ridden the substrate since
+  // T3a, and the last two were already module verbs. The five bodies are
+  // `field-entities.ts`'s now and the facade members are three-line delegates.
+  // That module's header carries the merits (each verb had exactly ONE caller —
+  // its own facade member — which is the test that separates them from
+  // `stepHistory`, whose three callers include a listener), the arithmetic, and
+  // why `randomSeed` is passed through this file rather than imported across two
+  // extracted modules.
   const entities = createEntities({
     substrate,
     router,
-    // `world`'s counter, and the one dep here that is a host `let` rather than a
-    // module seam. A THUNK for the obvious reason and for a specific one: it is
-    // declared ~400 lines BELOW this assembly, so a value would not merely fork,
-    // it would be a TDZ read.
-    worldEpoch: () => worldEpoch,
+    // `world`'s counter, and a thunk onto `field-world.ts`' seam rather than over
+    // a host `let` since T3d Task 6. Still a call for the obvious reason and for
+    // a specific one: `createWorld` is assembled 1,192 lines BELOW this line, so
+    // a value would not merely fork, it would be a TDZ read.
+    worldEpoch: () => world.epoch(),
     notifyHistory: historyFeed.notify,
     selectionOutline: selection.outline,
     cursorRay: targeting.cursorRay,
     gesture: () => machine.gesture(),
     session: () => machine.session(),
     moveDrag: () => machine.moveDrag(),
+    // The five verbs' dependencies. Two reach forward, and both are the reason
+    // the arrows exist rather than plain refs: `field-world.ts` and
+    // `field-machine.ts` are assembled below this line.
+    markDirtyWithNeighbors: (changed) => world.markDirtyWithNeighbors(changed),
+    cancelSession: () => machine.cancelSession(),
+    rebuildProps: props.rebuild,
+    reportToolError: tool.reportError,
+    randomSeed: randomStampSeed,
   });
   // The reconfigure-drift report's three functions went with its slot to
   // `field-drift.ts`. The assembly could not stay here — `driftedEntities` reads
@@ -2459,11 +2361,13 @@ export function createFieldHost(deps?: {
   //
   // The framing VERBS left with the rig — `orbitPivot`, `frameTargetBox`,
   // `frameCameraOn`, `frameSelection`, `frameWorld` and `snapView` all sat here,
-  // which is why the assembly a few lines down is where it is. What stays in
-  // this region is the two `world` functions they read, `chunkSetBox` and
-  // `occupiedTopYOf`: the box arithmetic is the world's and the FRAMING is the
-  // camera's, so the rig takes a box and a ceiling rather than a store (§2.7's
-  // rule, the one that kept `orbitState` out of `field-analyzer.ts`).
+  // which is why the assembly a few lines down is where it is. The two `world`
+  // functions they read, `chunkSetBox` and `occupiedTopYOf`, sat here too until
+  // 2026-08-08 (foundations T3d Task 6) and are `field-world.ts`'s now. The split
+  // they were kept apart for is unchanged and is now spelled across a boundary:
+  // the box arithmetic is the world's and the FRAMING is the camera's, so the rig
+  // takes a box and a ceiling rather than a store (§2.7's rule, the one that kept
+  // `orbitState` out of `field-analyzer.ts`).
   //
   // Both framing verbs CUT rather than tween, and deliberately: the host has no
   // camera animation and adding one would need a per-frame tween arbitrating with
@@ -2473,108 +2377,6 @@ export function createFieldHost(deps?: {
   // the CHROME can). `frameChunks` has always cut, so cutting is also what keeps
   // the editor's two framing verbs behaving the same way.
 
-  /** The world-space AABB of a set of chunk keys. Used by {@link frameChunks} (which
-   *  takes its centre) and {@link frameWorld} (which fits to the whole box), because
-   *  two copies of this arithmetic is how a re-centre and a fit come to disagree
-   *  about where a world is — and there WERE two until the F4.5 gate added the second
-   *  verb and a review noticed the docblock claiming a de-duplication that had not
-   *  happened. `null` for an empty set: a box with no chunks in it has no centre and
-   *  no edges, and both callers refuse rather than fit to infinities. */
-  const chunkSetBox = (
-    chunks: Iterable<field.ChunkKey>,
-  ): { min: Vec3T; max: Vec3T } | null => {
-    const dim = field.CHUNK_DIM * store.cellSize;
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
-    let any = false;
-    for (const key of chunks) {
-      any = true;
-      const [cx, cy, cz] = field.parseChunkKey(key);
-      minX = Math.min(minX, cx * dim);
-      maxX = Math.max(maxX, (cx + 1) * dim);
-      minY = Math.min(minY, cy * dim);
-      maxY = Math.max(maxY, (cy + 1) * dim);
-      minZ = Math.min(minZ, cz * dim);
-      maxZ = Math.max(maxZ, (cz + 1) * dim);
-    }
-    return any ? { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] } : null;
-  };
-
-  /** {@link FieldHost.occupiedTopY}'s body, hoisted out of the returned object so
-   *  {@link frameWorld} can call it directly. It was inline until the F4.5 gate added
-   *  a second caller; a `host.occupiedTopY()` self-call from inside the same literal
-   *  would have worked and would also have been the one place a reader cannot see that
-   *  the two verbs share a scan. */
-  const occupiedTopYOf = (): number | null => {
-    // Walk SAMPLE layers from the top down, and stop at the first solid one.
-    // Sample-layer order rather than chunk order is what makes the answer
-    // exact: two chunks in the same cy layer can have their topmost rock 15
-    // samples apart, and taking the first chunk that has any rock in it would
-    // answer with the wrong one whenever the map iterates them in that order.
-    //
-    // Density is int8 with the isosurface at 0 (`SOLID` = -127, `AIR` = 127),
-    // so "solid" is `< 0` — the same test the mesher's sign change uses. Not
-    // `=== SOLID`: a smoothed or partially-dug ceiling is solid rock the user
-    // can see and stand under, and it is never exactly -127.
-    //
-    // COST, measured on Bun/JSC over synthetic stores, 5 runs each. Per
-    // sample layer this reads at most 256 int8s per chunk in that layer and
-    // returns on the first hit, so the early exit is what the numbers are
-    // about:
-    //
-    //   192 chunks, rock in every chunk (a floor)    0.29 - 1.26 ms
-    //   5 000 chunks, same shape                     1.27 - 1.40 ms
-    //   192 chunks, ALL AIR (worst case)             0.61 - 2.30 ms
-    //   5 000 chunks, ALL AIR                       16.1 - 17.9 ms
-    //
-    // The pair that matters is rows 2 and 4: at the SAME 5 000 chunks the
-    // answerable world costs 1.3 ms and the unanswerable one 16 ms, because
-    // the first returns out of the top layer and the second reads every
-    // allocated sample (4096 int8s per chunk, ~20 M). So the cost tracks the
-    // top layer, not the world — and the worst case is a store dug out and
-    // then filled back to nothing, which is both rare and still inside the
-    // editor's 100 ms interaction ceiling. Once per slice-enable, never per
-    // frame and never per slider drag (the chrome seeds once, then owns the
-    // value — see `useView.tsx`).
-    if (store.chunks.size === 0) return null;
-    // Bucket by chunk-Y once so each sample layer looks at only the chunks
-    // that can contain it, rather than re-filtering the whole map per layer.
-    const byLayer = new Map<number, Int8Array[]>();
-    let maxCy = Number.NEGATIVE_INFINITY;
-    let minCy = Number.POSITIVE_INFINITY;
-    for (const [key, density] of store.chunks) {
-      const cy = field.parseChunkKey(key)[1];
-      if (cy > maxCy) maxCy = cy;
-      if (cy < minCy) minCy = cy;
-      const bucket = byLayer.get(cy);
-      if (bucket) bucket.push(density);
-      else byLayer.set(cy, [density]);
-    }
-    const D = field.CHUNK_DIM;
-    for (let cy = maxCy; cy >= minCy; cy--) {
-      const chunks = byLayer.get(cy);
-      if (!chunks) continue;
-      for (let ly = D - 1; ly >= 0; ly--) {
-        for (const density of chunks) {
-          // The layer's samples are `lx + D*(ly + D*lz)`, so one ly spans D
-          // runs of D contiguous entries — walked as runs rather than with a
-          // multiply per sample.
-          for (let lz = 0; lz < D; lz++) {
-            const base = D * (ly + D * lz);
-            for (let lx = 0; lx < D; lx++)
-              if ((density[base + lx] ?? 0) < 0)
-                return (cy * D + ly) * store.cellSize;
-          }
-        }
-      }
-    }
-    return null;
-  };
-
   // --- the camera rig (`field-camera-rig.ts`) -------------------------------
   //
   // The whole cluster: eight bindings, fourteen functions, twenty-two verbs on
@@ -2582,14 +2384,16 @@ export function createFieldHost(deps?: {
   // its six framing functions were, on `createSegmentBrush`'s precedent (a
   // cluster's remaining footprint marks where the cluster was).
   //
-  // THE POSITION IS PINNED FROM BOTH SIDES, and this is the second assembly in
-  // the file for which that is true (`createAnalyzer` was the first). From ABOVE:
-  // `occupiedTopYOf` directly overhead and `chunkSetBox` above it are `world`'s
-  // and are read by `frameWorld`; `createEntities` ~200 lines up and
-  // `createSelection` ~300 up own the other three. From BELOW:
-  // `createAnalyzer` ~290 down takes `frameOn`, `createFieldMachine` takes four
-  // look-drag members, and `createRender` takes the eye — so this line may not
-  // sink past the first of those.
+  // THE POSITION IS PINNED FROM ONE SIDE SINCE T3d TASK 6, and the side it lost
+  // is the upper one. It used to be pinned from BOTH — `occupiedTopYOf` directly
+  // overhead and `chunkSetBox` above it were `world`'s and are read by
+  // `frameWorld` — but both left with `field-world.ts`, whose assembly is 1,083
+  // lines BELOW this line, so those two deps became forward arrows and stopped
+  // constraining anything. What still holds from ABOVE is `createEntities` ~200
+  // lines up and `createSelection` ~300 up, which own three of the nine. From
+  // BELOW: `createAnalyzer` ~290 down takes `frameOn`, `createFieldMachine` takes
+  // four look-drag members, and `createRender` takes the eye — so this line may
+  // not sink past the first of those.
   //
   // TWO FORWARD arrows — that is a count of the arrows pointing DOWN, not of the
   // record, which since T3d Task 5 is 2 forward + 1 composed arrow + 1 plain ref
@@ -2633,81 +2437,29 @@ export function createFieldHost(deps?: {
     // to a framing verb. §2.7's argument-vs-dependency rule, and this dep is the
     // rule's worked example.
     selectionBox: selection.box,
-    // MIGRATION (until T3d Task 6): `chunkSetBox` and `occupiedTopYOf` are
-    // `world`'s and `store` rides the substrate. When `world` leaves, both
-    // become refs onto its seam and this arrow collapses to one.
-    worldBox: () => chunkSetBox(store.chunks.keys()),
-    occupiedTopY: occupiedTopYOf,
+    // THE MARKER'S PREDICTION HELD, AND IT COST ONE ARROW MORE THAN IT PROMISED.
+    // It said `chunkSetBox` and `occupiedTopYOf` would "become refs onto
+    // `world`'s seam and this arrow collapses to one" when that cluster left. The
+    // COLLAPSE happened — `worldBox()` is `field-world.ts`'s own verb now, so this
+    // file no longer spells the store read — but neither dep is a plain REF,
+    // because `createWorld` is assembled 1,083 lines BELOW this line rather than
+    // above it (its position is decided by an arrow count; see the dirty-set
+    // block ~450 lines up). Both are forward thunks instead, which is this file's
+    // standard mechanism and is why the rig's upper bound is one constraint
+    // lighter than it was.
+    worldBox: () => world.worldBox(),
+    occupiedTopY: () => world.occupiedTopY(),
     reportToolError: tool.reportError,
   });
 
-  // The stamp-preview snapshot: density COPIES + cloned materials of every
-  // allocated chunk in the region's chunk box grown by one (the protocol's
-  // completeness contract — every allocated chunk intersecting the region +
-  // its 26-halo; the grown box over-includes by at most one boundary chunk,
-  // harmless since completeness is a floor). The COPY is load-bearing: the
-  // client TRANSFERS density buffers to the worker — sending the store's live
-  // buffers would detach them and destroy the field. Known limit (protocol
-  // TSDoc): a generator whose params overflow the region past the one-chunk
-  // halo can preview against solid where the store is carved — the region-vs-
-  // params mismatch is the stamp UI's to surface.
-  const snapshotChunks = (region: {
-    min: Vec3T;
-    max: Vec3T;
-  }): {
-    key: string;
-    density: ArrayBuffer;
-    materials: field.ChunkMaterials | null;
-  }[] => {
-    const dim = field.CHUNK_DIM * store.cellSize;
-    const lo: Vec3T = [
-      Math.floor(region.min[0] / dim) - 1,
-      Math.floor(region.min[1] / dim) - 1,
-      Math.floor(region.min[2] / dim) - 1,
-    ];
-    const hi: Vec3T = [
-      Math.floor(region.max[0] / dim) + 1,
-      Math.floor(region.max[1] / dim) + 1,
-      Math.floor(region.max[2] / dim) + 1,
-    ];
-    const out: {
-      key: string;
-      density: ArrayBuffer;
-      materials: field.ChunkMaterials | null;
-    }[] = [];
-    for (const [key, density] of store.chunks) {
-      const [cx, cy, cz] = field.parseChunkKey(key);
-      if (cx < lo[0] || cx > hi[0]) continue;
-      if (cy < lo[1] || cy > hi[1]) continue;
-      if (cz < lo[2] || cz > hi[2]) continue;
-      const mats = store.materials.get(key);
-      out.push({
-        key,
-        density: chunkCopy(density),
-        materials: mats === undefined ? null : field.cloneChunkMaterials(mats),
-      });
-    }
-    return out;
-  };
-
-  // --- chunk snapshots (the void cast + the analyzer mirror) ---------------
-
-  // One chunk's density as a buffer another realm may own. Boundary cast:
-  // `.slice()` allocates a fresh ArrayBuffer, which the Int8Array declaration
-  // widens to ArrayBufferLike. Shared by the void cast and the analyzer mirror —
-  // the two differ in WHY they copy (see each call site), not in how.
-  const chunkCopy = (density: Int8Array): ArrayBuffer =>
-    density.slice().buffer as ArrayBuffer;
-
-  // Every allocated chunk's density as a COPY, keyed as the store keys it. The
-  // copy is load-bearing for the same reason snapshotChunks' is: the client
-  // TRANSFERS these buffers, and sending the store's live ones would detach
-  // them and destroy the field.
-  const snapshotAllChunks = (): { key: string; density: ArrayBuffer }[] =>
-    [...store.chunks].map(([key, density]) => ({
-      key,
-      density: chunkCopy(density),
-    }));
+  // --- chunk snapshots + the stamp-preview snapshot ------------------------
+  //
+  // `snapshotChunks`, `chunkCopy` and `snapshotAllChunks` all sat here and all
+  // three left with `field-world.ts` on 2026-08-08 (foundations T3d Task 6).
+  // Their three consumers reach them across the boundary now, and each is a
+  // one-line forward arrow on the assembly below: `createVoidCast` takes
+  // `snapshotAllChunks` and `chunkOrigin`, `createAnalyzer` takes `chunkCopy`,
+  // and `createFieldMachine` takes `snapshotChunks` and `chunkOrigin`.
 
   // --- void cast (D-F3-15) -------------------------------------------------
 
@@ -2722,18 +2474,26 @@ export function createFieldHost(deps?: {
   // cluster is the in-flight generation `tick` turns into
   // `FieldStats.voidCastPending` — `voidcast.jobGen()` below.
   //
-  // The four functions beside the substrate are `const` arrows this closure
-  // never reassigns, so they travel as plain refs (the `segment` wiring's rule,
-  // read the same way round): a function binding that cannot move is the one
-  // kind of dependency a value copy cannot fork.
+  // TWO OF THE FOUR NON-SUBSTRATE DEPS BECAME ARROWS AT T3d TASK 6.
+  // `snapshotAllChunks` and `chunkOrigin` were plain refs to closure `const`s
+  // declared just above this line; both are `field-world.ts`'s now and that
+  // module is assembled 976 lines BELOW, so both reach forward. The other two
+  // (`reportToolError`, `voidCastMaterial`) are still plain refs onto seams above.
+  // The old argument for the refs — a `const` arrow this closure never reassigns
+  // cannot fork under a value copy — is unchanged and now belongs to the module
+  // that owns them.
   //
   // THE FORWARD-REFERENCE INVARIANT, stated here once because every later
   // extraction lands in this same region and inherits it.
   //
-  // This binding is USED ABOVE where it is DECLARED: `markDirtyWithNeighbors`
-  // (~800 lines up) calls `voidcast.invalidate()`. That is legal, and it is
-  // FORCED rather than chosen — `snapshotAllChunks` is a dep and is declared
-  // just above, so the construction cannot move up past it.
+  // This binding is USED ABOVE where it is DECLARED: `field-world.ts`'s density
+  // choke point calls `voidcast.invalidate()` through this record, and the world
+  // module is assembled below. That is legal, and until T3d Task 6 it was also
+  // FORCED — the caller was a closure function ~800 lines up and
+  // `snapshotAllChunks` was declared just above, so the construction could move
+  // in neither direction. Now that both ends are modules the constraint is one
+  // arrow rather than a wall, but the invariant it rests on is the same one and
+  // is what makes every arrow in this file safe:
   //
   // What makes it safe is a property of the whole closure, not of this line: the
   // body contains NO executed statements at closure level. Every top-level line
@@ -2747,6 +2507,19 @@ export function createFieldHost(deps?: {
   // construction either — `view-channel.ts` reads `opts.snapshot` inside
   // `subscribe`, never in the factory.
   //
+  // THE TDZ HALF, stated here once for the same reason and NOT repeated at each
+  // of the fourteen sites that rely on it (T3d Task 6 added this paragraph, when
+  // `field-world.ts` became the second module assembled below most of its own
+  // consumers). A forward reference is safe only from inside a body. The same
+  // dep written as a VALUE — `chunkCopy: world.chunkCopy` rather than
+  // `(d) => world.chunkCopy(d)` — is read EAGERLY by the object literal, and for
+  // a binding declared below it that is a TDZ `ReferenceError` at construction,
+  // so no host builds at all. `field-entities.ts`' header has this measured:
+  // value-snapshotting `worldEpoch` reddened 260 tests across 24 files, and the
+  // mechanism was the TDZ rather than the staleness THE LAW is usually justified
+  // by. So THE LAW has two independent teeth on every forward dep, and only one
+  // of them is subtle; every `() => world.*` arrow below this line has both.
+  //
   // THE RULE THAT FOLLOWS: do not add an executed statement at closure level.
   // One bare call placed in this gap turns every forward reference here into a
   // `ReferenceError` at host construction — which no type check catches, and
@@ -2754,8 +2527,8 @@ export function createFieldHost(deps?: {
   const voidcast = createVoidCast({
     substrate,
     reportToolError: tool.reportError,
-    snapshotAllChunks,
-    chunkOrigin,
+    snapshotAllChunks: () => world.snapshotAllChunks(),
+    chunkOrigin: (cx, cy, cz) => world.chunkOrigin(cx, cy, cz),
     voidCastMaterial: materials.voidCast,
   });
 
@@ -2772,8 +2545,10 @@ export function createFieldHost(deps?: {
   // enforces. The cluster's own state block, ~1,780 lines up, says where it went.
   //
   // What still READS this from ABOVE is a forward reference from inside a
-  // function body — `remeshOne`, and the arrow pair the `createTargeting`
-  // assembly hands `field-targeting.ts` — which is safe for the reason spelled
+  // function body — the arrow pair the `createTargeting` assembly hands
+  // `field-targeting.ts`, and the `sliceY` dep the `createWorld` assembly below
+  // hands the remesh, which was a direct read from `remeshOne` in this closure
+  // until T3d Task 6 — which is safe for the reason spelled
   // out at the `createVoidCast` assembly above: nothing between this closure's
   // brace and its `return {` ever RUNS, so no function body can be evaluated
   // before this declaration executes. No hoist was needed, and none was taken.
@@ -2788,36 +2563,24 @@ export function createFieldHost(deps?: {
     requestVoidCast: voidcast.request,
   });
 
-  // Bumped by every world reset. A verify is seconds long and `resetWorld` drops
-  // every finding, so a verdict landing after one would be re-added to a store
-  // that has just dropped every verdict it had — describing a field that no
-  // longer exists. The advisor's own staleness rule (a chunk's re-analysis drops
-  // its verdicts) cannot catch that one, because the clear already happened;
-  // every OTHER way a verdict goes stale is that rule's job.
+  // `worldEpoch` — the counter bumped by every world reset, which retires any
+  // stage-2 verdict still in flight — is `field-world.ts`'s own state since
+  // 2026-08-08 (foundations T3d Task 6). It was declared on this line, directly
+  // above the assembly below, and the migration marker that
+  // sat on it offered this task two forks: put the declaration back BELOW the
+  // assembly, or move the epoch into `world`'s module and let both readers take
+  // its getter. It took the second, so THE HOIST IS UNDONE BY DELETION — there is
+  // no declaration left to place.
   //
-  // `world`'s state and NOT the advisor's, which is why it did not travel with
-  // the verify verb that reads it: `resetWorld` writes it, and the entity
-  // footprint cache's log signature reads it too — from `field-entities.ts`,
-  // whose assembly is ~400 lines UP from this declaration, through a thunk. It sat
-  // inside the advisor block until 2026-08-07 and moved to this line, directly
-  // above the assembly.
-  //
-  // THAT HOIST WAS A READABILITY PREFERENCE AND NOT A REQUIREMENT, and saying so
-  // matters because the next note depends on it. `worldEpoch: () => worldEpoch` is
-  // an arrow body, so it would have forward-referenced perfectly safely from below
-  // — this file leans on exactly that three times in this region, most loudly at
-  // the `createProps` seam, whose `markPlacementsStale` arrow reaches `advisor`
-  // 1,385 lines further down. What the hoist buys is that a reader of the assembly
-  // can see the binding without searching, nothing more.
-  //
-  // MIGRATION (until T3d Task 6): expect to UNDO it. `resetWorld` calls
-  // `advisor.retireWorld()` and the advisor reads this counter back, so once
-  // `world` is a module the two are mutually dependent. A cycle between two
-  // modules is only openable if at least one side is lazy, and the lazy side here
-  // is this thunk — which means the declaration goes back below the assembly, or
-  // the epoch moves into `world`'s own module and the advisor takes its getter.
-  // Either way the sentence above stops being a free choice.
-  let worldEpoch = 0;
+  // The cycle the marker warned about is real and is open in the one direction
+  // that works: `world.reset()` calls `advisor.retireWorld()` while the advisor
+  // reads the counter back, and `createWorld` is assembled 825 lines BELOW
+  // `createAnalyzer`, so the advisor's `worldEpoch` dep is the LAZY side. Both
+  // extracted readers now spell it `() => world.epoch()` — this assembly's, and
+  // `createEntities`' ~300 lines up. The substrate was never widened for it,
+  // which is the other half of what both markers asked: `field-analyzer.ts`'s bar
+  // note had this binding qualifying on reader count and refusing on ownership,
+  // and ownership is exactly what Task 6 gave it.
 
   // --- walkability advisor (D-F4-9) — `field-analyzer.ts` ------------------
   //
@@ -2865,21 +2628,26 @@ export function createFieldHost(deps?: {
   //     became `materials.flagMarker`, which pins `createMaterials` above this
   //     assembly. It sat ~1,500 lines up already, so the constraint cost nothing
   //     — but it is now checked by the compiler rather than by luck.
-  //   - Task 6 (`world`) is the one that is not merely an ordering fact: see the
-  //     MIGRATION note at `worldEpoch`'s declaration directly above. `resetWorld`
-  //     calls into this module and this module reads `world`'s epoch, so
-  //     extracting `world` closes a cycle that no ordering can resolve — only
-  //     laziness on one side can.
+  //   - Task 6 (`world`) was the one that was not merely an ordering fact, and it
+  //     RESOLVED IN THIS DIRECTION: `world.reset()` calls into this module and
+  //     this module reads `world`'s epoch, a cycle no ordering can break — only
+  //     laziness on one side can. `createWorld` is assembled 825 lines BELOW
+  //     this line, so the `worldEpoch` dep two lines down is that lazy side, and
+  //     the counter itself left the closure with its owner. The note that used to
+  //     sit at its declaration is now the block ~110 lines up, where the
+  //     declaration was.
   //
   // A cluster with eight inbound callers and eight outbound deps ends up here by
   // arithmetic, not by accident. It is the argument for extracting it EARLY, which
   // is what this task did.
   //
-  // Everything that reads `advisor` from ABOVE — `markDirtyWithNeighbors` and the
-  // `createProps` seam's arrow, both ~950 lines up — is a forward reference
-  // from inside a function body, which is safe for the reason spelled out at the
-  // `createVoidCast` assembly: nothing between this closure's brace and its
-  // `return {` ever RUNS.
+  // What reads `advisor` from ABOVE is now ONE thing — the `createProps` seam's
+  // `markPlacementsStale` arrow, ~570 lines up. The density choke point was the
+  // other, and it left with `field-world.ts` at T3d Task 6, which reads this
+  // module through its own deps record from BELOW instead. The arrow that remains
+  // is a forward reference from inside a function body, which is safe for the
+  // reason spelled out at the `createVoidCast` assembly: nothing between this
+  // closure's brace and its `return {` ever RUNS.
   //
   // `frameCameraOn` and `selectionOutline` are the two deps that are not what
   // they look like. Each names an ACT of another cluster rather than a binding —
@@ -2911,9 +2679,9 @@ export function createFieldHost(deps?: {
     substrate,
     spawnAnalyzer: deps?.spawnAnalyzer,
     reportToolError: tool.reportError,
-    chunkCopy,
+    chunkCopy: (density) => world.chunkCopy(density),
     flagMarkerMat: materials.flagMarker,
-    worldEpoch: () => worldEpoch,
+    worldEpoch: () => world.epoch(),
     frameCameraOn: cameraRig.frameOn,
     selectionOutline: selection.outline,
   });
@@ -3025,9 +2793,11 @@ export function createFieldHost(deps?: {
     // the rig's `selectionBox`.
     selectionRegion: selection.region,
     reportToolError: tool.reportError,
-    markDirtyWithNeighbors,
-    snapshotChunks,
-    chunkOrigin,
+    // THREE FORWARD ARROWS SINCE T3d TASK 6, all onto `field-world.ts`'s seam
+    // (720 lines below) and all three plain refs to closure `const`s before it.
+    markDirtyWithNeighbors: (changed) => world.markDirtyWithNeighbors(changed),
+    snapshotChunks: (region) => world.snapshotChunks(region),
+    chunkOrigin: (cx, cy, cz) => world.chunkOrigin(cx, cy, cz),
     stampGhostMaterial: materials.stampGhost,
     cursorRay: targeting.cursorRay,
     boxCorner: selection.boxCorner,
@@ -3116,19 +2886,19 @@ export function createFieldHost(deps?: {
   //   - WHO CALLS IT. All three callers are facade-resident and cannot move:
   //     `onKeyDown`'s ⌘Z/⇧⌘Z branch (the listener owns the canvas element) and
   //     the two public methods.
-  // The only thing it touches that is NOT on the substrate is
+  // The only thing it touched that was NOT on the substrate was
   // `markDirtyWithNeighbors`, which is `world`'s and is a CALL rather than a read
   // — `store`, `log` and `table` are all substrate members, so an earlier draft of
   // this sentence claiming "one remaining read of host state" was true only under
-  // a reading it did not state. Task 6 either takes that call's target with
-  // `world` — leaving this a pure composition of module calls over the substrate —
-  // or declares it facade-resident beside this one. Either way this verdict holds;
-  // it is recorded in the map's `history` row.
+  // a reading it did not state. T3d Task 6 TOOK THAT TARGET with `world`, which
+  // was the first of the two forks this note offered, so this body is now exactly
+  // what the verdict describes: a pure composition of SEVEN module calls over
+  // substrate reads, owning nothing. Recorded in the map's `history` row.
   const stepHistory = (redo: boolean): void => {
     const dirtied = redo
       ? field.redo(store, log, table)
       : field.undo(store, log);
-    markDirtyWithNeighbors(dirtied);
+    world.markDirtyWithNeighbors(dirtied);
     // NO live session survives the log moving under it. Both halves are wrong and
     // the quiet one is worse: an undone COMMIT leaves the session naming an entity
     // that is gone and Apply fails outright with core's `unknown entity N`; an
@@ -3279,13 +3049,17 @@ export function createFieldHost(deps?: {
   // functions and had to be given a verb (`publishIfWatched`) instead. See the
   // module header.
   //
-  // All four payload deps name bindings declared ABOVE this line, so nothing here
-  // is forced: `lastRemeshMs` and `remeshVersion` are `world` `let`s and ride as
-  // thunks; `voidcast.jobGen` and `advisor.pendingCount` are members of `const`
-  // module records this closure never reassigns, so they pass by reference and are
-  // read eagerly by this object literal — which is what makes their declaration
-  // order matter at all, and since T3d (2026-08-07) `advisor` is the reason this
-  // line may not rise: it was a closure `const` before and is now a module verb.
+  // TWO of the four payload deps now reach DOWN rather than up. `lastRemeshMs`
+  // and `remeshVersion` were host `let`s riding as thunks until T3d Task 6; they
+  // are `field-world.ts`'s state now and that module is assembled 433 lines
+  // below, so the two thunks became forward arrows and the LAW's other tooth is
+  // what makes them safe rather than merely correct (a value here would be a TDZ
+  // read, not a fork). `voidcast.jobGen` and `advisor.pendingCount` are members of
+  // `const` module records this closure never reassigns, so they pass by reference
+  // and are read eagerly by this object literal — which is what makes their
+  // declaration order matter at all, and since T3d (2026-08-07) `advisor` is the
+  // reason this line may not rise: it was a closure `const` before and is now a
+  // module verb.
   //
   // The one FORWARD reference runs the other way: `applyReconfigureSession`, now
   // `field-machine.ts`'s, calls `stats.noteReconfigureMs` through the arrow
@@ -3295,8 +3069,8 @@ export function createFieldHost(deps?: {
   // before the declaration it names. No hoist was needed.
   const stats = createStatsMeter({
     substrate,
-    lastRemeshMs: () => lastRemeshMs,
-    remeshVersion: () => remeshVersion,
+    lastRemeshMs: () => world.lastRemeshMs(),
+    remeshVersion: () => world.remeshVersion(),
     voidCastJobGen: voidcast.jobGen,
     analyzerPendingCount: advisor.pendingCount,
   });
@@ -3311,6 +3085,16 @@ export function createFieldHost(deps?: {
   // to fight with, and the overlay layers above it are `pointer-events-none`
   // except on their own controls — which carry their own cursors, correctly, and
   // are the only places a different one should show.
+  // THE ONE BINDING WHOSE ROW ASSIGNMENT IS ARGUABLE, said out loud because
+  // nothing else in the closure is and a reader should not have to wonder.
+  // `lastCursor` and `syncCursor` are filed under `input` in the cluster map,
+  // and the map's reason — `input` owns the canvas element — is true of the
+  // WRITE (`el.style.cursor`) and not of the trigger: this is a per-frame memo
+  // driven ONLY from `tick`, by no DOM event at all. So it reads as `lifecycle`'s
+  // by cadence and as `input`'s by target, and both rows are declared
+  // facade-resident, which is why the choice costs nothing and was not revisited
+  // at T3d Task 6. If either row is ever extracted, THIS is the binding that has
+  // to be re-decided rather than carried.
   let lastCursor: ViewportCursor | null = null;
   const syncCursor = (): void => {
     const el = canvasEl;
@@ -3353,7 +3137,7 @@ export function createFieldHost(deps?: {
           : Math.min((now - lastFrameT) / 1000, MAX_FRAME_DT);
       lastFrameT = now;
       cameraRig.flyStep(dt);
-      drainDirty();
+      world.drainDirty();
       // The frame's whole involvement with the readout: it ASKS, and the meter
       // decides whether anyone is listening and what to say (`field-stats.ts`).
       // The twenty lines this replaced read four other clusters, which is why
@@ -3413,6 +3197,34 @@ export function createFieldHost(deps?: {
   // both `field-render.ts`'s since T3d Task 3, and the facade's `beginMove`,
   // which anchors a `G` grab at the last known cursor and is the one left here.
 
+  // --- the `input` cluster: DECLARED FACADE-RESIDENT, foundations T3d Task 6 --
+  //
+  // The fourth and last row to carry that verdict, beside `catalogs` (~1,600
+  // lines up), `history.stepHistory` and `lifecycle` (the block above
+  // `return {`). It is recorded HERE, at the top of the handler block, so a later
+  // sweep does not read the absence of a `field-input.ts` as the one cluster
+  // nobody got to — and because §4 of the closure map carried this row as
+  // PARTIALLY HOLLOWED for one tranche longer than the evidence warranted.
+  //
+  // The map predicted it from the start (§7.2: "a driver, not an owner — the
+  // adapter that turns DOM events into calls"), and at head that is what it
+  // MEASURES as rather than what it is argued to be:
+  //
+  //   - It reads ZERO other clusters' state. The ten reads that survived T3c were
+  //     all `tool` or `camera` bindings, and every one went INSIDE the verb the
+  //     listener now calls at T3d Task 4.
+  //   - It owns two bindings nothing else wants: `canvasEl` (a `HostSubstrate`
+  //     THUNK's backing) and `lastCursor` (the cursor cache, private).
+  //   - All twelve of its standing mutation edges cross a module line **while
+  //     every writer stayed exactly where the birth pass found it** — a
+  //     disposition no other subsection of the register has, and the reason this
+  //     is permanent rather than pending. `onKeyDown`, `onKeyUp`, `onBlur` and
+  //     `onWheel` ARE DOM listeners and `attachListeners` owns the canvas
+  //     element; none of them can live behind a boundary that does not have one.
+  //
+  // So `input` and `lifecycle` together are what a facade over framework + tools
+  // legitimately owns: one adapts the DOM, the other owns the device and the
+  // frame.
   const onPointerDown = (e: PointerEvent): void => {
     targeting.notePointer(e.clientX, e.clientY); // feeds the per-frame ghost
     machine.pointerDown(e);
@@ -3658,106 +3470,120 @@ export function createFieldHost(deps?: {
     lastCursor = null;
   };
 
-  // Reset the field session + free every GPU chunk render + drop the whole
-  // selection state (a different world invalidates it — Reselect slot too).
-  // Shared by newWorld/loadWorld. dispose() deliberately does NOT clear
-  // selection state: like the tool/radius/camera pose, it is CPU-only session
-  // state that survives a dispose/re-init on the same store.
-  const resetWorld = (): void => {
-    worldEpoch += 1; // retires any stage-2 verdict still in flight
-    // BEFORE the store is cleared below, while the outgoing keys still exist: the
-    // analyzer's mirror has no reset verb, so a world swap lists them as removals
-    // on the next sync. Its findings describe a field that is about to be gone,
-    // and its pending write set names chunks that will not be there to copy —
-    // five lines that were always one act, and are one verb since T3d.
-    //
-    // The epoch bump moved ABOVE it in the same change, and the move is provably
-    // inert rather than merely harmless. Name the statements it crossed, because
-    // that IS the proof: the four mirror writes the verb's first half now does —
-    // `analyzerStale.add` over the outgoing keys, `analyzerDirty.clear()`,
-    // `analyzerResync = true`, `analyzerSeeds = []`. None reads `worldEpoch`, and
-    // none can reach it transitively (`store.chunks` is a plain Map, no getter),
-    // so the four and the bump commute. Putting the bump after the verb instead
-    // would move it past `flagStore.clear()` AND `publishFlags()` — and the
-    // publish delivers to subscribers that are free to call back into the host
-    // synchronously, which is the one re-entrancy window in this function.
-    advisor.retireWorld();
-    store.chunks.clear();
-    store.materials.clear();
-    log.ops.length = 0;
-    log.undoStack.length = 0;
-    log.redoStack.length = 0;
-    log.nextId = 1;
-    dirty.clear();
-    const c = ctx;
-    if (c) for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
-    chunkMeshes.clear();
-    // `props.rebuild()`, not `props.destroy()`: the log was emptied above, so
-    // this both frees the outgoing draws AND resets the counts — a bare destroy
-    // would leave propInstanceCounts describing the world that just went away.
-    props.rebuild();
-    selection.setBoxAnchor(null);
-    // The segment anchor is a point in the OLD field — a capsule swept from it
-    // into the new one would start somewhere the user never clicked.
-    segment.setAnchor(null);
-    // …and so is the pending stamp arm: the region it is asking for would be
-    // drawn in the new world for a question the old one posed, and every surface
-    // reading the seam would go on saying "drag a region" across a world swap.
-    // (Its own clear takes the box anchor again — harmless, already null.)
-    machine.setPendingStamp(null);
-    // FIVE STATEMENTS behind one verb since T3d Task 5, and the verb exists
-    // because what this path wanted was never a setter: it clears BOTH slots
-    // without parking (a Reselect across a world swap would restore cells
-    // describing the field that just went away), then pays the Esc stack back,
-    // then refreshes both display halves, then pushes the null. The order is the
-    // whole content and it now lives in one place — `field-analyzer.ts`'s
-    // `retireWorld` two calls up is the same act on the other cluster, and the
-    // name is shared on purpose.
-    selection.retireWorld();
-    // A different world invalidates the stamp session (its region + snapshot
-    // describe the old field), the entity selection (log entity ids reset) and
-    // any drift report (its findings name op ids the new log does not have).
-    machine.cancelSession();
-    // Notified, not just cleared: the selection is a SEAM now, and a subscriber
-    // left holding an id from the outgoing world is the same class of bug as the
-    // stale stamp session announced above.
-    entities.select(null);
-    // The cast describes the field that just went away. Discarded SILENTLY,
-    // unlike an edit-time invalidation: everything else on screen is being
-    // replaced too, so "void cast cleared" beside a fresh world is noise.
-    voidcast.discard();
-    drift.set(null);
-    drift.notify();
-  };
+  // --- the world (`field-world.ts`), and the closure's last assembly --------
+  //
+  // The TWENTY-FIRST and last cluster out: three `let`s (`lastRemeshMs`,
+  // `remeshVersion`, `worldEpoch`) and all fourteen functions, plus the bodies of
+  // three of the five `FieldHost` members it owns — `newWorld`, `loadWorld` and
+  // `exportArtifact` are delegates below. `resetWorld` and `compactLoadedLog`
+  // were declared exactly here, which is why the assembly is.
+  //
+  // THE POSITION IS DECIDED BY AN ARROW COUNT, not by a constraint, and it is the
+  // only assembly in this file for which that is the whole story. Every one of
+  // the twenty-three deps below names a module declared ABOVE this line, so the
+  // record holds no forward arrow at all. The mirror image was available —
+  // assembling this where `markDirtyWithNeighbors` was, ~1,450 lines up, would
+  // have let those consumers take plain refs — and it costs about twenty
+  // arrows in THIS record against the NINE dep sites that changed shape here
+  // (`createTool` 1, `createVoidCast` 2, `createAnalyzer` 1,
+  // `createFieldMachine` 3, `createCameraRig` 2), of which EIGHT were plain refs
+  // and one a composed arrow. Fourteen dep sites across seven modules name this
+  // cluster at head; the other five did not change shape, being four thunks over
+  // host `let`s that became thunks over a seam (`advisor`/`entities`'
+  // `worldEpoch`, `stats`' two) and one that arrived with the entity verbs.
+  // §2.10's `currentSelectionSpec` fork is the same
+  // arithmetic one task earlier: one arrow there against four here.
+  //
+  // EVERY DEP POINTING AT THIS RECORD FROM ABOVE IS AN ARROW, and none of them
+  // may be written as a value: this binding is declared below its consumers, so
+  // an eager read is a TDZ `ReferenceError` rather than a stale snapshot. The
+  // argument is at the `createVoidCast` assembly, which states the whole
+  // forward-reference invariant once; `field-entities.ts`' header carries the
+  // measurement (260 tests across 24 files).
+  //
+  // NOTHING PINS IT FROM BELOW. `tick` calls `drainDirty`, and the return
+  // literal's `init`, `dispose`, `setMaterialTable`, `frameChunks`,
+  // `occupiedTopY` and the three world verbs all call in — every one of them from
+  // inside a function body, so none constrains this line at all.
+  //
+  // TWO OF THE DEPS ARE THE REGISTER'S LAST FOUR IN-CLOSURE EDGES, paid off from
+  // the other side: `discardChunkRenders` and `redirtyAll` are on the SEAM rather
+  // than in this record, and are what `init`/`dispose`/`setMaterialTable` call
+  // instead of touching `chunkMeshes` and `dirty`. See the module's own note.
+  const world = createWorld({
+    substrate,
+    bucketMat: materials.bucket,
+    kitInstancedMat: materials.kitInstanced,
+    sliceY: viewState.sliceY,
+    invalidateVoidCast: voidcast.invalidate,
+    discardVoidCast: voidcast.discard,
+    noteDensityWritten: advisor.noteDensityWritten,
+    retireAdvisorWorld: advisor.retireWorld,
+    noteWorldLoaded: advisor.noteWorldLoaded,
+    requestAnalyzerPass: advisor.requestPass,
+    rebuildProps: props.rebuild,
+    reportToolError: tool.reportError,
+    // Three CLEARS rather than three setters, because the clear is all this
+    // cluster ever asks for and the last of them would otherwise have made
+    // `field-world.ts` import `PendingStamp` to name a parameter it only passes
+    // `null`. Task 4's rule read from the caller's side.
+    clearBoxAnchor: () => selection.setBoxAnchor(null),
+    retireSelection: selection.retireWorld,
+    clearSegmentAnchor: () => segment.setAnchor(null),
+    clearPendingStamp: () => machine.setPendingStamp(null),
+    cancelSession: machine.cancelSession,
+    selectEntity: entities.select,
+    notifyEntities: entities.notify,
+    setDrift: drift.set,
+    notifyDrift: drift.notify,
+    cameraEye: cameraRig.eye,
+    cameraYaw: () => cameraRig.pose().yaw,
+  });
 
-  // World-load compaction (spec D-F3-16 / D-F3-6): fold aged brush runs into
-  // patches when the loaded log carries more than COMPACT_THRESHOLD_OPS foldable
-  // ops. Load is the ONLY safe moment — compactRuns REQUIRES both undo stacks
-  // empty (its entries address log.ops POSITIONALLY, which folding shifts), and
-  // a freshly loaded log has none by construction: serializeOps persists
-  // log.ops and never the stacks, and resetWorld cleared them just above. No
-  // mid-session auto-compact, no button — compaction is for history that has
-  // aged out of an edit session, which is exactly what a load carries.
-  // `keepIds` is empty: nothing in the editor references an op id across a load,
-  // and the meter's `compactableOps` reads the same empty-pinned ceiling so it
-  // predicts this fold. DEFENSIVE: a fold can throw (a catalog that dropped a
-  // class id the ops recorded — see compactRuns' TSDoc), and a failed
-  // compaction is never worth failing a load; compactRuns validates before its
-  // first write, so a throw leaves the log exactly as parsed. The world loads
-  // uncompacted and the reason surfaces on the tool-error channel rather than
-  // blanking the panel (the optional-chrome failure stance).
-  const compactLoadedLog = (): void => {
-    if (field.logStats(log).compactableOps <= COMPACT_THRESHOLD_OPS) return;
-    try {
-      field.compactRuns(store, log, table, { keepIds: new Set() });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      tool.reportError(
-        `world loaded, but log compaction was skipped: ${message}`,
-      );
-    }
-  };
-
+  // --- the LIFECYCLE cluster: DECLARED FACADE-RESIDENT, foundations T3d -----
+  //
+  // The third row to carry this marker after `catalogs` and `history.stepHistory`,
+  // and the largest: five state bindings (`requestContext`, `ctx`, `disposed`,
+  // `raf`, `lastFrameT`), one function (`tick`) and two `FieldHost` members
+  // (`init`, `dispose`). It is recorded here, directly above the literal, so a
+  // later sweep does not read the absence of a `field-lifecycle.ts` as the one
+  // cluster nobody got to.
+  //
+  // THE PLAN ALLOWED "distribute the teardown to module-owned disposes where the
+  // ordering permits, a facade-resident orchestrator where it does not", and
+  // named the second an ALLOWED OUTCOME rather than a failure. This is the second,
+  // and there are THREE reasons, of which the ordering is only the middle one.
+  //
+  //   - ITS STATE CANNOT LEAVE, which is decisive on its own. `requestContext` is
+  //     a `HostSubstrate` VALUE member; `ctx` and `disposed` are the BACKING of
+  //     two substrate THUNKS that seven extracted modules read through
+  //     (`field-analyzer`, `field-machine`, `field-materials`, `field-props`,
+  //     `field-selection`, `field-voidcast`, `field-world` — the list, not a
+  //     count, because a count is what went wrong here twice). A module
+  //     owning them would be handing the substrate its own contents from below —
+  //     the record is assembled at the TOP of this closure precisely so that
+  //     cannot happen. `raf` and `lastFrameT` are the rAF loop's, and the loop's
+  //     first and last statements call `syncCursor` and `attachListeners` /
+  //     `detachListeners`, which are `input`'s and own the canvas element.
+  //   - THE TEARDOWN ORDER IS LOAD-BEARING ACROSS EIGHT MODULES and a context
+  //     guard — `advisor`, `world`, `props`, `selection`, `machine`, `voidcast`,
+  //     `materials`, `cameraRig`, which is every module this file assembles that
+  //     owns anything to free: `disposed` first so every async continuation bails, the rAF
+  //     cancelled, the listeners detached, both workers ended, then nine GPU frees
+  //     inside `if (c)` ending at `gpu.dispose(c)`, then the three FORGETTING
+  //     calls outside it because a host disposed before it ever initialized still
+  //     has slots to clear and no context to free them with. Each module owns its
+  //     own half — `materials.destroy`/`release`, `cameraRig.unbind`/`release`,
+  //     `advisor.dispose`/`destroyMarkers`, `world.discardChunkRenders` — and what
+  //     is left here is exactly the SEQUENCE, which belongs to whoever owns the
+  //     device.
+  //   - IT IS WHAT A FACADE OVER FRAMEWORK + TOOLS OWNS. Acquiring the device,
+  //     attaching the DOM and running the frame is the same sentence that covers
+  //     `input`, and both are declared for that reason rather than because a move
+  //     was attempted and abandoned. A `field-lifecycle.ts` would take ~25 deps
+  //     across every module in this file plus three facade-resident functions;
+  //     naming that a module would make the roster read as complete while the
+  //     thing it describes had not moved.
   return {
     async init(canvas, opts) {
       if (ctx) throw new Error("field-host: already initialized");
@@ -3788,8 +3614,15 @@ export function createFieldHost(deps?: {
       // and costs nothing; at a re-init (the AA switch) it is the whole world, and
       // without it the field never comes back — `dispose` destroys every chunk mesh
       // and `dirty` only ever holds chunks something EDITED. The paced drain
-      // (REMESH_PER_FRAME) is what keeps the burst from stalling the first frames.
-      for (const key of store.chunks.keys()) dirty.add(key);
+      // (`field-world.ts`'s `REMESH_PER_FRAME`) is what keeps the burst from
+      // stalling the first frames.
+      //
+      // A CALL rather than the loop it was until T3d Task 6, and the change is
+      // one of the register's last four in-closure mutation edges being paid off:
+      // this function writes `world.dirty` and is never going to move — the frame
+      // lifetime is the facade's — so the write became a verb in place, on the
+      // same shape as Task 4's ten momentary writes.
+      world.redirtyAll();
       // The X-ray's half of the same contract. `dispose` destroys the cast meshes
       // but the LAYER FLAG rides through, and `setLayers` only builds on the
       // false→true edge — so without this the box stays ticked over nothing, which
@@ -3818,8 +3651,12 @@ export function createFieldHost(deps?: {
       advisor.dispose();
       const c = ctx;
       if (c) {
-        for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
-        chunkMeshes.clear();
+        // The other half of `ret.init`'s pay-off: two statements over
+        // `world.chunkMeshes` behind one verb since T3d Task 6, and the private
+        // `destroyChunkRender` they both called never crosses the boundary
+        // (Task 4's rule — a private function's outside callers are the seam it
+        // needs, and all three wanted the same group).
+        world.discardChunkRenders(c);
         props.destroy(c);
         advisor.destroyMarkers(c);
         selection.destroyCells(c);
@@ -3877,75 +3714,18 @@ export function createFieldHost(deps?: {
       cameraRig.release();
       ctx = null;
     },
+    // The three world verbs with BODIES, now three delegates. Each was ~5, ~22
+    // and ~7 lines of code in this literal and each is `field-world.ts`'s since
+    // T3d Task 6 — with all of its prose, including `loadWorld`'s record of the
+    // automatic camera frame that was tried and reverted. `loadWorld` is the only
+    // headless route to a committed entity, so it is the seam every GPU fixture
+    // installs through; the throw on a cellSize mismatch is the module's now and
+    // its message is unchanged, `FieldHost.loadWorld:` prefix included.
     newWorld() {
-      resetWorld();
-      // The mirror is emptied by the pass resetWorld's outgoing keys ride on;
-      // this request is the explicit one, so that emptying does not depend on the
-      // prop layer happening to rebuild on the same path. No ANALYSIS follows
-      // either way — a new world holds no field and, with no manifest, no seed.
-      advisor.requestPass();
-      entities.notify();
+      world.create();
     },
     loadWorld(data) {
-      // Setup-loud: the store's cellSize is fixed at construction and captured by
-      // the closures above, so it can't be cheaply rebuilt. A world baked at a
-      // different scale would decode at the wrong size silently — refuse it.
-      if (data.manifest.cellSize !== store.cellSize) {
-        throw new Error(
-          `FieldHost.loadWorld: world cellSize ${data.manifest.cellSize} != host ${store.cellSize} (multi-cellSize load not supported in v0)`,
-        );
-      }
-      resetWorld();
-      for (const { key, bytes } of data.chunks)
-        store.chunks.set(key, field.decodeChunkFile(bytes));
-      for (const { key, bytes } of data.materials ?? [])
-        store.materials.set(key, field.decodeMaterialFile(bytes));
-      const ops = data.oplog === null ? [] : field.parseOps(data.oplog);
-      for (const op of ops) log.ops.push(op);
-      log.nextId = ops.reduce((max, o) => Math.max(max, o.id), 0) + 1;
-      // v0: manifest.playerStart/playerYaw are the dungeon runtime spawn, and the
-      // editor never adopts them as its own camera. `playerStart` IS read, as the
-      // walkability advisor's seed: it is
-      // where the agent starts, which is exactly what "can it get there" and
-      // "can it get back" are asked from. Copied, not aliased — the manifest is
-      // the caller's. A world with no manifest (newWorld) leaves the seeds empty
-      // and both connectivity passes skip, rather than guessing a spawn.
-      const [seedX, seedY, seedZ] = data.manifest.playerStart;
-      // The seed AND the two staleness flags as one act: the chunks above were
-      // written straight into the store, so nothing marked them dirty, and the
-      // mirror still holds the world `resetWorld` listed as removals. The
-      // REQUEST stays separate and stays where it is, below `props.rebuild()` —
-      // moving it up here would fire the pump before the log is compacted and
-      // before the prop layer is rebuilt, which is a different pass.
-      advisor.noteWorldLoaded([seedX, seedY, seedZ]);
-      for (const key of store.chunks.keys()) dirty.add(key);
-      // Fold aged brush runs before the panel reads the log: quiescent history
-      // is guaranteed here (see compactLoadedLog), and it never touches entity
-      // ops, so the entity list below is unaffected either way.
-      compactLoadedLog();
-      // AFTER the ops land, not inside resetWorld: the tick must carry the
-      // loaded world's entities, not the empty log the reset left behind — and
-      // the prop layer must be built from the loaded placement ops, not the
-      // empty log (resetWorld tore the previous world's props down).
-      props.rebuild();
-      // Explicit rather than left to `props.rebuild()`'s own request: a load's
-      // analyzer work (full re-sync, placements, whole-world pass) must not
-      // depend on the prop layer happening to rebuild on the same path.
-      advisor.requestPass();
-      entities.notify();
-      // NO AUTOMATIC FRAME HERE, and the first attempt at ruling 5 put one in —
-      // which is worth recording, because it looked like the obvious home. This
-      // method holds both the freshly-decoded store and the camera, so framing
-      // from here needed no seam and no ordering.
-      //
-      // It is still wrong: `loadWorld` is a DATA primitive, and the editor is not
-      // its only caller. It is also the only headless route to a committed entity,
-      // so nine GPU and analyzer suites use it to install a fixture and then pick
-      // with a ray — and a camera that re-aims itself on load moves what those rays
-      // hit. All nine went red, which is the honest version of "this changes what
-      // every loader is pointing at". The UX belongs to the verb the RULING names,
-      // `Open`, which is the chrome's (`hooks/useWorld.tsx`), and the chrome already
-      // holds the host so it needs no seam either.
+      world.load(data);
     },
     setDigRadius(r) {
       tool.applyRadius(r);
@@ -3981,8 +3761,17 @@ export function createFieldHost(deps?: {
       viewState.setSlice(y);
     },
     occupiedTopY() {
-      return occupiedTopYOf();
+      return world.occupiedTopY();
     },
+    // THE ONE `world` MEMBER THAT DID NOT TRAVEL, declared rather than left by
+    // omission (T3d Task 6). The map files `getSmoothLimits` under `world`
+    // because the limits are the field's, but the body reads no world state at
+    // all — two `@furnace/core/field` constants and nothing else. Moving it would
+    // put a verb on `field-world.ts`'s seam that answers without consulting its
+    // own module, which is the definition of a pass-through; the facade keeps it
+    // for the reason the facade keeps `listGenerators`' shape one member over.
+    // The four members that DID travel are `newWorld`, `loadWorld`,
+    // `exportArtifact` and `occupiedTopY`, all delegates.
     getSmoothLimits() {
       return {
         maxStrength: field.SMOOTH_MAX_STRENGTH,
@@ -4004,15 +3793,18 @@ export function createFieldHost(deps?: {
       // then re-mesh from scratch. Async (shader/material creation is async).
       void (async () => {
         try {
-          for (const [, cm] of chunkMeshes) destroyChunkRender(c, cm);
-          chunkMeshes.clear();
+          // The last two of the register's four in-closure edges, and the pair
+          // that makes this method's writer the third one that could not follow
+          // its target: the catalog setter is `catalogs`', declared
+          // facade-resident since T3d Task 1.
+          world.discardChunkRenders(c);
           // ONE verb rather than the destroy/build pair it replaced: a swap that
           // freed the old per-class materials and did not build the new ones
           // would leave every chunk drawing from an empty cache. YIELDS —
           // dispose() may land inside it, which is what the guard below is for.
           await materials.rebuildForTable(c);
           if (disposed) return;
-          for (const key of store.chunks.keys()) dirty.add(key);
+          world.redirtyAll();
         } catch (err) {
           // dispose() during the await tears the context down; the trailing GPU
           // creation then throws — expected, swallow (mirrors remeshOne). Without
@@ -4111,145 +3903,24 @@ export function createFieldHost(deps?: {
     applyReconfigure() {
       machine.applyReconfigure();
     },
+    // THE FIVE ENTITY VERBS, now five delegates. Their bodies — 96 lines of
+    // business logic over the op log, the last such block in this literal — are
+    // `field-entities.ts`'s since T3d Task 6. Task 5 had left them here behind a
+    // migration marker naming four blockers, and all four
+    // dissolved in that task; the module's header carries the re-decision on the
+    // merits (each had exactly ONE caller — the facade member directly beside it)
+    // and states plainly that the bar was met without this move.
     setEntityFrozen(entityId, frozen) {
-      try {
-        field.setGeneratorFrozen(log, entityId, frozen);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        tool.reportError(message);
-        return;
-      }
-      // A freeze DOES reach a live session: the entities list stays visible
-      // beside the reconfigure card, so Open #1 → Freeze #1 is one click away,
-      // and core refuses the Apply that session is offering. Leaving it up would
-      // mean an enabled Apply that can only ever fail — so freezing ends it, the
-      // way baking does. Unfreezing (frozen=false) cannot orphan anything: no
-      // session exists on a frozen entity to begin with, and the id check makes
-      // it a no-op for every other session.
-      if (frozen && machine.session()?.entityId === entityId)
-        machine.cancelSession();
-      entities.notify();
+      entities.setFrozen(entityId, frozen);
     },
     bakeEntity(entityId) {
-      try {
-        field.bakeGeneratorEntity(log, entityId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        tool.reportError(message);
-        return;
-      }
-      // Unlike freeze, baking is permanent: a live session on this entity can
-      // never land, so end it rather than leave a ghost promising an Apply.
-      if (machine.session()?.entityId === entityId) machine.cancelSession();
-      entities.notify();
+      entities.bake(entityId);
     },
     deleteEntity(entityId) {
-      let dirtied: Set<field.ChunkKey>;
-      try {
-        ({ dirty: dirtied } = field.deleteGeneratorEntity(
-          store,
-          log,
-          entityId,
-          table,
-        ));
-      } catch (err) {
-        // Setup-loud core, runtime-VISIBLE editor: all three refusals (unknown
-        // id, frozen, baked) are validation failures core decides before its
-        // first write, so nothing has moved — and core's own sentence is the
-        // best explanation there is, so it is passed through unwrapped
-        // (setEntityFrozen/bakeEntity's stance). Swallowing it would leave a
-        // row delete that silently does nothing.
-        const message = err instanceof Error ? err.message : String(err);
-        tool.reportError(message);
-        return;
-      }
-      markDirtyWithNeighbors(dirtied);
-      // UNCONDITIONAL, never gated on `dirtied.size`, and core's TSDoc says why
-      // in as many words: a placements-only entity (a scatter) writes no cells,
-      // so deleting it dirties NOTHING while every prop it placed leaves the log
-      // with it. Props are derived from the LOG, never from the dirty set.
-      props.rebuild();
-      // The record left the log, so a selection on it has to go with it — an
-      // outline over a stamp that no longer exists. Surviving entities' spans do
-      // not move (core locates spans by id), so nothing else re-outlines. It
-      // notifies, so it sits with the pushes below rather than above the rebuild:
-      // by the time anything hears about the delete, EVERY piece of host state it
-      // moved has settled.
-      entities.revalidate();
-      // The two notifications LAST, once every piece of host state has settled
-      // (applyReconfigureSession's rule): a subscriber may read the host back
-      // synchronously from inside either, and none may observe a half-deleted
-      // world. Cancelling here rather than before the core call is deliberate —
-      // a REFUSED delete must not destroy a live session on its way out.
-      if (machine.session()?.entityId === entityId) machine.cancelSession();
-      entities.notify();
+      entities.remove(entityId);
     },
     duplicateEntity(entityId) {
-      const record = entities.record(entityId);
-      if (record === null) {
-        tool.reportError(`entity ${entityId} is no longer in the log`);
-        return;
-      }
-      let def: field.GeneratorDef;
-      try {
-        def = field.generatorById(record.generator); // setup-loud on a retired id
-      } catch (err) {
-        // openEntitySession's stance: fail HERE rather than at commitGenerator,
-        // where the message would arrive wrapped in a commit failure.
-        const message = err instanceof Error ? err.message : String(err);
-        tool.reportError(message);
-        return;
-      }
-      // Clear of the original along X, on the lattice the stamp UI works in. The
-      // FOOTPRINT extent, not the region's: a recorded region routinely
-      // over-draws its content (the F3a gate finding behind the footprint box),
-      // so shifting by it would leave a visible gap. Floored at one step so a
-      // footprint with no X extent at all still moves the copy off the original.
-      const box = entities.footprints().get(entityId);
-      const extentX = box === undefined ? 0 : box.max[0] - box.min[0];
-      const shiftX = latticeClearance(extentX);
-      const region = structuredClone(record.region);
-      region.min[0] += shiftX;
-      region.max[0] += shiftX;
-      let committed: {
-        dirty: Set<field.ChunkKey>;
-        entity: field.GeneratorEntity;
-      };
-      try {
-        committed = field.commitGenerator(store, log, def, {
-          // commitGenerator clones for provenance; the clone here is so the
-          // evaluate cannot reach the LOG's record through a shared reference.
-          params: structuredClone(record.params),
-          // A fresh roll only where the generator READS the seed (core's
-          // `usesSeed`): duplicating a cave or a scatter should give a different
-          // arrangement, while the hall — whose structure is entirely
-          // params-determined — would just end up wearing a different number for
-          // an identical shape.
-          seed: def.usesSeed ? randomStampSeed() : record.seed,
-          region,
-          // `GeneratorEntity` does not record the policy its commit used, so it
-          // is not recoverable — core's reconfigure and `openEntity` both fall
-          // back to `replace` and this joins them.
-          policy: "replace",
-          table,
-        });
-      } catch (err) {
-        // Reachable without a bug: the material table can have lost the kit
-        // class the recipe needs since the original commit (commitStampSession's
-        // stance, same sentence shape).
-        const message = err instanceof Error ? err.message : String(err);
-        tool.reportError(`duplicate failed: ${message}`);
-        return;
-      }
-      markDirtyWithNeighbors(committed.dirty);
-      props.rebuild(); // a duplicated scatter is new prop-layer content
-      // The copy is what the user is now working on — and this is also what
-      // re-outlines: the entity selection's setter rebuilds the emphasis box off
-      // the new
-      // record. AFTER the commit, so the footprint memo it reads is rebuilt from
-      // the log that now holds the copy.
-      entities.select(committed.entity.entityId);
-      entities.notify();
+      entities.duplicate(entityId);
     },
     subscribeDrift(cb) {
       return drift.subscribe(cb);
@@ -4259,11 +3930,13 @@ export function createFieldHost(deps?: {
       drift.notify();
     },
     frameChunks(chunks) {
-      // Through `chunkSetBox`, which `frameWorld` also uses — a re-centre and a fit
-      // disagreeing about where a world IS would be two copies of this arithmetic
-      // drifting apart, and this method held the second copy until the F4.5 gate.
-      // `null` is the empty set, which was this method's own early return.
-      const box = chunkSetBox(chunks);
+      // Through `field-world.ts`'s `chunkSetBox`, which the rig's `frameWorld`
+      // also reaches (as `worldBox()`, over the store's own keys) — a re-centre
+      // and a fit disagreeing about where a world IS would be two copies of this
+      // arithmetic drifting apart, and this method held the second copy until the
+      // F4.5 gate. `null` is the empty set, which was this method's own early
+      // return.
+      const box = world.chunkSetBox(chunks);
       if (box === null) return;
       // `centreOn`, not `frameOn`: this verb moves the PIVOT and keeps angle and
       // distance, which is the whole of what its docblock above distinguishes.
@@ -4282,24 +3955,7 @@ export function createFieldHost(deps?: {
       return historyFeed.subscribe(cb);
     },
     listEntities() {
-      // One attribution pass for the whole list, not one scan per row: the
-      // helper walks the log once and hands back every entity's placements.
-      //
-      // Nothing FOOTPRINT-derived rides this. It is a general read with several
-      // callers and only one of them ever wanted the boxes, so the drift badges
-      // take them off `subscribeDrift` instead — where they are computed once per
-      // report rather than per list read (see FieldDriftReport).
-      const placed = placementsByEntity(log.ops);
-      const out: FieldEntityInfo[] = [];
-      for (const op of log.ops)
-        if (op.kind === "entity")
-          out.push({
-            ...structuredClone(op.entity),
-            // Fresh arrays out of the helper, so the row's summary is a clone
-            // like the record it rides on.
-            placed: placed.get(op.entity.entityId) ?? [],
-          });
-      return out;
+      return entities.list();
     },
     selectEntity(entityId) {
       entities.select(entityId);
@@ -4322,12 +3978,12 @@ export function createFieldHost(deps?: {
     selectionCellCount() {
       return selection.cellCount();
     },
+    // The bake. `field-world.ts`'s since T3d Task 6, and the two camera facts it
+    // needs travel as deps on that record (`cameraEye`, `cameraYaw`) — the v0
+    // spawn is the current camera position, which is a fact about the SAVE and
+    // not about the rig.
     exportArtifact(name) {
-      return field.bakeFieldWorld(store, log, table, {
-        name,
-        playerStart: cameraRig.eye(), // v0 spawn = current camera position
-        playerYaw: cameraRig.pose().yaw,
-      });
+      return world.exportArtifact(name);
     },
     subscribeStats(cb) {
       return stats.subscribe(cb);

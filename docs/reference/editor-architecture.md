@@ -2895,14 +2895,21 @@ Five clusters, and the file is still ~8.5× the ~400-line guideline. The five ne
 **1,262 lines** between them (1,258 as committed; the same docs pass added 7 comment lines to
 `field-stats.ts`, and foundations T3b2 then netted 3 off by trimming four seam members
 nothing outside their modules ever called — the eight declaration and return lines out, five
-lines of comment back in saying why they went — see §21.1's table, which is measured at
-HEAD), which is the real measure of what moved: a cluster's prose travels with it, and the
+lines of comment back in saying why they went — see §21.1's table, which is the T3b1
+measurement and NOT head — §21.5 is the live inventory, and the five rows there now read
+322 / 254 / 292 / 220 / 225, i.e. 1,313 lines rather than the 1,262 below), which is the real measure of what moved: a cluster's prose travels with it, and the
 wiring left behind earns prose of its own.
 `docs/reference/field-host-clusters.md` §1 carries the per-cluster breakdown and the one row
 that breaks the metric (`view` — the most invasive diff in the tranche, and zero lines off
 the code column).
 
 ### 21.1 The five modules, and the law their deps records settle
+
+**These figures are T3b1's measurement (2026-08-06) and are deliberately not refreshed** —
+this table is the record of what the five settled, not a current inventory. **§21.5 is the
+live roster** and is generated from source. All five files have since grown in COMMENT
+(322 / 254 / 292 / 220 / 225 at T3d head, 1,313 lines between them against 1,262 here) and
+none of them in code; the deps columns below are unchanged and still correct.
 
 | Module | Lines | Beside `substrate`, its deps record takes |
 | --- | --- | --- |
@@ -3052,6 +3059,57 @@ specifier — so that `field-host/…` and `"@furnace/editor/field-host"` are ca
 `field-host-mirrors.ts` is not. Renamed to the old spelling's pattern, the guard would have
 matched a legitimate chrome import and been loosened to make the suite pass, which is the
 shape the bug would have taken.
+
+### 21.5 The live module inventory
+
+**Owed since T3d Task 1 and written at Task 6.** §21.1's five-row table is the T3b1
+measurement and is kept as the record of the law those five settled; this is the CURRENT
+roster. Re-derived from the artifact at Task 6 (line counts by `wc -l`, deps and seam widths
+by counting top-level members of each file's exported `*Deps` and public record types).
+
+| Module | Lines | Deps | Seam | Notes |
+| --- | ---: | ---: | ---: | --- |
+| `field-history-feed.ts` | 220 | 1 | 2 | the narrowest record in the directory — `{ substrate }` alone |
+| `field-drift.ts` | 164 | 2 | 4 | substrate + one module ref |
+| `field-materials.ts` | 587 | 2 | 14 | seam ≫ deps: the surplus is inbound READS (§2.8's third mechanism) |
+| `field-view.ts` | 225 | 3 | 5 | both non-substrate deps are another module's VERBS |
+| `field-props.ts` | 254 | 4 | 3 |  |
+| `field-stats.ts` | 292 | 5 | 3 | two deps changed OWNER at Task 6 without changing shape |
+| `field-voidcast.ts` | 322 | 5 | 4 | the first cluster out (T3b1) and the substrate's first consumer |
+| `field-targeting.ts` | 366 | 6 | 7 |  |
+| `field-analyzer.ts` | 987 | 8 | 18 | seam ≫ functions: 14 inbound MUTATION edges arrive as 5 named verbs |
+| `field-tool.ts` | 755 | 8 | 15 | **7** of its 8 deps are forward arrows |
+| `field-camera-rig.ts` | 612 | 9 | 22 | **no substrate**, a first for an extracted cluster: it asks for a box and a ceiling, not a store |
+| `field-segment.ts` | 375 | 9 | 8 | **no substrate** — predates it (2026-08-03) |
+| `field-selection.ts` | 732 | 10 | 20 | 12 of its 20 functions private |
+| `field-picking.ts` | 361 | 12 | 1 | the inverse shape: 12 deps in, ONE verb out |
+| `field-entities.ts` | 791 | 14 | 19 | 9 → 14 deps at Task 6, when the five facade entity verbs arrived |
+| `field-world.ts` | 902 | 23 | 18 | the last cluster out; **no forward arrow in the record** |
+| `field-render.ts` | 693 | 29 | 1 | widest record but ONE verb out — every entry a READ, which is what makes 29 safe (§5.6) |
+| `field-machine.ts` | 1970 | 39 | 28 | three clusters in one module (`stamp` + `move` + `gesture`), the only merge in the programme — **the widest record and the widest seam in the directory** |
+
+**Sixteen of the eighteen take `HostSubstrate`**; the two that do not are `field-segment.ts`
+(extracted before the record existed) and `field-camera-rig.ts` (which deliberately asks for
+answers rather than state).
+
+**The directory holds 43 files and this table names 18 of them.** The other 25, accounted for
+so the roster cannot read as the whole directory: `field-host.ts` itself; three seam
+primitives that are not clusters (`substrate.ts`, `input-router.ts`, `view-channel.ts`);
+`index.ts`; two worker-protocol pairs (`field-protocol.ts`, `field-client.ts`,
+`analyzer-protocol.ts`, `analyzer-client.ts`); and seventeen PURE modules with no state and
+no deps record (`box-edges`, `camera-control`, `field-camera`, `field-flags`, `field-ghost`,
+`field-history`, `field-move`, `field-pick`, `field-placements`, `field-selection-cells`,
+`field-size`, `field-stamp`, `gizmo`, `input-map`, `reference-grid`, `viewport-cursor` —
+sixteen, plus `field-history.ts`'s sibling relationship §21.1 describes). §1 of the cluster
+map lists the pure set as it stood at each tranche.
+
+**Two rules the column widths make visible, both already stated elsewhere and worth reading
+off the table.** (1) **Deps width is fan-IN and seam width is fan-OUT, and neither predicts
+the other** — `field-render.ts` is 29/1, `field-picking.ts` is 12/1, `field-camera-rig.ts` is
+9/22. (2) **A wide deps record is safe exactly when every entry is a READ** (§5.6): `render`'s
+29 are all reads, and `world`'s 23 are the counterexample that proves the rule — seventeen of
+them are VERBS this module calls on someone else, and that record is wide *because* the
+cluster mutates across twelve edges.
 
 ## 22. Foundations T3b2 — one table to state a tool fact (2026-08-06)
 
@@ -3732,7 +3790,8 @@ answer to *"which tools exist?"* that is not a chrome literal.
 `field-host.ts` went **7,266 → 6,337 lines (−929, −12.8%)**, and its CODE column — comments
 and blanks stripped by §1's method in `docs/reference/field-host-clusters.md` — went
 **3,434 → 2,854 (−580, −16.9%)**. Closure-level `let`s went **81 → 69**. Against that, the
-two new modules are **2,198 lines** between them (`field-machine.ts` 1,936 / 833 code;
+two new modules are **2,198 lines** between them (`field-machine.ts` 1,936 / 833 code at T3c —
+1,970 at T3d head, all of it comment; §21.5 is the live roster;
 `tool-registry.ts` 262 / 53 code), so the tranche ADDS ~1,269 lines across the three files.
 That ratio is the same one §21 recorded and for the same reason: a cluster's prose travels
 with it, the wiring left behind earns prose of its own, and a module that has to justify why
@@ -4015,10 +4074,15 @@ a MOVE task is the wrong place to change a contract
 (`docs/backlog/editor-and-tooling/segment-is-a-modifier-wearing-a-tool-costume.md`, whose
 state half T3c closed and whose presentation half it did not).
 
-### 23.7 The T3 exit, measured
+### 23.7 The T3 exit, measured at T3c
 
-The foundations design's T3 exit has five clauses. Three of them are answerable at head and
-two are not, and saying which is which is the point of this subsection.
+**SUPERSEDED BY §24.6, which is the T3 exit table's FINAL form.** This subsection is kept as
+written because the two read together are the record: three clauses were answerable at T3c
+and two were not, and every one of the five moved at T3d. Where they disagree, §24.6 wins —
+it is a measurement at a later head, not a revision of this one.
+
+The foundations design's T3 exit has five clauses. Three of them are answerable at T3c head
+and two are not, and saying which is which is the point of this subsection.
 
 | Clause | Verdict at `foundations-t3c` head |
 | --- | --- |
@@ -4056,3 +4120,184 @@ slots-and-change-detection half §7.3 step 3 recommended **was never built and i
 needed for these three clusters** — they went into one module instead, which internalises the
 forking problem rather than solving it in a shared store. The recommendation still stands for
 `tool`, `camera` and `selection`, which are still in the closure.
+
+**Both caveats were discharged at T3d and the outcome is in §24.6.** The 70-vs-71 discrepancy
+was resolved at the T3c review's own re-attribution (70 target × writer PAIRS over 71 write
+SITES — two units, one section), and the `ViewStore` half is now closed by absence rather than
+by build: all three clusters it was still recommended for left the closure at T3d Tasks 4 and
+5, so there is nothing left for a shared slot store to mediate.
+
+## 24. Foundations T3d — the facade, finished (2026-08-08)
+
+Six tasks, six atomic commits, one branch (`foundations-t3d`). T3d took `createFieldHost`
+from a 6,337-line file with fourteen live clusters in its closure to a **3,901-line facade
+over framework + tools**, and it is the tranche that closes foundations T3.
+
+**The bar was BEHAVIOUR-FROZEN throughout.** Zero behaviour changes and zero facade changes
+were the tranche's absolute constraint: the `FieldHost` type block is **comment-stripped
+byte-identical to master** at every one of the six commits (sha `7568c33b…`, 81 stripped
+lines, **65 members**), and every existing test passed **unmodified** — a red pin meant a
+move was wrong, never that a pin was. The suite ran **2912 pass / 1 skip / 0 fail** at the
+branch point and at each commit.
+
+### 24.1 The six tasks
+
+| Task | What left the closure | Landed as |
+| --- | --- | --- |
+| 1 | `targeting`, `picking`, `drift`; `catalogs` DECLARED FACADE-RESIDENT | `field-targeting.ts`, `field-picking.ts`, `field-drift.ts` |
+| 2 | `analyzer` — whole, 18 of 19 bindings and all 14 functions | `field-analyzer.ts` |
+| 3 | `materials` (16 of 17 bindings) + `render` (whole) | `field-materials.ts`, `field-render.ts` |
+| 4 | `tool` + `camera` — whole; the listeners STAYED and became callers | `field-tool.ts`, `field-camera-rig.ts` |
+| 5 | `selection` + `entities` as TWO modules; `stepHistory` DECLARED FACADE-RESIDENT | `field-selection.ts`, `field-entities.ts` |
+| 6 | `world` (3 of 8 bindings, all 14 functions) + the five facade entity verbs; `lifecycle` and `input` DECLARED FACADE-RESIDENT | `field-world.ts`, `field-entities.ts` (+5 verbs) |
+
+**Task 5's plan premise was measured and REFUTED**, which is the tranche's one scheduling
+correction: the pair task existed because `selection` and `entities` "write each other's
+capture rungs". They do not — every rung rides `createRung` and names only its own cluster's
+state — and the measured coupling is ONE directed call at ONE site. They shipped as two
+modules.
+
+**WHAT T3d DID NOT CHANGE, said once so the diff is accountable.** No `FieldHost` signature,
+no chrome file, no test file, and no daemon command. Exactly ONE SOURCE file outside
+`src/field-host/` was touched by the whole tranche: `src/shared/field-limits.ts`, at Task 4,
+**+5 / −4 lines and all of it comment**. No constant moved and none was deleted — all six are
+still exported there, and the file's bar is untouched (a number belongs there only if the
+host ENFORCES it and a surface STATES it). What changed is that three TSDoc blocks named
+`field-host.ts` as the enforcement point and the enforcement had moved: `clampRadius` and
+`clampTool`'s `hollow` floor are `field-host/field-tool.ts`'s since that task, so the docs
+now name the module. That is the whole `shared/` footprint of six tasks.
+
+### 24.2 The module roster
+
+**Eighteen** modules under `packages/editor/src/field-host/` — counted as "exports a
+`create*` factory over a `*Deps` record", which is what makes a file a lifted CLUSTER rather
+than a pure helper or a seam primitive. T3d produced **eleven** of the eighteen (Tasks 1–6)
+and **changed** two more (`field-entities.ts` took the five facade verbs at Task 6;
+`field-stats.ts`' two deps changed owner). The live inventory with line counts, deps and seam
+widths is **§21.5**, and it is GENERATED — `prose-check.py --write` rewrites the table from
+the source, and `prose-check.py` fails if this count disagrees with it.
+
+### 24.3 The facade's final shape, measured
+
+By the closure map's §1 method (`docs/reference/field-host-clusters.md` §2), re-derived at
+Task 6:
+
+| Fact | At T3c head | At T3d head |
+| --- | --- | --- |
+| File total | 6,337 | **3,901** (−38.4%) |
+| Code / comment / blank | 2,854 / 3,273 / 210 | **915 / 2,899 / 87** (code −67.9%) |
+| `createFieldHost` span | 4,665 lines from 1,673 | **2,397 lines from 1,505** |
+| Closure bindings | 232 (69 `let` / 163 `const`) | **56 (9 `let` / 47 `const`)** |
+| Live cluster rows in the closure | 14 | **0 extracted-owner rows; 4 DECLARED facade-resident** |
+| `FieldHost` members | 65 | **65** (unchanged, by contract) |
+
+**The code bar was ≤ 1,000 and it landed at 915** — but the number was the guard, not the
+definition. **The definition is the MECHANISM: no state and no functions left in the closure
+with an extracted owner.** That holds exactly, and the accounting is worth stating precisely
+because the closure's data side is not zero and should not be:
+
+- **20 data bindings remain, in three categories.** Eleven are `HostSubstrate` VALUE members
+  (`requestContext`, `store`, `log`, `dirty`, `worker`, `chunkMeshes`, `flagStore`,
+  `litByClass`, `propMeshes`, `ghostMeshes`, `voidCastMeshes`); five are the BACKING of
+  substrate THUNKS (`table`, `archetypeById`, `ctx`, `disposed`, `canvasEl`); four belong to
+  the rows declared facade-resident (`archetypes` → `catalogs`, `raf` + `lastFrameT` →
+  `lifecycle`, `lastCursor` → `input`). **11 + 5 is exactly the substrate's sixteen members**
+  — the closure's data side IS the substrate's backing, plus four.
+- **16 functions remain**: `input`'s fourteen, `lifecycle`'s `tick`, `history`'s
+  `stepHistory`. All three rows are declared.
+- **20 module records** assemble the nineteen modules plus the Esc router.
+
+The general rule this settles, and the one a future reader should carry: **a substrate value
+member does not belong to the cluster that writes it most.** `flagStore` (Task 2),
+`litByClass` (Task 3) and `world`'s five (Task 6) all stayed for that reason, not for want of
+trying.
+
+### 24.4 The four declared stays, and why each is a decision
+
+"Not extracted" and "examined and staying" needed to stop looking the same, so T3d introduced
+a **DECLARED FACADE-RESIDENT** verdict recorded at source and in the cluster map's §6 row.
+
+- **`catalogs`** (Task 1) — 3 state / 0 functions. What a module would have contained is its
+  three SETTERS' bodies, and all three are facade members; two of the three bindings already
+  ride the substrate as thunks.
+- **`history.stepHistory`** (Task 5) — six of its seven statements are calls into **five**
+  different modules (`world`, `machine`, `entities` ×2, `props`, `drift` ×2 — seven calls,
+  five modules) and it owns no state. All three callers are facade-resident, one of them
+  `onKeyDown`'s ⌘Z branch. Task 6 closed its last non-module statement by taking
+  `markDirtyWithNeighbors` with `world`, so the body is now a pure composition.
+- **`input`** (Task 6) — the adapter that turns DOM events into calls. It reads ZERO other
+  clusters' state, and its standing mutation edges cross a module line **while every writer
+  stayed where it was born** — twelve of the thirteen directly, the thirteenth
+  (`tool.maskDropReported`) because T3c moved its writer into `field-machine.ts` first. The listeners own the canvas element and are never
+  going to follow their targets.
+- **`lifecycle`** (Task 6) — three reasons, of which the ordering is only the middle one.
+  (1) Its state cannot leave: `requestContext` is a substrate VALUE member and `ctx` /
+  `disposed` BACK two substrate thunks **seven** modules read through (`field-analyzer`,
+  `field-machine`, `field-materials`, `field-props`, `field-selection`, `field-voidcast`,
+  `field-world`), so a module owning them would hand the substrate its own contents from
+  below. (2) The teardown ORDER is
+  load-bearing across **eight** modules and a context guard (`advisor`, `world`, `props`,
+  `selection`, `machine`, `voidcast`, `materials`, `cameraRig`) — each module owns its own half
+  (`materials.destroy`/`release`, `cameraRig.unbind`/`release`, `advisor.dispose`/
+  `destroyMarkers`, `world.discardChunkRenders`); what remains is the SEQUENCE. (3) `init`,
+  `dispose` and `tick` are what a facade over framework + tools owns. A `field-lifecycle.ts`
+  would take ~25 deps across every module in the file plus three facade-resident functions.
+
+**This corrects the closure map's §7.3 step 4** ("leave `lifecycle` and `render` last"). The
+`render` half was already half-wrong (Task 3 moved it early at no structural cost). The
+`lifecycle` half was right about waiting and wrong about the unstated third clause: going
+last is what made the answer legible, and the answer was "declare it", not "extract it".
+
+### 24.5 The coverage findings — counterexamples to any blanket claim
+
+T3d ran sabotage probes at every task, and the green ones are the load-bearing half of the
+record. Three task totals are recorded in the map and are the ones this section cites without
+re-deriving the rest — **note the suites differ, which is itself a caveat on comparing them**:
+**Task 3 five** (§2.8: three green + two red, measured against the EDITOR suite at 1469/0,
+not the full one), **Task 5 twelve — six red and six green** (§2.10, full suite), **Task 6
+ten — eight red and two green** (§2.11, full suite). *(An earlier draft of this paragraph
+said "Task 3 eight (§2.8)"; eight is §2.9's figure — Task 4's — and §2.8 records five.)* **Six** stand as counterexamples to "the suite covers the viewport", and the sixth is a
+different class from the other five:
+
+- **The frame's draws.** Task 3 measured that an empty viewport is fully green: `render`
+  moved with no seam negotiation and the suite proved almost nothing about it afterwards. The
+  suite pins that the frame RUNS, not what it DRAWS.
+- **The materials cache.** Task 3's second finding, same shape one layer down.
+- **The camera pose lane.** Task 4.
+- **The selection cell display.** Task 5 measured it exactly: `field-host-selection-cells.gpu.test.ts`
+  reads `selectionCellCount()` at 7 sites and the `SelectionInfo` payload at 10, and asserts
+  the instanced MESH at **zero** — so forcing `cellMesh()` to `null` is 2912/0.
+- **Two more from Task 6**, and one of them is a different class: `setMaterialTable`'s
+  post-swap re-mesh is unpinned (though `ret.init`'s identical call is), and
+  `exportArtifact`'s `playerYaw` is unpinned — **a DATA output, not a drawn frame**, so a
+  bake could write the wrong spawn yaw and no test would say.
+
+The predictor Task 5 derived and Task 6 confirms: **"does a public seam expose what this
+cluster decides", not "does it write across a line"**. `entities` has zero mutation edges in
+both directions and is the best-pinned cluster of the tranche; `render` has no facade member
+at all and is the least.
+
+### 24.5b What T3d parked, and where it is written down
+
+Six behaviour-frozen tasks meet deletion-shaped questions they may not answer. T3d declared
+each at source with the words "prune tranche" — **eight sites across seven files** — and the
+Task-6 review found there was no `docs/backlog/` entry for any of them, plus three more items
+(the `boxCorners` move, `field-host.ts`'s tombstone density, the `~N lines` hint staleness)
+with no record at all. That is now
+`docs/backlog/editor-and-tooling/field-host-prune-tranche.md`, which lists the eight sites so
+the two records cannot drift, and carries one shape the code-quality review surfaced:
+`field-world.ts`' seven pure-read verbs need `{ substrate }` and nothing else, so a
+world-lifetime / chunk-geometry split is available at 16 deps + 1 dep. Not taken — ~150 lines
+and a 22nd file for a boundary the freeze could not test.
+
+### 24.6 The T3 exit — all five clauses, final
+
+Supersedes §23.7, which measured the same five at T3c head.
+
+| Clause | Verdict at `foundations-t3d` head |
+| --- | --- |
+| **1. `field-host.ts` is a facade over framework + tools** | **HOLDS, with the accounting stated.** 3,901 lines / **915 code** (was 6,337 / 2,854), **56 closure bindings** (was 232), **zero cluster rows with an extracted owner** live in the closure, and the four that remain are DECLARED facade-resident with the argument at source. What the closure still holds is the substrate's sixteen backing slots plus four bindings owned by those declared rows, and sixteen functions that are `input`'s, `lifecycle`'s and `stepHistory`'s. It does **not** meet the ~400-line guideline (915 code is ~2.3×) and that was never the bar; the bar was the mechanism, and §24.3 is the measurement. **Read this clause together with §24.5** — the facade is thin, and the tests do not prove what the modules behind it draw. |
+| **2. 70 cross-cluster mutation edges structurally gone or ViewStore-mediated** | **NEITHER, AND THE HONEST ANSWER IS A THIRD THING.** Re-tallied per write site at each task: **11 edges are structurally gone** (9 internalised by `field-machine.ts` at T3c, 2 re-homed) and **59 stand — all 59 now crossing a module boundary, 18 of them MODULE→MODULE, and ZERO remaining cluster-to-cluster inside the closure**. No `ViewStore` was ever built and none is needed: `ViewChannel` (§20.1) owns the publish half for all thirteen seams, and every cluster the slot-store half was recommended for has left the closure. **So an extraction tranche converts cluster-to-cluster edges into module boundaries rather than deleting them** — only a merge deletes an edge, only a re-homing retires one. That is a finding, not a shortfall: the coupling was real, and a boundary makes it checkable rather than making it go away. Full arithmetic in the map's §5.7. |
+| **3. chrome tool tables generated from the registry** | **HOLDS**, unchanged from T3c, with the two-table split the spec did not anticipate: `shared/action-table.ts` owns PRESENTATION, `shared/tool-registry.ts` owns EXISTENCE. |
+| **4. suite green** | **HOLDS** — **2912 pass / 1 skip / 0 fail**, at the branch point and at every one of the six commits, with **every existing pin unmodified**. |
+| **5. Chrome + Safari visual gate on the cockpit loop** | **OWED — it is the USER's gate and no executor may run it.** T3d is behaviour-frozen, so it is a REGRESSION walk (generate → dig → paint → bake → walk) plus the T3c checklist's touchpoints. |

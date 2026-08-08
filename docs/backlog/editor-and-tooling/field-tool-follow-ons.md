@@ -364,8 +364,10 @@ badge on a row whose named disturbance is one edit out of date, not a wrong acti
 (core's own TSDoc invites it), OR a gate report of a drift row that outlived the edit it
 described.
 
-**Reference:** `packages/editor/src/field-host/field-host.ts` (`deleteEntity`;
-`stepHistory`'s clear, which is the precedent, and `applyReconfigureSession`'s
+**Reference:** `packages/editor/src/field-host/field-entities.ts` (`remove`, which is
+`FieldHost.deleteEntity`'s body since foundations T3d Task 6);
+`packages/editor/src/field-host/field-host.ts` (`stepHistory`'s clear, which is the
+precedent) and `field-machine.ts` (`applyReconfigureSession`'s
 `drift = result.drift.length === 0 ? null : result.drift`);
 `packages/core/src/field/reconfigure.ts` (`deleteGeneratorEntity`'s "No drift report" note
 naming both findings it gives up).
@@ -461,12 +463,15 @@ is one more reason to prefer the explicit-signal option to a second hand-rolled 
 **The fix, when it is worth doing:** the same one token — put `worldEpoch` at the front of
 the op-cost cache's signature. Cheap; not done at the time only because the task's
 boundary was the pick, and not done at T3b1 either because that task's boundary was the
-extraction and a signature change is a behaviour change. `worldEpoch` is a host `let` and
-`field-stats.ts` does not read it today, so the fix now also costs one thunk on
-`StatsMeterDeps`.
+extraction and a signature change is a behaviour change. **Since foundations T3d Task 6
+`worldEpoch` is `field-world.ts`'s private state rather than a host `let`**, published as
+`World.epoch()` and already read by two modules through it — so the fix now costs one thunk
+on `StatsMeterDeps` (`worldEpoch: () => world.epoch()`, the spelling `createAnalyzer` and
+`createEntities` already use) and no new host binding at all.
 
 **Worth considering instead:** both caches invalidating on an explicit signal rather than
-each inventing a signature. `resetWorld` is the ONE place a world goes away; a
+each inventing a signature. `resetWorld` — `field-world.ts`'s `reset` since T3d Task 6 — is
+the ONE place a world goes away; a
 `cacheEpoch`-style bump read by every memo in the host would make a new cache correct by
 default rather than correct-if-the-author-remembered. Two hand-rolled signatures is the
 point at which that starts paying.

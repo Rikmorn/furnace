@@ -71,7 +71,8 @@
 // The cost is **12 + 2 × chunkCount** arrow calls per frame, NOT fourteen: two
 // of the sites (`field`, `kit`) sit inside `for (const cm of
 // chunkMeshes.values())`. That is unchanged from before the move — the closure
-// read the property per chunk in the same loop — so this is the price of the
+// read the property per chunk in the same loop, and `chunkMeshes` is a substrate
+// VALUE member that never left it — so this is the price of the
 // call, not of the extraction, and it is the one site where a hoist would buy
 // something that scales. It is still declined, for the reason above; if a
 // profile ever says otherwise, the honest fix is to hoist THAT loop's two reads

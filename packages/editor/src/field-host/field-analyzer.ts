@@ -72,39 +72,43 @@
 //     functions in this file are `if (disposed) return` guards over an async
 //     settlement, and a snapshot would read `false` forever — every one of them
 //     would wave a post-teardown callback through.
-//   - `worldEpoch` is a host `let` that is NOT in the record, and it rides as a
-//     FUNCTION DEP. It had exactly one extracted reader when this was written —
-//     `field-props.ts`'s `kitMat` precedent, the two-extracted-readers bar in its
-//     active form — and **T3d Task 5 added the second** (`field-entities.ts`, in
-//     the footprint memo's log signature). So by the bar as stated above it now
-//     QUALIFIES for a `HostSubstrate` member, and the site that used to be the
-//     bar's live example would refute it if the paragraph stopped here.
+//   - `worldEpoch` is NOT in the record and rides as a FUNCTION DEP —
+//     `() => world.epoch()` since 2026-08-08 (foundations T3d Task 6). It was a
+//     host `let` with exactly one extracted reader when this was written
+//     (`field-props.ts`'s `kitMat` precedent, the two-extracted-readers bar in its
+//     active form); **T3d Task 5 added the second** (`field-entities.ts`, in the
+//     footprint memo's log signature), so by the bar as stated above it QUALIFIED
+//     for a `HostSubstrate` member, and the site that used to be the bar's live
+//     example would have refuted it if the paragraph had stopped there.
 //
-//     It still does not become one, and the reason is the rule `field-host.ts`
-//     states verbatim at `digRadius`' deleted declaration: **state that acquires
-//     an OWNER rides on that owner's seam instead, and reader COUNT is the wrong
-//     question once it has one** (`editor-architecture.md` §21.1; `view`'s
-//     `layers`/`sliceY` are the precedent, five reader clusters between them). The
-//     substrate is for state with NO owner to ride on. `worldEpoch` is `world`'s
-//     and `world` is Task 6's, so the disposition it is waiting for is an OWNER,
-//     not a widening — which is exactly what the marker below sends Task 6 to
-//     decide. Widening now would charge every future assembly for a member that is
+//     It never became one, and the reason is the rule `field-host.ts` states
+//     verbatim at `digRadius`' deleted declaration: **state that acquires an OWNER
+//     rides on that owner's seam instead, and reader COUNT is the wrong question
+//     once it has one** (`editor-architecture.md` §21.1; `view`'s `layers`/`sliceY`
+//     are the precedent, five reader clusters between them). The substrate is for
+//     state with NO owner to ride on. **T3d Task 6 gave this one an owner**: the
+//     counter is `field-world.ts`'s private state now and both extracted readers
+//     re-pointed onto its getter, which is the first of the two dispositions the
+//     migration marker here offered. The substrate was never widened, and a
+//     widening would have charged every future assembly for a member that was
 //     about to move.
+//
+//     THE CYCLE THAT MADE THIS DELICATE IS OPEN IN ONE DIRECTION, and it is worth
+//     naming because the ordering is what makes the dep legal: `world.reset()`
+//     calls `retireWorld` in this module while this module reads `world`'s epoch
+//     back, so the two are mutually dependent. `createWorld` is assembled 825
+//     lines BELOW `createAnalyzer` in `field-host.ts`, which makes THIS side the
+//     lazy one — the arrow at the assembly cannot be evaluated before the
+//     declaration it names, for the reason the `createVoidCast` assembly states in
+//     full.
 //   - `flagMarkerMat` was the second of that pair until 2026-08-08 (foundations
 //     T3d), when the material layer got an owner: the dep is now a plain ref onto
 //     `field-materials.ts`'s seam, the substrate was never widened, and the
 //     substrate-bar argument no longer applies to it at all. The CALL is
 //     unchanged and so is its reason — the material is built at `init` and nulled
 //     at `dispose`. `field-props.ts`'s header records the identical expiry for
-//     `kitMat`, which was the same cluster on the same day.
-//     // MIGRATION (until T3d Task 6): the same for `worldEpoch` when `world`
-//     leaves — and that one is not a rename. See the note at its declaration in
-//     `field-host.ts`: `resetWorld` calls this module and this module reads
-//     `world`'s epoch, so the extraction closes a cycle that only a lazy arrow on
-//     one side can open. Task 6 decides between "the epoch moves into `world`'s
-//     module and both readers take its getter" and "it becomes a substrate member
-//     after all"; the bullet above argues the first, and there are TWO extracted
-//     readers to re-point either way.
+//     `kitMat`, which was the same cluster on the same day. `worldEpoch` followed
+//     the identical arc one task later — see its bullet above.
 //   - `flagsChannel` is this module's own `ViewChannel`, held directly rather than
 //     behind a `() => cb` thunk, because a channel is a `const` whose identity
 //     never moves (map §2.2).
@@ -222,9 +226,10 @@ const ANALYZER_IDLE_MS = 500;
 
 /** What the walkability advisor needs from the rest of the host.
  *
- *  Six entries beside the substrate. Two are the host's own funnels
- *  (`reportToolError`, `chunkCopy`), one names a host `let` this module must read
- *  live (`worldEpoch`), one names another module's material (`flagMarkerMat`,
+ *  Six entries beside the substrate. Two name verbs of other extracted modules
+ *  (`reportToolError`, `chunkCopy` — `field-tool.ts`'s and `field-world.ts`'s),
+ *  one names a counter that module owns and this one must read live
+ *  (`worldEpoch`), one names another module's material (`flagMarkerMat`,
  *  `field-materials.ts`'s since T3d), and two name an ACT in another cluster
  *  (`frameCameraOn`, `selectionOutline`) — this module's header says why those
  *  last two are not spelled as the four bindings they close over. */
@@ -260,9 +265,10 @@ export type AnalyzerDeps = {
   /** The world generation, bumped by every world reset. A verify is seconds long
    *  and a reset clears the findings, so a verdict landing after one has to be
    *  dropped — this module records the epoch at post time and compares at
-   *  arrival. A call because `resetWorld` reassigns it: a snapshot would compare
-   *  a live counter against a frozen one and drop every verdict after the first
-   *  reset. */
+   *  arrival. A call because `field-world.ts`'s reset bumps it AND because that
+   *  module is assembled below this one: a snapshot would compare a live counter
+   *  against a frozen one and drop every verdict after the first reset — and,
+   *  taken eagerly, would not even construct. */
   worldEpoch(): number;
   /** Put the camera on a world box, as one act. `selectFlag` frames the finding
    *  it just adopted; the composition (`aimCamera` over `frameBox` over the
@@ -694,7 +700,7 @@ export function createAnalyzer(deps: AnalyzerDeps): Analyzer {
       return;
     }
     verifyInFlight = true;
-    // The host's counter, read live (see {@link AnalyzerDeps.worldEpoch}) — the
+    // The world's counter, read live (see {@link AnalyzerDeps.worldEpoch}) — the
     // world can be swapped while this promise is out.
     const epoch = deps.worldEpoch();
     void analyzer

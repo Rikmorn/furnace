@@ -26,19 +26,63 @@
 // `createHistoryFeed` … `createDrift`, and the assembly sits at the top of it,
 // where `notifyEntities` was.
 //
-// THE SEAM IS 14 VERBS OVER A 10-FUNCTION ROW and only TWO functions are private,
-// which is the inverse of `field-selection.ts`'s split and says something about
-// the cluster: eight of its ten functions were already being called from outside
-// it, because the entity verbs on the facade (`deleteEntity`, `duplicateEntity`,
-// `bakeEntity`, `setEntityFrozen`, `listEntities`) do their work THERE and reach
-// in here for the four things that are state. Those five method bodies stay in
-// `field-host.ts` deliberately: each one drives `markDirtyWithNeighbors`
-// (`world`'s), `props.rebuild()`, `machine.cancelSession()` and `table()` as much
-// as it drives anything here, so moving them would drag two clusters Task 6 owns
-// across a boundary to buy nothing. §2.1's fourth correction is the frame — a
-// cluster's work living in another cluster's function — and the honest reading of
-// this row is that `entities` is HALF a cluster and half a set of facade verbs
-// over the op log.
+// THE SEAM IS 19 VERBS OVER A 15-FUNCTION ROW since foundations T3d Task 6, and
+// the five it gained are the five this file's Task-5 header said were staying.
+// They are `setFrozen`, `bake`, `remove`, `duplicate` and `list` — the bodies of
+// `FieldHost`'s `setEntityFrozen`, `bakeEntity`, `deleteEntity`,
+// `duplicateEntity` and `listEntities`, which lived in the facade's return
+// literal and now delegate into this file in three lines each.
+//
+// THAT WAS A DEFERRAL AND IT WAS RE-DECIDED, NOT INHERITED. Task 5 wrote a
+// migration marker on the stay, naming four blockers:
+// `markDirtyWithNeighbors` and `table()` "go with `world` and `catalogs`", and
+// `props.rebuild()` / `machine.cancelSession()` "are already module verbs". All
+// four dissolved at Task 6 — `markDirtyWithNeighbors` is `field-world.ts`'s and
+// `table()` has ridden the substrate since T3a — so the argument for the stay
+// expired with them and the question became whether the move is right on its own
+// terms. It is, and the ARITHMETIC IS NOT THE REASON:
+//
+//   - The T3 exit bar's mechanism is "no cluster state and no cluster FUNCTIONS
+//     left in the closure". Five facade members whose bodies are business logic
+//     over the op log ARE cluster functions; they were living in the facade
+//     rather than in it by right. Every other facade member had already become a
+//     delegate — all thirteen `subscribe*` seams, the four pointer handlers, the
+//     key listeners, `frameSelection`/`frameWorld`/`snapView`.
+//   - The test that separates them from `stepHistory`, which IS permanently
+//     facade-resident, is CALLER COUNT: each of these five has exactly ONE caller
+//     — its own facade member — while `stepHistory` has three, one of them
+//     `onKeyDown`'s ⌘Z branch, a listener that owns the canvas element and cannot
+//     move. A verb with one caller and no state of its own is not cross-cutting;
+//     it is misplaced.
+//   - On lines it bought 96 code lines off `field-host.ts` for 15 of delegate,
+//     and the tranche record states plainly that the bar was met at ~993 WITHOUT
+//     this move. It was taken on the merits and the margin was the tiebreak, not
+//     the argument.
+//
+// §2.1's fourth correction was the frame for the old reading — a cluster's work
+// living in another cluster's function — and this move is that correction acted
+// on rather than merely recorded. Only TWO of the fifteen functions are private
+// (`activeGizmoAxis`, `syncSelectedEntityCapture`), which remains the inverse of
+// `field-selection.ts`'s split.
+//
+// THE PRICE IS `EntitiesDeps` GOING 9 → 14, and it is worth saying what that
+// bought because a 14-member record needs the same justification
+// `field-render.ts`' 29 got. Four of the five new members are verbs the bodies
+// already drove (`markDirtyWithNeighbors`, `rebuildProps`, `cancelSession`,
+// `reportToolError`) and the fifth is a pure function (`randomSeed`). The
+// alternative was five bodies in the facade reaching into four modules AND this
+// one — the same coupling, spelled in a place that cannot type-check it. TWO of
+// the five are FORWARD arrows (`markDirtyWithNeighbors` reaches `field-world.ts`
+// 1,192 lines below this assembly, `cancelSession` reaches `field-machine.ts`
+// 472 below), which is the file's standard mechanism and is safe for the reason
+// the `createVoidCast` assembly states in full.
+//
+// `randomSeed` IS PASSED THROUGH THE HOST, NOT IMPORTED. `randomStampSeed` is a
+// module-scope `const` in `field-machine.ts` and `duplicate` needs it for the
+// fresh roll. Importing it here would create a module→module VALUE edge between
+// two extracted host clusters that the closure map has no edge type for; the host
+// is the wiring point by design, and it already imports the function. It is not a
+// host `let`, so THE LAW is not engaged and a plain ref is correct.
 //
 // THE TWO PRIVATE ONES ARE THE INTERESTING ONES. `activeGizmoAxis` has a single
 // caller — `rebuildEntitySelectionBatch`, one line below where it was — and
@@ -94,19 +138,25 @@
 //     exposure "not hypothetical"; a test agrees with it by name.
 //   - VALUE-SNAPSHOTTING `worldEpoch` at construction reddens **260 tests across
 //     24 files** — and the mechanism is worth stating precisely, because it is not
-//     the staleness the thunk is usually justified by: `worldEpoch` is declared
-//     ~400 lines BELOW this module's assembly in `field-host.ts`, so an eager read
-//     is a TDZ `ReferenceError` and no host can be constructed at all. THE LAW has
-//     two independent teeth here and only one of them is subtle.
+//     the staleness the thunk is usually justified by. **Re-derived at T3d Task
+//     6, which moved the binding:** `worldEpoch` is no longer in `field-host.ts`
+//     at all — it is `field-world.ts`'s private state, reached through
+//     `() => world.epoch()`, and `createWorld` is assembled 1,192 lines BELOW
+//     `createEntities`. So the TDZ binding is now `world` rather than the counter,
+//     the mechanism is unchanged, and an eager read is still a `ReferenceError`
+//     that constructs no host at all. THE LAW has two independent teeth here and
+//     only one of them is subtle.
 //   - dropping the live-move term from {@link Entities.gizmoVisible} is
 //     **2912/0** — the only green probe on this side. `field-host-move.gpu`'s "the
 //     gizmo is unpickable with no selection, with a brush armed, and under a
 //     FOREIGN session" covers the session term, and nothing covers the exception
 //     the move drag makes to it.
-import type * as field from "@furnace/core/field";
+import * as field from "@furnace/core/field";
+import { latticeClearance } from "../shared/field-brush.ts";
 import { generatorFootprint } from "./field-ghost.ts";
-import type { ViewportGesture } from "./field-host.ts";
+import type { FieldEntityInfo, ViewportGesture } from "./field-host.ts";
 import type { MoveDrag } from "./field-move.ts";
+import { placementsByEntity } from "./field-placements.ts";
 import type { StampSession } from "./field-stamp.ts";
 import type { CursorRay } from "./field-targeting.ts";
 import {
@@ -148,11 +198,17 @@ const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
 
 /** What the entity selection needs from the rest of the host.
  *
- *  NINE members. Three are plain refs onto sibling seams declared above this
- *  assembly (`notifyHistory`, `selectionOutline`, `cursorRay`); three are thunks
- *  reaching DOWN into `field-machine.ts`, which is assembled ~590 lines below;
- *  one is a thunk over a host `let` (`worldEpoch`) that `world` still owns; and
- *  two are the substrate and the Esc router. */
+ *  FOURTEEN members since foundations T3d Task 6, when the five facade verbs
+ *  arrived (the header carries what that bought). Five are plain refs onto
+ *  sibling seams declared above this assembly (`notifyHistory`,
+ *  `selectionOutline`, `cursorRay`, `rebuildProps`, `reportToolError`); one is a
+ *  plain ref onto a module-scope function the host imports (`randomSeed`); five
+ *  are thunks reaching DOWN into modules assembled below — three into
+ *  `field-machine.ts` (~590 lines) plus `cancelSession`, and
+ *  `markDirtyWithNeighbors` into `field-world.ts` (1,192 lines); `worldEpoch` is
+ *  a thunk onto `field-world.ts`' seam rather than a host `let`, which is the
+ *  T3d Task 6 change to this record's shape; and two are the substrate and the
+ *  Esc router. */
 export type EntitiesDeps = {
   /** The host's shared state. Two members are read: `log` (every entity fact in
    *  this file is derived from the op log, never stored twice) and `store`, for
@@ -161,12 +217,35 @@ export type EntitiesDeps = {
   /** The Esc capture stack. One rung is registered on it — the selected entity —
    *  and it stays router-mediated; `field-segment.ts` states the argument. */
   router: InputRouter;
-  /** The world generation counter, bumped by `resetWorld`. A THUNK over a host
-   *  `let` that `world` still owns, and it rides in the footprint memo's
+  /** The world generation counter, bumped by `world.reset()`. A THUNK onto
+   *  `field-world.ts`' seam since T3d Task 6 (it was a thunk over a host `let`
+   *  until that cluster acquired its owner), and it rides in the footprint memo's
    *  signature for a reason the memo's own comment spells out: a world swap
    *  CLEARS the log, so two worlds whose logs agree on all four log-derived
    *  numbers would share a signature. */
   worldEpoch(): number;
+  /** THE density-mutation choke point. `field-world.ts`', as a FORWARD thunk —
+   *  that module is assembled 1,192 lines below this line. Driven by
+   *  {@link Entities.remove} and {@link Entities.duplicate}, both of which change
+   *  cells through core and must dirty the apron neighbours too. */
+  markDirtyWithNeighbors(changed: Set<string>): void;
+  /** Rebuild the committed prop layer from the log. `field-props.ts`'. Called
+   *  UNCONDITIONALLY by both mutating verbs — never gated on the dirty set, for
+   *  the reason {@link Entities.remove}'s body states. */
+  rebuildProps(): void;
+  /** End any live stamp/reconfigure session. `field-machine.ts`', as a forward
+   *  thunk. Four of the five verbs call it, each guarded on the session's own
+   *  entity id. */
+  cancelSession(): void;
+  /** The tool-error channel. `field-tool.ts`'. Every refusal core raises in these
+   *  five verbs is passed through UNWRAPPED — core decides them before its first
+   *  write, so nothing has moved and core's own sentence is the best explanation
+   *  there is. */
+  reportToolError(msg: string): void;
+  /** A fresh stamp seed. `field-machine.ts`' `randomStampSeed`, passed through
+   *  the host rather than imported — see the header for why that edge is not
+   *  drawn directly. */
+  randomSeed(): number;
   /** Push the history feed. `field-history-feed.ts`' — the entity tick carries
    *  it, which is why that assembly is an upper bound on this one. */
   notifyHistory(): void;
@@ -244,6 +323,25 @@ export type Entities = {
    *  span the batch was drawn from, so the pickable arm and the visible arm cannot
    *  be different segments. */
   gizmoAxisAt(clientX: number, clientY: number): Axis | null;
+
+  // --- the five facade verbs (T3d Task 6) ----------------------------------
+
+  /** {@link FieldHost.setEntityFrozen}. Freezing ENDS a live session on that
+   *  entity — core refuses the Apply it would offer — while unfreezing cannot
+   *  orphan anything. */
+  setFrozen(entityId: number, frozen: boolean): void;
+  /** {@link FieldHost.bakeEntity}. Permanent, so a live session on that entity
+   *  ends rather than being left promising an Apply that can never land. */
+  bake(entityId: number): void;
+  /** {@link FieldHost.deleteEntity}. Named for the ACT rather than after the
+   *  facade member, because `delete` is not a property name this file wants. */
+  remove(entityId: number): void;
+  /** {@link FieldHost.duplicateEntity}. Offsets the copy along X by the
+   *  FOOTPRINT's extent on the stamp lattice, and re-rolls the seed only where
+   *  the generator reads one. */
+  duplicate(entityId: number): void;
+  /** {@link FieldHost.listEntities}. One attribution pass for the whole list. */
+  list(): FieldEntityInfo[];
 };
 
 /** Build the entity selection over one host's dependencies. One per host; it
@@ -472,6 +570,21 @@ export function createEntities(deps: EntitiesDeps): Entities {
     entitySelectionChannel.publish(next);
   };
 
+  // Hoisted out of the returned object at T3d Task 6, when `remove` arrived and
+  // became its second caller — Task 4's rule read from the inside: a verb with a
+  // caller in its own module needs a name, and an object-literal method that
+  // calls itself by `this` is the one spelling this file will not use.
+  const revalidateSelectedEntity = (): void => {
+    if (selectedEntityId === null) return;
+    // The record is gone (an undone commit): setSelectedEntity's own validation
+    // resolves the stale id to null, so passing it back IS the clear.
+    if (entityRecord(selectedEntityId) === null) {
+      setSelectedEntity(null);
+      return;
+    }
+    rebuildEntitySelectionBatch();
+  };
+
   return {
     record: entityRecord,
     footprints: entityFootprints,
@@ -480,16 +593,7 @@ export function createEntities(deps: EntitiesDeps): Entities {
     select: setSelectedEntity,
     selectedId: () => selectedEntityId,
     subscribeSelection: (cb) => entitySelectionChannel.subscribe(cb),
-    revalidate() {
-      if (selectedEntityId === null) return;
-      // The record is gone (an undone commit): setSelectedEntity's own validation
-      // resolves the stale id to null, so passing it back IS the clear.
-      if (entityRecord(selectedEntityId) === null) {
-        setSelectedEntity(null);
-        return;
-      }
-      rebuildEntitySelectionBatch();
-    },
+    revalidate: revalidateSelectedEntity,
     rebuildOverlay: rebuildEntitySelectionBatch,
     selectionBatch: () => entitySelectionBatch,
     gizmo: () => gizmo,
@@ -509,6 +613,179 @@ export function createEntities(deps: EntitiesDeps): Entities {
         g.tol,
         g.inner,
       );
+    },
+
+    // --- the five facade verbs, moved here at T3d Task 6 --------------------
+    //
+    // Each was the BODY of a `FieldHost` method and is now what that method
+    // delegates to. Nothing about any of them changed: the same statements in
+    // the same order, with `log`/`store`/`table()` reached through the substrate
+    // and the four cross-cluster calls through this record. The header carries
+    // why they moved and what the deps record paid for it.
+
+    setFrozen(entityId, frozen) {
+      try {
+        field.setGeneratorFrozen(substrate.log, entityId, frozen);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        deps.reportToolError(message);
+        return;
+      }
+      // A freeze DOES reach a live session: the entities list stays visible
+      // beside the reconfigure card, so Open #1 → Freeze #1 is one click away,
+      // and core refuses the Apply that session is offering. Leaving it up would
+      // mean an enabled Apply that can only ever fail — so freezing ends it, the
+      // way baking does. Unfreezing (frozen=false) cannot orphan anything: no
+      // session exists on a frozen entity to begin with, and the id check makes
+      // it a no-op for every other session.
+      if (frozen && deps.session()?.entityId === entityId) deps.cancelSession();
+      notifyEntities();
+    },
+
+    bake(entityId) {
+      try {
+        field.bakeGeneratorEntity(substrate.log, entityId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        deps.reportToolError(message);
+        return;
+      }
+      // Unlike freeze, baking is permanent: a live session on this entity can
+      // never land, so end it rather than leave a ghost promising an Apply.
+      if (deps.session()?.entityId === entityId) deps.cancelSession();
+      notifyEntities();
+    },
+
+    remove(entityId) {
+      let dirtied: Set<field.ChunkKey>;
+      try {
+        ({ dirty: dirtied } = field.deleteGeneratorEntity(
+          substrate.store,
+          substrate.log,
+          entityId,
+          substrate.table(),
+        ));
+      } catch (err) {
+        // Setup-loud core, runtime-VISIBLE editor: all three refusals (unknown
+        // id, frozen, baked) are validation failures core decides before its
+        // first write, so nothing has moved — and core's own sentence is the
+        // best explanation there is, so it is passed through unwrapped
+        // (setFrozen/bake's stance). Swallowing it would leave a row delete that
+        // silently does nothing.
+        const message = err instanceof Error ? err.message : String(err);
+        deps.reportToolError(message);
+        return;
+      }
+      deps.markDirtyWithNeighbors(dirtied);
+      // UNCONDITIONAL, never gated on `dirtied.size`, and core's TSDoc says why
+      // in as many words: a placements-only entity (a scatter) writes no cells,
+      // so deleting it dirties NOTHING while every prop it placed leaves the log
+      // with it. Props are derived from the LOG, never from the dirty set.
+      deps.rebuildProps();
+      // The record left the log, so a selection on it has to go with it — an
+      // outline over a stamp that no longer exists. Surviving entities' spans do
+      // not move (core locates spans by id), so nothing else re-outlines. It
+      // notifies, so it sits with the pushes below rather than above the rebuild:
+      // by the time anything hears about the delete, EVERY piece of host state it
+      // moved has settled.
+      revalidateSelectedEntity();
+      // The two notifications LAST, once every piece of host state has settled
+      // (applyReconfigureSession's rule): a subscriber may read the host back
+      // synchronously from inside either, and none may observe a half-deleted
+      // world. Cancelling here rather than before the core call is deliberate —
+      // a REFUSED delete must not destroy a live session on its way out.
+      if (deps.session()?.entityId === entityId) deps.cancelSession();
+      notifyEntities();
+    },
+
+    duplicate(entityId) {
+      const record = entityRecord(entityId);
+      if (record === null) {
+        deps.reportToolError(`entity ${entityId} is no longer in the log`);
+        return;
+      }
+      let def: field.GeneratorDef;
+      try {
+        def = field.generatorById(record.generator); // setup-loud on a retired id
+      } catch (err) {
+        // openEntitySession's stance: fail HERE rather than at commitGenerator,
+        // where the message would arrive wrapped in a commit failure.
+        const message = err instanceof Error ? err.message : String(err);
+        deps.reportToolError(message);
+        return;
+      }
+      // Clear of the original along X, on the lattice the stamp UI works in. The
+      // FOOTPRINT extent, not the region's: a recorded region routinely
+      // over-draws its content (the F3a gate finding behind the footprint box),
+      // so shifting by it would leave a visible gap. Floored at one step so a
+      // footprint with no X extent at all still moves the copy off the original.
+      const box = entityFootprints().get(entityId);
+      const extentX = box === undefined ? 0 : box.max[0] - box.min[0];
+      const shiftX = latticeClearance(extentX);
+      const region = structuredClone(record.region);
+      region.min[0] += shiftX;
+      region.max[0] += shiftX;
+      let committed: {
+        dirty: Set<field.ChunkKey>;
+        entity: field.GeneratorEntity;
+      };
+      try {
+        committed = field.commitGenerator(substrate.store, substrate.log, def, {
+          // commitGenerator clones for provenance; the clone here is so the
+          // evaluate cannot reach the LOG's record through a shared reference.
+          params: structuredClone(record.params),
+          // A fresh roll only where the generator READS the seed (core's
+          // `usesSeed`): duplicating a cave or a scatter should give a different
+          // arrangement, while the hall — whose structure is entirely
+          // params-determined — would just end up wearing a different number for
+          // an identical shape.
+          seed: def.usesSeed ? deps.randomSeed() : record.seed,
+          region,
+          // `GeneratorEntity` does not record the policy its commit used, so it
+          // is not recoverable — core's reconfigure and `openEntity` both fall
+          // back to `replace` and this joins them.
+          policy: "replace",
+          table: substrate.table(),
+        });
+      } catch (err) {
+        // Reachable without a bug: the material table can have lost the kit
+        // class the recipe needs since the original commit (commitStampSession's
+        // stance, same sentence shape).
+        const message = err instanceof Error ? err.message : String(err);
+        deps.reportToolError(`duplicate failed: ${message}`);
+        return;
+      }
+      deps.markDirtyWithNeighbors(committed.dirty);
+      deps.rebuildProps(); // a duplicated scatter is new prop-layer content
+      // The copy is what the user is now working on — and this is also what
+      // re-outlines: the entity selection's setter rebuilds the emphasis box off
+      // the new
+      // record. AFTER the commit, so the footprint memo it reads is rebuilt from
+      // the log that now holds the copy.
+      setSelectedEntity(committed.entity.entityId);
+      notifyEntities();
+    },
+
+    list() {
+      // One attribution pass for the whole list, not one scan per row: the
+      // helper walks the log once and hands back every entity's placements.
+      //
+      // Nothing FOOTPRINT-derived rides this. It is a general read with several
+      // callers and only one of them ever wanted the boxes, so the drift badges
+      // take them off `subscribeDrift` instead — where they are computed once per
+      // report rather than per list read (see FieldDriftReport).
+      const { log } = substrate;
+      const placed = placementsByEntity(log.ops);
+      const out: FieldEntityInfo[] = [];
+      for (const op of log.ops)
+        if (op.kind === "entity")
+          out.push({
+            ...structuredClone(op.entity),
+            // Fresh arrays out of the helper, so the row's summary is a clone
+            // like the record it rides on.
+            placed: placed.get(op.entity.entityId) ?? [],
+          });
+      return out;
     },
   };
 }

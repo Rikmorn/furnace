@@ -203,11 +203,12 @@ export type CameraRigDeps = {
    *  paying off in the direction it was written for. */
   selectionBox(): Box | null;
   /** The world-space AABB of every allocated chunk, or null for an empty world.
-   *  `world`'s `chunkSetBox` over the store's keys. Same shape as
-   *  {@link selectionBox}: a box, not a store. */
+   *  `field-world.ts`'s `worldBox` — its own `chunkSetBox` over the store's keys,
+   *  published as one verb at T3d Task 6 so this file never names a store. Same
+   *  shape as {@link selectionBox}: a box, not a store. */
   worldBox(): Box | null;
   /** The highest SOLID sample's world Y, or null when nothing is built.
-   *  `world`'s. {@link CameraRig.frameWorld} lowers its ceiling to this rather
+   *  `field-world.ts`'s. {@link CameraRig.frameWorld} lowers its ceiling to this rather
    *  than to the chunk column that holds it. */
   occupiedTopY(): number | null;
   /** Report a refusal to the user (`field-tool.ts`). Two framing verbs refuse out

@@ -40,12 +40,16 @@
 //     containers only (`store.chunks.size`, the log's three lengths); neither is
 //     ever replaced, which is why a held reference cannot fork. This module is
 //     the substrate's third consumer and, like the second, needed no new member.
-//   - `lastRemeshMs` and `remeshVersion` are host `let`s — `world`'s, both bumped
-//     by the remesh-completion path — and this is the only extracted reader of
-//     either, so they ride as SINGLE-CONSUMER THUNKS on the record below rather
-//     than widening the substrate. Same CALL, different owner: the bar for adding
-//     a `HostSubstrate` member is two extracted readers, and that bar governs
-//     ADDING one, never declining one already declared.
+//   - `lastRemeshMs` and `remeshVersion` were host `let`s when this module left
+//     and are `field-world.ts`'s own state since foundations T3d Task 6 — `world`'s
+//     throughout, both bumped by the remesh-completion path. This is still the
+//     only extracted reader of either, so they ride as SINGLE-CONSUMER THUNKS on
+//     the record below rather than widening the substrate; what changed is that
+//     the thunks now reach a module SEAM rather than a closure binding, and reach
+//     DOWN (`createWorld` is assembled below `createStatsMeter`), which is the
+//     second of THE LAW's two teeth. Same CALL, different owner: the bar for
+//     adding a `HostSubstrate` member is two extracted readers, and that bar
+//     governs ADDING one, never declining one already declared.
 //   - `analyzerPendingCount` and `voidCastJobGen` are verbs of OTHER EXTRACTED
 //     MODULES — `field-analyzer.ts`'s `pendingCount` (since foundations T3d,
 //     2026-08-07; it was a closure `const` when this module left) and
@@ -144,13 +148,13 @@ export type StatsMeterDeps = {
    *  `store` (for `chunks`, the payload's allocated-chunk count) and `log` (the
    *  three lengths the cache signs on, and the log `field.logStats` scans). */
   substrate: HostSubstrate;
-  /** Wall-clock of the last landed chunk remesh, ms. A `world` `let`, written by
-   *  the remesh-completion path once per chunk. */
+  /** Wall-clock of the last landed chunk remesh, ms. `field-world.ts`'s, written
+   *  by the remesh-completion path once per chunk. */
   lastRemeshMs(): number;
   /** The monotonic remesh counter — see {@link FieldStats}'s TSDoc for why a
    *  counter rides beside the clock read it duplicates (Safari clamps
    *  `performance.now()` to ~1 ms, so two consecutive remeshes can quantize
-   *  identically). A `world` `let`, bumped beside `lastRemeshMs`. */
+   *  identically). `field-world.ts`'s, bumped beside `lastRemeshMs`. */
   remeshVersion(): number;
   /** The generation of the void-cast job the worker is still computing, or `null`
    *  when it is idle — `field-voidcast.ts`'s `jobGen`. The payload carries the
