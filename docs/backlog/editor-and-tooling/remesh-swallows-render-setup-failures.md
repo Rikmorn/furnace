@@ -57,7 +57,7 @@ family — `ret.setMaterialTable`'s post-swap `world.redirtyAll()` is asserted b
 all, while `ret.init`'s identical call is (`docs/reference/field-host-clusters.md` §2.11).
 That is the same async IIFE this entry's last paragraph already says to check.
 
-**Reference:** `packages/editor/src/field-world.ts`'s `remeshOne` (the code);
+**Reference:** `packages/editor/src/field-host/field-world.ts`'s `remeshOne` (the code);
 `packages/editor/src/field-host/field-materials.ts` header (the three sabotage
 probes and their measured results); `docs/reference/field-host-clusters.md` §2.8 and §2.11;
 `docs/reference/engine-conventions.md` §Failure policy.

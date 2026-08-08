@@ -4130,7 +4130,7 @@ by build: all three clusters it was still recommended for left the closure at T3
 ## 24. Foundations T3d — the facade, finished (2026-08-08)
 
 Six tasks, six atomic commits, one branch (`foundations-t3d`). T3d took `createFieldHost`
-from a 6,337-line file with fourteen live clusters in its closure to a **3,901-line facade
+from a 6,337-line file with fourteen live clusters in its closure to a **3,999-line facade
 over framework + tools**, and it is the tranche that closes foundations T3.
 
 **The bar was BEHAVIOUR-FROZEN throughout.** Zero behaviour changes and zero facade changes
@@ -4174,8 +4174,9 @@ now name the module. That is the whole `shared/` footprint of six tasks.
 than a pure helper or a seam primitive. T3d produced **eleven** of the eighteen (Tasks 1–6)
 and **changed** two more (`field-entities.ts` took the five facade verbs at Task 6;
 `field-stats.ts`' two deps changed owner). The live inventory with line counts, deps and seam
-widths is **§21.5**, and it is GENERATED — `prose-check.py --write` rewrites the table from
-the source, and `prose-check.py` fails if this count disagrees with it.
+widths is **§21.5**, whose counts were derived by script from the source at the T3d review
+(the script was session scratchpad, not a tracked gate — whoever edits §21.5 re-derives
+its counts from the source rather than adjusting them by hand).
 
 ### 24.3 The facade's final shape, measured
 
@@ -4184,9 +4185,9 @@ Task 6:
 
 | Fact | At T3c head | At T3d head |
 | --- | --- | --- |
-| File total | 6,337 | **3,901** (−38.4%) |
-| Code / comment / blank | 2,854 / 3,273 / 210 | **915 / 2,899 / 87** (code −67.9%) |
-| `createFieldHost` span | 4,665 lines from 1,673 | **2,397 lines from 1,505** |
+| File total | 6,337 | **3,999** (−36.9%) |
+| Code / comment / blank | 2,854 / 3,273 / 210 | **915 / 2,996 / 88** (code −67.9%) |
+| `createFieldHost` span | 4,665 lines from 1,673 | **2,495 lines from 1,505** |
 | Closure bindings | 232 (69 `let` / 163 `const`) | **56 (9 `let` / 47 `const`)** |
 | Live cluster rows in the closure | 14 | **0 extracted-owner rows; 4 DECLARED facade-resident** |
 | `FieldHost` members | 65 | **65** (unchanged, by contract) |
@@ -4280,7 +4281,7 @@ at all and is the least.
 ### 24.5b What T3d parked, and where it is written down
 
 Six behaviour-frozen tasks meet deletion-shaped questions they may not answer. T3d declared
-each at source with the words "prune tranche" — **eight sites across seven files** — and the
+each at source with the words "prune tranche" — **eight sites across six files** — and the
 Task-6 review found there was no `docs/backlog/` entry for any of them, plus three more items
 (the `boxCorners` move, `field-host.ts`'s tombstone density, the `~N lines` hint staleness)
 with no record at all. That is now
@@ -4296,7 +4297,7 @@ Supersedes §23.7, which measured the same five at T3c head.
 
 | Clause | Verdict at `foundations-t3d` head |
 | --- | --- |
-| **1. `field-host.ts` is a facade over framework + tools** | **HOLDS, with the accounting stated.** 3,901 lines / **915 code** (was 6,337 / 2,854), **56 closure bindings** (was 232), **zero cluster rows with an extracted owner** live in the closure, and the four that remain are DECLARED facade-resident with the argument at source. What the closure still holds is the substrate's sixteen backing slots plus four bindings owned by those declared rows, and sixteen functions that are `input`'s, `lifecycle`'s and `stepHistory`'s. It does **not** meet the ~400-line guideline (915 code is ~2.3×) and that was never the bar; the bar was the mechanism, and §24.3 is the measurement. **Read this clause together with §24.5** — the facade is thin, and the tests do not prove what the modules behind it draw. |
+| **1. `field-host.ts` is a facade over framework + tools** | **HOLDS, with the accounting stated.** 3,999 lines / **915 code** (was 6,337 / 2,854), **56 closure bindings** (was 232), **zero cluster rows with an extracted owner** live in the closure, and the four that remain are DECLARED facade-resident with the argument at source. What the closure still holds is the substrate's sixteen backing slots plus four bindings owned by those declared rows, and sixteen functions that are `input`'s, `lifecycle`'s and `stepHistory`'s. It does **not** meet the ~400-line guideline (915 code is ~2.3×) and that was never the bar; the bar was the mechanism, and §24.3 is the measurement. **Read this clause together with §24.5** — the facade is thin, and the tests do not prove what the modules behind it draw. |
 | **2. 70 cross-cluster mutation edges structurally gone or ViewStore-mediated** | **NEITHER, AND THE HONEST ANSWER IS A THIRD THING.** Re-tallied per write site at each task: **11 edges are structurally gone** (9 internalised by `field-machine.ts` at T3c, 2 re-homed) and **59 stand — all 59 now crossing a module boundary, 18 of them MODULE→MODULE, and ZERO remaining cluster-to-cluster inside the closure**. No `ViewStore` was ever built and none is needed: `ViewChannel` (§20.1) owns the publish half for all thirteen seams, and every cluster the slot-store half was recommended for has left the closure. **So an extraction tranche converts cluster-to-cluster edges into module boundaries rather than deleting them** — only a merge deletes an edge, only a re-homing retires one. That is a finding, not a shortfall: the coupling was real, and a boundary makes it checkable rather than making it go away. Full arithmetic in the map's §5.7. |
 | **3. chrome tool tables generated from the registry** | **HOLDS**, unchanged from T3c, with the two-table split the spec did not anticipate: `shared/action-table.ts` owns PRESENTATION, `shared/tool-registry.ts` owns EXISTENCE. |
 | **4. suite green** | **HOLDS** — **2912 pass / 1 skip / 0 fail**, at the branch point and at every one of the six commits, with **every existing pin unmodified**. |

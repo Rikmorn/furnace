@@ -9,7 +9,8 @@ of them was ever written down anywhere else. This entry is that record, written 
 Task 6 review when the count was noticed.
 
 **The eight in-source declarations**, so the two records cannot drift
-(`grep -rn "prune tranche" packages/editor/src/field-host/` regenerates the list):
+(`grep -rnE "prune[- ]tranche" packages/editor/src/field-host/` regenerates the list — two
+of the eight sites spell it hyphenated):
 
 | Site | What is parked |
 | --- | --- |
@@ -28,8 +29,8 @@ the reason this entry exists rather than a ninth `grep` hit:
 - **`boxCorners` into `box-edges.ts`.** A pure geometry helper sitting in `field-ghost.ts`
   while its natural home is the pure module next door. Never declared at source; noticed and
   deferred in passing.
-- **`field-host.ts`'s tombstone density.** The file is **2,899 comment lines against 915 of
-  code — 76.0% prose**, and a large and growing share of that is *tombstones*: blocks that say
+- **`field-host.ts`'s tombstone density.** The file is **2,996 comment lines against 915 of
+  code — 76.6% prose**, and a large and growing share of that is *tombstones*: blocks that say
   where a binding WENT rather than what the file does. They were load-bearing while the
   tranche ran, because each one carries the argument for a move. Whether they are load-bearing
   afterwards is a real question with a real cost (a reader of the facade wades through six
@@ -41,7 +42,7 @@ the reason this entry exists rather than a ninth `grep` hit:
   anchors ("below `createFieldMachine`") that cannot go stale.
 
 **One shape the T3d Task 6 code-quality review surfaced, recorded rather than acted on.**
-`field-world.ts` (865 lines, 23 deps) contains two things: a world-LIFETIME half (reset, load,
+`field-world.ts` (902 lines, 23 deps) contains two things: a world-LIFETIME half (reset, load,
 save, the dirty set, the remesh drain) and a chunk-GEOMETRY half. The seven pure-read verbs —
 `chunkOrigin`, `chunkSetBox`, `worldBox`, `occupiedTopY`, `chunkCopy`, `snapshotChunks`,
 `snapshotAllChunks` — need `{ substrate }` and **nothing else**, which is
@@ -61,7 +62,7 @@ separate trigger — it is an error-CONTRACT question, not a deletion one, and c
 would hide a failure-policy decision inside a tidy-up.
 
 **Reference:** the eight sites above; `docs/reference/field-host-clusters.md` §2.10 (the
-accent constants' argument) and §2.11 (T3d Task 6's measurement, including the 76.0% prose
+accent constants' argument) and §2.11 (T3d Task 6's measurement, including the 76.6% prose
 figure and the eleven falsified distance hints);
 `docs/reference/editor-architecture.md` §21.5 (the live module roster) and §24 (the T3d
 as-built); `.claude/rules/working-standards.md` §Design ("deletion pass before addition
