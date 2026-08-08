@@ -625,6 +625,128 @@ describe("capsule shape — the segment brush (F3b: D-F3-14)", () => {
   });
 });
 
+describe("brush shape numerics — the shape leg of assertOpValid", () => {
+  // The capsule's own table lives with its shape in the describe above (it was
+  // the first member to get the leg). These pin the widening onto the other two:
+  // one helper covers all three members, so a reject the capsule already refuses
+  // must read the same here — including ZERO, which is the one that looks legal.
+  // A zero-size shape has no interior, and measurement says the two effect
+  // families then fail in opposite directions at every centre tried: a FILL or a
+  // PAINT writes nothing at all, while a DIG writes the empty shape's SDF ramp
+  // across the whole +1 sample margin and opens no air (every written density
+  // ≤ 0). The SIZE of that phantom write is centre-dependent, so it is stated
+  // with its conditions at `assertShapeValid` rather than as a bare number here.
+  const dig = (shape: BrushOp["shape"]): BrushOp => ({
+    id: 0,
+    kind: "brush",
+    effect: "dig", // material-free: proves the leg runs BEFORE the material early-return
+    shape,
+  });
+
+  test("a sphere rejects a non-finite centre and a radius that is not a finite positive length", () => {
+    for (const center of [
+      [Number.NaN, 1, 1],
+      [1, Number.POSITIVE_INFINITY, 1],
+      [1, 1, Number.NEGATIVE_INFINITY],
+    ] as [number, number, number][])
+      expect(() =>
+        assertOpValid(dig({ kind: "sphere", center, radius: 1 }), TABLE),
+      ).toThrow(/field op: sphere center must be three finite numbers/);
+    for (const radius of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -1,
+      0,
+    ])
+      expect(() =>
+        assertOpValid(
+          dig({ kind: "sphere", center: [1, 1, 1], radius }),
+          TABLE,
+        ),
+      ).toThrow(/field op: sphere radius must be a finite positive length/);
+    // The good one passes, and the message never names the wrong member.
+    expect(() =>
+      assertOpValid(
+        dig({ kind: "sphere", center: [1, 1, 1], radius: 0.5 }),
+        TABLE,
+      ),
+    ).not.toThrow();
+  });
+
+  test("a box rejects a non-finite centre and half-extents that are not finite positive lengths", () => {
+    for (const center of [
+      [Number.NaN, 1, 1],
+      [1, Number.POSITIVE_INFINITY, 1],
+      [1, 1, Number.NEGATIVE_INFINITY],
+    ] as [number, number, number][])
+      expect(() =>
+        assertOpValid(
+          dig({ kind: "box", center, halfExtents: [1, 1, 1] }),
+          TABLE,
+        ),
+      ).toThrow(/field op: box center must be three finite numbers/);
+    // One bad axis is enough: a box flat on ANY axis has no interior either —
+    // and the message must name WHICH axis, so the table carries the expected
+    // index. `[0, 0, 0]` reports the first bad axis, not all three.
+    for (const [halfExtents, axis] of [
+      [[Number.NaN, 1, 1], 0],
+      [[1, Number.POSITIVE_INFINITY, 1], 1],
+      [[1, 1, Number.NEGATIVE_INFINITY], 2],
+      [[-1, 1, 1], 0],
+      [[1, 0, 1], 1],
+      [[0, 0, 0], 0],
+    ] as [[number, number, number], number][])
+      expect(() =>
+        assertOpValid(
+          dig({ kind: "box", center: [1, 1, 1], halfExtents }),
+          TABLE,
+        ),
+      ).toThrow(
+        new RegExp(
+          `field op: box halfExtents\\[${axis}\\] must be a finite positive length`,
+        ),
+      );
+    // …and the value it read, whole: an author reading this needs no source.
+    expect(() =>
+      assertOpValid(
+        dig({ kind: "box", center: [1, 1, 1], halfExtents: [1, 0, 1] }),
+        TABLE,
+      ),
+    ).toThrow(
+      "field op: box halfExtents[1] must be a finite positive length (metres), got 0",
+    );
+    expect(() =>
+      assertOpValid(
+        dig({ kind: "box", center: [1, 1, 1], halfExtents: [0.5, 1, 1.5] }),
+        TABLE,
+      ),
+    ).not.toThrow();
+  });
+
+  test("numbers are checked BEFORE the lattice, so a NaN kit box names the shape fault", () => {
+    // The kit clause reads center/halfExtents to test lattice alignment, and
+    // onLattice on a NaN is false — without the ordering this reports a lattice
+    // fault, which sends the author looking at the wrong number.
+    expect(() =>
+      assertOpValid(
+        {
+          id: 0,
+          kind: "brush",
+          effect: "fill",
+          material: 2, // masonry, the kit class
+          shape: {
+            kind: "box",
+            center: [Number.NaN, 1, 1],
+            halfExtents: [0.5, 0.5, 0.5],
+          },
+        },
+        TABLE,
+      ),
+    ).toThrow(/field op: box center must be three finite numbers/);
+  });
+});
+
 describe("op-list undo entries + the FieldOp union (F2b)", () => {
   test('undo entries carry kind "ops"; a single brush op round-trips as [op]', () => {
     const s = createFieldStore();
@@ -1665,18 +1787,19 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
     expect(logState(s, log)).toEqual(state);
   });
 
-  // Pass 2 is NOT covered by the all-before-any guarantee: `assertOpValid` does
-  // not check a sphere's radius (see
-  // docs/backlog/engine-architecture/field-brush-shape-numeric-validation.md),
-  // so an op can validate and still throw out of the applier. The store writes
-  // that op 1 already made are stranded — a module-wide class `commitGenerator`
-  // shares, tracked separately — but the ID SPACE must not also be corrupted:
-  // `commitGenerator` stamps from a LOCAL counter and commits `log.nextId` only
-  // after pass 2, and this pins the same posture here, so `log.ops` never
-  // acquires a gap it cannot explain.
+  // Pass 2 is NOT covered by the all-before-any guarantee: `assertOpValid`
+  // checks that a shape's numbers are finite and its lengths positive, never
+  // that a length is BUILDABLE, so an op can validate and still throw out of the
+  // applier. The store writes that op 1 already made are stranded — a
+  // module-wide class `commitGenerator` shares, tracked separately — but the ID
+  // SPACE must not also be corrupted: `commitGenerator` stamps from a LOCAL
+  // counter and commits `log.nextId` only after pass 2, and this pins the same
+  // posture here, so `log.ops` never acquires a gap it cannot explain.
   test("an applier throw burns no ids: log.nextId survives a pass-2 failure", () => {
-    // A smooth over a sphere of INFINITE radius: valid on paper, fatal in the
-    // applier (its scratch buffer allocation gets a non-finite length).
+    // A smooth over a sphere a terametre across: finite and positive, so valid
+    // on paper, and fatal in the applier — its scratch buffer is ONE Int8Array
+    // holding one byte per sample of the bounds, and no runtime allocates 1e38
+    // of them.
     const unbuildable: BrushOp = {
       id: 0,
       kind: "brush",
@@ -1685,7 +1808,7 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
       shape: {
         kind: "sphere",
         center: [1, 1, 1],
-        radius: Number.POSITIVE_INFINITY,
+        radius: 1e12,
       },
     };
     // This test is only about PASS 2, so prove the op clears pass 1 — otherwise

@@ -9,10 +9,13 @@ describing them: the op log no longer replays to the live store, and the user ha
 for what just happened.
 
 Measured while reviewing T3a (a throwaway probe, since deleted): the group
-`[dig sphere r=1.0, smooth sphere radius=Infinity]` clears `assertOpValid` whole — sphere
-radius is unvalidated, see `field-brush-shape-numeric-validation.md` — and dies at
-`applySmooth`'s scratch-buffer allocation (`ops.ts:503`). State after the throw was
-`store chunks: 8, log.ops: 0, undoStack: 0` — eight chunks written, nothing recorded.
+`[dig sphere r=1.0, smooth sphere radius=Infinity]` cleared `assertOpValid` whole — sphere
+radius was unvalidated then — and died at `applySmooth`'s scratch-buffer allocation
+(`ops.ts:543`). State after the throw was `store chunks: 8, log.ops: 0, undoStack: 0` —
+eight chunks written, nothing recorded. **That exact op no longer clears pass 1** (T4a
+widened `assertOpValid`'s shape leg to every member: finite numbers, positive lengths),
+but the class does: a finite-but-absurd radius validates and dies at the same allocation.
+The measurement is the shape of the failure, not a live repro.
 
 The **id space** half of this is already closed: both functions stamp from a LOCAL
 counter and commit `log.nextId` only once pass 2 finishes, so `log.ops` never acquires a
@@ -26,8 +29,10 @@ fix to slot in: pass 2 would have to snapshot every touched chunk before writing
 the inverse-capture cost even on the success path, which is the hot path), or the
 applier's own throw sites would have to become setup-loud validation moved into pass 1
 (cheaper, but only closes the failure modes anyone thinks to enumerate). Note the second
-option is largely what `field-brush-shape-numeric-validation.md` proposes — closing that
-entry shrinks this one's reachable surface without eliminating the class.
+option is what the shape-numerics entry proposed, and T4a took it: `assertShapeValid` now
+rejects every non-finite and non-positive shape number setup-loud. That shrank this
+entry's reachable surface (the enumerated failures moved to pass 1) without eliminating
+the class — magnitude is still unchecked, and every other applier throw site remains.
 
 Reachability today is low: no editor gesture emits a shape that validates and cannot
 apply. It rises when T3c's gesture machine starts routing arbitrary user-authored op
@@ -53,7 +58,7 @@ from the log produces different bytes than the live store.
 
 **Reference:** `logApplyGroup` and its residual paragraph in
 `packages/core/src/field/ops.ts`; `commitGenerator`'s pass-1/pass-2 split in
-`packages/core/src/field/generators.ts:1001-1047`;
-`docs/backlog/engine-architecture/field-brush-shape-numeric-validation.md` (the
-overlapping fix); the `assertPatchValid` setup-loud stance for the validation-first
-posture this would extend.
+`packages/core/src/field/generators.ts:1001-1047`; `assertShapeValid` in
+`packages/core/src/field/ops.ts` (the overlapping fix, landed at T4a — its entry is
+closed); the `assertPatchValid` setup-loud stance for the validation-first posture this
+would extend.

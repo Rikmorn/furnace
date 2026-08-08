@@ -735,8 +735,9 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   a kit fill off the lattice, a kit class under a non-box shape (reachable ONLY through this
   gesture), an unknown material class — is caught, reported to the panel, and the op DROPPED. (The
   op is built inside that try too; the reasoning for that placement, and its honest status, live at
-  the source.) Core's half — the `capsule` `BrushShape` and the capsule leg of `assertOpValid`
-  (finite endpoints, finite positive radius, kit-class rejection) — is in `core-modules.md`; the
+  the source.) Core's half — the `capsule` `BrushShape` and the capsule branch of
+  `assertOpValid`'s shape leg (finite endpoints, finite positive radius, kit-class
+  rejection; T4a widened the leg to cover sphere and box too) — is in `core-modules.md`; the
   box cross-section variant is explicitly NOT shipped
   (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
 - **Host extractions + the worker seam** — `field-host/field-placements.ts` (pure: proxy

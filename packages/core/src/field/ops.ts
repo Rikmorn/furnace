@@ -189,33 +189,91 @@ function assertSmoothValid(p: SmoothParams | undefined): void {
     throw new Error(`field op: unknown smooth mode "${String(p.mode)}"`);
 }
 
-/** Capsule leg of {@link assertOpValid}: finite endpoints and a finite positive
- *  radius. The capsule is the first shape whose numbers come from TWO
- *  independent screen-space raycasts (the editor's two-click gesture), and both
- *  failure modes were MEASURED on the applier before this guard existed: a NaN
- *  endpoint makes {@link opSampleBounds} NaN, so the sample loop's `z <= z1` is
- *  false at once and the op logs, burns an id and writes nothing — a silent
- *  no-op ⌘Z (measured: dirty 0, 0.4 ms); an INFINITE radius makes those bounds
- *  ±Infinity, and `z++` off −Infinity never advances — `applyOp` was still
- *  running at an 8 s cutoff.
+/** Shape leg of {@link assertOpValid}: every number a brush shape carries must
+ *  be finite, and every LENGTH it carries (a sphere's or capsule's `radius`,
+ *  each of a box's `halfExtents`) a finite POSITIVE one. One helper over all
+ *  three members, because none of the failures below is particular to a shape —
+ *  it started life as a capsule-only leg (F3b: the capsule was the first shape
+ *  built from two independent screen-space raycasts) and widened when the
+ *  producer stopped being the point: clamped editor gestures reach none of these
+ *  numbers, an op stream written by hand or by an agent reaches all of them.
  *
- *  Sphere `radius` and box `halfExtents` are NOT validated here. That is a
- *  pre-existing gap, not a judgement that they are safe — the same two failures
- *  reach them (backlog `field-brush-shape-numeric-validation`). This leg is
- *  scoped to the shape this task adds.
+ *  Both non-finite failures were MEASURED on the applier:
+ *  - a NaN anywhere in the shape makes {@link opSampleBounds} NaN, so the sample
+ *    loop's `z <= z1` is false at once: the op logs, burns an id, pushes an undo
+ *    entry and writes nothing (measured: dirty 0, 0.4 ms) — a ⌘Z that visibly
+ *    does nothing, the same defect class {@link assertPatchValid} already
+ *    rejects for patches under "a mutation verb must actually mutate";
+ *  - an INFINITE radius/extent makes those bounds ±Infinity, and `z++` off
+ *    −Infinity never advances: `applyOp` was still running at an 8 s cutoff — an
+ *    unbounded hang, on the editor's main thread.
  *
- *  @throws {@link Error} if a capsule endpoint is non-finite, or its radius is
- *    not a finite positive length. */
-function assertCapsuleValid(shape: BrushShape): void {
-  if (shape.kind !== "capsule") return;
-  const finite = (v: [number, number, number]): boolean =>
+ *  ZERO is rejected alongside the negatives, and it is the one that looks
+ *  legal. A zero radius or a zero half-extent leaves the shape with no interior
+ *  (`sdf > 0` nowhere), and the two effect families then fail in opposite
+ *  directions. Invariant across every centre measured: a fill or a paint writes
+ *  NOTHING (dirty 0, not one sample), while a dig writes the empty shape's own
+ *  SDF ramp across the whole +1 sample margin and opens no air at all (every
+ *  written density ≤ 0 — rock weakened, never carved). A silent no-op and a
+ *  phantom write, from a number that reads as a shape.
+ *
+ *  The SIZE of that phantom write is centre-dependent, so take the figures with
+ *  their conditions (fresh store, default 0.25 m cell): a zero-radius sphere
+ *  centred ON a sample point inside a chunk writes 27 samples (the full 3³ ring,
+ *  never one) across 1 chunk, densities −14…0; move the same centre OFF the
+ *  sample point and nothing reaches 0 (−19…−6 at +0.1 m); move it onto a chunk
+ *  corner and the 27 samples span 8 chunks; and a box flat on ONE axis writes
+ *  363 samples, not 27 (a 3 × 11 × 11 margin slab at half-extents 1 m).
+ *
+ *  It runs BEFORE the kit-lattice clause, which reads `center`/`halfExtents`
+ *  itself: numbers get checked before anything reasons about them. Until it did,
+ *  a NaN-centred kit box was reported as a LATTICE fault (`onLattice` on a NaN
+ *  is false), which names the wrong defect.
+ *
+ *  @throws {@link Error} if any of a shape's numbers is non-finite, or a radius
+ *    / half-extent is not a finite positive length. */
+function assertShapeValid(shape: BrushShape): void {
+  const finite = (v: readonly number[]): boolean =>
     v.every((n) => Number.isFinite(n));
-  if (!finite(shape.a) || !finite(shape.b))
-    throw new Error("field op: capsule endpoints must be three finite numbers");
-  if (!Number.isFinite(shape.radius) || shape.radius <= 0)
+  const positiveLength = (n: number): boolean => Number.isFinite(n) && n > 0;
+  if (shape.kind === "capsule") {
+    if (!finite(shape.a) || !finite(shape.b))
+      throw new Error(
+        "field op: capsule endpoints must be three finite numbers",
+      );
+    if (!positiveLength(shape.radius))
+      throw new Error(
+        "field op: capsule radius must be a finite positive length (metres)",
+      );
+    return;
+  }
+  if (!finite(shape.center))
     throw new Error(
-      "field op: capsule radius must be a finite positive length (metres)",
+      `field op: ${shape.kind} center must be three finite numbers`,
     );
+  if (shape.kind === "sphere") {
+    if (!positiveLength(shape.radius))
+      throw new Error(
+        "field op: sphere radius must be a finite positive length (metres)",
+      );
+    return;
+  }
+  if (shape.kind === "box") {
+    // The failing AXIS, not just "one of three": box is the member an op stream
+    // hits most, and `[1, 0, 1]` under a message naming three numbers sends the
+    // author hunting all three.
+    const axis = shape.halfExtents.findIndex((n) => !positiveLength(n));
+    if (axis !== -1)
+      throw new Error(
+        `field op: ${shape.kind} halfExtents[${axis}] must be a finite positive length (metres), got ${String(shape.halfExtents[axis])}`,
+      );
+    return;
+  }
+  // Exhaustiveness guard: a fourth BrushShape member fails to COMPILE here
+  // rather than falling through the box leg — which would validate an oriented
+  // box as an axis-aligned one, report "box halfExtents" for a non-box, and
+  // leave whatever new numbers it carries (a quat, say) unchecked.
+  const _exhaustive: never = shape;
 }
 
 /**
@@ -230,23 +288,25 @@ function assertCapsuleValid(shape: BrushShape): void {
  * effect validates the material: the class id must exist in the table, and
  * kit-class writes must be lattice-snapped boxes (kit pieces stay grid-locked
  * to the 0.5 m built-kit lattice) whose `hollow`, when present, is a multiple
- * of 0.5 m — the shell's INNER faces must land on lattice planes too. A CAPSULE
+ * of 0.5 m — the shell's INNER faces must land on lattice planes too. EVERY
  * shape validates its own numbers up front, whatever the effect
- * ({@link assertCapsuleValid}), and is rejected outright for a kit class by the
- * same non-box clause a sphere hits. Material-free, mask-free ops (plain dig)
- * are otherwise a no-op.
+ * ({@link assertShapeValid}: finite centres and endpoints, finite POSITIVE
+ * radii and half-extents), and a capsule is rejected outright for a kit class by
+ * the same non-box clause a sphere hits. Material-free, mask-free ops (plain
+ * dig) are otherwise a no-op.
  *
  * @throws {@link Error} if a class id (material, class mask, or embedded
  *   flood-material spec) is unknown, an embedded selection spec has a
  *   non-integer flood seed or an out-of-range budget, `hollow` rides a
- *   non-fill effect or is not a positive thickness, a capsule shape has a
- *   non-finite endpoint or a non-positive/non-finite radius, a smooth op's
+ *   non-fill effect or is not a positive thickness, a shape carries a
+ *   non-finite number (a sphere's or box's `center`, a capsule's endpoints) or a
+ *   radius / half-extent that is not a finite positive length, a smooth op's
  *   params are absent or out of range, or a kit-class write is not an
  *   axis-lattice-aligned box (with a lattice-multiple `hollow` when present).
  */
 export function assertOpValid(op: BrushOp, table: MaterialTable): void {
   assertMaskValid(op.mask, table);
-  assertCapsuleValid(op.shape);
+  assertShapeValid(op.shape);
   if (op.hollow !== undefined) {
     if (op.effect !== "fill")
       throw new Error("field op: hollow is a fill-effect parameter");
@@ -910,10 +970,12 @@ export function logApply(
  *
  *  What this does NOT buy is a transaction. The all-or-nothing guarantee covers
  *  VALIDATION only: an op that passes {@link assertOpValid} and then throws out
- *  of the APPLIER (`assertOpValid` does not check every shape number, so an
- *  unbuildable shape reaches pass 2) leaves the earlier ops' writes sitting in
- *  the store with no entry describing them — exactly what a per-op
- *  {@link logApply} loop would leave. The log's id space is kept whole across
+ *  of the APPLIER (`assertOpValid` checks that every shape number is finite and
+ *  every length positive, never that a length is BUILDABLE — a finite but absurd
+ *  radius still asks the smooth pass for a scratch buffer no runtime will
+ *  allocate, so an unbuildable shape reaches pass 2) leaves the earlier ops'
+ *  writes sitting in the store with no entry describing them — exactly what a
+ *  per-op {@link logApply} loop would leave. The log's id space is kept whole across
  *  that failure (ids commit only once the apply pass finishes, the
  *  `commitGenerator` posture), but the store is not rolled back. A group buys
  *  ONE undo entry, not atomicity.

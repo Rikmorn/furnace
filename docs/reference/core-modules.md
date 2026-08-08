@@ -831,10 +831,16 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   (`center` + `radius`), `box` (`center` + `halfExtents`), and **`capsule`** (F3b:
   D-F3-14 — the swept sphere from `a` to `b` with hemispherical endcaps, the editor's
   two-click segment brush; `a === b` degenerates to exactly the sphere at that point).
-  A capsule's numbers are validated setup-loud by `assertOpValid` (finite endpoints, a
-  finite positive radius) whatever the effect, and a kit class rejects it under the
-  same rule that rejects a sphere — kit writes require a lattice-snapped box, so
-  capsules write organic classes only. **Brush effects**: dig / fill / paint /
+  EVERY shape's numbers are validated setup-loud by `assertOpValid` whatever the effect
+  (T4a): finite centres and capsule endpoints, and finite POSITIVE lengths — a sphere's
+  or capsule's `radius`, each of a box's `halfExtents`. Zero is a reject with the
+  negatives: a zero-size shape has no interior, so a fill through it writes nothing while
+  a dig writes only the empty shape's SDF ramp into the sample margin (a silent no-op and
+  a phantom write; the non-finite cases are a silent no-op and an unbounded hang). What is
+  NOT checked is MAGNITUDE — a finite but absurd radius still validates and fails in the
+  applier. A kit class rejects a capsule under the same rule that rejects a sphere — kit
+  writes require a lattice-snapped box, so capsules write organic classes only.
+  **Brush effects**: dig / fill / paint /
   **smooth**
   (`SmoothParams` — max-delta-clamp strength doubling as the thin-wall guard,
   iterations, both|erode|fill modes, `SMOOTH_DEFAULTS`; density-only, never materials).
@@ -1456,7 +1462,7 @@ channel** (uniform|indexed palette encoding behind accessors — `getMaterial` /
   directions — adding a member to a union in `types.ts` without extending the table is a
   compile error (TS1360), not an op the engine emits and its own parser refuses.
   **Not checked — every NUMERIC field:** a shape's centre/radius/half-extents/capsule
-  endpoints (`assertOpValid`'s capsule leg guards the AUTHORING path, not this one), a brush's
+  endpoints (`assertOpValid`'s shape leg guards the AUTHORING path, not this one), a brush's
   `material` and `mask.classId`, `smooth.strength`/`iterations`, a flood selection's
   `seed`/`budget`, an entity record's `entityId`/`seed`/`region`/`opSpan`, and a patch
   slice's material class ids. The class ids need a `MaterialTable` (`parseOps` takes none);
