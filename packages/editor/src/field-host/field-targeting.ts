@@ -36,11 +36,15 @@
 //   - `store` and `canvasEl()` ride the SUBSTRATE, on the value and thunk sides
 //     respectively — `store` is a `const` the host mutates through, `canvasEl` a
 //     `let` that is null before `init` and after `dispose`.
-//   - `cam` is a host `let` that is NOT in the record, and this is its only
-//     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP —
-//     `field-props.ts`'s `kitMat` precedent, and the two-extracted-readers bar in
-//     its active form. A value copy would be `null` for the life of the host
-//     (it is assigned at `init`, ~1,900 lines below where this is assembled).
+//   - `cam` is NOT in the record and rides as a FUNCTION DEP. It was a host `let`
+//     with this as its only extracted reader — `field-props.ts`'s `kitMat`
+//     precedent, and the two-extracted-readers bar in its active form — until T3d
+//     Task 4 gave the camera an owner: the dep is `cameraRig.cam` now, a plain ref
+//     onto `field-camera-rig.ts`'s seam, and the substrate-bar argument no longer
+//     applies to it at all (`flagMarkerMat`'s expiry in `field-analyzer.ts`, same
+//     shape). The CALL is unchanged and so is its reason — the camera is built at
+//     `init` and nulled at `dispose`, so a value copy would be `null` for the life
+//     of the host.
 //   - `digRadius` is a host `let` the wheel, the brackets and the panel slider all
 //     move, so it is a call for `field-segment.ts`'s stated reason: passed as a
 //     number, the target would be computed at the radius held when this module was

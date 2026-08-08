@@ -60,17 +60,21 @@
 //     were already declared there; this module adds nothing to the record.
 //   - `selectedColor` is neither. It is a module-scope `const` in `field-host.ts`
 //     — the editor's `--primary` accent — with a SECOND reader that is not this
-//     cluster's (`selectedBoxOutline`, the entity/flag selection outline, which
-//     is `selection`'s). A constant with two owners-to-be stays where both can
-//     see it and travels as a plain VALUE dep, which is `field-segment.ts`'s
+//     cluster's: the entity/flag selection outline, which is `selection`'s and
+//     since T3d Task 5 is `field-selection.ts`'s {@link Selection.outline}. It
+//     travels as a plain VALUE dep, which is `field-segment.ts`'s
 //     `anchorCrossHalfM` precedent. The six constants below had no second reader
 //     and came with the cluster.
-//     // MIGRATION (until T3d Task 5): "two owners-to-be" is the whole argument,
-//     and it expires when `selection` gets an owner — at that point BOTH readers
-//     are modules, nothing is left in the host to share the declaration with, and
-//     the constant should move to whichever module the prune tranche decides owns
-//     the editor's accent vocabulary. `field-render.ts` carries the same note for
-//     `SELECTION_COLOR` and `ANCHOR_CROSS_HALF_M`, which are the same shape.
+//
+//     The argument for the DECLARATION SITE changed at Task 5 and is settled
+//     there rather than here: "two owners-to-be" expired (both readers are modules
+//     now and no host function reads it), and what replaced it is that a constant
+//     read by two PEER modules and by nothing else sits at a neutral point, which
+//     is where it already was. Moving it into one of the two would make the other
+//     value-import a sibling for a literal. `field-host.ts`'s declaration block
+//     carries the whole of it, for this constant and for the two `field-render.ts`
+//     takes the same way; choosing an accent-vocabulary owner is a deletion-pass
+//     question left to the prune tranche.
 //
 // AND `litByClass` STAYS IN THE CLOSURE, which is the one disposition here that a
 // reader would not predict. It is this cluster's private cache — nothing outside
@@ -147,8 +151,10 @@
 // behaviour-frozen: {@link Materials.kitInstanced} and {@link Materials.kitMat}
 // are two spellings of one handle, inherited from `PropsDeps` and not introduced
 // by this extraction; and the `Vec3T` / `LineBatch` alias family is declared
-// privately in five modules now. Both belong to the T5 prune tranche, beside the
-// alias consolidation `field-analyzer.ts` already parks there.
+// privately in FIFTEEN and SEVEN modules respectively (re-counted at T3d Task 5,
+// which added two of each and removed the host's `LineBatch`). Both belong to the
+// T5 prune tranche, beside the alias consolidation `field-analyzer.ts` already
+// parks there.
 import * as binding from "@furnace/core/binding";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";

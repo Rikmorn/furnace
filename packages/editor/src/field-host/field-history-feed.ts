@@ -25,20 +25,33 @@
 // channel's snapshot fires) stops being an agreement between two files and becomes
 // a property of one function.
 //
-// AND `stepHistory` DID NOT COME, though it wears the name. It calls into FIVE
-// clusters — `markDirtyWithNeighbors` (`world`), `cancelStampSession` (`stamp`),
-// `revalidateEntitySelection` AND `notifyEntities` (`entities`), `props.rebuild()`
-// (the extracted prop layer) and `drift.set`/`drift.notify` (the drift report,
-// extracted to `field-drift.ts` at T3d) — and reads `store`, `log`, `table` and
-// `stamp` besides, plus `drift.standing()`. It is a lifecycle verb wearing a history
-// name: what it owns is "everything a step can move", of which the history push is
-// the smallest part. It does not even NAME this module — the push reaches here
-// through `notifyEntities`, which carries it by that seam's own contract — so
-// `stepHistory` needed no edit at all in this move. Only `commitToolOp`, the one
-// log-mutating path that rewrites no entity record, calls the feed directly —
-// from `field-tool.ts` since 2026-08-08, through a `notifyHistory` arrow in that
-// module's deps record, because `createTool` is assembled ~460 lines above
-// `createHistoryFeed`.
+// AND `stepHistory` DID NOT COME, though it wears the name — and at T3d Task 5 it
+// was DECLARED facade-resident rather than left unclaimed. It calls into FIVE
+// clusters — `markDirtyWithNeighbors` (`world`), `cancelSession` (`stamp`, now
+// `field-machine.ts`'s), `revalidate` AND `notify` (`entities`, now
+// `field-entities.ts`'s), `props.rebuild()` (the extracted prop layer) and
+// `drift.set`/`drift.notify` (`field-drift.ts`') — and reads `store`, `log` and
+// `table` besides, plus `drift.standing()`. It is a lifecycle verb wearing a
+// history name: what it owns is "everything a step can move", of which the history
+// push is the smallest part. It does not even NAME this module — the push reaches
+// here through the entity tick, which carries it by that seam's own contract — so
+// `stepHistory` needed no edit in the 2026-08-06 move and none at Task 5 beyond
+// two re-pointed calls.
+//
+// THE TASK-5 VERDICT, because the alternative was live by then: with all five of
+// those clusters extracted, "it belongs to none of it" could have been read as
+// "so move it anywhere". Taking it HERE would give this record — `{ substrate }`,
+// the shortest in the tranche — six verbs of other modules' business, and make the
+// thing that publishes a history signature also the thing that cancels sessions
+// and rebuilds the prop layer. Its three callers are all facade-resident and
+// cannot move (`onKeyDown`'s ⌘Z branch owns the canvas element; the two public
+// methods are the facade). The argument in full is at its declaration in
+// `field-host.ts`.
+//
+// Only `commitToolOp`, the one log-mutating path that rewrites no entity record,
+// calls the feed directly — from `field-tool.ts` since 2026-08-08, through a
+// `notifyHistory` arrow in that module's deps record, because `createTool` is
+// assembled ~460 lines above `createHistoryFeed`.
 //
 // THE LAW, applied (see `substrate.ts`'s doc header for the argument): there is
 // exactly ONE foreign read, `log`, and it was ALREADY declared in `HostSubstrate`,
@@ -150,7 +163,7 @@ export function createHistoryFeed(deps: HistoryFeedDeps): HistoryFeed {
   // object it popped for splice/entity-update entries — which is correct, since
   // the resulting history really is the one already published.)
   //
-  // No `worldEpoch` term, unlike `field-host.ts`'s `entityFootprints` memo. That
+  // No `worldEpoch` term, unlike `field-entities.ts`' footprint memo. That
   // memo reads `log.ops`, which a world swap replaces wholesale while the numbers
   // agree; this reads ONLY the two stacks, and `resetWorld` empties both — so a
   // load that leaves them empty when they were already empty publishes nothing

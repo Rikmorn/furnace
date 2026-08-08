@@ -53,7 +53,11 @@
 //     `boxCorner` and `selectionClick`. Taking it would have dragged the whole
 //     box-select overlay across the line for the sake of two calls, so the two
 //     calls arrive as deps instead ({@link MachineDeps.setBoxAnchor},
-//     {@link MachineDeps.boxCorner}) — the `armMaskDropReport` precedent.
+//     {@link MachineDeps.boxCorner}) — the `armMaskDropReport` precedent. **That
+//     judgement was checked by events**: all six of those names left together for
+//     `field-selection.ts` at T3d Task 5, which is what "owned jointly" predicted,
+//     and the four deps here were re-pointed at that module without a signature
+//     changing.
 //   - `commitToolOp`. It is a BRUSH verb wearing a commit's name: it applies one
 //     op through `field.logApply` with the active tool's mask and pushes the
 //     history feed, and it is already a `field-segment.ts` dep. (It is
@@ -246,9 +250,12 @@ export type MachineDeps = {
    *  (it arms region-draw), so one null says what two branches used to.
    *
    *  ONE dep rather than a `selection()` thunk plus `selectionAabb`, and the
-   *  reason is a type: `SelectionState` is private to `field-host.ts`, and a
+   *  reason is a type: `SelectionState` is private to `field-selection.ts` (it was
+   *  private to `field-host.ts` when this was written, and travelled), and a
    *  cluster boundary is not worth publishing a host-private shape for. This
-   *  narrows to exactly the two facts the session needs. */
+   *  narrows to exactly the two facts the session needs — and since T3d Task 5 the
+   *  host side of it is a plain ref onto that module's `region`, because the
+   *  composition this dep names now lives where the state does. */
   selectionRegion(): { aabb: Aabb; truncated: boolean } | null;
   /** Report a refusal to the user (console + the panel subscriber). Nine callers
    *  here — every session verb that can be asked for something impossible. */
@@ -1727,18 +1734,21 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // gesture, a stroke in progress), and that majority is why the chains are here
   // rather than split in two; every branch's VERB belongs to some other cluster,
   // and that is why the verbs arrive in {@link MachineDeps} rather than moving.
-  // FIVE of the chain's verbs still live in the host — `selectionClick`,
-  // `boxCorner`, `updateBoxPreview` and the pointer-capture pair — and the segment
-  // brush's three in `field-segment.ts`, exactly as they did. SEVEN have since
-  // left the host on their own account and changed nothing here: `pointerPress`
-  // is `field-picking.ts`'s `press`; `eyedropper`, `applyTool` and
+  // TWO of the chain's verbs still live in the host — the pointer-capture pair —
+  // and the segment brush's three in `field-segment.ts`, exactly as they did. TEN
+  // have since left the host on their own account and changed nothing here:
+  // `pointerPress` is `field-picking.ts`'s `press`; `eyedropper`, `applyTool` and
   // `armMaskDropReport` are `field-tool.ts`'s; `beginLook`, `lookDrag` and
-  // `endLook` are `field-camera-rig.ts`'s (the last six all on 2026-08-08).
-  // `selectionClick` is the one to read carefully: it STAYED, and it reaches
-  // `field-targeting.ts` for its seed voxels from where it is — reaching into a
-  // module is not the same as being one. A verb arrives as a dep whichever file
-  // it ends up in, and that is the point of taking verbs as deps rather than as
-  // locations.
+  // `endLook` are `field-camera-rig.ts`'s (those six on 2026-08-08); and
+  // `selectionClick`, `boxCorner` and `updateBoxPreview` are `field-selection.ts`'s
+  // as of T3d Task 5. **The claim this paragraph has been making since T3c is now
+  // measured across three tasks: ten of the seventeen verbs changed FILE and not
+  // one line of this module changed with them.** `selectionClick` is the one that
+  // used to be read carefully here because it had STAYED while reaching into
+  // `field-targeting.ts` for its seed voxels; it has since become that module's
+  // neighbour, and the point it illustrated survives the move intact — a verb
+  // arrives as a dep whichever file it ends up in, and that is why these are taken
+  // as verbs rather than as locations.
   //
   // THREE TESTS ARE NOT THIS MODULE'S, and they are named here rather than left
   // for a reader to trip over, because the rule stated as an absolute would send

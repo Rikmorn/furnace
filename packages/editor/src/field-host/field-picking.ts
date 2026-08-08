@@ -84,10 +84,16 @@ const PICK_RANGE_M = DIG_RANGE_M;
  *
  *  Eleven entries beside the substrate, which is a lot until you read what the
  *  press actually does: it interrogates four clusters to decide, then writes to
- *  two more. Nine of the eleven are CALLS for the substrate's stated reason —
- *  they name state the host replaces — and the two plain refs (`setSelectedEntity`,
- *  `setSelectedFlag`) are bindings whose identity never moves: a closure `const`
- *  arrow and, since foundations T3d (2026-08-07), a verb of `field-analyzer.ts`. */
+ *  two more. **NINE are plain refs and TWO are forward arrows** — eight of the nine
+ *  onto sibling module seams (`field-entities.ts` 4, `field-view.ts` 2,
+ *  `field-targeting.ts` 1, `field-analyzer.ts` 1) and the ninth, `capturePointer`,
+ *  onto a closure `const` arrow; the two arrows are `beginMove` and
+ *  `setPendingMove`, which name verbs of a module assembled BELOW the record.
+ *  Nothing here is a thunk over a host `let` any more — `selectedEntityId` and
+ *  `entityFootprints` were the last two, and T3d Task 5 gave them an owner in
+ *  `field-entities.ts`, which is also where `gizmoAxisAt` and `setSelectedEntity`
+ *  went. Every one of the nine names a binding whose identity never moves, which is
+ *  what lets it pass by reference at all. */
 export type PickingDeps = {
   /** The host's shared state. Four members are read: `log` (the placement ops
    *  behind every prop candidate), `store` (the field the occluder raycast runs

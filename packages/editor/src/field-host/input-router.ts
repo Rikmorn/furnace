@@ -118,15 +118,19 @@ export function createInputRouter(): InputRouter {
  * behaviour on the flows that had one.
  *
  * HERE rather than in each cluster, and the reason is the bug this file exists
- * to end. Rungs stand in three modules — `field-host.ts` (the box anchor, the
- * cell selection, the selected entity), `field-machine.ts` (the live session, the
- * pending stamp arm, the sub-threshold move press) and `field-segment.ts` (the
- * segment anchor) — and a copy of these six lines per module is precisely how two
- * of them come to disagree about WHEN they acquire, which is the ordering Esc is
- * defined by. It lived as a private factory inside `createFieldHost` until
- * foundations T3c, where extracting the session machine made the host either
- * export it across a module boundary or watch a second spelling appear;
- * `field-segment.ts` had already hand-rolled a third.
+ * to end. Rungs stand in `field-selection.ts` (the box anchor, the cell
+ * selection), `field-entities.ts` (the selected entity), `field-machine.ts` (the
+ * live session, the pending stamp arm, the sub-threshold move press) and
+ * `field-segment.ts` (the segment anchor) — and a copy of these six lines per
+ * module is precisely how two of them come to disagree about WHEN they acquire,
+ * which is the ordering Esc is defined by. It lived as a private factory inside
+ * `createFieldHost` until foundations T3c, where extracting the session machine
+ * made the host either export it across a module boundary or watch a second
+ * spelling appear; `field-segment.ts` had already hand-rolled a third. **No rung
+ * has stood in `field-host.ts` since T3d Task 5** — this list named that file as
+ * an owner for one commit after its three left, which is why it names files rather
+ * than counting them; the block at `const router =` there cites the grep that
+ * regenerates it.
  *
  * @param router - The stack this rung captures on.
  * @param label - Debug/test name for the entry; nothing routes on it.

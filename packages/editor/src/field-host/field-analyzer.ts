@@ -72,11 +72,24 @@
 //     functions in this file are `if (disposed) return` guards over an async
 //     settlement, and a snapshot would read `false` forever — every one of them
 //     would wave a post-teardown callback through.
-//   - `worldEpoch` is a host `let` that is NOT in the record and this is its only
-//     extracted reader, so it rides as a SINGLE-CONSUMER FUNCTION DEP —
-//     `field-props.ts`'s `kitMat` precedent, and the two-extracted-readers bar in
-//     its active form. Widening the substrate for a single consumer charges every
-//     future cluster's assembly for this one's convenience.
+//   - `worldEpoch` is a host `let` that is NOT in the record, and it rides as a
+//     FUNCTION DEP. It had exactly one extracted reader when this was written —
+//     `field-props.ts`'s `kitMat` precedent, the two-extracted-readers bar in its
+//     active form — and **T3d Task 5 added the second** (`field-entities.ts`, in
+//     the footprint memo's log signature). So by the bar as stated above it now
+//     QUALIFIES for a `HostSubstrate` member, and the site that used to be the
+//     bar's live example would refute it if the paragraph stopped here.
+//
+//     It still does not become one, and the reason is the rule `field-host.ts`
+//     states verbatim at `digRadius`' deleted declaration: **state that acquires
+//     an OWNER rides on that owner's seam instead, and reader COUNT is the wrong
+//     question once it has one** (`editor-architecture.md` §21.1; `view`'s
+//     `layers`/`sliceY` are the precedent, five reader clusters between them). The
+//     substrate is for state with NO owner to ride on. `worldEpoch` is `world`'s
+//     and `world` is Task 6's, so the disposition it is waiting for is an OWNER,
+//     not a widening — which is exactly what the marker below sends Task 6 to
+//     decide. Widening now would charge every future assembly for a member that is
+//     about to move.
 //   - `flagMarkerMat` was the second of that pair until 2026-08-08 (foundations
 //     T3d), when the material layer got an owner: the dep is now a plain ref onto
 //     `field-materials.ts`'s seam, the substrate was never widened, and the
@@ -88,7 +101,10 @@
 //     leaves — and that one is not a rename. See the note at its declaration in
 //     `field-host.ts`: `resetWorld` calls this module and this module reads
 //     `world`'s epoch, so the extraction closes a cycle that only a lazy arrow on
-//     one side can open.
+//     one side can open. Task 6 decides between "the epoch moves into `world`'s
+//     module and both readers take its getter" and "it becomes a substrate member
+//     after all"; the bullet above argues the first, and there are TWO extracted
+//     readers to re-point either way.
 //   - `flagsChannel` is this module's own `ViewChannel`, held directly rather than
 //     behind a `() => cb` thunk, because a channel is a `const` whose identity
 //     never moves (map §2.2).
@@ -258,7 +274,8 @@ export type AnalyzerDeps = {
    *  box. The batch builder and the accent colour are both the host's — this
    *  module knows which box, not what selected LOOKS like.
    *
-   *  ONE FUNCTION, TWO CALLERS: the host passes its `selectedBoxOutline`, which
+   *  ONE FUNCTION, TWO CALLERS: the host passes `field-selection.ts`' `outline`
+   *  (its own `selectedBoxOutline` until T3d Task 5), which
    *  the selected ENTITY's footprint box is also built from. That is what keeps
    *  the two overlays one colour — a shared function rather than two call sites
    *  agreeing about a constant, which is the arrangement this sentence used to

@@ -160,15 +160,21 @@ const EDITOR_FOV_Y = Math.PI / 3;
  *  call.
  *
  *  **INVARIANT — no member may be a value, and the assembly's own split is
- *  2 / 2 / 2 / 2 / 1**, counted off the literal in `field-host.ts` rather than
+ *  2 / 1 / 1 / 5**, counted off the literal in `field-host.ts` rather than
  *  remembered: TWO forward arrows into `field-machine.ts` (`reaimMove`,
  *  `gesture`), which is what `createCameraRig` sitting ABOVE `createFieldMachine`
- *  costs; TWO thunks over host `let`s (`gizmo`, `selectedEntityId`); TWO composed
- *  arrows that collapse a pair of host reads into the one answer this module
- *  wants (`selectionBox`, `worldBox`); TWO plain refs to host `const` arrows
- *  (`entityFootprints`, `occupiedTopY`); and ONE ref onto another module's seam
- *  (`reportToolError` = `tool.reportError`). Nothing here may value-snapshot a
- *  host `let`. */
+ *  costs; ONE composed arrow collapsing a pair of host reads into the answer this
+ *  module wants (`worldBox`); ONE plain ref to a host `const` arrow
+ *  (`occupiedTopY`); and FIVE refs onto other modules' seams (`gizmo`,
+ *  `selectedEntityId`, `entityFootprints` = `field-entities.ts`; `selectionBox` =
+ *  `field-selection.ts`' `box`; `reportToolError` = `tool.reportError`). Nothing
+ *  here may value-snapshot a host `let`.
+ *
+ *  It was 2 / 2 / 2 / 2 / 1 at T3d Task 4 and the drift is the tranche happening
+ *  around this record rather than to it: `selection` and `entities` acquired
+ *  owners at Task 5, so two thunks over host `let`s and one composed arrow became
+ *  plain module refs, and NOTHING in this file changed. What the record names is
+ *  what it reads, never who it reads from. */
 export type CameraRigDeps = {
   /** Retire a live move's world anchor. `field-machine.ts`'s, reached through an
    *  arrow. Called from {@link applyOrbit}, i.e. from EVERY path that turns the
@@ -179,19 +185,22 @@ export type CameraRigDeps = {
    *  the orbit pivot is gated on `pointer`, because with a brush armed the
    *  selection is not what the user is working on. */
   gesture(): ViewportGesture | null;
-  /** The translate gizmo's span, or null. `entities`'. The orbit pivot is read
-   *  OFF it rather than re-derived, so the camera can never orbit a centre other
-   *  than the one the drawn handles hang on. */
+  /** The translate gizmo's span, or null. `field-entities.ts`'. The orbit pivot is
+   *  read OFF it rather than re-derived, so the camera can never orbit a centre
+   *  other than the one the drawn handles hang on. */
   gizmo(): GizmoSpan | null;
-  /** The selected entity, or null. `entities`'. */
+  /** The selected entity, or null. `field-entities.ts`'. */
   selectedEntityId(): number | null;
   /** Every committed entity's footprint box, memoized against the log.
-   *  `entities`'. */
+   *  `field-entities.ts`'. */
   entityFootprints(): Map<number, Box>;
   /** The CELL selection's world AABB, or null for "nothing selected, or selected
-   *  with no bounds". `selection`'s, and ONE dep rather than the two reads it
-   *  collapses (`selection` + `selectionAabb`) — what the framing wants is a box,
-   *  and the null cases are indistinguishable to it. */
+   *  with no bounds". `field-selection.ts`' `box`, and ONE dep rather than the two
+   *  reads it collapsed while the state was in the closure (`selection` +
+   *  `selectionAabb`) — what the framing wants is a box, and the null cases are
+   *  indistinguishable to it. The composition moved INTO that module at T3d Task 5
+   *  and this dep did not notice, which is §2.7's argument-vs-dependency rule
+   *  paying off in the direction it was written for. */
   selectionBox(): Box | null;
   /** The world-space AABB of every allocated chunk, or null for an empty world.
    *  `world`'s `chunkSetBox` over the store's keys. Same shape as
@@ -386,7 +395,7 @@ export function createCameraRig(deps: CameraRigDeps): CameraRig {
   // Read off the GIZMO rather than re-derived from the footprint memo, and the
   // point is not brevity: `gizmoSpan(box).origin` IS the footprint centre, and
   // `gizmo` is non-null on exactly the condition a re-derivation would test
-  // (rebuildEntitySelectionBatch nulls it when the selected entity has no box).
+  // (`field-entities.ts`' rebuild nulls it when the selected entity has no box).
   // Taking it from there makes the pivot the same number the drawn handles hang
   // on, so the camera can never orbit a centre other than the one on screen.
   //

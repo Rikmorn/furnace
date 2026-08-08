@@ -12,12 +12,7 @@ import * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import * as mesh from "@furnace/core/mesh";
 import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
-import {
-  type BrushEffect,
-  latticeClearance,
-  regionSampleCount,
-  snapSpan,
-} from "../shared/field-brush.ts";
+import { type BrushEffect, latticeClearance } from "../shared/field-brush.ts";
 // The limits the host ENFORCES and the chrome has to STATE. They live one layer down
 // (`shared/`, which the chrome may value-import and this directory may not be) so the
 // number a user reads and the number a click is refused by are ONE number rather than two
@@ -27,8 +22,7 @@ import {
 // `RADIUS_MIN`/`RADIUS_MAX` are `clampRadius`'s and `HOLLOW_MIN_M` is `clampTool`'s, all
 // three now in `field-tool.ts`; `DIG_RANGE_M` — neither enforced nor stated, but what
 // `MAX_SEGMENT_M` is twice of — went with the eyedropper's raycast, its only reader here.
-import { MAX_SEGMENT_M, SELECTION_UI_BUDGET } from "../shared/field-limits.ts";
-import { boxCentre, boxEdges } from "./box-edges.ts";
+import { MAX_SEGMENT_M } from "../shared/field-limits.ts";
 import { createAnalyzer } from "./field-analyzer.ts";
 // The rig, and with it BOTH pure camera modules: `camera-control.ts` (the orbit math) and
 // `field-camera.ts` (the input arithmetic) each had every one of their readers inside the
@@ -38,6 +32,7 @@ import { createAnalyzer } from "./field-analyzer.ts";
 import { createCameraRig } from "./field-camera-rig.ts";
 import { FieldWorkerClient, type WorkerLike } from "./field-client.ts";
 import { createDrift } from "./field-drift.ts";
+import { createEntities } from "./field-entities.ts";
 import {
   createFlagStore,
   type FlagFilters,
@@ -45,11 +40,6 @@ import {
   type FlagsSummary,
   INFO_TINT,
 } from "./field-flags.ts";
-import {
-  boxCorners,
-  crossSegments,
-  generatorFootprint,
-} from "./field-ghost.ts";
 import type { FieldHistory } from "./field-history.ts";
 import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
@@ -65,26 +55,26 @@ import { createProps } from "./field-props.ts";
 import type { WireBucket } from "./field-protocol.ts";
 import { createRender } from "./field-render.ts";
 import { createSegmentBrush } from "./field-segment.ts";
-import {
-  SELECTION_DISPLAY_CAP,
-  selectionDisplayCells,
-} from "./field-selection-cells.ts";
+import { createSelection } from "./field-selection.ts";
 import type { StampSession } from "./field-stamp.ts";
 import { createStatsMeter } from "./field-stats.ts";
 import { createTargeting } from "./field-targeting.ts";
 import { createTool } from "./field-tool.ts";
 import { createView } from "./field-view.ts";
 import { createVoidCast } from "./field-voidcast.ts";
-import {
-  type Axis,
-  axisLines,
-  type GizmoSpan,
-  gizmoSpan,
-  pickAxis,
-} from "./gizmo.ts";
 import { arrowNudgeSteps } from "./input-map.ts";
-import { createInputRouter, createRung } from "./input-router.ts";
-import { segmentsToBatch } from "./reference-grid.ts";
+// `createRung` is NOT imported any more, and that is a fact about the closure
+// rather than about this line: after T3d Task 5 there are ZERO Esc rungs left in
+// `createFieldHost`. **The absent import IS that check** — which is the only claim
+// here worth making in a comment, because it is the one a reader cannot get wrong
+// and a future edit cannot silently falsify. Every rung now lives in the module
+// that owns the state it cancels; the block at `const router =` names the owners
+// and cites the grep that regenerates the list. What stays here is the ROUTER —
+// assembled first, handed to each of those modules as a dep, and drained by the
+// `Escape` branch of `onKeyDown`. The stack is the one piece of cross-cluster
+// arbitration that never had to move, because a rung addresses it by registration
+// rather than by position.
+import { createInputRouter } from "./input-router.ts";
 // The render-bookkeeping shapes live with the rest of the substrate an extracted
 // cluster is handed, so the host and its clusters name them from one place.
 import {
@@ -92,7 +82,14 @@ import {
   createHostSubstrate,
   type PropRender,
 } from "./substrate.ts";
-import { createViewChannel } from "./view-channel.ts";
+// `createViewChannel` is NOT imported any more either, and the same reading
+// applies — the absent import is the check. All thirteen of the host's
+// `subscribe*` seams are now one-line delegates onto a channel some MODULE owns,
+// one channel per seam, and `grep -c "createViewChannel<" src/field-host/*.ts`
+// regenerates the ownership. The last THREE left at T3d Task 5 (`selection`'s,
+// the entity tick's and the entity selection's), which is why this import went
+// with them. (This said "the last four" while naming three, until the Task-5
+// review.)
 import { type ViewportCursor, viewportCursor } from "./viewport-cursor.ts";
 
 /** How the field is lit. `studio` is the DEFAULT and the state of seeing (D-F4.5-17):
@@ -1357,17 +1354,17 @@ export type FieldHost = {
 
 type Vec3T = [number, number, number];
 
-/** The host's stored selection: the replayable spec + its click-time
- *  materialization. The materialization feeds UI info + the overlay ONLY —
- *  a selection-masked op embeds the SPEC and core re-materializes it against
- *  pre-op state at each application (replay-safe by construction). */
-type SelectionState = {
-  spec: field.SelectionSpec;
-  materialized: field.MaterializedSelection;
-};
+// `SelectionState` — the stored spec + its click-time materialization — left
+// with `field-selection.ts` on 2026-08-08 (foundations T3d Task 5) and is
+// private there. Nothing outside that module ever needs the shape: the two
+// readers that used to (`cameraRig.selectionBox`, `machine.selectionRegion`)
+// take a BOX and a region-plus-truncation instead.
 
-/** A prebuilt drawLines batch (vertices + per-vertex colors). */
-type LineBatch = { vertices: Float32Array; colors: Float32Array };
+// `LineBatch` — the drawLines vertices/colors pair — is no longer declared here:
+// every batch in the host belonged to `selection` or `entities` and both left on
+// 2026-08-08. Six modules declare the same three-word structural alias locally,
+// which `field-camera-rig.ts`'s `Box` note argues is right on COUNT: a name is
+// not part of a structural type's identity.
 
 const REMESH_PER_FRAME = 2; // dirty-set drain budget per rAF
 /** The pointer-rate cadence: how often a drag applies the brush, and (since D-25) how
@@ -1391,11 +1388,31 @@ const MAX_FRAME_DT = 0.1; // clamp dt so a stall can't lurch the camera
 // both ambient terms and the reference grid's two — left with `field-render.ts`
 // on 2026-08-08 (foundations T3d). The MATERIAL layer's six went to
 // `field-materials.ts` the same day: the shared specular, both ghost alphas, the
-// void cast's cyan and its alpha, and the selection cell's. Each had readers in
-// exactly one of the two clusters, so each travelled with it. The two that did
-// NOT are `SELECTION_COLOR` and `ANCHOR_CROSS_HALF_M` below — read by `selection`
-// as well — and `SELECTED_COLOR`, read by `selection`'s outline; all three are
-// handed to the modules that need them as plain value deps.
+// void cast's cyan and its alpha, and the selection cell's. The gizmo's
+// `AXIS_COLOR` went to `field-entities.ts` at Task 5. Each had readers in
+// exactly one cluster, so each travelled with it.
+//
+// THE THREE BELOW STAY, and the argument has CHANGED rather than expired — this
+// is the resolution of the Task-5 migration markers
+// `field-materials.ts` and `field-render.ts` carried on them. They were declared
+// here on a "two owners-to-be" argument: a constant shared with a reader still in
+// this closure stays where both can see it. After Task 5 NO function in this file
+// reads any of the three. What each has instead is readers in two or three
+// DIFFERENT modules — `SELECTION_COLOR` in `field-selection.ts` +
+// `field-render.ts`; `ANCHOR_CROSS_HALF_M` in those two + `field-segment.ts`;
+// `SELECTED_COLOR` in `field-selection.ts` + `field-materials.ts` — so the
+// declaration is now a NEUTRAL shared point rather than a shared-with-the-host
+// one, and all three keep travelling as plain VALUE deps on `field-segment.ts`'s
+// `anchorCrossHalfM` precedent, which is three tranches old and is literally one
+// of them.
+//
+// Picking an owner among PEERS is a naming decision — whose vocabulary is the
+// editor's accent? — with no code consequence, and the spelling that implements
+// it would make two sibling modules value-import a third for a literal, which is
+// a load-order edge where there is none today. That is a DELETION-PASS question
+// (`working-standards.md` §Design), so it belongs to the prune tranche and not to
+// a threading one. The stay is deliberate and stated here rather than left to be
+// inferred from the absence of a move.
 
 // `clampRadius` and `clampIntRange` left with `field-tool.ts` (2026-08-08,
 // foundations T3d Task 4): the first is `applyRadius`'s and the second is
@@ -1430,24 +1447,14 @@ const SELECTED_COLOR: [number, number, number, number] = [
 const ANCHOR_CROSS_HALF_M = 0.25;
 
 // --- the translate gizmo (D-9) ---------------------------------------------
-// Semantic axis colours — X red, Y green, Z blue. The SAME palette the chrome's
-// AxisTriad draws (its own comment already promises they match this gizmo),
-// converted from those CSS hexes to LINEAR sRGB by the sRGB EOTF
-// (`c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)^2.4`). The conversion is the
-// whole point: shaders write LINEAR and the swap chain applies the sRGB encoding
-// on output (engine-conventions §Color space), so shipping the 0-1 hex directly
-// would be double-encoded and the arms would render as pale pastels — "red"
-// around rgb(243,145,148). SELECTED_COLOR is converted the same way.
-//
-// No test can catch this: the GPU fixtures request `surfaceFormat: "linear"`, so
-// the encode this compensates for never runs there. It is arithmetic plus review,
-// like SELECTED_COLOR, and the hexes are kept in the trailing comments so
-// the conversion stays checkable.
-const AXIS_COLOR: Record<Axis, [number, number, number, number]> = {
-  x: [0.7835, 0.0648, 0.0742, 1], // #e5484d
-  y: [0.0612, 0.3864, 0.0976, 1], // #46a758
-  z: [0.1046, 0.2664, 0.8632, 1], // #5b8def
-};
+// `AXIS_COLOR` — the semantic X-red / Y-green / Z-blue palette, converted to
+// LINEAR sRGB — left with `field-entities.ts` on 2026-08-08 (foundations T3d
+// Task 5). It had exactly ONE reader in this closure, the gizmo's batch build,
+// so it travelled by the same rule the material and frame constants followed at
+// Task 3. Its conversion argument (and the note that no test can catch a
+// double-encode, because the GPU fixtures request `surfaceFormat: "linear"`)
+// went with it; `SELECTED_COLOR` above is converted the same way and says so.
+
 // Load-time compaction fires only when the loaded log carries MORE than this
 // many foldable ops (spec D-F3-16). Named, not inlined: the meter's
 // `compactable N` reads against the SAME logStats ceiling, so a user watches
@@ -1535,7 +1542,7 @@ export function createFieldHost(deps?: {
 
   // --- the `catalogs` cluster: DECLARED FACADE-RESIDENT, foundations T3d ------
   //
-  // Three bindings — `table` here, `archetypes` and `archetypeById` ~130 lines
+  // Three bindings — `table` here, `archetypes` and `archetypeById` ~110 lines
   // down — and this is the record that they stay, so a later sweep does not read
   // the absence of a `field-catalogs.ts` as an oversight.
   //
@@ -1584,62 +1591,52 @@ export function createFieldHost(deps?: {
   // releases it when it clears, so what Esc can cancel is exactly what is
   // standing.
   //
-  // THE RUNGS ARE NAMED HERE, NOT COUNTED, and that is a correction rather than a
-  // style choice. This comment used to open "five states here plus the segment
-  // anchor", which was wrong twice over: it was already off by one when it was
-  // written (six rungs stood in this file, not five), and T3c then moved half of
-  // them into another module the sentence had no way to mention. A tally
-  // maintained by hand in a comment is the exact shape `setStamp`'s docblock
-  // argues against — it has to be re-derived by anyone adding a rung, and nothing
-  // fails if they don't. `grep -rn "createRung(" src/field-host/` is the live
-  // list; the OWNERS are:
-  //   - this file — the box-select anchor, the cell selection, the selected entity
+  // THE RUNGS ARE NAMED HERE, NOT COUNTED, and the rule has now been broken twice
+  // by two different authors, which is the argument for it. This comment used to
+  // open "five states here plus the segment anchor", wrong twice over: already off
+  // by one when written (six rungs stood in this file, not five), and T3c then
+  // moved half of them into a module the sentence had no way to mention. **T3d
+  // Task 5 then moved the remaining three out and left this list naming THIS FILE
+  // as their owner** — the same failure again, in a block whose whole thesis is
+  // that a hand-maintained tally "has to be re-derived by anyone adding a rung,
+  // and nothing fails if they don't". Nothing did. So the numbers are gone from
+  // this block entirely and only the OWNER LIST stays, because a list of names is
+  // checkable against the grep beside it in a way a count is not:
+  //   - `field-selection.ts` — the box-select anchor, the cell selection
+  //   - `field-entities.ts` — the selected entity
   //   - `field-machine.ts` — the live session (a move rides the same entry), the
   //     pending stamp arm, the sub-threshold move press
   //   - `field-segment.ts` — the segment anchor
-  // Each cluster captures for the state it OWNS, which is what handing the router
-  // over whole (rather than as a capture/release callback pair) is for. The rung
-  // mechanism itself lives in `input-router.ts` beside the stack, so the three
-  // modules cannot drift apart on when they acquire.
+  // `grep -rn "createRung(" src/field-host/` regenerates that list, and NOTHING in
+  // this file appears in it any more. Each cluster captures for the state it OWNS,
+  // which is what handing the router over whole (rather than as a capture/release
+  // callback pair) is for; the rung mechanism itself lives in `input-router.ts`
+  // beside the stack, so no owner can drift from another on when it acquires.
   const router = createInputRouter();
 
   // --- selection state (current + Reselect, overlay) ------------------------
   //
-  // The armed-gesture slot itself left with the session machine
+  // ALL NINE BINDINGS LEFT with `field-selection.ts` on 2026-08-08 (foundations
+  // T3d Task 5) — the current selection, the Reselect slot, the panel channel,
+  // the three overlay batches, the pending box anchor and the cell layer's mesh
+  // and count. Nothing stayed: no other cluster wrote any of them except
+  // `resetWorld`, whose two writes are one call (`selection.retireWorld()`)
+  // now, and every reader takes a narrow verb off that module's seam.
+  //
+  // The armed-gesture slot had already left with the session machine
   // (`field-machine.ts`): what LMB does and what a live session does to it are
   // one state machine — arming anything cancels a move in flight and drops a
   // pending stamp arm — so `gesture` went with the sessions rather than staying
   // beside the selection it merely shares a click with. Read here as
   // `machine.gesture()`.
   //
-  // The BOX ANCHOR stayed, and that is a decision rather than an omission: it is
-  // owned jointly with the two overlay batches below, `updateBoxPreview`,
-  // `boxCorner` and `selectionClick`, so moving it would have dragged the whole
-  // box-select overlay across the line for the sake of the two calls the machine
-  // makes on it. Those two arrive as machine deps instead.
-
-  // Pending box-select anchor: the first click's world point (null = none).
-  let boxAnchor: Vec3T | null = null;
-  let selection: SelectionState | null = null;
-  // The Reselect slot: the one previous selection (clear/replace park it here).
-  let lastSelection: SelectionState | null = null;
-  // The snapshot is the (re)mount rule: a surface arriving while a selection
-  // exists must not render "no selection" next to a visible amber overlay. It
-  // spells out the same expression `notifySelection` publishes — one clone per
-  // arrival, exactly as the single-slot subscribe body did.
-  const selectionChannel = createViewChannel<[SelectionInfo | null]>({
-    snapshot: () => [selection === null ? null : selectionInfo(selection)],
-  });
-  // Overlay line batches, rebuilt on selection/anchor CHANGE — never per frame
-  // (materializeSelection cost lives on the click; the overlay is stored). The
-  // box preview below is the one exception to "on change": it rebuilds on
-  // pointer MOVE while a box anchor is pending — still never per frame.
-  let selectionBatch: LineBatch | null = null;
-  let anchorBatch: LineBatch | null = null;
-  // The snapped-region AABB the pending anchor + cursor would commit, rebuilt on
-  // pointer MOVE (never per frame). Null unless a box anchor is pending; cleared
-  // with the anchor (setBoxAnchor(null)).
-  let boxPreviewBatch: LineBatch | null = null;
+  // The BOX ANCHOR stayed HERE for two tranches on the argument that it is owned
+  // jointly with the two overlay batches, `updateBoxPreview`, `boxCorner` and
+  // `selectionClick` — which was right, and is exactly why all six travelled
+  // together in the end. The machine still reaches them as deps
+  // (`setBoxAnchor`, `boxCorner`, `boxAnchor`, `updateBoxPreview`); what changed
+  // is that those four are now refs onto a module seam rather than onto closure
+  // functions.
 
   // --- the pending stamp arm (region-draw entry, D-F4.5-7) ------------------
   // All three bindings left with `field-machine.ts` — the arm, its channel and
@@ -1676,8 +1673,8 @@ export function createFieldHost(deps?: {
   // THE ONE PIECE OF THE ADVISOR THAT STAYS, by decision rather than by omission
   // — the rest of the cluster left on 2026-08-07 (foundations T3d) for
   // `field-analyzer.ts`, and this handle could not go with it. It is a
-  // `HostSubstrate` VALUE member, and the substrate is assembled ~190 lines below
-  // this line and ~1,800 lines ABOVE where the advisor is now constructed; a
+  // `HostSubstrate` VALUE member, and the substrate is assembled ~160 lines below
+  // this line and ~1,210 lines ABOVE where the advisor is now constructed; a
   // record whose value members are read eagerly cannot be built above one of
   // them, which is why T3b1 hoisted this declaration here in the first place. It
   // also has two extracted readers now — `field-analyzer.ts` and
@@ -1701,30 +1698,26 @@ export function createFieldHost(deps?: {
   // record hands out and no single extracted module may own.
   const flagStore = createFlagStore();
 
-  // The cell-level selection display (f2b gate item 1): ONE translucent instanced
-  // cube per drawn cell of a `cells` selection, so a flood the camera is standing
-  // inside reads as a shape rather than as an AABB outline the user cannot see
-  // from within. Null for a region selection, for no selection, and before GPU
-  // init. `selectionCellsCount` is the twin of the advisor marker layer's own
-  // count (`field-analyzer.ts`) — decided by every rebuild, uploaded only when a
-  // context exists.
+  // The cell-level selection display (f2b gate item 1) left with
+  // `field-selection.ts` too, and it is the one piece of that cluster with a GPU
+  // half: an instanced cube per drawn cell, rebuilt per selection change, freed
+  // at `dispose`. So two of the module's twenty verbs are lifecycle points this
+  // file still calls — `selection.rebuildCells()` from `ret.init` (the selection
+  // is CPU state and survives a dispose, so a re-init has to redraw it) and
+  // `selection.destroyCells(c)` from `ret.dispose`.
   //
-  // The cubes' MATERIAL and binding left with `field-materials.ts` — same split
-  // as the advisor's marker layer, and for the same reason: they are built by one
-  // `init` and freed by one `dispose` alongside every other GPU material, while
-  // the instanced mesh is rebuilt per selection change and belongs here.
-  // `rebuildSelectionCells` reads the material as `materials.selectionCell()` and
-  // never sees the bind.
-  let selectionCells: { im: mesh.InstancedMesh; g: geometry.Geometry } | null =
-    null;
-  let selectionCellsCount = 0;
+  // Its MATERIAL and binding had already left with `field-materials.ts` — same
+  // split as the advisor's marker layer, and for the same reason: they are built
+  // by one `init` and freed by one `dispose` alongside every other GPU material,
+  // while the instanced mesh belongs to the selection. The module reads the
+  // material as a dep and never sees the bind.
 
   // --- view state (layers + slice plane) ----------------------------------
   //
   // Both `let`s left with `field-view.ts`, and the assembly did NOT stay here to
   // mark the spot the way the other four extractions' did: `createView` takes
   // the void cast's `discard` and `request`, so it cannot be constructed above
-  // `createVoidCast` — search `const viewState =`, ~1,800 lines down. What every
+  // `createVoidCast` — search `const viewState =`, ~1,060 lines down. What every
   // reader of this block wants to know is that the flags and the plane are still
   // the host's own state, read as `viewState.layers()` / `viewState.sliceY()`.
 
@@ -1745,14 +1738,12 @@ export function createFieldHost(deps?: {
   // where all four could reach it. The READERS are what decided — there are two
   // and both are the module's — so the writers got a two-verb seam
   // (`drift.set` + `drift.notify`) and the state went with what reads it. The
-  // assembly is ~1,300 lines down, below `entityFootprints`, which is the one
-  // thing the payload cannot derive from itself.
+  // assembly is ~710 lines down, below `createEntities`, whose footprint memo is
+  // the one thing the payload cannot derive from itself.
 
-  // Entity-list change tick (freeze/bake dirty no chunk, so the remesh counter
-  // cannot carry them — see subscribeEntities). A ZERO-ARG channel: the tick
-  // carries no value, and its snapshot is the initial catch-up (the world may
-  // already hold entities) rather than a payload.
-  const entitiesChannel = createViewChannel<[]>({ snapshot: () => [] });
+  // The entity-list change tick left with `field-entities.ts` (2026-08-08,
+  // foundations T3d Task 5), with the other seven bindings of that cluster; see
+  // the block below where the selected id was.
   // Ghost render state: one entry per previewed chunk, every bucket drawn with
   // the ONE translucent stamp-ghost material. Rebuilt per preview response;
   // destroyed on cancel/commit/re-preview/world-reset + dispose.
@@ -1767,31 +1758,19 @@ export function createFieldHost(deps?: {
   // with the machine, unlike the meshes above: it is a CPU-only line batch with
   // no GPU handle to free at dispose, so nothing here needs to reach it.
   // `renderScene` reads `machine.placementGhost()`.
-  // The SELECTED entity (selectEntity / a `pointer` click) and its footprint
-  // box, prebuilt on every change and drawn under the selection layer gate.
-  // CPU-only line batch.
+  // The SELECTED entity, its footprint box, the translate gizmo that hangs on
+  // that box and the panel channel that announces it ALL LEFT with
+  // `field-entities.ts` on 2026-08-08 (foundations T3d Task 5), together with the
+  // entity tick's channel above and the footprint memo's two cache bindings ~950
+  // lines down. Eight bindings, nothing stayed, and no other cluster wrote any of
+  // them — the whole inbound column of that row was zero, which is why the move
+  // cost the mutation register nothing.
   //
-  // The ID is tracked BESIDE the batch because a committed region is no longer
-  // immutable: F3a's reconfigure can move it (the card offers nudge), and undo
-  // can move it back — so the batch has to be rebuildable from the id rather
-  // than only from the call that first drew it. Before F3a the box could not go
-  // stale, which is why the id was not kept.
-  let selectedEntityId: number | null = null;
-  let entitySelectionBatch: LineBatch | null = null;
-  // Snapshot (the selection seam's remount rationale): a palette arriving while
-  // an entity is selected must not render every row unselected next to a
-  // visible box in the viewport.
-  const entitySelectionChannel = createViewChannel<[number | null]>({
-    snapshot: () => [selectedEntityId],
-  });
-  // The translate gizmo's span, rebuilt with the selection box it hangs on (same
-  // footprint, same invalidation), and the line batch drawn from it. The SPAN is
-  // kept beside the batch because the pick needs its numbers and re-deriving
-  // them from a vertex buffer is how the drawn handles and the pickable ones
-  // part company. Both null whenever nothing is selected; whether they are DRAWN
-  // is a separate question (gizmoVisible).
-  let gizmo: GizmoSpan | null = null;
-  let gizmoBatch: LineBatch | null = null;
+  // What DID keep it in this file for five tranches is an ordering fact rather
+  // than a coupling one, and it is recorded at the assembly: `entityFootprints`
+  // is taken as a PLAIN REF by both `field-drift.ts` and `field-camera-rig.ts`,
+  // so the module has to be built above the lower of the two. Read here as
+  // `entities.selectedId()`, `entities.gizmo()` and the rest of its 14 verbs.
   // The live move, the mid-preview drop latch and the sub-threshold press all
   // left with `field-machine.ts`, and they had to: the move's SESSION is the
   // machine's `stamp` slot, so a boundary between them would have cut a state
@@ -1908,7 +1887,7 @@ export function createFieldHost(deps?: {
   // where `frameWorld` and `snapView` were — which is also `createSegmentBrush`'s
   // precedent read the other way round, since six of the fourteen functions lived
   // exactly there. What it cost is one arrow at `createTargeting` below: that
-  // module takes `cam` and is assembled ~500 lines ABOVE the rig, so its thunk
+  // module takes `cam` and is assembled ~360 lines ABOVE the rig, so its thunk
   // reaches forward into a `const` declared later. Safe for the reason spelled out
   // at the `createVoidCast` assembly — nothing between this closure's brace and
   // its `return {` ever RUNS — and cheaper than the six arrows placing the rig up
@@ -1939,22 +1918,22 @@ export function createFieldHost(deps?: {
   // Every GPU material the viewport draws with, lifted out whole
   // (`field-materials.ts`): fifteen handles and the shading mode. What stayed is
   // `litByClass` — a substrate value member since T3a, so it could not follow its
-  // own owner; the verdict is at its declaration ~540 lines up.
+  // own owner; the verdict is at its declaration ~350 lines up.
   //
   // THE ASSEMBLY SITS WHERE THE FUNCTIONS WERE, on `createSegmentBrush`'s
   // precedent (a cluster's remaining footprint marks where the cluster was), and
   // for once that position is also the one the ordering forces. It has to be
   // ABOVE `createProps` ~110 lines down, which takes `kitMat` and `kitInstanced`,
-  // and above `createAnalyzer` ~1,580 lines down, which takes `flagMarker` —
+  // and above `createAnalyzer` ~970 lines down, which takes `flagMarker` —
   // `createAnalyzer` being the closure's ordering pivot, whose own block names
   // this line as one of the two constraints this task adds to it. `substrate` is
-  // its only other requirement and is ~190 lines up, so nothing here is forced
+  // its only other requirement and is ~240 lines up, so nothing here is forced
   // any higher.
   //
   // NO FORWARD REFERENCE AT ALL, which is worth recording because the map
   // predicted one. §6's `materials` row lists a read of `stamp` in
   // `stampGhostMaterial`, which would have made this assembly depend on the
-  // machine ~1,670 lines below. Grepping the function finds no such read: the only
+  // machine ~1,070 lines below. Grepping the function finds no such read: the only
   // occurrence of the word is inside its own throw message, "field-host: stamp
   // ghost material not initialized". A §2.1 phantom, on a binding name the map's
   // own list of ordinary English words already names. The cluster's real outbound
@@ -1962,9 +1941,11 @@ export function createFieldHost(deps?: {
   const materials = createMaterials({
     substrate,
     // The editor's `--primary`, premultiplied into the cell-selection material.
-    // Passed as a VALUE rather than moved, because `selectedBoxOutline` reads the
-    // same constant and that function is `selection`'s — `field-segment.ts`'s
-    // `anchorCrossHalfM` precedent, and the module's header argues it.
+    // Passed as a VALUE rather than moved, because `field-selection.ts`' outline
+    // reads the same constant — `field-segment.ts`'s `anchorCrossHalfM`
+    // precedent, and both modules' headers argue it. Since T3d Task 5 the two
+    // readers are peer modules and this file reads it nowhere; the declaration
+    // block above says why it is still declared there.
     selectedColor: SELECTED_COLOR,
   });
 
@@ -2177,19 +2158,19 @@ export function createFieldHost(deps?: {
   //
   // The armed tool, its radius, the momentary overrides and the whole op path,
   // lifted out whole: all eight bindings and all fourteen functions. NOTHING of
-  // the cluster stayed. What is left in this region is the one function that was
-  // never the brush's — the selection spec `toolMask` asks for, directly below,
-  // which is `selection`'s and travels at Task 5.
+  // the cluster stayed, and since T3d Task 5 nothing of `selection` is in this
+  // region either — the selection spec `toolMask` asks for was the one function
+  // here that was never the brush's, and it travelled.
   //
   // THE POSITION IS FORCED FROM BELOW, hard, and mostly by ONE member:
   // `reportToolError` has NINE call sites in this file and SIX other modules take
   // it as a dep. The lowest thing that must see it is nothing in particular — it
-  // is the SUM. `createTargeting` (~290 lines down) takes it and `digRadius`;
+  // is the SUM. `createTargeting` (~50 lines down) takes it and `digRadius`;
   // `createSegmentBrush` (~350) takes four members; `createVoidCast`,
   // `createAnalyzer`, `createFieldMachine`, `createRender` and `createCameraRig`
-  // each take one to four. So this line sits as high as its own deps allow, which
-  // is directly under `currentSelectionSpec` — the only dep it takes as a plain
-  // ref that is not declared far above.
+  // each take one to four. So this line sits as high as its own deps allow, and
+  // since T3d Task 5 every one of its eight deps is either the substrate, a host
+  // function declared far above, or an arrow.
   //
   // FIVE OF THE EIGHT DEPS ARE ARROWS, and they are the price of that height:
   // `field-targeting.ts`, `field-segment.ts`, `field-history-feed.ts` and
@@ -2199,23 +2180,18 @@ export function createFieldHost(deps?: {
   // `field-props.ts`'s `markPlacementsStale` breaks its own, because an arrow
   // body cannot run before the declaration it names.
   //
-  // MIGRATION (until T3d Task 5): `currentSelectionSpec` is a plain ref because
-  // it is a closure `const` declared two lines up. When `selection` leaves it
-  // becomes that module's verb, and THIS assembly is then pinned below
-  // `createSelection` — or the dep becomes a sixth arrow. Either is one line; the
-  // constraint is recorded so Task 5 does not meet it as a build error.
-
-  // The host's current selection spec for a selection-mask op (null = no
-  // selection — toolMask drops the mask and reports once per stroke). The
-  // stored spec is never mutated in place (selections replace wholesale), so
-  // embedding it into ops without a copy is aliasing-safe.
-  const currentSelectionSpec = (): field.SelectionSpec | null =>
-    selection?.spec ?? null;
-
+  // THE SIXTH ARROW IS `currentSelectionSpec`, AND THAT FORK IS NOW SETTLED. It
+  // was a plain ref to a closure `const` declared two lines above this assembly,
+  // and the marker here said Task 5 would either pin this line below
+  // `createSelection` or spend one more arrow. It spent the arrow, on a count:
+  // `field-selection.ts` takes `reportToolError` off THIS module and three cursor
+  // verbs off `field-targeting.ts` (~50 lines down), so assembling it above this
+  // line would have cost four forward arrows to save one. The module is built
+  // where its last functions were instead, and this dep reaches down.
   const tool = createTool({
     substrate,
     markDirtyWithNeighbors,
-    currentSelectionSpec,
+    currentSelectionSpec: () => selection.spec(),
     notifyHistory: () => {
       historyFeed.notify();
     },
@@ -2229,265 +2205,25 @@ export function createFieldHost(deps?: {
   });
 
   // --- selection gestures + overlay ---------------------------------------
-
-  // Metre AABB of a stored selection: a region's own bounds; a flood's cell
-  // bounds expanded to enclose whole voxel volumes (sample i spans
-  // [i·h, (i+1)·h) — bounds×h alone would give a single cell zero volume).
-  const selectionAabb = (
-    s: SelectionState,
-  ): { min: Vec3T; max: Vec3T } | null => {
-    if (s.materialized.kind === "region")
-      return { min: [...s.materialized.min], max: [...s.materialized.max] };
-    const b = s.materialized.bounds;
-    if (b === null) return null;
-    const h = store.cellSize;
-    return {
-      min: [b.min[0] * h, b.min[1] * h, b.min[2] * h],
-      max: [(b.max[0] + 1) * h, (b.max[1] + 1) * h, (b.max[2] + 1) * h],
-    };
-  };
-
-  // Clone a spec so the panel (via SelectionInfo) never holds references into
-  // host selection state.
-  const cloneSelectionSpec = (s: field.SelectionSpec): field.SelectionSpec => {
-    if (s.kind === "region")
-      return { kind: "region", min: [...s.min], max: [...s.max] };
-    if (s.kind === "flood-material")
-      return {
-        kind: "flood-material",
-        seed: [...s.seed],
-        classId: s.classId,
-        budget: s.budget,
-      };
-    return { kind: "flood-void", seed: [...s.seed], budget: s.budget };
-  };
-
-  const selectionInfo = (s: SelectionState): SelectionInfo => {
-    const count =
-      s.materialized.kind === "cells"
-        ? s.materialized.count
-        : regionSampleCount(
-            s.materialized.min,
-            s.materialized.max,
-            store.cellSize,
-          );
-    return {
-      spec: cloneSelectionSpec(s.spec),
-      count,
-      truncated: s.materialized.kind === "cells" && s.materialized.truncated,
-      aabb: selectionAabb(s),
-      // Present only when the display is PARTIAL. A region's `selectionCellsCount`
-      // is 0 by design (it draws a box, not cubes) and reporting that as
-      // "displaying 0 of 400" would be a truthful number describing the wrong
-      // thing, so the test is against the cell layer's own domain.
-      ...(s.materialized.kind === "cells" && selectionCellsCount < count
-        ? { displayed: selectionCellsCount }
-        : {}),
-    };
-  };
-
-  // ONE payload per publish, shared by every subscriber: the clone is at the
-  // PUBLISH boundary, not per delivery, so a pushed value is shared across
-  // subscribers and must be treated as immutable by all of them.
-  const notifySelection = (): void => {
-    selectionChannel.publish(
-      selection === null ? null : selectionInfo(selection),
-    );
-  };
-
-  // The 12-edge line batch of a metre AABB — the cell-selection overlay and the
-  // selected entity's footprint box share it.
-  const aabbEdgeBatch = (
-    aabb: { min: Vec3T; max: Vec3T },
-    color: [number, number, number, number],
-  ): LineBatch => {
-    const center = boxCentre(aabb);
-    const half: Vec3T = [
-      (aabb.max[0] - aabb.min[0]) / 2,
-      (aabb.max[1] - aabb.min[1]) / 2,
-      (aabb.max[2] - aabb.min[2]) / 2,
-    ];
-    return boxEdges(boxCorners(center, half), color);
-  };
-
-  // THE selected-thing outline: `aabbEdgeBatch` at the accent colour. Two callers
-  // and they are deliberately the two overlays that must never drift apart — the
-  // selected ENTITY's footprint box, and (through the advisor's
-  // `selectionOutline` dep) the selected FINDING's cell. One function is what
-  // makes "both wear `--primary`" a fact rather than two call sites that happen
-  // to name the same constant.
-  const selectedBoxOutline = (aabb: { min: Vec3T; max: Vec3T }): LineBatch =>
-    aabbEdgeBatch(aabb, SELECTED_COLOR);
-
-  const rebuildSelectionBatch = (): void => {
-    const aabb = selection === null ? null : selectionAabb(selection);
-    selectionBatch =
-      aabb === null ? null : aabbEdgeBatch(aabb, SELECTION_COLOR);
-  };
-
-  const destroySelectionCells = (c: Context): void => {
-    if (!selectionCells) return;
-    mesh.destroyInstanced(c, selectionCells.im);
-    geometry.destroy(c, selectionCells.g);
-    selectionCells = null;
-  };
-
-  // Rebuild the cell-level selection display: ONE translucent instanced cube per
-  // drawn cell, shell first, capped (see field-selection-cells.ts). Runs on
-  // selection COMMIT and never per frame — the enumeration is O(selected cells)
-  // and the cells cannot change without a new selection.
   //
-  // `cells` materializations ONLY. A REGION keeps the honest AABB outline it has
-  // always had: a region IS its box, so filling it with cubes would draw the same
-  // information at 65 000× the cost. The outline stays for floods too — it is the
-  // extent, and the cubes are the shape.
-  const rebuildSelectionCells = (): void => {
-    const materialized = selection?.materialized;
-    const plan =
-      materialized === undefined || materialized.kind !== "cells"
-        ? null
-        : selectionDisplayCells(materialized.chunks, SELECTION_DISPLAY_CAP);
-    // The count settles FIRST and unconditionally (`rebuildFlagMarkers`' rule,
-    // now in `field-analyzer.ts`): it is what the layer IS, and a host with no
-    // context has still decided it.
-    selectionCellsCount = plan?.displayed ?? 0;
-    const c = ctx;
-    // Bound to a local because the material is a CALL now (`field-materials.ts`):
-    // the guard and the upload are two reads of one slot, and narrowing does not
-    // survive a call boundary.
-    const cellMat = materials.selectionCell();
-    if (!c || !cellMat) return;
-    destroySelectionCells(c);
-    if (plan === null || plan.displayed === 0) return;
-    const g = geometry.cube(c, { size: 1 });
-    const im = mesh.createInstanced(c, {
-      geometry: g,
-      material: cellMat,
-      count: plan.displayed,
-    });
-    // One cell cube per instance, the flag-marker matrix layout: uniform scale on
-    // the diagonal, position in the last column, no rotation. A cell spans
-    // `[i·h, (i+1)·h)` so its CENTRE is half a cell past its sample corner —
-    // the same offset `selectionAabb` applies when it expands a flood's cell
-    // bounds to whole voxel volumes.
-    const h = store.cellSize;
-    const matrices = new Float32Array(16 * plan.displayed);
-    for (let i = 0; i < plan.displayed; i++) {
-      const o = i * 16;
-      matrices[o] = h;
-      matrices[o + 5] = h;
-      matrices[o + 10] = h;
-      matrices[o + 12] = ((plan.cells[i * 3] as number) + 0.5) * h;
-      matrices[o + 13] = ((plan.cells[i * 3 + 1] as number) + 0.5) * h;
-      matrices[o + 14] = ((plan.cells[i * 3 + 2] as number) + 0.5) * h;
-      matrices[o + 15] = 1;
-    }
-    mesh.setInstanceMatrices(c, im, matrices);
-    // No per-instance tint: `createInstanced` seeds every slot WHITE and the
-    // material's premultiplied `--primary` is the colour, so 65 000 setInstanceTint
-    // calls would each write the same four floats they already hold.
-    selectionCells = { im, g };
-  };
-
-  // A half-drawn box: the anchor the next click would close. Its own Esc entry,
-  // and the segment anchor's is its own too — the old rung 1 cleared BOTH in one
-  // press, but the arming rules make the pair unreachable (`setGesture` drops
-  // both on any switch, a stamp arm drops both), so the dual clear was guarding a
-  // state that cannot happen and one entry each says the same thing honestly.
-  const syncBoxAnchorCapture = createRung(
-    router,
-    "box anchor",
-    () => boxAnchor !== null,
-    () => setBoxAnchor(null),
-  );
-
-  const setBoxAnchor = (p: Vec3T | null): void => {
-    boxAnchor = p;
-    if (p === null) {
-      anchorBatch = null;
-      boxPreviewBatch = null; // the pending-region preview dies with its anchor
-    } else {
-      anchorBatch = segmentsToBatch(
-        crossSegments(p, ANCHOR_CROSS_HALF_M),
-        SELECTION_COLOR,
-      );
-    }
-    syncBoxAnchorCapture();
-  };
-
-  // Install a new current selection (null = clear): park the displaced one in
-  // the Reselect slot, rebuild the overlay, notify the panel.
-  // Both halves of what a selection LOOKS like — the extent outline and the cell
-  // cubes — through one call, so no path can refresh one and forget the other.
-  // It exists because a path did: `reselect` does its own swap (setSelection
-  // would overwrite the slot it is restoring) and so had its own pair of rebuild
-  // calls, which is precisely how the cell layer came back empty from a Reselect
-  // while the outline came back correct.
+  // TWENTY FUNCTIONS LEFT for `field-selection.ts` (2026-08-08, foundations T3d
+  // Task 5) — the AABB derivation, the spec clone, the panel payload, the four
+  // overlay rebuilds, the cell layer's build and teardown, both Esc rungs, the
+  // two setters, the display refresh, the snap, the box gesture's three
+  // functions and the click that drives them. Nothing stayed. The assembly is
+  // ~100 lines down, where the last of them (`selectionClick`) was, on
+  // `createSegmentBrush`'s precedent — a cluster's remaining footprint marks
+  // where the cluster was — and it sits BELOW `createTargeting`, which is what
+  // decided the arrow at `createTool` above.
   //
-  // Always BEFORE a `notifySelection`, because `selectionInfo` reports how many
-  // cells the display settled on (the `publishFlags` ordering rule, now stated in
-  // `field-analyzer.ts`: no subscriber may read a payload whose overlay is still
-  // the previous selection's).
-  const refreshSelectionDisplay = (): void => {
-    rebuildSelectionBatch();
-    rebuildSelectionCells();
-  };
-
-  // The cell selection's Esc entry (old rung 4). Its cancel is the SETTER's null,
-  // not a bespoke clear, so Esc parks the selection in the Reselect slot exactly
-  // as the panel's Clear does — an Esc that went one rung too far has the same way
-  // back a Clear has.
-  //
-  // TWO paths write `selection` without this setter (`resetWorld`'s teardown and
-  // `reselect`'s swap, each for its own documented reason), and both call this
-  // reconcile in the same breath. A REPLACE keeps the entry's position by
-  // construction — the slot is still full, so nothing is pushed.
-  const syncSelectionCapture = createRung(
-    router,
-    "cell selection",
-    () => selection !== null,
-    () => setSelection(null),
-  );
-
-  const setSelection = (next: SelectionState | null): void => {
-    if (selection !== null) lastSelection = selection;
-    selection = next;
-    syncSelectionCapture();
-    refreshSelectionDisplay();
-    notifySelection();
-  };
-
-  // The outward-0.5 lattice snap lives in field-brush.ts (snapSpan) — shared
-  // with the stamp session's selection→region derivation.
-  const boxRegionSpec = (a: Vec3T, b: Vec3T): field.SelectionSpec => {
-    const [x0, x1] = snapSpan(a[0], b[0]);
-    const [y0, y1] = snapSpan(a[1], b[1]);
-    const [z0, z1] = snapSpan(a[2], b[2]);
-    return { kind: "region", min: [x0, y0, z0], max: [x1, y1, z1] };
-  };
-
-  // Box-select live preview: the amber AABB of the SNAPPED region the second
-  // click would commit (boxRegionSpec of anchor→cursor), rebuilt on pointer
-  // MOVE while a box anchor is pending. A region spec's min/max ARE its metre
-  // AABB, so build the edge batch directly (no materializeSelection). A cursor
-  // that resolves to no surface point leaves the last preview untouched — a
-  // transient miss must not flicker the box off.
-  const updateBoxPreview = (clientX: number, clientY: number): void => {
-    if (boxAnchor === null) return;
-    const p = targeting.selectionPoint(clientX, clientY);
-    if (!p) return;
-    const spec = boxRegionSpec(boxAnchor, p);
-    // boxRegionSpec only ever builds a region; this kind check narrows the
-    // field.SelectionSpec union so min/max are accessible (cf. cloneSelectionSpec).
-    if (spec.kind !== "region") return;
-    // spec.min/max are fresh tuples nothing else aliases, and aabbEdgeBatch
-    // reads them without retaining a reference — pass them directly (no copy).
-    boxPreviewBatch = aabbEdgeBatch(
-      { min: spec.min, max: spec.max },
-      SELECTION_COLOR,
-    );
-  };
-
+  // TWELVE OF THE TWENTY ARE PRIVATE THERE, including four that were reached
+  // from OUTSIDE this cluster before the move (`setSelection`, `notifySelection`,
+  // `refreshSelectionDisplay`, `syncSelectionCapture`). Their two callers were
+  // `resetWorld` and the facade's `reselect`, and each wanted a STATEMENT GROUP
+  // and its ORDER rather than the functions themselves — so they are
+  // `selection.retireWorld()` and `selection.reselect()` now, one call each.
+  // That is Task 4's `applyOrbit` rule applied a second time, and it is why a
+  // 20-function row leaves an 20-verb seam rather than a 30-verb one.
   // --- the cursor chain (`field-targeting.ts`) -----------------------------
   //
   // Six functions and one `let` — client pixels → NDC → a world ray → the four
@@ -2497,7 +2233,7 @@ export function createFieldHost(deps?: {
   // footprint marks where the cluster was.
   //
   // The two view members arrive as ARROWS rather than plain refs, and that is the
-  // one ordering fact worth carrying: `createView` is assembled ~750 lines BELOW
+  // one ordering fact worth carrying: `createView` is assembled ~540 lines BELOW
   // this line and the deps literal is eager, so a plain `viewState.sliceY` would
   // be a TDZ read. Same shape and same reason as the machine's
   // `noteReconfigureMs`. The alternative — assembling this below `createView` —
@@ -2519,29 +2255,6 @@ export function createFieldHost(deps?: {
     reportToolError: tool.reportError,
   });
 
-  // Materialize a gesture-built spec into the current selection. Runs on the
-  // CLICK only (never per frame — full-budget floods cost ~60-80ms). A flood
-  // can legitimately come up empty (nothing matched); that reports instead of
-  // silently displacing the current selection.
-  const commitSelectionSpec = (spec: field.SelectionSpec): void => {
-    let materialized: field.MaterializedSelection;
-    try {
-      materialized = field.materializeSelection(store, spec);
-    } catch (err) {
-      // Setup-loud spec validation (integer seeds, budget range) — gesture-
-      // built specs shouldn't trip it; swallow so a bug can't escape the
-      // pointer handler.
-      const message = err instanceof Error ? err.message : String(err);
-      tool.reportError(`selection failed: ${message}`);
-      return;
-    }
-    if (materialized.kind === "cells" && materialized.count === 0) {
-      tool.reportError("selection found no matching cells at the click point");
-      return;
-    }
-    setSelection({ spec, materialized });
-  };
-
   // --- segment brush (two-click swept capsule, D-F3-14) -------------------
 
   // The gesture's whole state and logic live in `field-segment.ts` — the first
@@ -2562,7 +2275,7 @@ export function createFieldHost(deps?: {
   // than for who it reads from — so nothing inside `field-segment.ts` moved. The
   // edge also became two-way in the same change: that module's `rebuildPreview`
   // is what `applyRadius` calls, and it reaches back through an arrow at
-  // `createTool` ~140 lines up, because this assembly is below it.
+  // `createTool` ~90 lines up, because this assembly is below it.
   const segment = createSegmentBrush({
     strokeMinMs: STROKE_MIN_MS,
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
@@ -2575,65 +2288,44 @@ export function createFieldHost(deps?: {
     router,
   });
 
-  // One LMB click while a selection mode is armed (applyTool is bypassed). The
-  // mode is a PARAMETER, not a read of `gesture`: the segment gesture shares
-  // that slot, and a bare else-fallthrough would have silently flood-selected
-  // void for it.
-  // One click of the two-click BOX corner machinery, shared by the cell-select
-  // box gesture and the pending stamp's region draw (D-F4.5-7). The first click
-  // anchors and answers null; the second closes and answers the snapped region
-  // the pair spans. A cursor that resolves to no surface point answers null and
-  // changes nothing.
+  // --- the selection (`field-selection.ts`) --------------------------------
   //
-  // The two callers differ only in what they DO with the region — one
-  // materializes a cell selection, the other opens a stamp session on it — so
-  // this is the whole of what they share, and sharing it is what stops the
-  // stamp's corners from snapping differently to the selection's.
-  const boxCorner = (
-    clientX: number,
-    clientY: number,
-  ): field.SelectionSpec | null => {
-    const p = targeting.selectionPoint(clientX, clientY);
-    if (!p) return null;
-    if (boxAnchor === null) {
-      setBoxAnchor(p); // first corner — the amber cross previews it
-      return null;
-    }
-    const spec = boxRegionSpec(boxAnchor, p);
-    setBoxAnchor(null);
-    return spec;
-  };
-
-  const selectionClick = (
-    selectionMode: SelectionMode,
-    clientX: number,
-    clientY: number,
-  ): void => {
-    if (selectionMode === "box") {
-      const spec = boxCorner(clientX, clientY);
-      if (spec !== null) commitSelectionSpec(spec);
-      return;
-    }
-    if (selectionMode === "material") {
-      const seed = targeting.materialSeedVoxel(clientX, clientY);
-      if (!seed) return;
-      commitSelectionSpec({
-        kind: "flood-material",
-        seed,
-        classId: field.getMaterial(store, seed[0], seed[1], seed[2]),
-        budget: SELECTION_UI_BUDGET,
-      });
-      return;
-    }
-    const seed = targeting.voidSeedVoxel(clientX, clientY);
-    if (!seed) return;
-    commitSelectionSpec({
-      kind: "flood-void",
-      seed,
-      budget: SELECTION_UI_BUDGET,
-    });
-  };
-
+  // Nine bindings, twenty functions, twenty verbs on the seam. The state block
+  // ~700 lines up records what left; this is where the last of its functions
+  // (`boxCorner` and `selectionClick`) were, on `createSegmentBrush`'s precedent.
+  //
+  // THE POSITION IS PINNED FROM ABOVE AND PINS TWO THINGS BELOW. From ABOVE:
+  // four of the ten deps are refs onto `field-targeting.ts` (~70 lines up) and
+  // `field-tool.ts` (~130 up), and `materials.selectionCell` is a third module's.
+  // BELOW: `createEntities` takes `outline` as a plain ref and so may not rise
+  // above this line — the ONE coupling the two clusters have, and the whole of
+  // why the plan paired them (see either module's header for why they are two
+  // modules anyway). `createAnalyzer`, `createCameraRig`, `createFieldMachine`
+  // and `createRender` all take verbs off this seam too, but every one of those
+  // is hundreds of lines further down and pinned harder by something else.
+  //
+  // TEN DEPS AND NOT ONE ARROW, which no other assembly in this file can say:
+  // one substrate, one router, five refs onto sibling module seams and three
+  // constants by value. It is the payoff of sitting low — the cluster's own
+  // readers are all below it, so nothing here reaches forward, and the single
+  // forward reach in the whole boundary is the `currentSelectionSpec` arrow at
+  // `createTool`, which that block prices.
+  //
+  // THE THREE CONSTANTS travel by VALUE and stay declared at the top of this
+  // file; the block that declares them argues why, and it is no longer the "two
+  // owners-to-be" argument the migration markers carried.
+  const selection = createSelection({
+    substrate,
+    router,
+    selectionCellMat: materials.selectionCell,
+    selectionPoint: targeting.selectionPoint,
+    materialSeedVoxel: targeting.materialSeedVoxel,
+    voidSeedVoxel: targeting.voidSeedVoxel,
+    reportToolError: tool.reportError,
+    selectionColor: SELECTION_COLOR,
+    selectedColor: SELECTED_COLOR,
+    anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
+  });
   // --- pointer pick (object selection) ------------------------------------
   //
   // The whole cluster left with `field-picking.ts` — the candidate build, the
@@ -2643,11 +2335,14 @@ export function createFieldHost(deps?: {
   // sayable.
   //
   // The assembly did NOT stay here, and the reason is ordering rather than
-  // preference: the press interrogates `entityFootprints`, `gizmoAxisAt`,
-  // `setSelectedEntity`, `viewState` and the advisor's `setSelectedFlag`, all of
-  // which are declared BELOW this point, and the deps literal is eager. Assembling it here
-  // would have cost five arrows to save two. Search `const picking =`, ~750
-  // lines down, immediately above the machine that dispatches it.
+  // preference: the press interrogates the entity footprints, the gizmo hit-test,
+  // the entity-selection setter, `viewState` and the advisor's `setSelectedFlag`,
+  // all of which are declared BELOW this point, and the deps literal is eager.
+  // Assembling it here would have cost five arrows to save two. (Three of the five
+  // are `field-entities.ts`' since T3d Task 5, so the constraint is now "below
+  // `createEntities`" rather than below three closure functions — same floor, one
+  // name.) Search `const picking =`, ~600 lines down, immediately above the
+  // machine that dispatches it.
 
   // The named-history feed (`field-history-feed.ts`): its channel, its change
   // signature and two of its three functions left, and no state stayed behind —
@@ -2670,107 +2365,77 @@ export function createFieldHost(deps?: {
   // The forward reference here is the one that was already there, one module
   // further away since 2026-08-08: `commitToolOp` calls this feed, and it is
   // `field-tool.ts`'s now, so the call arrives through the `notifyHistory` arrow
-  // in that module's deps record ~460 lines up rather than from a closure
+  // in that module's deps record ~180 lines up rather than from a closure
   // function. Safe for the reason spelled out at the `createVoidCast` assembly
   // below — nothing between this closure's brace and its `return {` ever RUNS.
-  // No hoist was needed: the one dep is `substrate`, assembled ~1,070 lines
+  // No hoist was needed: the one dep is `substrate`, assembled ~520 lines
   // above.
   const historyFeed = createHistoryFeed({ substrate });
 
-  // The entity-list tick. Fired by every path that can add, remove or rewrite
-  // an entity RECORD — including the two (freeze, bake) that dirty no chunk and
-  // would otherwise reach the panel through nothing at all.
+  // --- the entity selection (`field-entities.ts`) --------------------------
   //
-  // It carries the history push, and that containment is deliberate rather than
-  // convenient. Ten host paths mutate the op log; NINE of them rewrite an entity
-  // record and therefore already funnel through here by this seam's own contract
-  // (commit, apply, freeze, unfreeze, bake, delete, duplicate, ⌘Z/⇧⌘Z, world
-  // new/load). The tenth is the brush stroke, which touches no entity — so
-  // `commitToolOp` calls the feed itself (from `field-tool.ts` since 2026-08-08,
-  // through its `notifyHistory` dep), and those two are the ONLY sites.
-  // Spelling it out at all ten would be ten chances to forget.
-  const notifyEntities = (): void => {
-    entitiesChannel.publish();
-    historyFeed.notify();
-  };
-
+  // Eight bindings, ten functions, fourteen verbs on the seam. The state block
+  // ~620 lines up records what left; this is where the cluster's first function
+  // (`notifyEntities`) was, and it is the TOP of a window rather than a free
+  // choice.
+  //
+  // THE WINDOW, both ends stated because they nearly closed. From ABOVE:
+  // `createHistoryFeed` directly overhead (the entity tick carries the history
+  // push) and `createSelection` ~100 lines up (the emphasis outline, the ONE
+  // thing this module takes from that one). From BELOW: `createDrift` ~40 lines
+  // down and `createCameraRig` ~200 down BOTH take `footprints` as a PLAIN REF,
+  // and the rig's record carried a Task-5 migration marker for two
+  // tasks saying exactly that — assemble this below either and the ref becomes an
+  // arrow, with the rig's two `entities` thunks following it. Nothing forced the
+  // choice inside the window, so it sits at the top of it.
+  //
+  // NINE DEPS, and the split is the shape a cluster read from every direction
+  // makes: substrate + router, THREE plain refs onto seams above
+  // (`historyFeed.notify`, `selection.outline`, `targeting.cursorRay`), THREE
+  // thunks reaching DOWN into `field-machine.ts` (~600 lines below — the gizmo's
+  // visibility asks it three questions and the short-circuit order between them
+  // is preserved verbatim), and ONE thunk over the host `let` `worldEpoch`, which
+  // is `world`'s and rides in the footprint memo's signature.
+  //
+  // WHAT DID NOT COME: the five entity VERBS on the facade — `setEntityFrozen`,
+  // `bakeEntity`, `deleteEntity`, `duplicateEntity`, `listEntities`. Each drives
+  // `markDirtyWithNeighbors`, `props.rebuild()`, `machine.cancelSession()` and
+  // `table()` as much as it drives anything in that module, so moving them would
+  // drag two clusters Task 6 owns across a boundary to buy nothing. They reach in
+  // here for the four things that are STATE (`record`, `footprints`, `select`,
+  // `revalidate`) and push through `notify`.
+  //   // MIGRATION (until T3d Task 6): this is a DEFERRAL, not a declaration, and
+  //   the distinction is the one `stepHistory` sits on the other side of. That
+  //   verb is facade-resident PERMANENTLY — its callers are listeners and facade
+  //   methods that cannot move. These five are held here only by four blockers,
+  //   and ALL FOUR resolve at Task 6: `markDirtyWithNeighbors` and `table()` go
+  //   with `world` and `catalogs`, and `props.rebuild()` / `machine.cancelSession()`
+  //   are already module verbs. So Task 6 must RE-DECIDE these five rather than
+  //   inherit the stay, and this marker is what makes its grep say so — the three
+  //   places that argue the stay all say "Task 6 owns those clusters", which reads
+  //   as a reason and not as a question.
+  const entities = createEntities({
+    substrate,
+    router,
+    // `world`'s counter, and the one dep here that is a host `let` rather than a
+    // module seam. A THUNK for the obvious reason and for a specific one: it is
+    // declared ~400 lines BELOW this assembly, so a value would not merely fork,
+    // it would be a TDZ read.
+    worldEpoch: () => worldEpoch,
+    notifyHistory: historyFeed.notify,
+    selectionOutline: selection.outline,
+    cursorRay: targeting.cursorRay,
+    gesture: () => machine.gesture(),
+    session: () => machine.session(),
+    moveDrag: () => machine.moveDrag(),
+  });
   // The reconfigure-drift report's three functions went with its slot to
   // `field-drift.ts`. The assembly could not stay here — `driftedEntities` reads
-  // `entityFootprints`, declared ~60 lines below — so it sits just past that
-  // memo instead; search `const drift =`.
-
-  // The LIVE entity record for an id (not a clone — callers that hand it on
-  // clone at their own boundary), or null when no entity op carries it. The one
-  // lookup behind the selection box, the reconfigure session and the verbs.
-  const entityRecord = (entityId: number): field.GeneratorEntity | null => {
-    const hit = log.ops.find(
-      (op): op is field.EntityOp =>
-        op.kind === "entity" && op.entity.entityId === entityId,
-    );
-    return hit === undefined ? null : hit.entity;
-  };
-
-  // Every committed entity's PICK/EMPHASIS box, memoized on the log signature.
-  //
-  // The box is `generatorFootprint` — the union of the span's op bounds — with
-  // the recorded selection region as the fallback the helper's null means: a
-  // span with no field-writing ops (a pure placer's) has no op bounds, and an
-  // entity with no box at all would be silently unpickable. One rule, resolved
-  // in one place, so the pick and the drawn emphasis can never outline different
-  // volumes.
-  //
-  // MEMOIZED because the pick needs EVERY entity's box on every click, and
-  // `generatorFootprint` walks the whole op log per entity — O(entities × ops)
-  // per click. The in-repo measurement nearest to that shape is
-  // `placementsByEntity`'s (field-placements.ts): 2.3 ms for its WHOLE pass at
-  // 200 entities × 500 records over 100 000 ops — two scans plus
-  // placement-ops × entities attribution, not the unit cost of one
-  // `generatorFootprint` walk. It is the right order of magnitude for one pass
-  // over a log that size and nothing more precise has been taken; what makes the
-  // memo obviously right is the MULTIPLIER this path adds (one such walk per
-  // entity per click), not the constant. Recomputed once per log mutation
-  // instead, which is a discrete user action.
-  //
-  // The signature is `currentLogStats`' three lengths (`field-stats.ts`) plus
-  // TWO more, each closing a gap that is reachable:
-  //   - `nextId`, because a reconfigure can splice out N ops and back in N,
-  //     moving no length — but it always allocates fresh ids.
-  //   - `worldEpoch`, because a world swap CLEARS the log (resetWorld empties
-  //     ops and both stacks and resets nextId), so two worlds whose logs agree
-  //     on all four log-derived numbers share a signature and the incoming world
-  //     would read the outgoing world's boxes. Not hypothetical: two variant
-  //     files out of one authoring flow collide easily — same op count, same
-  //     ids, different geometry — and the symptom is a click on empty space
-  //     selecting an entity that is gone, with a box drawn where nothing is.
-  //     `worldEpoch` is bumped by resetWorld for the analyzer's sake; this rides
-  //     the same counter rather than adding a second one.
-  // What remains uncovered is several mutations within ONE frame that net all
-  // the log numbers back, unreachable from single-event-per-frame input; a stale
-  // box mis-aims a click and self-heals on the next mutation, it corrupts
-  // nothing. (`currentLogStats` at the op-cost meter — `field-stats.ts` since
-  // T3b1 — has the world-swap exposure too, filed rather than fixed here:
-  // `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Log-signature
-  // caches can miss a world swap*.)
-  let footprintCache: Map<number, { min: Vec3T; max: Vec3T }> | null = null;
-  let footprintSig = "";
-  const entityFootprints = (): Map<number, { min: Vec3T; max: Vec3T }> => {
-    const sig = `${worldEpoch}/${log.ops.length}/${log.undoStack.length}/${log.redoStack.length}/${log.nextId}`;
-    const cached = footprintCache;
-    if (cached !== null && sig === footprintSig) return cached;
-    const boxes = new Map<number, { min: Vec3T; max: Vec3T }>();
-    for (const op of log.ops) {
-      if (op.kind !== "entity") continue;
-      const record = op.entity;
-      boxes.set(
-        record.entityId,
-        generatorFootprint(log.ops, record, store.cellSize) ?? record.region,
-      );
-    }
-    footprintCache = boxes;
-    footprintSig = sig;
-    return boxes;
-  };
-
+  // the entity footprints, and the module that owns them is assembled directly
+  // above — so it sits just past the entity assembly instead; search
+  // `const drift =`. (Until T3d Task 5 the thing it could not rise above was a
+  // closure `const` ~60 lines below this point; the constraint is the same one at
+  // a new address.)
   // --- the reconfigure-drift report (`field-drift.ts`) ---------------------
   //
   // The slot, its panel channel and its three functions. The map called this row
@@ -2780,89 +2445,16 @@ export function createFieldHost(deps?: {
   // it, so the four writers share a two-verb seam (`set` then `notify`, in that
   // order, because notifications go last).
   //
-  // The position is FORCED and this is the line that says by what: `driftedEntities`
-  // derives the touched-entity badges from `entityFootprints`, declared directly
-  // above, so this cannot rise back to where the cluster's functions were ~100
+  // The position is FORCED and this is the line that says by what:
+  // `driftedEntities` derives the touched-entity badges from the entity footprint
+  // memo, which is `field-entities.ts`' since T3d Task 5 and assembled directly
+  // above — so this cannot rise back to where the cluster's functions were ~180
   // lines up. Everything that READS it — the machine's apply, `stepHistory`,
   // `resetWorld`, and the facade's `subscribeDrift`/`dismissDrift` — is below.
-  const drift = createDrift({ substrate, entityFootprints });
-
-  // Re-derive the selected entity's box from the CURRENT record, and DROP the
-  // selection when that record has left the log. Every path that can move or
-  // remove a committed region calls this: a reconfigure apply (the region is an
-  // editable field of the session) and undo/redo (which restores the previous
-  // record). An entity that left the log clears the box, the id AND notifies —
-  // an undone commit must not leave a box floating over nothing, nor a palette
-  // row highlighted for a stamp that no longer exists.
-  //
-  // The box outlines the stamped FOOTPRINT, not the recorded selection region —
-  // an oversized region boxed mostly-empty space (F3a gate finding); see
-  // entityFootprints for the fallback.
-  const rebuildEntitySelectionBatch = (): void => {
-    const box =
-      selectedEntityId === null
-        ? undefined
-        : entityFootprints().get(selectedEntityId);
-    if (box === undefined) {
-      entitySelectionBatch = null;
-      gizmo = null;
-      return;
-    }
-    entitySelectionBatch = selectedBoxOutline(box);
-    // The gizmo hangs on the SAME box, so it moves and dies with it — one
-    // rebuild, one invalidation, and no way for the handles to end up outlining
-    // a different volume than the emphasis does. While a move is live only the
-    // CONSTRAINED arm is drawn (see gizmoVisible): the other two would advertise
-    // motion this drag will not make.
-    gizmo = gizmoSpan(box);
-    gizmoBatch = axisLines(gizmo, AXIS_COLOR, activeGizmoAxis());
-  };
-
-  // Whether the gizmo is on screen — and therefore pickable. ONE predicate for
-  // both, so a handle can never be grabbable while invisible (a click that moves
-  // something the user cannot see) or visible while inert.
-  //
-  // The POINTER tool has to be armed (a brush click digs, and a manipulator
-  // floating over a dig cursor promises an action LMB will not take) and
-  // something has to be SELECTED (the gizmo is the selection's own affordance).
-  //
-  // The third condition is "no session the gizmo did not open". A session opened
-  // by another path — the Open button, `G` — already owns the region through its
-  // own affordances, and a second way to move one thing is how the two disagree.
-  // But the gizmo's OWN drag is a session too, and hiding the handles the instant
-  // one is grabbed deletes the only thing naming the axis the ghost is sliding
-  // along. So a live move keeps them, restricted to the constrained arm.
-  const gizmoVisible = (): boolean =>
-    gizmo !== null &&
-    machine.gesture() === "pointer" &&
-    selectedEntityId !== null &&
-    (machine.session() === null || machine.moveDrag() !== null);
-
-  // The one arm to draw while a move is CONSTRAINED to an axis, or null for the
-  // full triad. A free ground drag has no single axis to name, so it keeps all
-  // three — they are then the frame the ghost is moving within rather than a
-  // constraint indicator.
-  const activeGizmoAxis = (): Axis | null => {
-    const m = machine.moveDrag()?.mapping;
-    return m === undefined || m === "plane" ? null : m;
-  };
-
-  const gizmoAxisAt = (clientX: number, clientY: number): Axis | null => {
-    const g = gizmo;
-    if (g === null || !gizmoVisible()) return null;
-    const ray = targeting.cursorRay(clientX, clientY);
-    if (ray === null) return null;
-    // Every bound comes off the ONE span the batch was drawn from, so the
-    // pickable arm and the visible arm cannot be different segments.
-    return pickAxis(
-      { origin: ray.origin, dir: ray.dir },
-      g.origin,
-      g.len,
-      g.tol,
-      g.inner,
-    );
-  };
-
+  const drift = createDrift({
+    substrate,
+    entityFootprints: entities.footprints,
+  });
   // --- what the camera can be put ON (`field-camera-rig.ts`'s two callers) ---
   //
   // The framing VERBS left with the rig — `orbitPivot`, `frameTargetBox`,
@@ -2993,17 +2585,19 @@ export function createFieldHost(deps?: {
   // THE POSITION IS PINNED FROM BOTH SIDES, and this is the second assembly in
   // the file for which that is true (`createAnalyzer` was the first). From ABOVE:
   // `occupiedTopYOf` directly overhead and `chunkSetBox` above it are `world`'s
-  // and are read by `frameWorld`; `entityFootprints` ~260 lines up and
-  // `selectionAabb` ~780 up are `entities`' and `selection`'s. From BELOW:
-  // `createAnalyzer` ~330 down takes `frameOn`, `createFieldMachine` takes four
+  // and are read by `frameWorld`; `createEntities` ~200 lines up and
+  // `createSelection` ~300 up own the other three. From BELOW:
+  // `createAnalyzer` ~290 down takes `frameOn`, `createFieldMachine` takes four
   // look-drag members, and `createRender` takes the eye — so this line may not
   // sink past the first of those.
   //
   // TWO FORWARD arrows — that is a count of the arrows pointing DOWN, not of the
-  // record, which is 2 forward + 2 thunks over host `let`s + 2 composed arrows +
-  // 2 plain refs + 1 module ref = 9 (the module's own `CameraRigDeps` doc carries
-  // the same split and is the authority). Both forward ones reach
-  // `field-machine.ts` ~430 lines below, for the reason every arrow in this file
+  // record, which since T3d Task 5 is 2 forward + 1 composed arrow + 1 plain ref
+  // to a host arrow + 5 module refs = 9 (the module's own `CameraRigDeps` doc
+  // carries the same split and is the authority; it was 2/2/2/2/1 before Task 5
+  // gave `selection` and `entities` owners, and nothing inside that file moved).
+  // Both forward ones reach
+  // `field-machine.ts` ~400 lines below, for the reason every arrow in this file
   // has: the literal is eager, and a body is not. `reaimMove` is called from
   // `applyOrbit`, which is to say from every path that turns the camera;
   // `gesture` from the orbit pivot alone.
@@ -3013,29 +2607,32 @@ export function createFieldHost(deps?: {
   // ceiling, not a store — because what the camera wants to know is where the
   // world IS, and re-deriving that inside the rig would put a second copy of
   // `chunkSetBox`'s arithmetic behind a boundary. Same shape for `selectionBox`,
-  // which collapses the two reads `frameTargetBox` used to make (`selection` +
+  // which collapsed the two reads `frameTargetBox` used to make (`selection` +
   // `selectionAabb`) into the one answer it wanted: the null cases are
-  // indistinguishable to a framing verb.
+  // indistinguishable to a framing verb. Since T3d Task 5 that composition lives
+  // inside `field-selection.ts` and this dep is a plain ref, which is the rule
+  // working as intended — the rig asked for a box and never learned what a
+  // selection is.
   const cameraRig = createCameraRig({
     reaimMove: () => {
       machine.reaimMove();
     },
     gesture: () => machine.gesture(),
-    // MIGRATION (until T3d Task 5): all three below are `entities`' — two host
-    // `let`s and the footprint memo — and all three must be re-pointed when that
-    // cluster leaves. THE CONSTRAINT IS THE PART TO CARRY: `entityFootprints` is
-    // a PLAIN REF, so `createEntities` may not land BELOW this line without it
-    // becoming an arrow, and the two thunks would follow. This record is the one
-    // most exposed to Tasks 5–6 — three deps are `entities`', one `selection`'s,
-    // two `world`'s — so an ordering surprise lands here first.
-    gizmo: () => gizmo,
-    selectedEntityId: () => selectedEntityId,
-    entityFootprints,
-    // MIGRATION (until T3d Task 5): `selection` and `selectionAabb` are both
-    // `selection`'s. When that cluster leaves, this arrow becomes one ref onto
-    // its seam — or stays exactly as it is, if that module publishes the two
-    // halves rather than the box. The rig sees no change either way.
-    selectionBox: () => (selection === null ? null : selectionAabb(selection)),
+    // THE THREE `entities` DEPS ARE ALL PLAIN REFS NOW (T3d Task 5), and the
+    // constraint the marker here carried for two tasks was honoured rather than
+    // paid off: `createEntities` is assembled ~200 lines ABOVE this line, which
+    // is what lets `footprints` stay a plain ref — and the two former thunks
+    // became refs with it, since a module verb needs no wrapper. This record was
+    // the one most exposed to Tasks 5–6; two `world` deps remain.
+    gizmo: entities.gizmo,
+    selectedEntityId: entities.selectedId,
+    entityFootprints: entities.footprints,
+    // ONE REF WHERE A COMPOSED ARROW WAS. It read `selection` and then called
+    // `selectionAabb` on it; `field-selection.ts` publishes the BOX, because the
+    // two nulls (nothing selected / selected but unbounded) are indistinguishable
+    // to a framing verb. §2.7's argument-vs-dependency rule, and this dep is the
+    // rule's worked example.
+    selectionBox: selection.box,
     // MIGRATION (until T3d Task 6): `chunkSetBox` and `occupiedTopYOf` are
     // `world`'s and `store` rides the substrate. When `world` leaves, both
     // become refs onto its seam and this arrow collapses to one.
@@ -3043,54 +2640,6 @@ export function createFieldHost(deps?: {
     occupiedTopY: occupiedTopYOf,
     reportToolError: tool.reportError,
   });
-
-  // The selected stamp's Esc entry (old rung 3).
-  const syncSelectedEntityCapture = createRung(
-    router,
-    "selected entity",
-    () => selectedEntityId !== null,
-    () => setSelectedEntity(null),
-  );
-
-  // Select one entity, or NOTHING — the single mutator of the entity selection,
-  // whoever is asking: a pointer click, the public verb, an entity leaving the
-  // log, a world reset. There is deliberately no second "clear" entry point;
-  // `setSelectedEntity(null)` is the clear, and two parallel mutators of one
-  // piece of state is how a side effect added to one and not the other drifts
-  // silently.
-  //
-  // Validated against the log — an id no entity op carries selects NOTHING
-  // rather than reporting, because the ids come from a panel list that can lag
-  // it (openEntitySession's stance, minus the report: a stale click is not worth
-  // a toast). Selecting what is already selected is a no-op that notifies
-  // nobody, so a palette row can call this on every render, and so a world reset
-  // with nothing selected pushes nothing — which is what lets the seam's
-  // "pushed on every change" contract be read literally.
-  //
-  // Named apart from the PUBLIC `selectEntity` it backs (the openEntity →
-  // openEntitySession precedent): the method could shadow-call this one
-  // correctly by lexical scope, but a reader has to stop and prove it is not
-  // recursion.
-  const setSelectedEntity = (entityId: number | null): void => {
-    const next =
-      entityId === null || entityRecord(entityId) === null ? null : entityId;
-    if (next === selectedEntityId) return;
-    selectedEntityId = next;
-    syncSelectedEntityCapture();
-    rebuildEntitySelectionBatch();
-    entitySelectionChannel.publish(next);
-  };
-
-  const revalidateEntitySelection = (): void => {
-    if (selectedEntityId === null) return;
-    // The record is gone (an undone commit): setSelectedEntity's own validation
-    // resolves the stale id to null, so passing it back IS the clear.
-    if (entityRecord(selectedEntityId) === null) {
-      setSelectedEntity(null);
-      return;
-    }
-    rebuildEntitySelectionBatch();
-  };
 
   // The stamp-preview snapshot: density COPIES + cloned materials of every
   // allocated chunk in the region's chunk box grown by one (the protocol's
@@ -3182,7 +2731,7 @@ export function createFieldHost(deps?: {
   // extraction lands in this same region and inherits it.
   //
   // This binding is USED ABOVE where it is DECLARED: `markDirtyWithNeighbors`
-  // (~1,400 lines up) calls `voidcast.invalidate()`. That is legal, and it is
+  // (~800 lines up) calls `voidcast.invalidate()`. That is legal, and it is
   // FORCED rather than chosen — `snapshotAllChunks` is a dep and is declared
   // just above, so the construction cannot move up past it.
   //
@@ -3247,10 +2796,11 @@ export function createFieldHost(deps?: {
   // every OTHER way a verdict goes stale is that rule's job.
   //
   // `world`'s state and NOT the advisor's, which is why it did not travel with
-  // the verify verb that reads it: `resetWorld` writes it and the entity
-  // footprint cache's log signature reads it too (~540 lines up). It sat inside
-  // the advisor block until 2026-08-07 and moved to this line, directly above the
-  // assembly.
+  // the verify verb that reads it: `resetWorld` writes it, and the entity
+  // footprint cache's log signature reads it too — from `field-entities.ts`,
+  // whose assembly is ~400 lines UP from this declaration, through a thunk. It sat
+  // inside the advisor block until 2026-08-07 and moved to this line, directly
+  // above the assembly.
   //
   // THAT HOIST WAS A READABILITY PREFERENCE AND NOT A REQUIREMENT, and saying so
   // matters because the next note depends on it. `worldEpoch: () => worldEpoch` is
@@ -3298,7 +2848,7 @@ export function createFieldHost(deps?: {
   // measures the seam.
   //
   // THE POSITION IS FORCED from above and constrains what sits below. Above:
-  // `chunkCopy` is a dep and is declared ~150 lines up, so this cannot rise past
+  // `chunkCopy` is a dep and is declared ~210 lines up, so this cannot rise past
   // it — the `createVoidCast` shape exactly. Below: `createPicking` and
   // `createStatsMeter` both take verbs of this module as PLAIN refs, so neither
   // may be assembled above this line, and each says so at its own end.
@@ -3326,7 +2876,7 @@ export function createFieldHost(deps?: {
   // is what this task did.
   //
   // Everything that reads `advisor` from ABOVE — `markDirtyWithNeighbors` and the
-  // `createProps` seam's arrow, both ~1,500 lines up — is a forward reference
+  // `createProps` seam's arrow, both ~950 lines up — is a forward reference
   // from inside a function body, which is safe for the reason spelled out at the
   // `createVoidCast` assembly: nothing between this closure's brace and its
   // `return {` ever RUNS.
@@ -3339,20 +2889,24 @@ export function createFieldHost(deps?: {
   // module's header argues that trade; the short version is that the advisor knows
   // WHICH box, not how a camera frames one or what colour selected is.
   //
+  // BOTH HALVES HAVE NOW COLLECTED, which is what the naming was for.
+  // `frameCameraOn` became `cameraRig.frameOn` at Task 4 and `selectedBoxOutline`
+  // became `selection.outline` at Task 5 — each found by grepping its own
+  // cluster's names, each still a plain ref, and neither cost this module a line.
+  // What the pair proves is the rule stated below: a dep named for an ACT survives
+  // the act changing address.
+  //
   // Both were PLAIN REFS to named closure functions, and that was deliberate
   // rather than incidental: each was the second caller of a function that already
   // had one (`frameSelection` and the entity footprint box), so the act each names
   // was greppable BY NAME from its owning cluster. Written inline as arrows here
   // they would have been two anonymous bodies a thousand lines from their twins.
   //
-  // THE CAMERA HALF COLLECTED ON THAT, which is the check the handoff was for.
-  // `frameCameraOn` moved to `field-camera-rig.ts` on 2026-08-08 as
-  // `cameraRig.frameOn` — found by grepping the camera's own names, exactly as
-  // the naming was meant to allow, and the line below is now a ref onto a module
-  // seam rather than onto a closure `const`. It therefore PINS this assembly
-  // below `createCameraRig` (~330 lines up), which is one more constraint on a
-  // line that already had four. `selectionOutline` is the same handoff waiting on
-  // Task 5.
+  // BOTH ARE MODULE REFS NOW and both PIN this assembly: `cameraRig.frameOn`
+  // below `createCameraRig` (~290 lines up, 2026-08-08) and `selection.outline`
+  // below `createSelection` (~590 up, T3d Task 5). That is two more constraints on
+  // a line that already had four — and neither is the binding one: this line's
+  // real floor is `createMaterials`, and every one of the six is slack.
   const advisor = createAnalyzer({
     substrate,
     spawnAnalyzer: deps?.spawnAnalyzer,
@@ -3361,20 +2915,22 @@ export function createFieldHost(deps?: {
     flagMarkerMat: materials.flagMarker,
     worldEpoch: () => worldEpoch,
     frameCameraOn: cameraRig.frameOn,
-    selectionOutline: selectedBoxOutline,
+    selectionOutline: selection.outline,
   });
 
   // --- the pointer pick (`field-picking.ts`) -------------------------------
   //
-  // Assembled HERE rather than where its four functions were ~690 lines up, and
-  // the position is forced from both sides: five of its eleven deps are declared
-  // between there and here (`entityFootprints`, `gizmoAxisAt`, `setSelectedEntity`,
-  // `advisor`, `viewState`), and the machine directly below takes `press`
-  // as a plain ref. So the pair's one unavoidable arrow pair points DOWN from
-  // here into the machine, which is the cheaper direction — two members rather
-  // than five.
+  // Assembled HERE rather than where its four functions were ~600 lines up, and
+  // the position is forced from both sides: SIX of its eleven deps come off
+  // modules assembled between there and here — FOUR off `field-entities.ts`
+  // (`entityFootprints`, `gizmoAxisAt`, `selectedEntityId`, `setSelectedEntity`),
+  // `setSelectedFlag` off `field-analyzer.ts` and `sliceOpts` off `field-view.ts`
+  // (whose `layers` is the seventh but was already above) — and the machine
+  // directly below takes `press` as a plain ref. So the pair's one unavoidable
+  // arrow pair points DOWN from here into the machine, which is the cheaper
+  // direction — two members rather than six.
   //
-  // `advisor` is the newest of those five and the one that pins this line hardest
+  // `advisor` is the newest of those six and the one that pins this line hardest
   // (foundations T3d, 2026-08-07): `setSelectedFlag` is taken as a PLAIN ref off
   // an extracted module, so this assembly cannot rise above `createAnalyzer`. It
   // is also an edge the closure map never counted — a cross-cluster CALL is not a
@@ -3383,17 +2939,20 @@ export function createFieldHost(deps?: {
   //
   // The two arrows are the only entries that are not what they look like:
   // `beginMove` and `setPendingMove` name verbs of a module that does not exist
-  // yet on this line. Everything else is a `const` arrow or a thunk over a host
-  // `let`, per `substrate.ts`'s split.
+  // yet on this line. Everything else is a PLAIN REF — eight onto sibling module
+  // seams and `capturePointer` onto a closure `const` arrow. **There is no thunk
+  // over a host `let` left in this record**: the last two were `selectedEntityId`
+  // and `entityFootprints`, and T3d Task 5 gave them an owner. `field-picking.ts`'
+  // own header carries the same count.
   const picking = createPicking({
     substrate,
     layers: viewState.layers,
     sliceOpts: viewState.sliceOpts,
     cursorRay: targeting.cursorRay,
-    entityFootprints,
-    gizmoAxisAt,
-    selectedEntityId: () => selectedEntityId,
-    setSelectedEntity,
+    entityFootprints: entities.footprints,
+    gizmoAxisAt: entities.gizmoAxisAt,
+    selectedEntityId: entities.selectedId,
+    setSelectedEntity: entities.select,
     setSelectedFlag: advisor.setSelectedFlag,
     beginMove: (entityId, axis, grabbed, press) =>
       machine.beginMove(entityId, axis, grabbed, press),
@@ -3410,7 +2969,7 @@ export function createFieldHost(deps?: {
   // that arbitrates between them, as **56 top-level declarations** inside
   // `createFieldMachine` — 12 mutable state slots, 2 view channels, 3 Esc rungs,
   // 1 preview coalescer and 38 functions. They used to thread this file from the
-  // state block ~2,260 lines up to the pointer handlers ~360 lines down. The
+  // state block ~1,460 lines up to the pointer handlers ~400 lines down. The
   // assembly sits HERE, where the bulk of them were, on `createSegmentBrush`'s
   // precedent — a cluster's remaining footprint marks where the cluster was.
   //
@@ -3429,19 +2988,21 @@ export function createFieldHost(deps?: {
   // one record plus 39 named deps — 22 for the sessions, 17 more for the pointer
   // chain, and that second group is a MEASUREMENT of what the seven-way
   // arbitration was reaching for rather than a cost the move added: those calls
-  // were being made either way, from a handler ~360 lines below the state it was
+  // were being made either way, from a handler ~390 lines below the state it was
   // reading. The 14 `cancelStampSession` call sites land as
   // `machine.cancelSession()` — the teardown edge §7.5 said had to be inverted
   // into a callback, inverted.
   //
   // THE FORWARD-REFERENCE INVARIANT applies to this line exactly as it does to
-  // the `createVoidCast` assembly ~200 lines up, and this is the assembly that
-  // leans on it hardest. Two EXTRACTED modules assembled above reach down into it
-  // through arrows in their own deps records — `field-picking.ts` with two, and
-  // `field-camera-rig.ts` since 2026-08-08 with `reaimMove` and `gesture` — and
-  // two closure functions still here do it directly from inside their bodies
-  // (`gizmoVisible`, `activeGizmoAxis`). The camera pair used to be that second
-  // kind: `applyOrbit` and `orbitPivot` sat above and called straight in. Safe
+  // the `createVoidCast` assembly ~260 lines up, and this is the assembly that
+  // leans on it hardest. THREE EXTRACTED modules assembled above reach down into
+  // it through arrows in their own deps records — `field-picking.ts` with two,
+  // `field-camera-rig.ts` since 2026-08-08 with `reaimMove` and `gesture`, and
+  // `field-entities.ts` since T3d Task 5 with `gesture`, `session` and `moveDrag`.
+  // NO closure function reaches in from above any more, which is new at Task 5:
+  // `gizmoVisible` and `activeGizmoAxis` were the last two doing it directly from
+  // inside their bodies, and the camera pair (`applyOrbit`, `orbitPivot`) was the
+  // same story one task earlier. Safe either way
   // because nothing between this closure's brace and its `return {` ever RUNS —
   // see that comment for the whole argument,
   // and for the rule it implies (do not add an executed statement at closure
@@ -3449,7 +3010,7 @@ export function createFieldHost(deps?: {
   //
   // The object literal itself IS eager, which is what decides the position: every
   // plain function ref below has to be declared above this line, and the one that
-  // is not — `stats.noteReconfigureMs`, constructed ~270 lines down — is the one
+  // is not — `stats.noteReconfigureMs`, constructed ~280 lines down — is the one
   // member wrapped in an arrow.
   const machine = createFieldMachine({
     substrate,
@@ -3458,34 +3019,28 @@ export function createFieldHost(deps?: {
     // The two facts a stamp needs off the CURRENT selection, as one call. `null`
     // covers both "nothing selected" and "selected, but no bounds" — `startStamp`
     // arms region-draw for either, so one null says what two branches used to.
-    selectionRegion: () => {
-      const sel = selection;
-      if (sel === null) return null;
-      const aabb = selectionAabb(sel);
-      if (aabb === null) return null;
-      return {
-        aabb,
-        truncated:
-          sel.materialized.kind === "cells" && sel.materialized.truncated,
-      };
-    },
+    // The composition moved INTO `field-selection.ts` at T3d Task 5 (it read the
+    // slot and then called the AABB helper, and neither is surface now); this is
+    // the second of that record's two composed arrows to collapse to a ref, after
+    // the rig's `selectionBox`.
+    selectionRegion: selection.region,
     reportToolError: tool.reportError,
     markDirtyWithNeighbors,
     snapshotChunks,
     chunkOrigin,
     stampGhostMaterial: materials.stampGhost,
     cursorRay: targeting.cursorRay,
-    boxCorner,
-    setBoxAnchor,
+    boxCorner: selection.boxCorner,
+    setBoxAnchor: selection.setBoxAnchor,
     setSegmentAnchor: segment.setAnchor,
-    entityRecord,
-    entityFootprints,
-    rebuildEntitySelectionBatch,
-    revalidateEntitySelection,
+    entityRecord: entities.record,
+    entityFootprints: entities.footprints,
+    rebuildEntitySelectionBatch: entities.rebuildOverlay,
+    revalidateEntitySelection: entities.revalidate,
     rebuildProps: props.rebuild,
-    notifyEntities,
+    notifyEntities: entities.notify,
     // An ARROW, alone among the function members, because `field-stats.ts` is
-    // constructed ~230 lines below this one and the literal is eager. Same shape
+    // constructed ~280 lines below this one and the literal is eager. Same shape
     // as the forward reference `applyReconfigureSession` made when it lived here.
     noteReconfigureMs: (ms) => stats.noteReconfigureMs(ms),
     // The report is `field-drift.ts`'s since T3d, so the apply gets that module's
@@ -3498,11 +3053,12 @@ export function createFieldHost(deps?: {
     // to, or the liveness of a state whose overlay stays here — the arbitration
     // is the machine's, the actions are ours.
     //
-    // Plain refs except for three, and the exceptions are the same rule the rest
-    // of this record obeys: `looking` and `boxAnchor` read `let`s, so they travel
-    // as thunks or the machine would hold a copy of a fact that moves, and
-    // `strokeMinMs` is a module `const`, which travels as a value for exactly the
-    // reason read backwards.
+    // Plain refs except for ONE, and the one is `strokeMinMs` — a module `const`
+    // travelling as a value, which is the same rule the rest of this record obeys
+    // read backwards. It was THREE until the clusters caught up: `looking` and
+    // `boxAnchor` read host `let`s and had to be thunks so the machine could not
+    // hold a copy of a fact that moves, and both are plain refs onto a module seam
+    // now (`cameraRig.looking` at T3d Task 4, `selection.boxAnchor` at Task 5).
     strokeMinMs: STROKE_MIN_MS,
     capturePointer,
     releasePointer,
@@ -3514,12 +3070,12 @@ export function createFieldHost(deps?: {
     applyTool: tool.apply,
     armMaskDropReport: tool.armMaskDropReport,
     pointerPress: picking.press,
-    selectionClick,
+    selectionClick: selection.click,
     segmentClick: segment.click,
     segmentAnchor: segment.anchor,
     segmentUpdatePreview: segment.updatePreview,
-    boxAnchor: () => boxAnchor,
-    updateBoxPreview,
+    boxAnchor: selection.boxAnchor,
+    updateBoxPreview: selection.updateBoxPreview,
   });
 
   // --- history ------------------------------------------------------------
@@ -3532,6 +3088,42 @@ export function createFieldHost(deps?: {
   // selection (a reconfigure can have moved the footprint it outlines, and
   // undoing a commit removes the entity outright — the selection has to go with
   // it, notifying whoever holds it).
+  //
+  // THIS FUNCTION IS DECLARED FACADE-RESIDENT, and T3d Task 5 is where that
+  // verdict was owed rather than assumed. `field-history-feed.ts` took the
+  // cluster's channel, its change signature and two of its three functions in
+  // 2026-08-06 and left this one; that module's header says why (it never NAMES
+  // the history seam — its push arrives through the entity tick — and it calls
+  // into five other clusters), and the closure map's `history` row calls it "a
+  // lifecycle verb wearing a history name". Task 5 is the moment to settle it,
+  // because after this task every one of those five clusters is a MODULE and the
+  // "it belongs to none of it" argument could have been read the other way: a
+  // function with no state of its own could just be moved.
+  //
+  // It stays, on three counts.
+  //   - WHAT IT WOULD COST THE FEED. `createHistoryFeed`'s deps record is
+  //     `{ substrate }` — the shortest in the tranche and the only one with
+  //     nothing beside the substrate in it. Taking this body would give it six
+  //     verbs of other modules' business (`markDirtyWithNeighbors`,
+  //     `machine.cancelSession`, `entities.revalidate`, `props.rebuild`,
+  //     `drift.standing`/`set`/`notify`, `entities.notify`) and make the thing
+  //     that publishes a history signature also the thing that cancels sessions
+  //     and rebuilds the prop layer.
+  //   - WHAT IT IS. Six of its seven statements are calls into six different
+  //     places and it owns no state at all. That is what a FACADE verb is — the
+  //     `input` listeners are the other instance of the shape, and both are
+  //     declared rather than left over.
+  //   - WHO CALLS IT. All three callers are facade-resident and cannot move:
+  //     `onKeyDown`'s ⌘Z/⇧⌘Z branch (the listener owns the canvas element) and
+  //     the two public methods.
+  // The only thing it touches that is NOT on the substrate is
+  // `markDirtyWithNeighbors`, which is `world`'s and is a CALL rather than a read
+  // — `store`, `log` and `table` are all substrate members, so an earlier draft of
+  // this sentence claiming "one remaining read of host state" was true only under
+  // a reading it did not state. Task 6 either takes that call's target with
+  // `world` — leaving this a pure composition of module calls over the substrate —
+  // or declares it facade-resident beside this one. Either way this verdict holds;
+  // it is recorded in the map's `history` row.
   const stepHistory = (redo: boolean): void => {
     const dirtied = redo
       ? field.redo(store, log, table)
@@ -3552,7 +3144,7 @@ export function createFieldHost(deps?: {
     // inputs moved must not be left offering an Apply that would build something
     // its ghost never showed. A history step is the same class of event.
     machine.cancelSession();
-    revalidateEntitySelection();
+    entities.revalidate();
     // A step can add or remove placement ops (a scatter commit, a reconfigure
     // splice) and dirties NO chunk for them — placements write no cells — so the
     // prop layer cannot ride the remesh drain the way chunk state does.
@@ -3566,7 +3158,7 @@ export function createFieldHost(deps?: {
       drift.set(null);
       drift.notify();
     }
-    notifyEntities();
+    entities.notify();
   };
 
   // --- render loop --------------------------------------------------------
@@ -3592,35 +3184,43 @@ export function createFieldHost(deps?: {
   // `tick` directly below. So the interface is `render.scene(c, cam)` and the
   // COST of this extraction is entirely in what the frame has to be handed.
   //
-  // THE POSITION IS FORCED FROM ABOVE, and the record's split is re-derived from
-  // the literal below rather than carried forward: **1 substrate + 18 refs onto
-  // sibling modules' seams + 7 thunks over host `let`s + 1 plain ref to a host
-  // `const` arrow + 2 constants by value = 29**. The eighteen are drawn from EIGHT
-  // files (`viewState` 1, `materials` 2, `advisor` 2, `machine` 4, `segment` 3,
-  // `targeting` 3, `tool` 2, `cameraRig` 1), and the LOWEST of those assemblies is
-  // `createFieldMachine` ~170 lines up, so this line cannot rise past it.
+  // THE POSITION IS FORCED FROM ABOVE. The twenty-six module refs in the literal
+  // below are drawn from TEN files — `selection` 5, `machine` 4, `entities` 3,
+  // `segment` 3, `targeting` 3, `materials` 2, `advisor` 2, `tool` 2,
+  // `cameraRig` 1, `viewState` 1 — and the LOWEST of those assemblies is
+  // `createFieldMachine` ~210 lines up, so this line cannot rise past it.
   // `createAnalyzer`'s own block names this module as one of the three that may
   // not rise above the closure's ordering pivot; the machine is simply lower
   // still.
   //
-  // "Nothing takes `render`, so nothing is pinned below it" is STILL TRUE and now
-  // HALF SETTLED. The two deps that were going to unsettle it were `cameraEye`
-  // and `gizmoVisible`; T3d Task 4 collected on the first — `cameraEye` is
-  // `cameraRig.eye` now, and `createCameraRig` ~600 lines up is a real lower
-  // bound on this line, though a slack one. `gizmoVisible` is still a host `const`
-  // arrow and Task 5 is what settles the other half.
+  // The record's own SPLIT is stated once, at the end of this block, and
+  // deliberately not here: this paragraph carried "18 refs + 7 thunks" forward
+  // through T3d Task 5 while the paragraph twenty-five lines down said 26 / 0 and
+  // `field-render.ts`'s header — which this block cites as the authority — had
+  // been updated. A block whose opening words were "re-derived rather than carried
+  // forward" was the one thing carried forward. Two statements of one arithmetic
+  // is how that happens, so there is now one.
   //
-  // EIGHT DEPS NAME STATE THAT STILL LIVES IN THIS CLOSURE and will not for
-  // long — down from eleven, because Task 4 spent three of them. Each is a NARROW
-  // named thunk or a plain ref rather than a slice of a module record, which is
-  // what made those three cost one line each HERE and no change of SHAPE inside
-  // `field-render.ts`: `() => digRadius` became `tool.digRadius`, and what the
-  // module saw was a comment rewrite, not a new signature. That prediction was
-  // made at Task 3 and is now measured — the module's own diff for this task is
-  // six comment sites and no code.
-  //   // MIGRATION (until T3d Task 5): the four selection batches, the anchor and
-  //   the cell mesh (`selection`); the entity box, the gizmo batch and its
-  //   visibility (`entities`).
+  // "Nothing takes `render`, so nothing is pinned below it" is STILL TRUE and now
+  // FULLY SETTLED. The two deps that were going to unsettle it were `cameraEye`
+  // and `gizmoVisible`; T3d Task 4 collected on the first (`cameraRig.eye`) and
+  // Task 5 on the second (`entities.gizmoVisible`). So this line now has two real
+  // lower bounds instead of the machine's one — `createCameraRig` ~610 lines up
+  // and `createEntities` ~810 up — and both are slack, because the machine sits
+  // between them and this line.
+  //
+  // ZERO DEPS NAME STATE THAT LIVES IN THIS CLOSURE, and the prediction that got
+  // it here is worth keeping. At Task 3 there were eleven; Task 4 spent three and
+  // Task 5 the last eight. Each was a NARROW named thunk or plain ref rather than
+  // a slice of a module record, and the claim made at Task 3 was that this would
+  // cost one line HERE per dep and no change of SHAPE inside `field-render.ts`.
+  // Measured across both tasks: that module's diff for Task 4 was six comment
+  // sites and no code, and for Task 5 it is comment sites and no code again —
+  // eleven deps re-pointed, zero signatures touched. **A deps record that names
+  // what it READS survives its neighbours' extractions; one that names WHO it
+  // reads from is rewritten every time somebody else moves.** The record's own
+  // split is now 1 substrate + 26 module refs + 2 values = 29, and there is no
+  // thunk-over-a-host-`let` left in it at all.
   const render = createRender({
     substrate,
     layers: viewState.layers,
@@ -3641,29 +3241,24 @@ export function createFieldHost(deps?: {
     digRadius: tool.digRadius,
     isKitFillTool: tool.isKitFill,
     cameraEye: cameraRig.eye,
-    // `?.im ?? null` rather than an explicit guard, and the `typescript.md` rule
-    // it will be tested against ("don't paper over nullability with `?.`") is
-    // satisfied rather than bypassed: `selectionCells` is a `{ im, g } | null`
-    // pair written as one unit, so the chain is null EXACTLY when the pair is
-    // null — there is no partially-built state for it to hide. It hands over the
-    // MESH alone on `advisor.markerMesh`'s precedent; the geometry is the
-    // selection's to free and the frame never wanted it.
-    // MIGRATION (until T3d Task 5): this arrow is a REQUIREMENT on that task, not
-    // a detail. The selection module must publish a mesh-only accessor of its own
-    // (as `field-analyzer.ts` does), or this `?.im ?? null` migrates into the new
-    // module rather than disappearing with the closure `let`.
-    selectionCellMesh: () => selectionCells?.im ?? null,
-    selectionBatch: () => selectionBatch,
-    anchorBatch: () => anchorBatch,
-    boxPreviewBatch: () => boxPreviewBatch,
-    boxAnchor: () => boxAnchor,
-    entitySelectionBatch: () => entitySelectionBatch,
-    gizmoBatch: () => gizmoBatch,
-    gizmoVisible,
+    // THE `?.im ?? null` ARROW IS GONE, which was this dep's stated requirement
+    // on Task 5 rather than a detail: `field-selection.ts` publishes a MESH-ONLY
+    // accessor of its own (`advisor.markerMesh`'s precedent), so the chain
+    // disappeared with the closure `let` instead of migrating into the module. The
+    // geometry beside the mesh is the selection's to free and the frame never
+    // wanted it.
+    selectionCellMesh: selection.cellMesh,
+    selectionBatch: selection.batch,
+    anchorBatch: selection.anchorBatch,
+    boxPreviewBatch: selection.previewBatch,
+    boxAnchor: selection.boxAnchor,
+    entitySelectionBatch: entities.selectionBatch,
+    gizmoBatch: entities.gizmoBatch,
+    gizmoVisible: entities.gizmoVisible,
     // Two module-scope constants passed by VALUE, on `field-segment.ts`'s
-    // `anchorCrossHalfM` precedent — which is literally one of the two. Both have
-    // readers in `selection` that are not this cluster's, so they stay declared
-    // where both can see them.
+    // `anchorCrossHalfM` precedent — which is literally one of the two. Both are
+    // read by `field-selection.ts` as well, and since T3d Task 5 by no function in
+    // this file at all; the declaration block argues why they stay there anyway.
     selectionColor: SELECTION_COLOR,
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
   });
@@ -4101,7 +3696,7 @@ export function createFieldHost(deps?: {
     // this both frees the outgoing draws AND resets the counts — a bare destroy
     // would leave propInstanceCounts describing the world that just went away.
     props.rebuild();
-    setBoxAnchor(null);
+    selection.setBoxAnchor(null);
     // The segment anchor is a point in the OLD field — a capsule swept from it
     // into the new one would start somewhere the user never clicked.
     segment.setAnchor(null);
@@ -4110,18 +3705,15 @@ export function createFieldHost(deps?: {
     // reading the seam would go on saying "drag a region" across a world swap.
     // (Its own clear takes the box anchor again — harmless, already null.)
     machine.setPendingStamp(null);
-    // Not `setSelection(null)`: that PARKS the outgoing selection in the Reselect
-    // slot, and a Reselect across a world swap would restore cells that describe
-    // the field that just went away — so this path clears both slots itself. The
-    // reconcile is what the bare write owes the Esc stack; without it the capture
-    // outlives the selection and the next Esc is spent cancelling nothing.
-    selection = null;
-    lastSelection = null;
-    syncSelectionCapture();
-    // Both display halves through the shared refresh, so the outline and the cell
-    // layer cannot survive a world swap independently of each other.
-    refreshSelectionDisplay();
-    notifySelection(); // null — the panel must not show a stale selection
+    // FIVE STATEMENTS behind one verb since T3d Task 5, and the verb exists
+    // because what this path wanted was never a setter: it clears BOTH slots
+    // without parking (a Reselect across a world swap would restore cells
+    // describing the field that just went away), then pays the Esc stack back,
+    // then refreshes both display halves, then pushes the null. The order is the
+    // whole content and it now lives in one place — `field-analyzer.ts`'s
+    // `retireWorld` two calls up is the same act on the other cluster, and the
+    // name is shared on purpose.
+    selection.retireWorld();
     // A different world invalidates the stamp session (its region + snapshot
     // describe the old field), the entity selection (log entity ids reset) and
     // any drift report (its findings name op ids the new log does not have).
@@ -4129,7 +3721,7 @@ export function createFieldHost(deps?: {
     // Notified, not just cleared: the selection is a SEAM now, and a subscriber
     // left holding an id from the outgoing world is the same class of bug as the
     // stale stamp session announced above.
-    setSelectedEntity(null);
+    entities.select(null);
     // The cast describes the field that just went away. Discarded SILENTLY,
     // unlike an edit-time invalidation: everything else on screen is being
     // replaced too, so "void cast cleared" beside a fresh world is noise.
@@ -4191,7 +3783,7 @@ export function createFieldHost(deps?: {
       // The selection survives a dispose (it is CPU state), so its CELL display
       // has to be rebuilt here too or a re-init — the AA switch, which never
       // touches the selection — would come back with the outline and no cubes.
-      rebuildSelectionCells();
+      selection.rebuildCells();
       // Re-mesh whatever the store already holds. At the FIRST init this is empty
       // and costs nothing; at a re-init (the AA switch) it is the whole world, and
       // without it the field never comes back — `dispose` destroys every chunk mesh
@@ -4230,7 +3822,7 @@ export function createFieldHost(deps?: {
         chunkMeshes.clear();
         props.destroy(c);
         advisor.destroyMarkers(c);
-        destroySelectionCells(c);
+        selection.destroyCells(c);
         machine.destroyGhosts();
         voidcast.discard();
         // Sixteen STATEMENTS in this exact order behind ONE verb since
@@ -4292,7 +3884,7 @@ export function createFieldHost(deps?: {
       // prop layer happening to rebuild on the same path. No ANALYSIS follows
       // either way — a new world holds no field and, with no manifest, no seed.
       advisor.requestPass();
-      notifyEntities();
+      entities.notify();
     },
     loadWorld(data) {
       // Setup-loud: the store's cellSize is fixed at construction and captured by
@@ -4340,7 +3932,7 @@ export function createFieldHost(deps?: {
       // analyzer work (full re-sync, placements, whole-world pass) must not
       // depend on the prop layer happening to rebuild on the same path.
       advisor.requestPass();
-      notifyEntities();
+      entities.notify();
       // NO AUTOMATIC FRAME HERE, and the first attempt at ruling 5 put one in —
       // which is worth recording, because it looked like the obvious home. This
       // method holds both the freshly-decoded store and the camera, so framing
@@ -4374,26 +3966,13 @@ export function createFieldHost(deps?: {
       machine.setGesture(next);
     },
     clearSelection() {
-      setBoxAnchor(null);
-      setSelection(null); // parks the current selection in the Reselect slot
+      selection.clear();
     },
     reselect() {
-      if (lastSelection === null) return;
-      // Manual swap — setSelection would overwrite the slot being restored.
-      const restored = lastSelection;
-      lastSelection = selection; // may be null: the swap keeps toggle symmetry
-      selection = restored;
-      // The bypass is about `lastSelection`, NOT about the Esc stack: this is a
-      // selection going live, so it captures like any other. Restoring one that
-      // Esc had cleared pushes a fresh entry at the top, which is right — the
-      // Reselect IS the most recent intent; a swap while one already stands keeps
-      // the position it had, which is the plain REPLACE rule.
-      syncSelectionCapture();
-      refreshSelectionDisplay();
-      notifySelection();
+      selection.reselect();
     },
     subscribeSelection(cb) {
-      return selectionChannel.subscribe(cb);
+      return selection.subscribe(cb);
     },
     setLayers(next) {
       viewState.setLayers(next);
@@ -4549,7 +4128,7 @@ export function createFieldHost(deps?: {
       // it a no-op for every other session.
       if (frozen && machine.session()?.entityId === entityId)
         machine.cancelSession();
-      notifyEntities();
+      entities.notify();
     },
     bakeEntity(entityId) {
       try {
@@ -4562,7 +4141,7 @@ export function createFieldHost(deps?: {
       // Unlike freeze, baking is permanent: a live session on this entity can
       // never land, so end it rather than leave a ghost promising an Apply.
       if (machine.session()?.entityId === entityId) machine.cancelSession();
-      notifyEntities();
+      entities.notify();
     },
     deleteEntity(entityId) {
       let dirtied: Set<field.ChunkKey>;
@@ -4596,17 +4175,17 @@ export function createFieldHost(deps?: {
       // notifies, so it sits with the pushes below rather than above the rebuild:
       // by the time anything hears about the delete, EVERY piece of host state it
       // moved has settled.
-      revalidateEntitySelection();
+      entities.revalidate();
       // The two notifications LAST, once every piece of host state has settled
       // (applyReconfigureSession's rule): a subscriber may read the host back
       // synchronously from inside either, and none may observe a half-deleted
       // world. Cancelling here rather than before the core call is deliberate —
       // a REFUSED delete must not destroy a live session on its way out.
       if (machine.session()?.entityId === entityId) machine.cancelSession();
-      notifyEntities();
+      entities.notify();
     },
     duplicateEntity(entityId) {
-      const record = entityRecord(entityId);
+      const record = entities.record(entityId);
       if (record === null) {
         tool.reportError(`entity ${entityId} is no longer in the log`);
         return;
@@ -4626,7 +4205,7 @@ export function createFieldHost(deps?: {
       // over-draws its content (the F3a gate finding behind the footprint box),
       // so shifting by it would leave a visible gap. Floored at one step so a
       // footprint with no X extent at all still moves the copy off the original.
-      const box = entityFootprints().get(entityId);
+      const box = entities.footprints().get(entityId);
       const extentX = box === undefined ? 0 : box.max[0] - box.min[0];
       const shiftX = latticeClearance(extentX);
       const region = structuredClone(record.region);
@@ -4665,11 +4244,12 @@ export function createFieldHost(deps?: {
       markDirtyWithNeighbors(committed.dirty);
       props.rebuild(); // a duplicated scatter is new prop-layer content
       // The copy is what the user is now working on — and this is also what
-      // re-outlines: setSelectedEntity rebuilds the emphasis box off the new
+      // re-outlines: the entity selection's setter rebuilds the emphasis box off
+      // the new
       // record. AFTER the commit, so the footprint memo it reads is rebuilt from
       // the log that now holds the copy.
-      setSelectedEntity(committed.entity.entityId);
-      notifyEntities();
+      entities.select(committed.entity.entityId);
+      entities.notify();
     },
     subscribeDrift(cb) {
       return drift.subscribe(cb);
@@ -4696,7 +4276,7 @@ export function createFieldHost(deps?: {
     cameraAimedByHand: cameraRig.aimedByHand,
     snapView: cameraRig.snapView,
     subscribeEntities(cb) {
-      return entitiesChannel.subscribe(cb);
+      return entities.subscribe(cb);
     },
     subscribeHistory(cb) {
       return historyFeed.subscribe(cb);
@@ -4722,10 +4302,10 @@ export function createFieldHost(deps?: {
       return out;
     },
     selectEntity(entityId) {
-      setSelectedEntity(entityId);
+      entities.select(entityId);
     },
     subscribeEntitySelection(cb) {
-      return entitySelectionChannel.subscribe(cb);
+      return entities.subscribeSelection(cb);
     },
     // The advisor's six members, each a straight delegate onto `field-analyzer.ts`
     // since T3d. TWO names moved on the way across, and both are the same
@@ -4740,7 +4320,7 @@ export function createFieldHost(deps?: {
     selectFlag: advisor.selectFlag,
     flagMarkerCount: advisor.markerCount,
     selectionCellCount() {
-      return selectionCellsCount;
+      return selection.cellCount();
     },
     exportArtifact(name) {
       return field.bakeFieldWorld(store, log, table, {
