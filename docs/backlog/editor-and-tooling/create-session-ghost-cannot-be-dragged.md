@@ -40,8 +40,10 @@ inside the canvas means while something is armed.
 - **Paths corrected 2026-08-07 (foundations T3c).** `beginMove`, `nudgeStampRegion` and the
   pending-stamp region-draw arm are no longer in `field-host.ts`: they live in
   `packages/editor/src/field-host/field-machine.ts`, together with the whole session/gesture
-  state this entry would have to change. `pointerPress` DID stay in `field-host.ts` (it is
-  picking's, and the machine calls it as a dep). Grep by name — the extraction opened a
+  state this entry would have to change. `pointerPress` DID stay in `field-host.ts` through
+  T3c — and at T3d became what it always was: it is `picking.press` in
+  `packages/editor/src/field-host/field-picking.ts`, and the machine still calls it as a
+  dep. Grep by name — the extraction opened a
   ~1,000-line hole and every line number below it drifted by a different amount.
 - `packages/editor/src/frontend/components/shell/session-card/AdvancedSection.tsx` — the d-pad
   that is the current answer.

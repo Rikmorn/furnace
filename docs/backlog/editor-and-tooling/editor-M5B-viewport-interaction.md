@@ -51,8 +51,10 @@ speed-trim; `field-host/camera-control.ts` `flyLook`/`flyMove`.)
 `src/viewport-host/index.ts`, the M5B scene-editing host — a file that no longer exists. The
 directory rename (foundations T3b1) re-pointed the path to `src/field-host/index.ts`, which is
 a 57-line barrel and holds none of what is described below. Whatever survives of this want
-lives in `src/field-host/field-host.ts`; the named symbols should be re-verified against it
-before the entry is acted on.
+lived in `src/field-host/field-host.ts` when this note was written — since T3c+T3d it is
+spread across that file's extracted sibling modules (the gizmo's state and wiring are now
+`field-entities.ts`'s, its drawing `field-render.ts`'s, its axis pick `field-picking.ts`'s);
+the named symbols should be re-verified against those before the entry is acted on.
 
 **Context (as written at M5B):** `viewport-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
 (all host wiring), but it is past the ~400-line cognitive-load guideline
@@ -66,10 +68,11 @@ alongside `gizmo.ts`.
 dedicated cleanup tranche. Not urgent — the file is cohesive; the smell is size alone.
 
 > **The size half is being paid down by the foundations T3 tranches; the named symbols are
-> gone (checked at source, 2026-08-07).** `field-host.ts` is **6,337 lines / 2,854 code** at
+> gone (checked at source, 2026-08-07).** `field-host.ts` was **6,337 lines / 2,854 code** at
 > foundations T3c, down from 7,410 at the original cluster-map pass — T3c alone took −929
 > (−12.8%), the largest single bite, by lifting the session/gesture machine and the pointer
-> chain into `field-host/field-machine.ts`.
+> chain into `field-host/field-machine.ts`. At T3d it is **3,999 / 915** (checked at source,
+> 2026-08-08): the remaining clusters left for sibling modules and the file is now the facade.
 >
 > **None of the six symbols this entry names still exists anywhere in the repo**
 > (`tryStartGizmoDrag`, `updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `renderGizmo`,

@@ -13,7 +13,8 @@ taken into the fix round: light tuning wants the user live in front of the viewp
 value picked by an agent against a headless capture is a value picked against the wrong
 instrument.
 
-The knobs are all in one place (`field-host.ts`'s studio rig — the key light's intensity,
+The knobs are all in one place (`sceneLights` in `field-render.ts`, the studio rig's home
+since T3d — the key light's intensity,
 its offset from the eye, and the hemisphere fill's contribution). What makes it a decision
 rather than a number is that dimming the key for near geometry costs the far read the mode
 exists for; a distance falloff or a small eye offset are the two shapes that do not.
@@ -30,8 +31,9 @@ take then, because the fix is a value the user can watch move.
 
 ## Reference
 
-- `packages/editor/src/field-host/field-host.ts` — the studio rig (key light + hemisphere
-  fill) and the shading-mode switch.
+- `packages/editor/src/field-host/field-render.ts` — the studio rig (`sceneLights`: key
+  light + hemisphere fill, now there); the shading-mode switch remains `field-host.ts`'s
+  `setShading` facade.
 - `docs/reference/editor-architecture.md` §16.5 (studio shading as the default and why the
   advisor's markers stay unlit under it).
 - The F4.5 charter's premises table, P5 — the passed premise and the fallback that therefore

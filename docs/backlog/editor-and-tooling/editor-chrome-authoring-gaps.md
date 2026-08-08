@@ -338,8 +338,9 @@ commit if the reconfigure answer turns out to be "post progress from somewhere".
 
 - `packages/editor/src/frontend/components/shell/StatusBar.tsx:486-501` — `longJobs`, the
   one derivation feeding both the chips and the `aria-live` announcement.
-- `packages/editor/src/field-host/field-host.ts` — `FieldStats` (`:331`) and
-  `applyReconfigure`'s TSDoc §COST (`:870-878`), which carries the measurement and names
+- `packages/editor/src/field-host/field-host.ts` — `FieldStats` (still there; the line
+  anchor rotted, so grep `export type FieldStats`) and `applyReconfigure`'s TSDoc §COST
+  (its old range rotted too — grep the declaration), which carries the measurement and names
   `captureDueSnapshots` as the lever that exists and is unwired.
 - `packages/editor/src/frontend/lib/field-host-mirrors.ts:34` — `statsEqual`, the
   never-check that a regrouping has to move with.

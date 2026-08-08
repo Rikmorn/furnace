@@ -21,7 +21,8 @@ or `max`; the hollow field's `min` is likewise unasserted.
 
 **THE MOVE DID NOT MAKE THIS WORSE — it made it strictly better, and an earlier draft of this
 entry had that backwards.** Before Task 5 there were TWO unpinned copies of each number, one
-in `field-host.ts` and one in `tool-params.tsx`, with nothing comparing them: a drift in
+in `field-host.ts` (the clamp's home then; `field-tool.ts` since T3d) and one in
+`tool-params.tsx`, with nothing comparing them: a drift in
 either was both unpinned AND able to put the control out of step with the clamp. There is now
 ONE copy. Consolidating **removed** a possible failure (the two disagreeing) and left the
 pre-existing one (nobody notices the single number moved) exactly as it was. Do not read this
@@ -70,8 +71,8 @@ Any of:
 
 - `packages/editor/src/shared/field-limits.ts` — the three constants and the bar for adding
   one.
-- `packages/editor/src/field-host/field-host.ts` — `clampRadius`, and the `hollow` floor in
-  `clampTool`.
+- `packages/editor/src/field-host/field-tool.ts` — `clampRadius`, and the `hollow` floor in
+  `clampTool` (both now there).
 - `packages/editor/src/frontend/components/shell/tool-params.tsx` — the radius range input's
   `min`/`max` and the hollow field's `min`, which are where a user meets them.
 - `packages/editor/tests/shared/action-table.test.ts` — *"the three host limits reach the

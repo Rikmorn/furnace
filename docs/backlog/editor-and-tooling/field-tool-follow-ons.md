@@ -186,8 +186,10 @@ rather than as a known display gap; OR whenever the stamp ghost's identical full
 is closed (the two want the same answer, and closing one alone would make the ghost and the
 committed layer disagree with each other). The void cast rides along on whichever fires.
 
-**Reference:** `packages/editor/src/field-host/field-host.ts` (`renderScene`'s `props`
-gate; `setSlice`; `applyStampGhost`'s existing full-height note);
+**Reference:** `packages/editor/src/field-host/field-render.ts` (`renderScene`'s `props`
+gate — now there); `packages/editor/src/field-host/field-host.ts` (`setSlice`);
+`packages/editor/src/field-host/field-machine.ts` (`applyStampGhost`'s existing
+full-height note — now there);
 `packages/editor/src/field-host/field-protocol.ts` (`sliceAprons` — how the field is
 actually clipped); `docs/reference/editor-architecture.md` §16 (Layers + slice) and §18
 (the prop layer).
@@ -218,8 +220,9 @@ each archetype its own palette button (one press = one session, seeded correctly
 
 **Reference:** `packages/editor/src/field-host/field-placements.ts`
 (`seedArchetypeParams`, `withArchetypeOptions`);
-`packages/editor/src/field-host/field-host.ts` (`startStamp` — the seeding call site
-and the TSDoc that states the once-only rule); `packages/dungeon/catalog/entities.json`
+`packages/editor/src/field-host/field-machine.ts` (`startStamp`'s body — the seeding
+call site, now there; the TSDoc half that states the once-only rule stays on the facade
+declaration in `field-host.ts`); `packages/dungeon/catalog/entities.json`
 (the authored `scatter` blocks).
 
 ## Reconfigure ghost previews against CURRENT field state, not the entity's pre-span state
@@ -249,8 +252,9 @@ bodged.
 someone at a gate, OR when snapshot capture is wired into the editor session (the same
 records make the rewind cheap enough to run per preview).
 
-**Reference:** `packages/editor/src/field-host/field-host.ts` (`openEntity`,
-`sendPreviewJob`, `snapshotChunks`); `packages/core/src/field/reconfigure.ts`
+**Reference:** `packages/editor/src/field-host/field-machine.ts` (`openEntity`'s body,
+`sendPreviewJob` — both now there); `packages/editor/src/field-host/field-world.ts`
+(`snapshotChunks` — now there); `packages/core/src/field/reconfigure.ts`
 (`restorePreState` — the two routes and when the culled one is taken);
 `packages/core/src/field/snapshots.ts` (`captureDueSnapshots`). Note the sibling v0
 divergence already documented on `previewStamp` (a ⌘Z or a stroke mid-session moves the
@@ -288,8 +292,9 @@ wholesale. (This originally named "the F4 tool-feel round"; F4 turned out to be 
 
 **Reference:** F3 spec §3.3 + D-F3-14 (local design spec); `BrushShape` in
 `packages/core/src/field/types.ts`; the capsule SDF + `assertOpValid` kit rule in
-`packages/core/src/field/ops.ts`; the gesture in
-`packages/editor/src/field-host/field-host.ts` (`segmentClick`). Precedent: WorldEdit
+`packages/core/src/field/ops.ts`; the click in
+`packages/editor/src/field-host/field-segment.ts` (`segmentClick`, exported as `click`),
+reached through `field-machine.ts`'s gesture. Precedent: WorldEdit
 `//line` and Axiom's path tools ship both cross-sections.
 
 ## The void cast monopolises the one field worker: no cancel, and refusal where coalescing belongs
@@ -400,8 +405,9 @@ but not act on it" shape and the two should be answered together.
 **Trigger to revisit.** F4.5b Task 8 or 10, whichever settles what a frozen entity
 looks like in the palette row and the session card.
 
-**Reference.** `packages/editor/src/field-host/field-host.ts` —
-`gizmoVisible`, `beginMoveSession`;
+**Reference.** `packages/editor/src/field-host/field-entities.ts` —
+`gizmoVisible` (now there); `packages/editor/src/field-host/field-machine.ts` —
+`beginMoveSession` (now there);
 `packages/editor/src/shared/field-entity.ts` — `openBlockedReason`.
 
 ---
@@ -483,8 +489,9 @@ window from theoretical into a real production editing span.
 
 **Reference:** `packages/editor/src/field-host/field-stats.ts`
 (`StatsMeter.publishIfWatched`, the private cache it reads, and the module header's note on
-the widened window); `packages/editor/src/field-host/field-host.ts`
-(`entityFootprints`, the fixed version + its comment);
+the widened window); `packages/editor/src/field-host/field-entities.ts`
+(`entityFootprints`, exported as `footprints` — the fixed version + its comment, now
+there);
 `packages/editor/tests/field-host-pointer.gpu.test.ts` (the world-swap case).
 
 ---
@@ -551,8 +558,9 @@ that would actually hurt, and it is still unmeasured.
 (a move, not a click), or a second consumer of `subscribeStamp`. The "a task upgrades the
 renderers" half of this trigger has now fired once and paid nothing — do not re-fire it.
 
-**Reference:** `packages/editor/src/field-host/field-host.ts` (`notifyStamp` /
-`subscribeStamp`), `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (the stamp
+**Reference:** `packages/editor/src/field-host/field-machine.ts` (`notifyStamp` — now
+there; `subscribeStamp` remains a facade delegate on `field-host.ts`),
+`packages/editor/src/frontend/hooks/useFieldHostState.tsx` (the stamp
 mirror, and `sameEntities` beside it as the precedent), `packages/editor/src/frontend/
 inspector/SchemaForm.tsx` (the `seed.current !== values` re-seed),
 `packages/editor/src/frontend/components/shell/SessionCard.tsx` (`formValues`).

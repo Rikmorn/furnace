@@ -17,4 +17,4 @@ scene (the user's F2b gate feel-check reported none), or a third consumer adding
 per-frame line overlays.
 
 **Reference:** `packages/core/src/frame/render-lines.ts`;
-`packages/editor/src/field-host/field-host.ts` (renderScene overlay draws).
+`packages/editor/src/field-host/field-render.ts` (renderScene overlay draws — now there).

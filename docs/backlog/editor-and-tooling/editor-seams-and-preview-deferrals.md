@@ -7,9 +7,10 @@ dockview/WebGPU lifecycle problem, and the two render-path fidelity deferrals in
 viewport host, and the field worker protocol's un-guarded generator evaluate. Merged so
 there is **one place to check whenever you touch the project-first bundle boundary
 (`packages/dungeon/src/editor-extensions.ts`, `packages/editor/src/daemon/bundle.ts`), the
-field host's render path (`packages/editor/src/field-host/field-host.ts` — this line said
-`index.ts` until 2026-08-06; that path is now a 57-line barrel and never held the render
-path, so the pointer was re-aimed rather than merely re-spelled), or the field
+field host's render path (`packages/editor/src/field-host/field-render.ts` — this line said
+`index.ts` until 2026-08-06, a 57-line barrel that never held the render path, and
+`field-host.ts` until T3d moved the render cluster out, so the pointer has now been
+re-aimed twice), or the field
 worker protocol (`packages/editor/src/field-host/field-protocol.ts`)**. Sections keep
 their original content.
 
@@ -113,8 +114,9 @@ visibility swap + the zero-size init comment), `packages/editor/src/frontend/com
 > exists.
 
 `createFieldHost` requests a **non-HDR** context — `requestContext(canvas, { sampleCount: 4 })`,
-taking `hdr`'s `false` default — and its `frame.render` call passes **`effects: []`**
-(`packages/editor/src/field-host/field-host.ts`). So the editor viewport shows lights +
+taking `hdr`'s `false` default (that half is still `field-host.ts`'s `init`) — and the
+`frame.render` call passes **`effects: []`**
+(`packages/editor/src/field-host/field-render.ts`, since T3d). So the editor viewport shows lights +
 ambient + studio/normals shading and nothing else: no bloom, no tonemap, no fog-through-post.
 
 The game does not look like that. `packages/dungeon/src/main.ts` requests

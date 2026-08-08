@@ -87,8 +87,10 @@ it inside the current file means editing gate logic in the middle of the action 
 The box brush and the segment brush each hold a pending first click — `boxAnchor` and
 `segmentAnchor` — and the two are mutually exclusive by construction: arming one clears the
 other. Every path that drops a half-drawn gesture therefore has to clear BOTH, and four
-places in `field-host/field-host.ts` do (line numbers re-checked 2026-08-06, after T3b1's
-five extractions shifted every one of them by ~+13 from the 2026-08-05 pass):
+places do (the line numbers below were re-checked 2026-08-06, after T3b1's five extractions
+shifted every one of them by ~+13 from the 2026-08-05 pass — and have since rotted outright:
+T3c+T3d moved the sites themselves out of `field-host.ts` into `field-machine.ts` and
+`field-world.ts`, so grep by symbol, not by line):
 
 | site | what it is |
 | --- | --- |
@@ -102,8 +104,10 @@ five extractions shifted every one of them by ~+13 from the 2026-08-05 pass):
 entry each** rather than being cleared together by one rung — because the arming rules make
 the pair unreachable (`setGesture` drops both on any switch, a stamp arm drops both), so the
 dual clear there was guarding a state that cannot happen. The remaining four are the paths
-that really do have to drop both. The second call is `segment.setAnchor(null)` rather than
-`setSegmentAnchor(null)` since the segment cluster was extracted to `field-segment.ts`.
+that really do have to drop both. At head the second call travels as a dep — the machine
+sites spell `deps.setSegmentAnchor(null)` and the world-reset site `deps.clearSegmentAnchor()`
+(the segment cluster itself lives in `field-segment.ts`; T3d re-checked this sentence, which
+had been one extraction behind).
 
 Four is still past `clean-code.md`'s third-occurrence threshold, and the last two only became
 sites at F4.5c Task 14 — where the second one was MISSING and shipped as a defect: on the
@@ -116,7 +120,8 @@ the round that fixed it.
 The candidate is a private `clearGestureAnchors()` beside the two setters — pure, no new
 public surface, and it makes "both, always" a thing the code says once instead of a rule four
 call sites have to remember. The shape of the failure it prevents is already on record:
-the pattern is exactly `setPendingStamp`'s (`field-host.ts:3022-3029`), where the clear
+the pattern is exactly `setPendingStamp`'s (now in `field-machine.ts` — grep the setter),
+where the clear
 lives INSIDE the setter so every path that disarms drops the corner whether or not its
 author thought about anchors — the same argument, applied one level up.
 
@@ -132,14 +137,17 @@ a helper whose adoption deletes them makes the file worse, not better.
 
 ### Trigger to revisit
 
-A FIFTH site, or the next substantial edit to `field-host.ts`'s gesture/session region —
-`clean-code.md`'s "drive-by changes don't trigger restructuring" is why this waits for a
+A FIFTH site, or the next substantial edit to the gesture/session code — now
+`field-machine.ts` / `field-tool.ts` — `clean-code.md`'s "drive-by changes don't trigger
+restructuring" is why this waits for a
 commit already in that neighbourhood.
 
 ### Reference
 
-- `packages/editor/src/field-host/field-host.ts` — the four sites above, and
-  `setPendingStamp` at `:3022-3029` for the precedent.
+- `packages/editor/src/field-host/field-machine.ts` — three of the four sites (`setGesture`
+  and both `startStamp` branches), and `setPendingStamp` for the precedent;
+  `packages/editor/src/field-host/field-world.ts` — the world-swap site (its reset calls
+  the `clearBoxAnchor` / `clearSegmentAnchor` deps).
 - `packages/editor/tests/field-host-stamp-entry.gpu.test.ts` — the `ARM_EXITS` table,
   which walks the disarm paths and is where a fifth site would want a row.
 - `.claude/rules/clean-code.md` § Cognitive Load — "tolerate duplication until the third

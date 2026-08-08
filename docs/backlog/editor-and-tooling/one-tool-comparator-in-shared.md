@@ -1,6 +1,7 @@
 # `sameTool` and `toolsEqual` are one predicate written twice, and `shared/` can hold it
 
-`field-host/field-host.ts`'s `sameTool` and `frontend/lib/field-host-mirrors.ts`'s
+`field-host/field-tool.ts`'s `sameTool` (`field-host.ts`'s until T3d) and
+`frontend/lib/field-host-mirrors.ts`'s
 `toolsEqual` are the same function. As of foundations T3b2 Task 6 their `sameMask`/
 `masksEqual` halves are byte-identical including the comment, and the two outer functions
 differ only in style. Nothing pins that they agree.
@@ -72,7 +73,7 @@ fires without buying anything.
 
 ## Reference
 
-- `packages/editor/src/field-host/field-host.ts` — `sameMask` / `sameTool`
+- `packages/editor/src/field-host/field-tool.ts` — `sameMask` / `sameTool` (now there)
 - `packages/editor/src/frontend/lib/field-host-mirrors.ts` — `masksEqual` / `toolsEqual`
 - `packages/editor/src/shared/field-limits.ts` — the Task 5 precedent
 - `docs/reference/editor-architecture.md` §22.8, "Two comparators, deliberately"

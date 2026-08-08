@@ -38,9 +38,10 @@ gates by the same user.
 
 ## Reference
 
-- `packages/editor/src/field-host/field-host.ts` — `boxAnchor`, which stayed here
-  deliberately at foundations T3c because by EDGES it is the selection overlay's rather than
-  the gesture cluster's. **The press branch and the `onPointerUp` that has no region case both
+- `packages/editor/src/field-host/field-selection.ts` — `boxAnchor`, which stayed in
+  `field-host.ts` deliberately at foundations T3c because by EDGES it is the selection
+  overlay's rather than the gesture cluster's — and then left WITH the selection cluster at
+  T3d, which is that reasoning cashed out. **The press branch and the `onPointerUp` that has no region case both
   MOVED** to `packages/editor/src/field-host/field-machine.ts` (T3c, 2026-08-07): the four
   pointer handlers in `field-host.ts` are delegates now, and the anchor reaches the machine as
   the `setBoxAnchor` / `boxCorner` deps. So this change is a two-module edit today — grep by
