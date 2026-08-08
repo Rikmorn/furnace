@@ -5,7 +5,14 @@
 //
 // Its sibling `tests/keybindings.test.ts` owns the other half: which EVENT reaches which
 // entry, and the gate that refuses it.
+//
+// ONE case here is not about the table at all: the single-funnel guard at the foot reads
+// `src/` off disk, the way the two leakage guards do. It sits here rather than with them
+// because the invariant it holds is this file's subject — who may call `ToolFamilyMember.arm`
+// — and its own comment carries why a source scan is the only instrument for it.
 import { afterEach, expect, type mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
   ACTION_GROUPS,
@@ -17,9 +24,15 @@ import {
   type GateEnv,
   groupTitle,
   runAction,
+  runMember,
   TOOL_FAMILIES,
+  type ToolFamily,
+  type ToolFamilyMember,
 } from "../src/frontend/lib/actions.ts";
 import { notify } from "../src/frontend/lib/notify-store.ts";
+// The traversal, shared with the two leakage guards — the RULE stays here, where the
+// argument for it is.
+import { walk } from "./_source-scan.ts";
 
 /** A keypress with nothing standing in its way, and a control activation. The two caller
  *  classes, spelled once — `keybindings.test.ts` owns what each REFUSES; these cases are
@@ -914,4 +927,118 @@ test("a run that THROWS is surfaced, not thrown past the dispatcher", async () =
     message: "Find a command… failed: boom",
   });
   expect(said()).toEqual(["Find a command… failed: boom"]);
+});
+
+// --- the MEMBER funnel (T4a Task 1) ------------------------------------------
+//
+// `runAction` above calls itself "the one funnel every surface dispatches through", and until
+// this task that was untrue of one path: picking a member out of a tool family reached
+// `ctx.run` or the host directly — ungated, unvoiced and answering nothing at all. Both
+// surfaces refuse BEFORE the pick rather than inside it (the rail's flyout TRIGGER off the
+// row's verdict, the palette's member rows through `disabled`), which is why it was filed as
+// a false claim rather than a bug, and why it survived two rewrites of this code. What these
+// cases pin is the claim and the caller that inherits it — T4's agent has no flyout to be
+// refused by. The one route a HUMAN still had is `chrome/tool-rail.test.tsx`'s: the rail's
+// check is a moment earlier than the pick, so a flyout left standing when a session opens is
+// five buttons past their own gate.
+
+/** A family by id, throwing on a miss — `familyOf`'s shape, read from outside. */
+const family = (id: string): ToolFamily => {
+  const found = TOOL_FAMILIES.find((f) => f.id === id);
+  if (found === undefined) throw new Error(`no tool family "${id}"`);
+  return found;
+};
+
+/** One member by its label, throwing on a miss: a member renamed in `FAMILY_ROWS` must fail
+ *  these cases loudly rather than leave them asserting things about `undefined`. */
+const memberNamed = (
+  members: readonly ToolFamilyMember[],
+  label: string,
+): ToolFamilyMember => {
+  const found = members.find((m) => m.label === label);
+  if (found === undefined) throw new Error(`no member "${label}"`);
+  return found;
+};
+
+test("a member pick ANSWERS, and arms exactly the member that was picked", () => {
+  // BOTH halves of `familyMembers`, because they arm through different doors and only one of
+  // them had a route through the table at all: a `"rows"` member pushes at `ctx.run`, a
+  // `"generators"` member calls the host. Neither produced a verdict before this task.
+  const ctx = makeCtx();
+  const brush = family("brush");
+  expect(
+    runMember(brush, memberNamed(brush.members(ctx), "Paint"), ctx),
+  ).toEqual({ ok: true });
+  expect(ctx.run.armBrush).toHaveBeenCalledWith("paint");
+
+  const stamp = family("stamp");
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(
+    runMember(stamp, memberNamed(stamp.members(ctx), "Maze"), ctx),
+  ).toEqual({ ok: true });
+  expect(host.startStamp.mock.calls).toEqual([["maze"]]);
+  // `ok` on a HAND-OFF, per `ActionResult`'s module header: the host answers for itself,
+  // later, on its own channel — and a pick that succeeded still succeeds SILENTLY.
+  expect(said()).toEqual([]);
+});
+
+test("a member pick a live session refuses is `refused`, with the FAMILY's own sentence", () => {
+  // The gate is the family's, which is what makes this need no descriptor row of its own:
+  // arming Paint is arming the brush, so the refusal that stops `tool.brush` stops Paint —
+  // in the same words the flyout button beside it is already showing.
+  const session = makeCtx({ session: { generator: "hall" } as never });
+  const hint = "finish the session first — ⏎ applies it, Esc discards it";
+  const brush = family("brush");
+  expect(
+    runMember(brush, memberNamed(brush.members(session), "Paint"), session),
+  ).toEqual({ ok: false, kind: "refused", message: hint });
+  // The arm did not happen — the refusal is the whole verdict, not a message beside an
+  // effect that landed anyway.
+  expect(session.run.armBrush).not.toHaveBeenCalled();
+  expect(said()).toEqual([hint]);
+});
+
+test("a member arm that THROWS is surfaced as `failed`, named after the MEMBER", () => {
+  // `runAction`'s rule one layer down: the one `failed` no channel below has said is the one
+  // the funnel builds out of a caught throw, so the funnel voices it. The member's label and
+  // not the family's — "Brush failed" would name four other members along with the one that
+  // did it.
+  const ctx = makeCtx();
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  (host.startStamp as unknown as ReturnType<typeof mock>).mockImplementation(
+    () => {
+      throw new Error("boom");
+    },
+  );
+  const stamp = family("stamp");
+  expect(
+    runMember(stamp, memberNamed(stamp.members(ctx), "Maze"), ctx),
+  ).toEqual({ ok: false, kind: "failed", message: "Maze failed: boom" });
+  expect(said()).toEqual(["Maze failed: boom"]);
+});
+
+test("`member.arm` has exactly ONE caller in the editor — the funnel itself", () => {
+  // A SOURCE SCAN, and for the ⌘K half it is the only instrument there is. The rail's
+  // re-point is pinned by BEHAVIOUR (`chrome/tool-rail.test.tsx`'s stale-flyout case, which
+  // reds on a bare arm); the palette's cannot be, because its rows are rebuilt from a live
+  // ctx on every render and a `disabled` row registers no select listener at all — so a bare
+  // arm and a funnelled one are indistinguishable from outside, which is exactly how the
+  // bypass survived being rewritten twice. `no-bun-leakage.test.ts` and
+  // `frontend-no-engine-leakage.test.ts` hold their invariants the same way and for the same
+  // reason: the rule is about what the source may SAY.
+  //
+  // A PROXY, and named as one: it is the constraint's own grep, so a re-point that spells the
+  // receiver differently (`m.arm(ctx)`) walks past it. What it catches is the shape a caller
+  // reaching for a member actually writes, and it is the whole of what a regex can promise.
+  const src = join(import.meta.dir, "..", "src");
+  const callers = walk(src)
+    .filter((f) => /\bmember\.arm\(/.test(readFileSync(f, "utf8")))
+    .map((f) => relative(src, f))
+    // SORTED, because `readdirSync` order is the platform's — `frontend-no-engine-leakage.
+    // test.ts` sorts its own literal comparison for the same reason. Moot at one entry and
+    // not moot the day a second legitimate caller is declared.
+    .sort();
+  // The funnel's own file, and NOT an empty list: a scan asserting `[]` would pass just as
+  // happily with the funnel deleted.
+  expect(callers).toEqual(["frontend/lib/actions.ts"]);
 });

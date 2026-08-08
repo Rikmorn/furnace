@@ -21,7 +21,10 @@
 //      load sentences ("bake failed: ENOSPC"). Same shape as the host's, one layer up: a
 //      seam with its own voice.
 //   3. THE ACTION's — this type. The dispatcher (`runAction` in `frontend/lib/actions.ts`)
-//      is the one funnel, and it says a {@link ActionResult} out loud exactly once.
+//      is the one funnel for a NAMED action, and it says a {@link ActionResult} out loud
+//      exactly once. Since foundations T4a it has a sibling, `runMember`, for picking a
+//      member out of a tool family: same gate, same voice, same Result — a second way into
+//      an existing row rather than a fourth provenance. The rule below binds both.
 //
 // WHICH IS WHY THERE ARE TWO NON-OK KINDS AND NOT ONE. `refused` is a verdict the action
 // itself reached and NOBODY has said yet, so the funnel says it. `failed` is an error a

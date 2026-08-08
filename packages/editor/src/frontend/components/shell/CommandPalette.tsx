@@ -40,6 +40,7 @@ import {
 	byId,
 	capOf,
 	controlVerdict,
+	runMember,
 	runNamed,
 	TOOL_FAMILIES,
 } from "../../lib/actions.ts";
@@ -120,7 +121,9 @@ function actionRow(def: ActionDef, ctx: ActionCtx): Row {
  *  alone under a "Tools" heading does not say that picking it opens a stamp session.
  *
  *  Members inherit the FAMILY's refusal. Arming a member is arming the family, so the
- *  session gate that refuses one refuses the other — the rail's flyout does the same. */
+ *  session gate that refuses one refuses the other — the rail's flyout does the same. The
+ *  `disabled` below is how that reads on screen; `runMember` is what ENFORCES it (T4a), so
+ *  the row and the pick cannot come to different answers about one verb. */
 function memberRows(ctx: ActionCtx): Row[] {
 	return TOOL_FAMILIES.flatMap((family) => {
 		const members = family.members(ctx);
@@ -139,7 +142,11 @@ function memberRows(ctx: ActionCtx): Row[] {
 			// partial queries appeared to work through a subsequence inside the HINT.
 			// Without the separator: `·` is not a character anyone types.
 			keywords: [`${family.name} ${member.label}`, member.label, member.hint],
-			run: () => member.arm(ctx),
+			// Through the member funnel, so a row and the family's own key refuse in the same
+			// words and now by the same code. `void` because the verdict is DROPPED and not
+			// because it is a promise: `runMember` is synchronous, unlike the `runNamed` that
+			// `actionRow` voids one function up.
+			run: () => void runMember(family, member, ctx),
 		}));
 	});
 }

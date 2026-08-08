@@ -74,6 +74,7 @@ import type {
 import {
 	capOf,
 	controlVerdict,
+	runMember,
 	runNamed,
 	TOOL_FAMILIES,
 } from "../../lib/actions.ts";
@@ -191,7 +192,13 @@ export function ToolRail() {
 					// speaks first: it reads the verdict this row already carries, and the
 					// funnel is never reached on that path.
 					run: () => void runNamed(family.arm, ctx),
-					armMember: (member: ToolFamilyMember) => member.arm(ctx),
+					// A member pick has a funnel of its own (T4a) — the same gate, this
+					// family's, and the same voice. `void` because the verdict is DROPPED and
+					// not because it is a promise: `runMember` is synchronous, unlike
+					// `runNamed` above, and the human who clicked has already heard whatever
+					// there was to hear.
+					armMember: (member: ToolFamilyMember) =>
+						void runMember(family, member, ctx),
 				};
 			}),
 		// EXACTLY the ctx FACTS the four rows read, never `ctx` itself and — for the session —

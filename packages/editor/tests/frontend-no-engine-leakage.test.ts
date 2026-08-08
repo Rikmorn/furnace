@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+// The traversal, shared with `no-chrome-leakage.test.ts` and the single-funnel guard in
+// `actions.test.ts` — the RULES stay here, where the argument for them is.
+import { walk } from "./_source-scan.ts";
 
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
 // `src/shared/` is the neutral layer both arrows point at (`frontend/ → field-host/ →
@@ -235,14 +238,6 @@ const UNIVERSAL = [
 ];
 
 const FORBIDDEN = [...EXEMPTABLE, ...UNIVERSAL];
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return walk(p);
-    return p.endsWith(".ts") || p.endsWith(".tsx") ? [p] : [];
-  });
-}
 
 test("frontend has no value imports of @furnace/core (project-first invariant)", () => {
   const offenders = walk(FRONTEND).filter((f) => {

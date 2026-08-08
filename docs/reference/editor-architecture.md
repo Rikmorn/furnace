@@ -3465,7 +3465,13 @@ type's own module header carries, and it is why there are two non-ok kinds rathe
 2. **The world seam's** — `frontend/lib/world-actions.ts` composes and says its own save and
    load sentences ("bake failed: ENOSPC"). Same shape as the host's, one layer up.
 3. **The action's** — the Result. `runAction` in `frontend/lib/actions.ts` is the one funnel
-   every surface dispatches through, and it says a Result out loud exactly once.
+   every surface dispatches a NAMED ACTION through, and it says a Result out loud exactly
+   once. Since foundations T4a it has a sibling, `runMember(family, member, ctx)`, for picking
+   a member out of a tool family — gated against the family's own arm action through the same
+   `controlVerdict`, voiced the same way, answering the same `ActionResult`, and synchronous
+   because every member arm is. It is a second way into an existing row, not a fourth
+   provenance, which is why it needs no descriptor row of its own; `member.arm` is the effect
+   and has exactly one caller (pinned by a source scan in `tests/actions.test.ts`).
 
 `refused` is a verdict the action itself reached that nobody has said yet, so the funnel says
 it with `notify.error` — the same call, in one place, that used to sit inside the verb.
@@ -3650,9 +3656,12 @@ adapter.
 `status-line-keycaps-restate-the-registry.md` (the status line's own keycap clauses, measured
 and stated once in §22.6 — a real duplication, but `keycap()` lives ABOVE the floor and the
 fix that keeps the arrow costs `StatusFragment`'s two-kind model) and
-`family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reaches the host directly and
-returns no `ActionResult`; unreachable-while-refused today because both surfaces pre-check,
-but "the one funnel" is not literally true).
+`family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reached the host directly and
+returned no `ActionResult`; believed unreachable-while-refused because both surfaces pre-check,
+but "the one funnel" was not literally true). **The second is CLOSED and its entry deleted** —
+foundations T4a Task 1 gave a member pick a funnel of its own (`runMember`), gated against the
+family's own arm action. It also found the pre-check claim half-true: the rail's check is on the
+flyout TRIGGER, so a session opening while the flyout stands leaves its members past their gate.
 
 ### 22.8 The tool seam converts — a state seam, and the cell retires (Task 6)
 

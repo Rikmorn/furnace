@@ -457,6 +457,36 @@ test("a live session locks every rail family with the refusal the family KEYS gi
 	);
 });
 
+test("a member picked out of a STALE flyout is refused by the pick itself (T4a)", async () => {
+	fetch404();
+	const stub = makeStubHost({ generators: [HALL] });
+	await renderShell(stub);
+
+	// Open it with nothing standing in the way: the trigger's own pre-check passes, and the
+	// popover now holds five member buttons built for a state that is about to move.
+	fireEvent.click(railButton("Brush tools"));
+	await screen.findByRole("group", { name: "Brush tools" });
+	const armed = stub.calls.setTool.mock.calls.length;
+
+	// The session arrives on the HOST's channel rather than from a click, so nothing
+	// dismissed the popover — and the two controls carrying this family's refusal (the button
+	// and the flyout tab) are ones the user has already walked past. That is the shape T4's
+	// agent makes: it opens a session while a human's flyout stands open.
+	act(() => {
+		stub.fire.stamp(makeSession());
+	});
+	act(() => notify.clear());
+
+	// So the PICK is what has to refuse, and only the funnel can. A bare `member.arm` armed
+	// Paint here — the family KEY's own refusal defeated by a route around it, which is the
+	// whole reason a member pick got a funnel of its own. Same sentence, because the funnel
+	// reads the same `controlVerdict` the refused button beside it is showing.
+	const menu = screen.getByRole("group", { name: "Brush tools" });
+	fireEvent.click(within(menu).getByRole("button", { name: /^Paint —/ }));
+	expect(stub.calls.setTool.mock.calls.length).toBe(armed);
+	expect(notify.getSnapshot().log[0]?.text).toMatch(/finish the session first/);
+});
+
 test("a PENDING stamp presses the stamp family — and stays armable, unlike a session", async () => {
 	fetch404();
 	// TWO generators and an arm on the SECOND, for the session case's reason: with one

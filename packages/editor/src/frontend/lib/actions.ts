@@ -961,6 +961,12 @@ export type ToolFamilyMember = {
   hint: string;
   /** Is THIS member the one the family is currently on? */
   armed: boolean;
+  /** DO THE ARM — push at `ctx.run` (`armMember`, which reads `ctx.gesture` and pushes twice
+   *  when it has to drop a live `segment`) or call the host (`startStamp`). THE EFFECT, not
+   *  the dispatch: it does not gate, does not speak and answers nothing, which is why no
+   *  surface may call it. {@link runMember} is its ONE caller — literally, and
+   *  `grep -rn "member\.arm(" packages/editor/src` is the check — and is what gives a pick
+   *  its gate and its {@link ActionResult}. */
   arm: (ctx: ActionCtx) => void;
 };
 
@@ -1238,7 +1244,9 @@ export function sayResult(result: ActionResult): void {
   notify.error(result.message);
 }
 
-/** RUN IT: gate, claim, check, do, say. The one funnel every surface dispatches through.
+/** RUN IT: gate, claim, check, do, say. The one funnel every surface dispatches a NAMED
+ *  ACTION through; {@link runMember} is its sibling for a family-member pick, which is a
+ *  second way into a row rather than a row of its own (that function carries the argument).
  *
  *  `onClaim` fires the instant the gate ALLOWS and before `enabled` is consulted, because at
  *  that point the key has been claimed: a disabled ⌘S must still suppress the browser's
@@ -1301,4 +1309,70 @@ export function runNamed(
   input?: ActionInput,
 ): Promise<ActionResult> {
   return runAction(def, ctx, NAMED_CALL, input);
+}
+
+/** RUN A MEMBER PICK: gate against its FAMILY, do the member's own arm, answer for it.
+ *
+ *  The second funnel, and what makes {@link runAction}'s *"the one funnel every surface
+ *  dispatches through"* literally true — it was not, of exactly this path, until foundations
+ *  T4a. The rail's corner flyout and the ⌘K member rows both called the member's `arm` bare:
+ *  no gate, no {@link ActionResult}, nothing said.
+ *
+ *  BOTH SURFACES REFUSE BEFORE THE PICK rather than inside it — the flyout's TRIGGER off the
+ *  row's verdict, the palette's member rows through `disabled`, which cmdk skips for the
+ *  arrows and for ⏎ — which is why the bypass was filed as a false claim rather than as a bug.
+ *  That is not quite the same as saying there was no route: the rail's check is a moment
+ *  EARLIER than the pick, so a session pushed onto the host while the flyout stands open
+ *  leaves five member buttons whose gate has already been passed, and a bare arm re-armed LMB
+ *  under a live session (`tests/chrome/tool-rail.test.tsx` drives exactly that). Rare for a
+ *  human and ordinary for an agent, which is the other half: T4's caller has no flyout to be
+ *  refused by, and a pick that answers `undefined` is not an answer it can read.
+ *
+ *  THE GATE IS THE FAMILY'S. Arming a member IS arming the family, so the refusal that stops
+ *  `tool.brush` stops Paint — and both surfaces already say so in the code, the palette by
+ *  giving every member row `controlVerdict(family.arm, ctx)` and the rail by gating the whole
+ *  flyout on the one its row carries. Reading that same three-way here is what keeps the
+ *  sentence a pick refuses with identical to the one the family button beside it is showing,
+ *  and it is why this needs no row of its own in `ACTION_DESCRIPTORS`: there is no second verb
+ *  here, only a second way into one.
+ *
+ *  {@link controlVerdict} rather than {@link runAction}'s gate-then-`enabled` sequence spelled
+ *  a second time. The two are the same behaviour, exactly: `sayRefusal` is a no-op on a null
+ *  reason, so the INERT case (`enabled` false, gate open) stays silent here as it does there,
+ *  and both hand back the arm action's LABEL as the message a caller who cannot see the screen
+ *  gets. One three-way in the editor beats two that have to be kept in agreement.
+ *
+ *  SYNCHRONOUS, unlike {@link runNamed}, because everything it wraps is: `armMember` pushes a
+ *  gesture or an effect at `ctx.run`, and a stamp member calls `host.startStamp`, which
+ *  returns `void`. A promise here would be one nothing awaits — both call sites drop the
+ *  result — and it would move a pick's own failure onto a later turn for a caller that could
+ *  have had it on this one. It is a hand-off either way, so `ok` means what
+ *  {@link ActionResult}'s module header says it means: the host answers for itself, later, on
+ *  its own channel. The day a member arm becomes async this signature is what has to change,
+ *  which is the honest place for that cost to land.
+ *
+ *  No `onClaim`: that seam is the key dispatcher's `preventDefault`, and no key reaches a
+ *  member. The ⇧ chords step families through `tool.brushCycle` and its two siblings, which
+ *  are ordinary rows and already funnelled. */
+export function runMember(
+  family: ToolFamily,
+  member: ToolFamilyMember,
+  ctx: ActionCtx,
+): ActionResult {
+  const verdict = controlVerdict(family.arm, ctx);
+  if (!verdict.runnable) {
+    notify.sayRefusal(verdict.reason);
+    return refused(verdict.reason ?? family.arm.label(ctx));
+  }
+  try {
+    member.arm(ctx);
+    return ACTION_OK;
+  } catch (err) {
+    // The MEMBER's label, not the family's: "Paint failed: …" names what was picked, where
+    // the family button says "Brush" whichever of its five is on it. Voiced here for
+    // `runAction`'s reason — this is the one `failed` no layer below has said.
+    const message = `${member.label} failed: ${errorMessage(err)}`;
+    notify.error(message);
+    return failed(message);
+  }
 }

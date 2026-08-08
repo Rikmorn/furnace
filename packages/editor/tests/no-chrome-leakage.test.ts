@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// The traversal, shared with this file's mirror and the single-funnel guard in
+// `actions.test.ts` — the RULES stay here, where the argument for them is.
+import { walk } from "./_source-scan.ts";
 
 // The mirror of `frontend-no-engine-leakage.test.ts`. That one keeps the ENGINE out of the
 // chrome; this one keeps the CHROME out of every layer underneath it. Both halves of the
@@ -128,14 +131,6 @@ const CHROME = bans(String.raw`["'][^"']*\/frontend\/[^"']*["']`);
 // prefix and nothing else. Only `action-registry/` is scanned with this, since `shared/`
 // sits below the host and `field-host/` is the host.
 const HOST = bans(String.raw`["'][^"']*field-host(\/|["'])`);
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return walk(p);
-    return p.endsWith(".ts") || p.endsWith(".tsx") ? [p] : [];
-  });
-}
 
 const offenders = (dir: string, rules: RegExp[]): string[] =>
   walk(dir).filter((f) => {
