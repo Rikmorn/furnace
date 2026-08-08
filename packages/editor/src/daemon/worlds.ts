@@ -13,10 +13,10 @@ import {
 import { join } from "node:path";
 
 /** ONE source of truth for a world directory name. Kept textually identical to
- *  the other 2 copies — frontend `lib/generation.ts`'s `isValidWorldName` (the
- *  frontend's only copy, now that the field toolbar's is gone) and
- *  `packages/dungeon/src/bake.ts`'s `WORLD_NAME_RE` — grep both before changing
- *  this pattern. (`handlers.ts`
+ *  the ONE other copy — frontend `lib/generation.ts`'s `isValidWorldName` (the
+ *  frontend's only copy, now that the field toolbar's is gone) — grep it before
+ *  changing this pattern; the third copy, `packages/dungeon/src/bake.ts`'s, died
+ *  with that file at foundations T2. (`handlers.ts`
  *  imports this constant directly — its shared `worldName` zod schema is used by
  *  `field.load` and every `world.*` verb, not a separate copy.) */
 export const WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;

@@ -50,6 +50,44 @@ asset-pipeline backend (epic spec §4.1), not this milestone. This milestone is 
 WORLDS with existing engine capability — dig, stamp, scatter, paint, bake. Runtime AI (NPC
 planning, TTS) is separate again: `docs/backlog/ai-agents/llm-as-planner-experiments.md`.
 
+> **Re-anchored 2026-08-08 (T3 close — the trigger has FIRED; this entry is promoted to
+> foundations T4 and deletes when T4 lands, EXCEPT items 3 and 4 above, which are NOT in
+> T4's scope and must be re-filed or explicitly dropped before this file goes).** What
+> the programme built for T4, so the planner reads it here rather than in code comments:
+>
+> - **`src/action-registry/`** — 39 action descriptors as plain data with 6 zod input
+>   schemas, a `@furnace/editor/action-registry` export-map entry, DOM-freeness proven
+>   by a subprocess Node door. **Six rows carry `mcpProjection`** (the six axis views →
+>   one `view.snap {axis, sign}` tool). **The JSON-Schema projection itself is NOT
+>   built** — nothing calls `z.toJSONSchema` for actions; `schemas.ts` has no
+>   export-map entry of its own yet (the Node door's third test names T4 as owner).
+> - **`shared/tool-registry.ts`** — existence + per-CONTROL capability only.
+>   `ToolDefinition.build` (id → builder) was deferred WHOLE on the two-bundle
+>   constraint, and the bare `canActivate` name is reserved in its TSDoc for T4's
+>   per-TOOL question. The unmet half of the programme's own success criterion —
+>   *"adding a tool touches the tool module + registration only"* — rides exactly this.
+> - **`defineService`/`getService`** — one production service (`analyzerVerify`);
+>   `ServiceDefinition` is `{ fn }` — **there is no schema field**, so "service schemas
+>   arrive via the session handshake" has nothing to carry them yet.
+> - **Two agent-caller debts flagged in code**: `frontend/lib/actions.ts` `runAction`'s
+>   label-as-refusal fallback, and `NAMED_CALL`'s `confirmOpen: false` hard-code.
+> - **The session-claim policy, settled at the programme design (2026-08-04) and
+>   recorded HERE because it had no tracked home:** exactly one chrome session may
+>   claim a world for authoring; the daemon tracks the claim; a second tab gets
+>   read-only or an explicit steal; **an MCP call with no claimed session returns a
+>   typed error, never a hang**. The daemon has ZERO session/claim/identity state today
+>   — this is greenfield, and it is the first daemon-resident state the architecture
+>   would add (in tension with "daemon stays stateless" as literally worded; reconcile
+>   at plan time).
+> - Riding T4: the typed `furnace.*` vendor-key namespace
+>   (`docs/backlog/engine-architecture/furnace-vendor-keys-untyped.md`) and the
+>   projection-entangled pruning question
+>   (`docs/backlog/engine-architecture/core-zero-consumer-module-exports.md`).
+> - The plan-time probe both this entry and the programme design demand, unchanged:
+>   **verify the MCP SDK's zod-version surface before committing** (the SDK is absent
+>   from the workspace; low-level `Server` API + raw JSON Schema is the intended
+>   answer, with the documented fallback if the SDK insists on its own zod).
+
 **Trigger to revisit:** appetite after M5 lands — outbound UX needs chrome to live in and capture
 wants a stable viewport; slot into the epic execution order at that point. Also reopens early if
 a sandboxed-client need shows up (someone wants Claude desktop/web driving the editor).

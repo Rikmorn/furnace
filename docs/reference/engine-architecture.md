@@ -435,6 +435,37 @@ artifact is just voxels-and-ops rather than a node tree.
 
 ---
 
+## 16. Huge-world realization assumptions (the F5 handoff register)
+
+Promoted to this tracked home at the T3 objectives audit (2026-08-08) — it previously
+lived only in the foundations programme's local planning notes, which do not ship with
+the repo. This is the register F5 ("scale") inherits: the places where core and its
+consumers assume a world is FULLY REALIZED, each a signature that changes shape under
+streaming. Measured 2026-08-04; re-derive anchors at pickup (symbols are the stable
+handle).
+
+- **`bakeFieldWorld`** (`packages/core/src/field/artifact.ts`) — all chunks materialized
+  in one array.
+- **`analyze.ts`'s whole-world pass** — a map over every chunk.
+- **`copyStore`** (`packages/core/src/field/maintenance.ts`) — a deep copy, also called
+  in a loop.
+- **`reconfigure.ts`'s prefix replay** — a full op-log prefix replay into a fresh
+  whole-world scratch (its own comment states the ceiling).
+
+Plus three adjacent facts of the same class: **OpLog inverses pin full chunk pre-images
+with no eviction** (undo depth = O(chunks touched × stack depth) resident bytes);
+**dungeon's loader is fully eager** (hundreds of sequential fetches for a large world;
+the render list is frozen before the frame loop); and **the editor needs full-view over
+worlds that cannot be fully realized** (region-of-interest realization + aggregate
+overview — an open design problem, F5's to take).
+
+**The standing obligation on every tranche between now and F5: add no fifth
+assumption.** The one recorded near-miss so far is the editor's `latchEntities`
+(a whole-op-log walk multiplied per reader — accepted with a trigger,
+`docs/backlog/editor-and-tooling/latchentities-walks-the-oplog-per-reader.md`). The
+dungeon-side streaming seed stays parked at
+`docs/backlog/dungeon/jit-runtime-regions.md`.
+
 ## Threads to pull on for further research
 
 - **WebGPU compute** — Surma's blog, the WebGPU Samples, gpuweb.github.io/gpuweb

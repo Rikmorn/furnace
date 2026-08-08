@@ -4302,3 +4302,32 @@ Supersedes §23.7, which measured the same five at T3c head.
 | **3. chrome tool tables generated from the registry** | **HOLDS**, unchanged from T3c, with the two-table split the spec did not anticipate: `shared/action-table.ts` owns PRESENTATION, `shared/tool-registry.ts` owns EXISTENCE. |
 | **4. suite green** | **HOLDS** — **2912 pass / 1 skip / 0 fail**, at the branch point and at every one of the six commits, with **every existing pin unmodified**. |
 | **5. Chrome + Safari visual gate on the cockpit loop** | **OWED — it is the USER's gate and no executor may run it.** T3d is behaviour-frozen, so it is a REGRESSION walk (generate → dig → paint → bake → walk) plus the T3c checklist's touchpoints. |
+
+### 24.7 The objectives audit's rulings (2026-08-08, at T3 close)
+
+The T3-close objectives audit reconciled the programme's as-built against its design and
+put three findings to the user; the rulings are decisions of record:
+
+- **The ViewStore state-placement rule is RETIRED by ratification.** The design had
+  written *"a `let` crossing a module boundary belongs in the ViewStore, never a
+  parameter"*; the as-built answers every crossing with a deps-record member — a named
+  setter, a thunk, or a substrate slot — and the audit found the rule contradicted
+  without a record retiring it. **Ruling: the deps-record architecture is ratified**; it
+  won on evidence (59 boundary-crossing edges, every one typed, named and auditable at
+  its record — §24.6 clause 2), and this paragraph is the retirement the rule never got.
+- **The provider-collapse promise is recorded as a MISS.** The design promised the
+  ~870-line chrome provider would collapse; `useFieldHostState.tsx` is 1,093 lines at
+  head — the latch conversion (the real goal, achieved — §21.3) grew the file it was
+  supposed to shrink. Not scheduled as work; recorded at
+  `docs/backlog/editor-and-tooling/usefieldhoststate-collapse-inverted.md`.
+- **The typed `furnace.*` vendor-key namespace rides T4.** Built at T1b, deleted at T2
+  as a scene orphan, never re-typed — a silent regression against the schema-boundary
+  design. Ruling: re-filed for T4, where the JSON-Schema projection gives the type its
+  first consumer with teeth
+  (`docs/backlog/engine-architecture/furnace-vendor-keys-untyped.md`).
+
+The audit's full record (every §9 criterion, every design commitment, the MISSING list
+and the dropped-records batch it triggered) is a session artifact; its durable outputs
+are the eleven backlog filings of 2026-08-08, `engine-architecture.md` §16 (the
+huge-world handoff, promoted to a tracked home), the T4 donor entry's re-anchor, and
+this section.

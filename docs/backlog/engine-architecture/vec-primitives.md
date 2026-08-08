@@ -185,3 +185,12 @@ proper `vec2` module with the same shape as `vec3`.
 
 - `packages/core/src/transform/types.ts` (Vec2 type definition)
 - `packages/core/src/transform/vec3.ts` (template for what vec2 would look like)
+
+### Jurisdiction note (added at the T3 objectives audit, 2026-08-08)
+
+The foundations sweep's vector-vocabulary item carried one instruction that had no
+tracked home until now: **the field/rng split is deliberate — do NOT merge.** The field
+module's vector/rng helpers and the transform module's are separate on purpose (layer
+posture, not oversight — see the storage-vs-input type rule in
+`docs/reference/engine-conventions.md`). Any vec2/vocabulary cleanup that fires this
+entry must keep that split.
