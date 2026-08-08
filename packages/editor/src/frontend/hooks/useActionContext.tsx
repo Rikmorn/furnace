@@ -197,6 +197,12 @@ export function ActionContextProvider({
 	const ctx = useMemo<ActionCtx>(
 		() => ({
 			host,
+			// The modal truth, as a CALL — read at the instant the gate asks, never at render.
+			// That is not a ref read during render: what the closure captures is the ref OBJECT
+			// (stable for the provider's life), and `.current` is touched only when a dispatcher
+			// invokes it. A boolean here would be a snapshot of something that goes up and down
+			// between renders, which is the bug `host.isLooking()` already exists to avoid.
+			isConfirmOpen: () => confirmRef.current !== null,
 			gesture,
 			tool,
 			session: stamp,
@@ -234,6 +240,7 @@ export function ActionContextProvider({
 		}),
 		[
 			host,
+			confirmRef,
 			gesture,
 			tool,
 			stamp,

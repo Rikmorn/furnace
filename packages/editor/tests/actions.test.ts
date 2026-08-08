@@ -21,10 +21,13 @@ import {
   type ActionId,
   byId,
   capOf,
+  clickGate,
+  controlVerdict,
   type GateEnv,
   groupTitle,
   runAction,
   runMember,
+  runNamed,
   TOOL_FAMILIES,
   type ToolFamily,
   type ToolFamilyMember,
@@ -1017,6 +1020,114 @@ test("a member arm that THROWS is surfaced as `failed`, named after the MEMBER",
   expect(said()).toEqual(["Maze failed: boom"]);
 });
 
+// --- the DISPATCH env is COMPUTED (T4a Task 2) -------------------------------
+//
+// Two things lied here before this task, and they were one lie: `NAMED_CALL` hard-coded
+// `confirmOpen: false`, so no named caller could ever be refused by a modal — and when the
+// gate DID refuse silently it carried `hint: null`, so the funnel handed back the action's
+// LABEL as the reason. Neither cost a human anything (a button under a dialog cannot be
+// pressed, and the dialog itself says why), and both are the whole of what an agent would
+// have read. The DISPATCH env is computed off the ctx now and every refusal states its own
+// reason.
+//
+// The DISPLAY env is not, and that is a decision rather than the old hard-code surviving:
+// `NAMED_RENDER` answers "how does this control look", where the funnels answer "may this
+// run". The asymmetry has a pin of its own below, and the argument lives at `NAMED_RENDER`.
+
+const MODAL = "a confirm dialog is open — answer it first";
+
+test("a NAMED call while a modal is open is `refused` WITH the modal reason, and says nothing", async () => {
+  // THE PATH THIS TASK MADE REACHABLE — that is the point of it. What this used to answer
+  // with is `def.label(ctx)`: "Frame selection", as the reason a dialog was open.
+  const modal = makeCtx({ isConfirmOpen: () => true });
+  expect(await runNamed(byId("view.frame"), modal)).toEqual({
+    ok: false,
+    kind: "refused",
+    message: MODAL,
+  });
+  // THE DISPLAY HALF DID NOT MOVE: the class is still silent, so the dialog on screen stays
+  // the only thing saying why. The sentence is for the caller holding the Result.
+  expect(said()).toEqual([]);
+  // …and the verb did not run behind the refusal.
+  expect(
+    (modal.host as unknown as ReturnType<typeof makeHostSpy>).frameSelection,
+  ).not.toHaveBeenCalled();
+});
+
+test("DISPLAY and DISPATCH differ on exactly one clause, and it is the modal one", async () => {
+  // THE ASYMMETRY, AS A PROPERTY — pinned so it cannot be closed or widened silently. It is
+  // deliberate (`NAMED_RENDER` in `actions.ts` carries the three reasons) and it is the whole
+  // reconciliation of two things that read like a contradiction: the control renders runnable
+  // while a dispatch of that same verb, on that same ctx, at that same instant, refuses.
+  //
+  // Invisible to a human, because a Radix modal takes pointer events off the body, so the
+  // press this would license cannot be made. NOT invisible to an agent, which has no overlay
+  // in front of it — and the agent is on the DISPATCH side, which is the side that refuses.
+  const modal = makeCtx({ isConfirmOpen: () => true });
+  expect(controlVerdict(byId("view.frame"), modal)).toEqual({ runnable: true });
+  expect(clickGate(byId("view.frame"), modal).ok).toBe(true);
+  expect(await runNamed(byId("view.frame"), modal)).toEqual({
+    ok: false,
+    kind: "refused",
+    message: MODAL,
+  });
+  // ONE CLAUSE, not two: with no modal the two seams agree, so the case is not passing by
+  // making the display gate answer `true` to everything.
+  const plain = makeCtx();
+  expect(controlVerdict(byId("view.frame"), plain)).toEqual({ runnable: true });
+  expect(await runNamed(byId("view.frame"), plain)).toEqual({ ok: true });
+});
+
+test("a KEY refused by a text field answers with the TYPING reason — the label fallback is gone", async () => {
+  // The other direction of the same removal, on the caller class that always could reach it.
+  // `runAction` used to close with `refused(verdict.hint ?? def.label(ctx))`, so a caller
+  // asking why `F` did nothing while they typed got back "Frame selection" — this row's
+  // label, and no more of an answer here than it was under the modal above.
+  expect(
+    await runAction(byId("view.frame"), makeCtx(), {
+      ...KEY,
+      inTextInput: true,
+    }),
+  ).toEqual({
+    ok: false,
+    kind: "refused",
+    message:
+      "a text field has the keyboard — this key is a character being typed",
+  });
+  expect(said()).toEqual([]);
+});
+
+test("the named env is POLLED at dispatch, not snapshotted with the ctx", async () => {
+  // WHY `isConfirmOpen` IS A CALL and not a boolean field. A modal goes up and down BETWEEN
+  // renders, the way the right button does, so ONE ctx has to answer twice and differently —
+  // a snapshot would freeze whichever answer the render that built it happened to see, which
+  // is the bug `host.isLooking()` already exists to avoid.
+  let open = false;
+  const ctx = makeCtx({ isConfirmOpen: () => open });
+  expect(await runNamed(byId("view.frame"), ctx)).toEqual({ ok: true });
+  open = true;
+  expect(await runNamed(byId("view.frame"), ctx)).toEqual({
+    ok: false,
+    kind: "refused",
+    message: MODAL,
+  });
+});
+
+test("a MEMBER pick answers the modal in the same words its family's row does", () => {
+  // `runMember` reached the gate through `controlVerdict` for exactly one commit, and that
+  // seam COLLAPSES a silently-refused gate onto the same `reason: null` the inert case
+  // carries — so this pick would have answered "Brush", the family's label, as the reason a
+  // dialog was open. Both funnels share one sequence now (`refuseOrClaim`), so there is no second
+  // three-way left to disagree.
+  const modal = makeCtx({ isConfirmOpen: () => true });
+  const brush = family("brush");
+  expect(
+    runMember(brush, memberNamed(brush.members(modal), "Paint"), modal),
+  ).toEqual({ ok: false, kind: "refused", message: MODAL });
+  expect(modal.run.armBrush).not.toHaveBeenCalled();
+  expect(said()).toEqual([]);
+});
+
 test("`member.arm` has exactly ONE caller in the editor — the funnel itself", () => {
   // A SOURCE SCAN, and for the ⌘K half it is the only instrument there is. The rail's
   // re-point is pinned by BEHAVIOUR (`chrome/tool-rail.test.tsx`'s stale-flyout case, which
@@ -1040,5 +1151,31 @@ test("`member.arm` has exactly ONE caller in the editor — the funnel itself", 
     .sort();
   // The funnel's own file, and NOT an empty list: a scan asserting `[]` would pass just as
   // happily with the funnel deleted.
+  expect(callers).toEqual(["frontend/lib/actions.ts"]);
+});
+
+test("`clickGate` has exactly ONE caller in the editor — the DISPLAY seam it feeds", () => {
+  // THE ASYMMETRY'S OTHER HALF, held by machine. The pin above catches the two envs COLLAPSING
+  // into one, in either direction; it cannot catch a THIRD reader appearing. `clickGate` asks
+  // `NAMED_RENDER`, which is modal-blind by decision, and it is exported (these suites need
+  // the `hint` that `controlVerdict` collapses to `null`) — so nothing structural stops a
+  // future surface writing `if (clickGate(def, ctx).ok) { …do the thing… }` and getting an
+  // enforcement path that silently cannot see a modal. That is not a hypothetical shape: it is
+  // what every one of the four display call sites looks like one line before it dispatches.
+  //
+  // The rule it holds is `NAMED_RENDER`'s closing line — anything that wants ENFORCEMENT goes
+  // through a funnel, and this is not one. `member.arm`'s scan above carries why a source scan
+  // is the instrument for a rule about what the source may SAY, and this is the same
+  // instrument with the same limits: a PROXY, blind to a caller that spells the receiver
+  // differently, and — because the definition and its one caller share a file — blind to a
+  // second caller added INSIDE `actions.ts`. What it catches is the case the rule is about, a
+  // surface reaching for the gate from outside the module that owns the funnels.
+  const src = join(import.meta.dir, "..", "src");
+  const callers = walk(src)
+    .filter((f) => /\bclickGate\(/.test(readFileSync(f, "utf8")))
+    .map((f) => relative(src, f))
+    .sort();
+  // Its own file — the declaration and `controlVerdict`'s call — and NOT an empty list, for
+  // the reason the scan above gives.
   expect(callers).toEqual(["frontend/lib/actions.ts"]);
 });

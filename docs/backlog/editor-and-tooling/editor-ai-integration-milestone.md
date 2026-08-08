@@ -69,8 +69,12 @@ planning, TTS) is separate again: `docs/backlog/ai-agents/llm-as-planner-experim
 > - **`defineService`/`getService`** — one production service (`analyzerVerify`);
 >   `ServiceDefinition` is `{ fn }` — **there is no schema field**, so "service schemas
 >   arrive via the session handshake" has nothing to carry them yet.
-> - **Two agent-caller debts flagged in code**: `frontend/lib/actions.ts` `runAction`'s
->   label-as-refusal fallback, and `NAMED_CALL`'s `confirmOpen: false` hard-code.
+> - ~~**Two agent-caller debts flagged in code**: `frontend/lib/actions.ts` `runAction`'s
+>   label-as-refusal fallback, and `NAMED_CALL`'s `confirmOpen: false` hard-code.~~
+>   **CLOSED by foundations T4a Task 2** (2026-08-08): the named env is computed per dispatch
+>   off `ActionCtx.isConfirmOpen()`, every gate refusal states a machine-readable reason, and
+>   the `?? def.label(ctx)` fallback is removed. See `docs/reference/editor-architecture.md`
+>   §22.6.
 > - **The session-claim policy, settled at the programme design (2026-08-04) and
 >   recorded HERE because it had no tracked home:** exactly one chrome session may
 >   claim a world for authoring; the daemon tracks the claim; a second tab gets

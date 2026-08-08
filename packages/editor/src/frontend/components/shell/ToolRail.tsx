@@ -167,7 +167,7 @@ export function ToolRail() {
 	// during a grab) re-runs this component and then stops at four memoized rows.
 	// `ActionContextProvider`'s header records the consumer list this joined.
 	const ctx = useActionContext();
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `ctx` is deliberately NOT a dep — see the deps array below; the listed fields are the complete set the rendered rows and their closures read
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `ctx` is deliberately NOT a dep — see the deps array below, which lists the complete set of ctx fields the RENDERED values are derived from. The two closures (`run`, `armMember`) additionally poll `ctx.isConfirmOpen()` through the funnel, which no dep list can track and none needs to — the note above the array says why.
 	const model = useMemo<RailModel[]>(
 		() =>
 			TOOL_FAMILIES.map((family) => {
@@ -222,6 +222,17 @@ export function ToolRail() {
 		// `gesture`, `tool`, the two session facts, `generators`, `stampCursor`, `host` and
 		// `run`, and nothing else (`armFamily`/`cycleFamily`/`stampMember` in `actions.ts`).
 		// A fifth family reading `stats`, `world` or a session REGION would have to add it.
+		//
+		// ONE THING THEY READ THAT IS NOT IN THAT LIST AND MUST NOT BE (T4a): both closures
+		// dispatch through a funnel, and a funnel polls `ctx.isConfirmOpen()`. It is exempt by
+		// CONSTRUCTION rather than by omission — the ctx builds it as a closure over the
+		// provider's `confirmRef`, which is one stable object for the provider's life, so a
+		// captured ctx reads the LIVE modal state and a stale capture cannot answer staler.
+		// That is the same reason `host.isLooking()` is absent: a call answering for the
+		// instant it is made is not a value a dep list can be wrong about. Only the RENDERED
+		// facts need listing, which is why `verdict` above must stay modal-blind — it does
+		// (`controlVerdict` asks `NAMED_RENDER`; `actions.ts` carries the argument), and if it
+		// ever stopped, this memo would cache a dimmed rail past the modal that dimmed it.
 		[
 			ctx.gesture,
 			ctx.tool,

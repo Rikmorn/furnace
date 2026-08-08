@@ -15,6 +15,7 @@ import {
   byId,
   capOf,
   clickGate,
+  controlVerdict,
   type GateEnv,
   gateAction,
   keyFacts,
@@ -295,6 +296,53 @@ test("a modal confirm suppresses EVERY class, chords included", () => {
     });
 });
 
+test("every SILENT refusal STATES its reason — the class is quiet, not empty (T4a)", () => {
+  // What `hint: null` used to mean was BOTH "say nothing" and "there is nothing to say", and
+  // the second half was never true: each of these four has always had a reason, and the
+  // absence was standing in for a display policy. A caller who cannot see the screen gets the
+  // sentence now; `spoken` is what keeps the screen unchanged, and is pinned beside it here
+  // so a reason cannot quietly become a toast.
+  //
+  // FOUR, and the plan for this task named three. The fourth is the menu-only backstop — a
+  // key-only class, unreachable in practice (`matchAction` only matches rows that declare
+  // `keys`, and `keys`/`gate` are declared together or not at all), which is exactly why it
+  // needs a sentence: it is the class nobody would notice returning nothing.
+  const cases = [
+    {
+      why: "a modal is open",
+      got: verdict(byId("world.save"), { confirmOpen: true }),
+      hint: "a confirm dialog is open — answer it first",
+    },
+    {
+      why: "the verb has no keycap",
+      got: verdict(byId("world.new"), {}),
+      // "no KEY runs it", not "nothing runs it": the very next case in this file dispatches
+      // the same verb by NAME and it runs. A sentence that overstated the refusal would be a
+      // new small lie in the commit that removed one.
+      hint: "no key runs this verb — name it instead",
+    },
+    {
+      why: "the user is typing",
+      got: verdict(byId("tool.brush"), { inTextInput: true }),
+      hint: "a text field has the keyboard — this key is a character being typed",
+    },
+    {
+      why: "the right button is down",
+      got: verdict(byId("tool.stamp"), { looking: true }),
+      hint: "the look drag owns this letter while the right button is held",
+    },
+  ];
+  for (const { why, got, hint } of cases) {
+    expect({ why, ok: got.ok }).toEqual({ why, ok: false });
+    if (got.ok) continue;
+    expect({ why, hint: got.hint, spoken: got.spoken }).toEqual({
+      why,
+      hint,
+      spoken: false,
+    });
+  }
+});
+
 test("a key that re-arms LMB is refused while a session owns the interaction, WITH a hint", () => {
   const session = makeCtx({ session: { generator: "hall" } as never });
   for (const id of [
@@ -369,6 +417,33 @@ test("the three KEY refusals do not bind a named call — but the session refusa
   // refuses is the two-surfaces-disagree defect, and the sentence has to be the same one.
   const session = makeCtx({ session: { generator: "hall" } as never });
   const v = clickGate(byId("tool.brush"), session);
+  expect({ ok: v.ok, hint: v.ok ? null : v.hint }).toEqual({
+    ok: false,
+    hint: "finish the session first — ⏎ applies it, Esc discards it",
+  });
+});
+
+test("the DISPLAY gate is MODAL-BLIND — a control renders on what a user could act on (T4a)", () => {
+  // THE ONE CLAUSE `clickGate` AND THE DISPATCH GATE DIFFER ON, and it is a decision rather
+  // than an oversight — `actions.ts`' `NAMED_RENDER` carries the three reasons. The short
+  // one: a modal is an ENFORCEMENT fact, and this seam answers a RENDERING question. While a
+  // confirm stands, `body { pointer-events: none }` puts every control in the chrome behind
+  // an overlay, so dimming them all would say nothing anybody could act on — and a verdict
+  // that read the modal would be a function of a value `ToolRail`'s `useMemo` deps cannot
+  // track, which is how a rail gets stuck dimmed after the dialog closes.
+  const modal = makeCtx({ isConfirmOpen: () => true });
+  expect(clickGate(byId("view.frame"), modal).ok).toBe(true);
+  // THE DISPLAY THREE-WAY IS THEREFORE UNMOVED from what it was before the env was computed
+  // at all — the rail, the ⌘K rows and the status chip see exactly what they always saw.
+  expect(controlVerdict(byId("view.frame"), modal)).toEqual({ runnable: true });
+  // BLIND TO THE MODAL CLAUSE AND TO NOTHING ELSE, which is what stops this being a gutted
+  // gate: the state refusal still binds the display path, in its own words, under the same
+  // open modal.
+  const both = makeCtx({
+    session: { generator: "hall" } as never,
+    isConfirmOpen: () => true,
+  });
+  const v = clickGate(byId("tool.brush"), both);
   expect({ ok: v.ok, hint: v.ok ? null : v.hint }).toEqual({
     ok: false,
     hint: "finish the session first — ⏎ applies it, Esc discards it",

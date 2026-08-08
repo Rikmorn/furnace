@@ -3468,10 +3468,15 @@ type's own module header carries, and it is why there are two non-ok kinds rathe
    every surface dispatches a NAMED ACTION through, and it says a Result out loud exactly
    once. Since foundations T4a it has a sibling, `runMember(family, member, ctx)`, for picking
    a member out of a tool family — gated against the family's own arm action through the same
-   `controlVerdict`, voiced the same way, answering the same `ActionResult`, and synchronous
-   because every member arm is. It is a second way into an existing row, not a fourth
-   provenance, which is why it needs no descriptor row of its own; `member.arm` is the effect
-   and has exactly one caller (pinned by a source scan in `tests/actions.test.ts`).
+   sequence (`refuseOrClaim`, shared by both funnels), voiced the same way, answering the same
+   `ActionResult`, and synchronous because every member arm is. It is a second way into an
+   existing row, not a fourth provenance, which is why it needs no descriptor row of its own;
+   `member.arm` is the effect and has exactly one caller (pinned by a source scan in
+   `tests/actions.test.ts`). It read `controlVerdict` for exactly one commit (T4a Task 1),
+   which was the same behaviour and the wrong seam — that three-way is the DISPLAY projection
+   and collapses a silently-refused gate onto the inert case's `reason: null`, so a pick
+   refused by a modal answered with the family's LABEL. T4a Task 2 moved both funnels onto the
+   shared sequence instead.
 
 `refused` is a verdict the action itself reached that nobody has said yet, so the funnel says
 it with `notify.error` — the same call, in one place, that used to sit inside the verb.
@@ -3532,6 +3537,52 @@ an agent. `GateEnv` is now a UNION discriminated by `caller`:
 The three key clauses live inside the `key` branch, so the two key-only facts are simply not
 askable of a named call — there is no `false` left to write down and nobody has to justify
 one. That is the whole fix: the hard-code became unwriteable rather than relocated.
+
+**The named class has TWO envs since T4a Task 2, differing on exactly one clause**, and the
+table above is the DISPATCH one. Until then there was a single module constant `NAMED_CALL`
+hard-coding `confirmOpen: false`, defended by *"a chrome control activation cannot arrive
+while a modal covers the surface it sits on"* — a fact about RENDERING a control, being used
+to answer a question about DISPATCHING a verb, which is the same caller-specific story the S12
+split had just made unwriteable, re-entered one field along.
+
+| | `namedDispatch(ctx)` | `NAMED_RENDER` |
+|---|---|---|
+| asks | may this verb RUN, now? | how does this control LOOK, now? |
+| callers | `runNamed`, `runMember` | `clickGate` → `controlVerdict` (its only `src/` caller) |
+| `confirmOpen` | `ctx.isConfirmOpen()` | `false`, by decision |
+
+`isConfirmOpen` is a CALL on the ctx, not a boolean field, for `host.isLooking()`'s reason
+exactly: a modal goes up and down between renders, so a snapshot would answer for a frame that
+has gone. The chrome supplies it from the one `confirmRef` the key dispatcher already reads
+(`useActionContext`); the key dispatcher keeps stating `confirmOpen` from that ref directly, so
+the fact still lives in exactly one place.
+
+**The display path stays modal-blind on purpose**, and three things make that the right
+asymmetry. (1) A modal is an ENFORCEMENT fact, not a display one: `ConfirmDialog` is a Radix
+dialog at its `modal: true` default, so while one stands the dismissable layer sets
+`body { pointer-events: none }` and every chrome control is behind an overlay nobody can
+click — dimming them all would say nothing a user could act on. (2) It keeps `controlVerdict`
+a pure function of memoizable ctx facts: `ToolRail` derives it inside a `useMemo` keyed on ctx
+fields, and a verdict that polled `isConfirmOpen()` could survive the modal's close and leave
+the rail visibly dimmed with nothing on screen explaining why. (3) It makes "display behaviour
+did not move" a property rather than a coincidence — pre-T4a the display path was modal-blind
+by construction, and routing the computed truth through it would have preserved that only for
+as long as the memo happened not to re-run. The consequence is that a control can render
+runnable while a dispatch of the same verb at the same instant refuses; that is invisible to a
+human (the overlay) and correct for an agent (which is on the dispatch side), and it is pinned
+by name in `tests/actions.test.ts`. **Enforcement lives in the funnels; `clickGate` is not one
+and never was.**
+
+**Every refusal now carries a machine-readable reason.** `GateVerdict`'s refusal arm is
+`{ hint: string; spoken: boolean }` where it was `{ hint: string | null }` — one absence had
+been doing two jobs, "say nothing" and "there is nothing to say", and the second was never
+true. The four silent classes (modal open, user typing, right button held, menu-only backstop)
+state their sentences; `spoken` is the display policy and only `armsTool` sets it. Nothing a
+human sees moved: `controlVerdict` projects `spoken` back onto the `string | null` its display
+callers read, and the silent classes stay toast-silent. What the change removes is
+`runAction`'s `refused(verdict.hint ?? def.label(ctx))` — the fallback that made an agent's
+"a modal is open" refusal read `"Frame selection"`. The label survives as a reason in exactly
+one place, the INERT case, where it is the honest one.
 
 **Where the input typing does and does not reach.** The DECLARATION site is checked — the
 behavior table is keyed by `ActionId` and each row's `run` states its own `InputOf<Id>`, so

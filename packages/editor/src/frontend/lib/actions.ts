@@ -113,8 +113,11 @@ export type { ActionGroup, ActionId };
  *  `useActionContext` and handed to every `label`/`enabled`/`run`.
  *
  *  Nothing here may be a SNAPSHOT of something that changes between renders — see
- *  `host`. The one such value the gate needs (is the right button down?) is polled at
- *  dispatch time and travels in {@link GateEnv}, not here. */
+ *  `host`. TWO values the gate needs move faster than a render, and they are carried
+ *  differently on purpose: the right button is a KEY caller's fact alone (only a keypress
+ *  can arrive while one is held), so the key dispatcher polls `host.isLooking()` and it
+ *  travels in {@link GateEnv}; a modal confirm binds BOTH callers, so it is a call on the
+ *  ctx itself ({@link ActionCtx.isConfirmOpen}) that either dispatcher can make. */
 export type ActionCtx = {
   /** The live host, or null before the engine bundle lands. Held as the OBJECT, never
    *  as a snapshot of its state: a method call on it answers for the instant it is
@@ -125,6 +128,38 @@ export type ActionCtx = {
    *  ready (see `Shell.tsx`), so `host !== null` and "the engine is up" are the same
    *  fact — and a second spelling of one fact is a second thing to keep true. */
   host: FieldHost | null;
+  /** Is a modal confirm on screen at THIS INSTANT?
+   *
+   *  A CALL rather than a boolean field, for `host`'s reason exactly: a modal goes up and
+   *  down BETWEEN renders the way the right button does, so a snapshot would answer for a
+   *  frame that has already gone. `host.isLooking()` is the precedent and this is the same
+   *  shape — the contract above says nothing here may be a snapshot of something that moves
+   *  between renders, and this is the second member to be built to obey it rather than to be
+   *  excused from it.
+   *
+   *  TOP-LEVEL rather than a member of `run`, which is *"the verbs an action dispatches
+   *  through"*: every one of those is a WRITE — `openConfirm` among them, which is this same
+   *  seam read from the other side. A READ is not a verb, and putting one there would make
+   *  `run` two things.
+   *
+   *  A MEMBER OF THE CTX rather than a module-level provider singleton in this file, which
+   *  was the alternative and would have saved the threading. Rejected: a mutable module
+   *  global is initialisation-ordered, and this module is imported by suites that never mount
+   *  a provider — an unregistered provider answering `false` is indistinguishable from an
+   *  honest one, which is the failure this whole task exists to remove. On the ctx, the fact
+   *  is supplied by whoever builds the ctx and the type system asks for it.
+   *
+   *  WHO ASKS: the two DISPATCH funnels, through {@link namedDispatch}. The DISPLAY path
+   *  ({@link clickGate} → {@link controlVerdict}) deliberately does not — see
+   *  {@link NAMED_RENDER} for that decision and the three reasons behind it.
+   *
+   *  THE KEY DISPATCHER DOES NOT READ THIS, and that is deliberate: `useGlobalKeybindings`
+   *  takes the same `confirmRef` as a parameter and states `confirmOpen` from it directly.
+   *  One ref, two readers, one answer — they cannot disagree, because there is only one place
+   *  the fact lives. Collapsing them onto this seam is a signature change to that hook and
+   *  its harness for no gap closed today; the day "a modal is open" stops meaning
+   *  *"`confirmRef` is non-null"* is the day it has to be bought. */
+  isConfirmOpen: () => boolean;
   /** What LMB is armed to do (`null` = the brush strokes). */
   gesture: ViewportGesture | null;
   tool: FieldTool;
@@ -197,7 +232,14 @@ export type ActionCtx = {
  *  split and its reason are written. */
 export type ActionCaller = "key" | "named";
 
-/** The world OUTSIDE the ctx that the gate reads, all of it polled at DISPATCH time.
+/** The world OUTSIDE the ctx that the gate reads.
+ *
+ *  EVERY DISPATCH ENV IS POLLED AT DISPATCH TIME — the `key` arm per keypress
+ *  (`useGlobalKeybindings`), the named one per call ({@link namedDispatch}). ONE env is not a
+ *  dispatch env and does not poll: {@link NAMED_RENDER}, which {@link clickGate} passes to
+ *  answer a RENDER question and which is a constant on purpose. That is the whole of the
+ *  exception, it is argued at that constant, and it is why this line says "the world the gate
+ *  reads" rather than promising freshness the render caller deliberately does not want.
  *
  *  THE ONE ACCOUNT OF THE CALLER SPLIT (T3b2's S12 finding); {@link ActionCaller},
  *  {@link clickGate} and {@link gateAction} point here rather than each telling a quarter of
@@ -214,8 +256,10 @@ export type ActionCaller = "key" | "named";
  *  *"the user typed to find it and then named it"* — that is true of a palette row and
  *  UNTRUE of an agent, and a hard-coded fact defended by a caller-specific story is a fact
  *  waiting to be wrong for the next caller. Split by caller, the two key-only facts are
- *  simply not askable of a named call: there is no `false` left to write down, so nobody has
- *  to justify one. The hard-code became UNWRITEABLE rather than relocated. */
+ *  simply not askable of a named call: there is no `false` left to write down for THOSE TWO,
+ *  so nobody has to justify one. That hard-code became UNWRITEABLE rather than relocated —
+ *  and the scoping is load-bearing, because `confirmOpen` IS askable of a named call and
+ *  {@link NAMED_RENDER} does write `false` down. The difference is that it justifies it. */
 export type GateEnv =
   | {
       readonly caller: "key";
@@ -231,21 +275,109 @@ export type GateEnv =
     }
   | {
       readonly caller: "named";
-      /** The one fact both callers state. A modal is modal whoever is asking — though a
-       *  chrome control activation cannot arrive while one covers the surface it sits on,
-       *  which is why {@link NAMED_CALL} says `false`. An agent caller is the case that
-       *  will have to answer this honestly, and it does not exist yet. */
+      /** The one fact both callers state — a modal is modal whoever is asking.
+       *
+       *  The named class has TWO envs since foundations T4a, and they differ on exactly this
+       *  field: {@link namedDispatch} computes it, {@link NAMED_RENDER} states `false`. Both
+       *  of those carry the argument; what belongs here is why the field exists at all —
+       *  `NAMED_CALL`, the single constant they replace, hard-coded `false` for BOTH uses on
+       *  the story *"a chrome control activation cannot arrive while a modal covers the
+       *  surface it sits on"*. That story is a fact about RENDERING a control, and it was
+       *  being used to answer a question about DISPATCHING a verb — which is how a
+       *  caller-specific defence ends up gating a caller it was never about. Split by the
+       *  question being asked, each env states its own answer and neither borrows the
+       *  other's excuse. */
       readonly confirmOpen: boolean;
     };
 
-/** The env a chrome control activation pins by construction: the user chose a named thing,
- *  and a modal confirm covers the surface the press would land on. */
-const NAMED_CALL: GateEnv = { caller: "named", confirmOpen: false };
+/** The env a named DISPATCH is gated in — may this verb actually RUN, right now?
+ *
+ *  COMPUTED, at the moment of the call: this is a DISPATCH env, and {@link GateEnv}'s contract
+ *  for those is that they are polled at dispatch time — the `NAMED_CALL` constant this half
+ *  replaces could not poll anything. (The exception that clause names is {@link NAMED_RENDER},
+ *  the OTHER named env, which answers a render question and does not poll.)
+ *  {@link runNamed} and {@link runMember} are this one's two callers, and they are the
+ *  ENFORCEMENT path — the one an agent reaches, with no overlay in front of it and nothing but
+ *  the Result to read.
+ *
+ *  It has only one fact to compute because it has only one fact to state: the two key-only
+ *  facts are not askable of a named call at all (the union is what makes that so). */
+const namedDispatch = (ctx: ActionCtx): GateEnv => ({
+  caller: "named",
+  confirmOpen: ctx.isConfirmOpen(),
+});
 
-/** Whether the key may fire, and what to tell the user when it may not. A `null` hint
- *  means refuse SILENTLY — the reason is already on screen (a modal dialog) or is the
- *  user's own hand (they are typing, they are holding the right button). */
-export type GateVerdict = { ok: true } | { ok: false; hint: string | null };
+/** The env a named control is RENDERED against — how should this control LOOK, right now?
+ *
+ *  MODAL-BLIND, BY DECISION, and it is the only clause on which it differs from
+ *  {@link namedDispatch}. Three things make that the right asymmetry, and the third is why it
+ *  is written down rather than left as an accident:
+ *
+ *  1. THE TWO ENVS ANSWER DIFFERENT QUESTIONS. {@link controlVerdict} — the sole `src/`
+ *     consumer of {@link clickGate} — answers *"how should this control render"*. A modal is
+ *     an ENFORCEMENT fact, not a display one: `ConfirmDialog` is a Radix dialog at its
+ *     `modal: true` default, so while one stands the dismissable layer sets
+ *     `body { pointer-events: none }` and the rail, the ⌘K rows and the status chip are all
+ *     behind an overlay nobody can click. Dimming every control in the chrome would say
+ *     nothing a user could act on, and the four display call sites never asked for it.
+ *  2. IT KEEPS THE FUNCTION MEMOIZABLE. `ToolRail` derives `controlVerdict` inside a
+ *     `useMemo` keyed on ctx FACTS, and `ctx.isConfirmOpen()` is a call React deps cannot
+ *     track — so a verdict computed under a modal could survive its close and leave the rail
+ *     visibly dimmed with nothing on screen explaining why. Modal-blind, the verdict is a
+ *     pure function of the facts that dep list already carries.
+ *  3. IT MAKES "DISPLAY DID NOT MOVE" PROVABLE RATHER THAN LUCKY. Before T4a the display path
+ *     was modal-blind by CONSTRUCTION (the hard-code). Routing the computed truth through it
+ *     would have left display unchanged only for as long as the memo happened not to re-run —
+ *     a premise nothing tests. Stated as a decision, it is a property a pin can hold.
+ *
+ *  A CONSTANT rather than a nullary function, because it depends on nothing — which is the
+ *  whole claim it is making. It is NOT `NAMED_CALL` under a new name: that constant was one
+ *  answer serving two questions, and its `false` was a guess about the caller. This one is an
+ *  answer to the render question only, and for it `false` is not a guess.
+ *
+ *  TRIGGER TO REVISIT — `ConfirmDialog` ceasing to be MODAL (a `modal={false}` on its
+ *  `Dialog`, or a replacement prompt that does not take pointer events off the body). Reason 1
+ *  rests on that and so does the asymmetry's invisibility: with a reachable modal, a control
+ *  could render runnable, be pressed for real, and be refused by the funnel with a sentence
+ *  the display policy keeps silent — a dead click with no feedback. That is a DISPLAY defect,
+ *  so the dispatch half would still be right and this half would not: the fix would be to
+ *  point `clickGate` at {@link namedDispatch} and give `ToolRail`'s memo an honest dep for it,
+ *  not to loosen the funnel. Verified at `@radix-ui/react-dialog@1.1.19`, whose `modal`
+ *  defaults to `true` and which `ConfirmDialog.tsx` does not override. */
+const NAMED_RENDER: GateEnv = { caller: "named", confirmOpen: false };
+
+/** Whether the gate lets this through, and — when it does not — WHY, for the two audiences a
+ *  refusal has.
+ *
+ *  `hint` is the sentence, and since foundations T4a it is ALWAYS there; `spoken` is whether
+ *  the human at the screen hears it. What that replaces is `hint: string | null`, where
+ *  `null` meant BOTH "say nothing" and "there is nothing to say" — one absence doing two
+ *  jobs, and doing the second one badly. The classes that refuse silently (a modal is open,
+ *  the user is typing, the right button is down, the verb has no keycap) always HAD a reason;
+ *  what they lacked was a reason a CALLER could read, so {@link runAction} handed out the
+ *  action's LABEL in its place and an agent's "a modal is open" refusal read
+ *  `"Frame selection"`.
+ *
+ *  SILENCE IS A DISPLAY POLICY, NOT AN ABSENCE OF FACT, and separating the two is the whole
+ *  of the change: the sentence travels to whoever holds the {@link ActionResult}, and
+ *  `spoken` decides only whether a toast is raised. Nothing a human sees moves — the same
+ *  classes stay quiet in the same words, and {@link controlVerdict} projects `spoken` back
+ *  onto the `string | null` its display callers have always read. */
+export type GateVerdict =
+  | { ok: true }
+  | { ok: false; hint: string; spoken: boolean };
+
+/** A refusal the user is NOT told about — the reason travels, the toast does not.
+ *
+ *  THE POLICY, STATED ONCE. Four of the five refusal classes are quiet and one speaks, and
+ *  spelling `spoken: false` at each of the four turns a scan of guard clauses into a read of
+ *  four object literals. Here, "which classes speak?" is answered by grepping for the one
+ *  that does not use this ({@link sessionRefusal}). */
+const quiet = (hint: string): GateVerdict => ({
+  ok: false,
+  hint,
+  spoken: false,
+});
 
 /** What a run may be handed beyond the ctx, as the DISPATCHER holds it.
  *
@@ -1098,7 +1230,8 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = FAMILIES.map((family) => ({
 
 // --- the gate ---------------------------------------------------------------
 
-/** May a CONTROL for this action run it, and what to say when it may not?
+/** How should a CONTROL for this action RENDER — may it be pressed, and what does it say when
+ *  it may not?
  *
  *  The same {@link gateAction} the keyboard uses, under the `named` caller class (see
  *  {@link GateEnv}) — routed through the one gate rather than re-spelled, because a button
@@ -1109,9 +1242,20 @@ export const TOOL_FAMILIES: readonly ToolFamily[] = FAMILIES.map((family) => ({
  *  content: the no-gate refusal is a rule about KEYCAPS, and a control has none. The burger
  *  has always run those straight from its items; the rail never had to ask (every family it
  *  renders is keyed); the command palette renders the whole table, half of which is
- *  menu-only, so it does. */
+ *  menu-only, so it does.
+ *
+ *  IT IS NOT THE DISPATCH GATE, and since foundations T4a the difference is exactly one
+ *  clause: this asks {@link NAMED_RENDER}, which is modal-blind, where {@link runNamed} and
+ *  {@link runMember} ask {@link namedDispatch}, which is not. The full argument is at
+ *  `NAMED_RENDER` — in one line, a modal is an enforcement fact and this function answers a
+ *  rendering question. So a control CAN render runnable while a dispatch of the same verb at
+ *  the same instant refuses; that is the intended asymmetry, it is pinned by name in
+ *  `tests/actions.test.ts`, and it is invisible in practice because a Radix modal takes
+ *  pointer events off the body. Anything that wants ENFORCEMENT must go through a funnel —
+ *  this function is not one and never was. Its only `src/` caller is
+ *  {@link controlVerdict}. */
 export function clickGate(def: ActionDef, ctx: ActionCtx): GateVerdict {
-  return gateAction(def, ctx, NAMED_CALL);
+  return gateAction(def, ctx, NAMED_RENDER);
 }
 
 /** Whether a CONTROL for this action may run it, and what to say when it may not.
@@ -1139,7 +1283,15 @@ export type ControlVerdict =
  *  precisely how a rail button and a palette row come to disagree about one verb. */
 export function controlVerdict(def: ActionDef, ctx: ActionCtx): ControlVerdict {
   const verdict = clickGate(def, ctx);
-  if (!verdict.ok) return { runnable: false, reason: verdict.hint };
+  // THE DISPLAY PROJECTION, and the one place {@link GateVerdict.spoken} is read as a
+  // display policy: a silently-refused verb reaches a control's `reason` as `null`, exactly
+  // as it did when `hint` itself was null. The machine reason does NOT come this way — a
+  // caller that needs one goes through a funnel, which reads the gate directly with the
+  // DISPATCH env. A PURE function of memoizable ctx facts: `clickGate` asks `NAMED_RENDER`,
+  // so nothing here polls `ctx.isConfirmOpen()` and `ToolRail`'s `useMemo` dep list can stay
+  // an honest enumeration.
+  if (!verdict.ok)
+    return { runnable: false, reason: verdict.spoken ? verdict.hint : null };
   return def.enabled(ctx)
     ? { runnable: true }
     : { runnable: false, reason: null };
@@ -1154,13 +1306,21 @@ function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
     return {
       ok: false,
       hint: "finish the session first — ⏎ applies it, Esc discards it",
+      // THE ONE SPOKEN CLASS. Nothing on screen says why the key went dead, and a key that
+      // looks dead teaches the user it is dead — which is what every other class has covering
+      // it already (the modal itself, their own hand on the keyboard or the mouse).
+      spoken: true,
     };
   return { ok: true };
 }
 
-/** May this action run right now, for THIS caller? PURE — everything that changes between
- *  renders arrives in `env`, polled at dispatch time by the caller ({@link GateEnv} carries
- *  why the two callers are a union).
+/** May this action run right now, for THIS caller? PURE — everything the gate needs that is
+ *  not on the ctx arrives in `env`, and what `env` states is the CALLER's to decide
+ *  ({@link GateEnv} carries why the two callers are a union). The two DISPATCH callers poll
+ *  theirs at the instant of the dispatch; the RENDER caller ({@link clickGate}) passes the
+ *  {@link NAMED_RENDER} constant, so one thing that changes between renders — a modal — is
+ *  deliberately absent from that env rather than stale in it. Purity is unaffected either
+ *  way: this function reads its arguments and nothing else.
  *
  *  Three of the four clauses are about a KEY and say so by living inside the `key` branch:
  *  a menu-only action can never be fired by a keycap it does not have; a `typed` gate is
@@ -1168,23 +1328,35 @@ function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
  *  while the right button is HELD.
  *
  *  The two that bind every caller are the modal suppression (a second `openConfirm` would
- *  strand the first, whose `onCancel` then never runs) and {@link sessionRefusal}. */
+ *  strand the first, whose `onCancel` then never runs) and {@link sessionRefusal}.
+ *
+ *  EVERY REFUSAL CARRIES ITS SENTENCE since foundations T4a, including the four that say
+ *  nothing to the user — see {@link GateVerdict} for why an unspoken reason is still a
+ *  reason, and who reads it. */
 export function gateAction(
   def: ActionDef,
   ctx: ActionCtx,
   env: GateEnv,
 ): GateVerdict {
-  if (env.confirmOpen) return { ok: false, hint: null };
+  if (env.confirmOpen)
+    return quiet("a confirm dialog is open — answer it first");
   if (env.caller === "key") {
     // A menu-only action has no `match` either, so the dispatcher never reaches it; this
     // refuses it as a backstop, so a binding added without a gate cannot slip through
-    // ungated.
-    if (def.gate === undefined) return { ok: false, hint: null };
+    // ungated. The sentence says "no KEY runs it" and not "nothing runs it", because the
+    // named caller runs it perfectly well — this clause is inside the `key` branch.
+    if (def.gate === undefined)
+      return quiet("no key runs this verb — name it instead");
     // A chord is never a character someone is typing; everything else can be.
     if (def.gate === "typed" && env.inTextInput)
-      return { ok: false, hint: null };
+      return quiet(
+        "a text field has the keyboard — this key is a character being typed",
+      );
     // While the right button is down the fly owns its own letters.
-    if (def.flyLetter === true && env.looking) return { ok: false, hint: null };
+    if (def.flyLetter === true && env.looking)
+      return quiet(
+        "the look drag owns this letter while the right button is held",
+      );
   }
   return sessionRefusal(def, ctx);
 }
@@ -1244,21 +1416,69 @@ export function sayResult(result: ActionResult): void {
   notify.error(result.message);
 }
 
-/** RUN IT: gate, claim, check, do, say. The one funnel every surface dispatches a NAMED
- *  ACTION through; {@link runMember} is its sibling for a family-member pick, which is a
- *  second way into a row rather than a row of its own (that function carries the argument).
+/** REFUSE IT, or CLAIM it and let it through: the {@link ActionResult} to answer a caller
+ *  with, or `null` to go ahead. The gate-then-`enabled` opening BOTH funnels share.
+ *
+ *  The name states both branches because both are commands: refusing SAYS the sentence, and
+ *  going ahead FIRES `onClaim`. Both belong in here rather than at the two call sites, since
+ *  both are part of the sequence — a claim that landed on one funnel and not the other, or a
+ *  sentence said by one and not the other, is exactly the divergence this extraction removes.
+ *
+ *  ONE SEQUENCE, TWO FUNNELS. {@link runMember} used to reach this through
+ *  {@link controlVerdict}, whose three-way COLLAPSES the gate's silent refusals and the inert
+ *  case onto one `reason: null` — so it could not tell them apart and answered both with the
+ *  action's label. That was correct for the inert case (the label IS the reason there) and a
+ *  lie for the other. Sharing the sequence rather than a display projection of it is what
+ *  makes the two funnels answer identically by construction instead of by review.
  *
  *  `onClaim` fires the instant the gate ALLOWS and before `enabled` is consulted, because at
  *  that point the key has been claimed: a disabled ⌘S must still suppress the browser's
  *  save-page dialog, and a ⌫ over the canvas with nothing selected must still not navigate.
  *  It is the key dispatcher's `preventDefault` seam and nothing else passes one — a REFUSED
  *  action never reaches it, so the character the user is typing still lands in their field.
+ *  SYNCHRONOUS, and load-bearing: `runAction` is async and calls this before its first
+ *  `await`, so the claim lands in the listener's own turn (`chrome/keybindings-dom.test.ts`
+ *  pins the microtask boundary).
  *
  *  The INERT case (`enabled` false, gate open) returns a refusal carrying the action's LABEL
  *  and says nothing, which is the existing three-way policy made answerable: those labels
  *  already state the reason on screen ("Bake — name the world first (⌘S)"), so a toast would
  *  be a second wording of a sentence the user is looking at — while a caller who cannot see
- *  the screen gets that same sentence as the message.
+ *  the screen gets that same sentence as the message. This is the ONE place a label is still
+ *  a reason, and it is the honest one. */
+function refuseOrClaim(
+  def: ActionDef,
+  ctx: ActionCtx,
+  env: GateEnv,
+  onClaim?: () => void,
+): ActionResult | null {
+  const verdict = gateAction(def, ctx, env);
+  if (!verdict.ok) {
+    // A refusal with a reason the user cannot see gets said out loud; the unspoken classes
+    // (a modal is open, they are typing, they are holding the right button, the verb has no
+    // keycap) are already accounted for on screen or in the user's own hand, and a toast
+    // would be noise. `sayRefusal` also stops a HELD key, which repeats at the OS rate, from
+    // stacking one sentence three deep.
+    notify.sayRefusal(verdict.spoken ? verdict.hint : null);
+    // THE REASON, always — no `?? def.label(ctx)` fallback, because there is no longer a
+    // verdict that lacks one. That fallback is what made an agent's "a modal is open"
+    // refusal read `"Frame selection"`, and it was unreachable-for-humans cover over a gate
+    // that could not state its own silent classes. The gate states them now
+    // ({@link GateVerdict}), so the fallback has nothing left to cover and is gone rather
+    // than kept as dead comfort.
+    return refused(verdict.hint);
+  }
+  onClaim?.();
+  if (!def.enabled(ctx)) return refused(def.label(ctx));
+  return null;
+}
+
+/** RUN IT: gate, claim, check, do, say. The one funnel every surface dispatches a NAMED
+ *  ACTION through; {@link runMember} is its sibling for a family-member pick, which is a
+ *  second way into a row rather than a row of its own (that function carries the argument).
+ *
+ *  Gate, claim and check — plus the SAYING of a refusal — are {@link refuseOrClaim}, shared with
+ *  that sibling; what is left here is the run and the sentence that answers for it.
  *
  *  A THROW OUT OF A RUN IS SURFACED, NOT THROWN PAST — which is the whole of what `failed`
  *  means. Before this funnel a run that threw took its listener with it (a sync throw out of
@@ -1273,24 +1493,8 @@ export async function runAction(
   input?: ActionInput,
   onClaim?: () => void,
 ): Promise<ActionResult> {
-  const verdict = gateAction(def, ctx, env);
-  if (!verdict.ok) {
-    // A refusal with a reason the user cannot see gets said out loud; the rest (a modal is
-    // open, they are typing, they are holding the right button) are already visible and a
-    // toast would be noise. `sayRefusal` also stops a HELD key, which repeats at the OS
-    // rate, from stacking one sentence three deep.
-    notify.sayRefusal(verdict.hint);
-    // THE LABEL AS A FALLBACK IS A T4 PROBLEM, and it is left here rather than guessed at.
-    // The three SILENT gate classes carry `hint: null` — a modal is open, the user is typing,
-    // the right button is down — and a caller who cannot see the screen still needs a
-    // message, so it gets the label. For a human that path is unreachable and the label is
-    // never read. For an AGENT it will not be: `NAMED_CALL` hard-codes `confirmOpen: false`
-    // today, and the day the daemon answers that honestly an agent's "a modal is open"
-    // refusal will read `"Frame selection"`. Whoever wires that answers this.
-    return refused(verdict.hint ?? def.label(ctx));
-  }
-  onClaim?.();
-  if (!def.enabled(ctx)) return refused(def.label(ctx));
+  const refusal = refuseOrClaim(def, ctx, env, onClaim);
+  if (refusal !== null) return refusal;
   try {
     const result = await def.run(ctx, input);
     sayResult(result);
@@ -1302,13 +1506,17 @@ export async function runAction(
   }
 }
 
-/** {@link runAction} for a surface that NAMED the verb — every control in the chrome. */
+/** {@link runAction} for a surface that NAMED the verb — every control in the chrome, and
+ *  tomorrow an MCP tool call. The env is {@link namedDispatch}'s, computed here at the moment
+ *  of the dispatch rather than taken off a constant, which is what lets a named caller be
+ *  refused by a modal it cannot see — the ENFORCEMENT half of the split argued at
+ *  {@link NAMED_RENDER}. */
 export function runNamed(
   def: ActionDef,
   ctx: ActionCtx,
   input?: ActionInput,
 ): Promise<ActionResult> {
-  return runAction(def, ctx, NAMED_CALL, input);
+  return runAction(def, ctx, namedDispatch(ctx), input);
 }
 
 /** RUN A MEMBER PICK: gate against its FAMILY, do the member's own arm, answer for it.
@@ -1331,16 +1539,19 @@ export function runNamed(
  *  THE GATE IS THE FAMILY'S. Arming a member IS arming the family, so the refusal that stops
  *  `tool.brush` stops Paint — and both surfaces already say so in the code, the palette by
  *  giving every member row `controlVerdict(family.arm, ctx)` and the rail by gating the whole
- *  flyout on the one its row carries. Reading that same three-way here is what keeps the
- *  sentence a pick refuses with identical to the one the family button beside it is showing,
- *  and it is why this needs no row of its own in `ACTION_DESCRIPTORS`: there is no second verb
- *  here, only a second way into one.
+ *  flyout on the one its row carries. Gating on the family's arm action HERE is what keeps
+ *  the sentence a pick refuses with identical to the one the family button beside it is
+ *  showing, and it is why this needs no row of its own in `ACTION_DESCRIPTORS`: there is no
+ *  second verb here, only a second way into one.
  *
- *  {@link controlVerdict} rather than {@link runAction}'s gate-then-`enabled` sequence spelled
- *  a second time. The two are the same behaviour, exactly: `sayRefusal` is a no-op on a null
- *  reason, so the INERT case (`enabled` false, gate open) stays silent here as it does there,
- *  and both hand back the arm action's LABEL as the message a caller who cannot see the screen
- *  gets. One three-way in the editor beats two that have to be kept in agreement.
+ *  {@link refuseOrClaim} rather than {@link runAction}'s gate-then-`enabled` sequence spelled a
+ *  second time — the same sequence, shared, so the two funnels cannot come to different
+ *  answers about one verb. It read {@link controlVerdict} for one commit, which was the same
+ *  BEHAVIOUR and the wrong SEAM twice over: that three-way is the DISPLAY projection, so it
+ *  collapses a silently-refused gate onto the same `reason: null` the inert case carries — a
+ *  pick refused by a modal answered with the family's label — and since it asks
+ *  {@link NAMED_RENDER} it does not see a modal at all. This is a DISPATCH, so it asks
+ *  {@link namedDispatch}, like {@link runNamed} beside it.
  *
  *  SYNCHRONOUS, unlike {@link runNamed}, because everything it wraps is: `armMember` pushes a
  *  gesture or an effect at `ctx.run`, and a stamp member calls `host.startStamp`, which
@@ -1359,11 +1570,8 @@ export function runMember(
   member: ToolFamilyMember,
   ctx: ActionCtx,
 ): ActionResult {
-  const verdict = controlVerdict(family.arm, ctx);
-  if (!verdict.runnable) {
-    notify.sayRefusal(verdict.reason);
-    return refused(verdict.reason ?? family.arm.label(ctx));
-  }
+  const refusal = refuseOrClaim(family.arm, ctx, namedDispatch(ctx));
+  if (refusal !== null) return refusal;
   try {
     member.arm(ctx);
     return ACTION_OK;

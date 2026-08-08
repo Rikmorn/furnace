@@ -65,12 +65,17 @@ export type NotifyStore = {
    *  A POLICY rather than a fifth severity, and it decides two things the four verbs
    *  above cannot:
    *
-   *  NOTHING TO SAY → NOTHING SAID. `null` is {@link ControlVerdict}'s inert case — the
-   *  gate is open and the verb simply has nothing to act on, which the control's own
-   *  label already states — and `undefined` is the shape a wrapper passes when the
-   *  control is not refused at all. Neither gets a toast: a generic "this is disabled"
-   *  is a sentence that costs a read and answers nothing, which is worse than the
-   *  silence it would replace.
+   *  NOTHING TO SAY → NOTHING SAID. `null` covers two cases and `undefined` a third.
+   *  {@link ControlVerdict}'s INERT case is the first — the gate is open and the verb
+   *  simply has nothing to act on, which the control's own label already states. The
+   *  second (since foundations T4a) is a gate refusal whose class is UNSPOKEN: a modal
+   *  is open, the user is typing, the right button is held, the verb has no keycap.
+   *  Those emphatically have a reason — `GateVerdict.hint` carries it to whoever holds
+   *  the {@link ActionResult} — and `spoken: false` is the funnel's decision not to say
+   *  it, because the screen or the user's own hand already accounts for it. `undefined`
+   *  is the shape a wrapper passes when the control is not refused at all. None gets a
+   *  toast: a generic "this is disabled" is a sentence that costs a read and answers
+   *  nothing, which is worse than the silence it would replace.
    *
    *  THE SAME SENTENCE DOES NOT STACK WHILE IT IS STILL ON SCREEN. `push` does not
    *  coalesce and {@link TOAST_CAP} is 3, so a refused control — which, unlike a

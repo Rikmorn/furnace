@@ -92,7 +92,9 @@ test("isTextInputTarget: a control you OPERATE is not typed text", () => {
 // THE RISK THIS TASK CREATED. `useGlobalKeybindings` used to run four statements inline;
 // it now calls an `async` funnel and depends on `onClaim?.()` landing before the first
 // `await` in it. Nothing else in the repo asserts `defaultPrevented`, and the failure is
-// silent: insert one `await` above `onClaim?.()` in `runAction` and every other case in
+// silent: insert one `await` above `onClaim?.()` — which lives in `refuseOrClaim`, the
+// sequence `runAction` shares with `runMember` since T4a Task 2, and which `runAction`
+// calls before its own first `await` — and every other case in
 // this package stays green while ⌘S starts opening Safari's save sheet — the claim is
 // about a MICROTASK boundary, and a test that awaits between dispatch and assertion cannot
 // see one. So: a real event, `cancelable`, and NO await before the expectation.

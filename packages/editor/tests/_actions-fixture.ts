@@ -63,6 +63,10 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
   const host = makeHostSpy();
   return {
     host: host as unknown as FieldHost,
+    // No modal, and a CALL rather than a field because that is what the ctx declares: a case
+    // that wants one open passes its own closure (`makeCtx({ isConfirmOpen: () => open })`),
+    // which is also how the polled-at-dispatch claim is testable at all.
+    isConfirmOpen: () => false,
     gesture: "pointer",
     tool: {
       effect: "dig",
