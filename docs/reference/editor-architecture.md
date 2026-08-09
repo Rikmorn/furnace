@@ -3550,9 +3550,12 @@ inside a chrome seam, or silence. `run: (ctx, input) => Promise<ActionResult>` i
 channel for all 39.
 
 ```ts
+export type RefusalClass =
+  | "modal" | "typing" | "looking" | "menuOnly" | "session" | "inert" | "member";
+
 export type ActionResult =
   | { ok: true }
-  | { ok: false; kind: "refused"; message: string }
+  | { ok: false; kind: "refused"; message: string; because: RefusalClass }
   | { ok: false; kind: "failed"; message: string };
 ```
 
@@ -3571,7 +3574,9 @@ backlog entries cite it.)
    load sentences ("bake failed: ENOSPC"). Same shape as the host's, one layer up.
 3. **The action's** — the Result. `runAction` in `frontend/lib/actions.ts` is the one funnel
    every surface dispatches a NAMED ACTION through, and it says a Result out loud exactly
-   once. Since foundations T4a it has a sibling, `runMember(family, member, ctx)`, for picking
+   once. Since foundations T4a it has a sibling, `runMember(family, memberId, ctx)` (an ID
+   since T4b, so the funnel resolves the member against the family it was handed rather than
+   taking the caller's word that the pair belongs together), for picking
    a member out of a tool family — gated against the family's own arm action through the same
    sequence (`refuseOrClaim`, shared by both funnels), voiced the same way, answering the same
    `ActionResult`, and synchronous because every member arm is. It is a second way into an
@@ -3679,15 +3684,34 @@ by name in `tests/actions.test.ts`. **Enforcement lives in the funnels; `clickGa
 and never was.**
 
 **Every refusal now carries a machine-readable reason.** `GateVerdict`'s refusal arm is
-`{ hint: string; spoken: boolean }` where it was `{ hint: string | null }` — one absence had
-been doing two jobs, "say nothing" and "there is nothing to say", and the second was never
-true. The four silent classes (modal open, user typing, right button held, menu-only backstop)
-state their sentences; `spoken` is the display policy and only `armsTool` sets it. Nothing a
-human sees moved: `controlVerdict` projects `spoken` back onto the `string | null` its display
-callers read, and the silent classes stay toast-silent. What the change removes is
-`runAction`'s `refused(verdict.hint ?? def.label(ctx))` — the fallback that made an agent's
-"a modal is open" refusal read `"Frame selection"`. The label survives as a reason in exactly
-one place, the INERT case, where it is the honest one.
+`{ hint: string; spoken: boolean; because: RefusalClass }` where it was `{ hint: string | null }`
+— one absence had been doing two jobs, "say nothing" and "there is nothing to say", and the
+second was never true. The four silent classes (modal open, user typing, right button held,
+menu-only backstop) state their sentences; `spoken` is the display policy and only `armsTool`
+sets it. Nothing a human sees moved: `controlVerdict` projects `spoken` back onto the
+`string | null` its display callers read, and the silent classes stay toast-silent. What the
+change removes is `runAction`'s `refused(verdict.hint ?? def.label(ctx))` — the fallback that
+made an agent's "a modal is open" refusal read `"Frame selection"`. The label survives as a
+reason in exactly one place, the INERT case, where it is the honest one.
+
+**And since T4b, WHICH KIND of refusal it was.** `because` is the third field, required on
+every `refused` result and on the gate verdict that produces most of them: the `message` is
+prose written for a toast and is free to be reworded, so the CLASS is the half a caller may
+branch on. Seven names — `modal`, `typing`, `looking`, `menuOnly`, `session` are the gate's;
+`inert` and `member` are raised past it. `inert` is the widest: it is `refuseOrClaim`'s own
+verdict when the gate is OPEN and `enabled` is false (the canonical instance, and the reason
+the label is still the sentence there), and it is also what a verb's own body answers when it
+finds nothing to act on — no world name, no selected stamp, no engine, no generators. `member`
+is the one class about the REQUEST rather than the state: the member funnel takes an ID and
+resolves it against the family BEFORE gating, so an id nothing answers to is refused as a
+malformed ask rather than as a bad moment. Nothing a human sees moved here either — `spoken`
+is untouched, `controlVerdict` does not read `because`, and every existing sentence is
+byte-identical. The vocabulary is pinned as a `Record<RefusalClass, …>` in
+`tests/actions.test.ts`, so a class with no route that produces it does not compile. The
+deliberate absence is an `input` class: two `inert` refusals are really about an argument
+(`write`'s invalid world name, `edit.delete`'s non-selected `entityId`), and the split is
+filed rather than invented ahead of a caller that would branch on it
+(`docs/backlog/editor-and-tooling/refusal-class-has-no-input-arm.md`).
 
 **Where the input typing does and does not reach.** The DECLARATION site is checked — the
 behavior table is keyed by `ActionId` and each row's `run` states its own `InputOf<Id>`, so

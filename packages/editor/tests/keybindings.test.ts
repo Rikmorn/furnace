@@ -8,7 +8,10 @@
 // tests/chrome/keybindings-dom.test.ts). `isTextInputTarget`, which needs a real
 // HTMLElement, is covered there.
 import { expect, test } from "bun:test";
-import { matchBinding } from "../src/action-registry/index.ts";
+import {
+  matchBinding,
+  type RefusalClass,
+} from "../src/action-registry/index.ts";
 import {
   ACTIONS,
   type ActionDef,
@@ -17,6 +20,7 @@ import {
   clickGate,
   controlVerdict,
   type GateEnv,
+  type GateVerdict,
   gateAction,
   keyFacts,
   matchAction,
@@ -307,11 +311,17 @@ test("every SILENT refusal STATES its reason — the class is quiet, not empty (
   // key-only class, unreachable in practice (`matchAction` only matches rows that declare
   // `keys`, and `keys`/`gate` are declared together or not at all), which is exactly why it
   // needs a sentence: it is the class nobody would notice returning nothing.
+  //
+  // AND EACH ONE NAMES ITS CLASS (T4b). The hint is prose and may be reworded; `because` is
+  // what a caller branches on, so the two are pinned side by side — a sentence that moves
+  // without its class, or a class that moves without its sentence, is a refusal that has
+  // changed meaning for one of its two audiences and not the other.
   const cases = [
     {
       why: "a modal is open",
       got: verdict(byId("world.save"), { confirmOpen: true }),
       hint: "a confirm dialog is open — answer it first",
+      because: "modal",
     },
     {
       why: "the verb has no keycap",
@@ -320,19 +330,29 @@ test("every SILENT refusal STATES its reason — the class is quiet, not empty (
       // the same verb by NAME and it runs. A sentence that overstated the refusal would be a
       // new small lie in the commit that removed one.
       hint: "no key runs this verb — name it instead",
+      because: "menuOnly",
     },
     {
       why: "the user is typing",
       got: verdict(byId("tool.brush"), { inTextInput: true }),
       hint: "a text field has the keyboard — this key is a character being typed",
+      because: "typing",
     },
     {
       why: "the right button is down",
       got: verdict(byId("tool.stamp"), { looking: true }),
       hint: "the look drag owns this letter while the right button is held",
+      because: "looking",
     },
-  ];
-  for (const { why, got, hint } of cases) {
+    // `as const` so each `because` stays its literal type rather than widening to `string`:
+    // this list is the vocabulary, and a value outside `RefusalClass` must not typecheck.
+  ] as const satisfies readonly {
+    why: string;
+    got: GateVerdict;
+    hint: string;
+    because: RefusalClass;
+  }[];
+  for (const { why, got, hint, because } of cases) {
     expect({ why, ok: got.ok }).toEqual({ why, ok: false });
     if (got.ok) continue;
     expect({ why, hint: got.hint, spoken: got.spoken }).toEqual({
@@ -340,6 +360,7 @@ test("every SILENT refusal STATES its reason — the class is quiet, not empty (
       hint,
       spoken: false,
     });
+    expect({ why, because: got.because }).toEqual({ why, because });
   }
 });
 
@@ -364,6 +385,13 @@ test("a key that re-arms LMB is refused while a session owns the interaction, WI
     expect({ id, hint: v.ok ? null : v.hint }).toEqual({
       id,
       hint: "finish the session first — ⏎ applies it, Esc discards it",
+    });
+    // THE ONE SPOKEN CLASS, and the one raised outside `quiet` — which is why it is pinned
+    // here by name rather than in the table above. `quiet`'s docblock in `actions.ts` is the
+    // one place that exception and its count are written down.
+    expect({ id, because: v.ok ? null : v.because }).toEqual({
+      id,
+      because: "session",
     });
   }
   // Esc, ⏎ and R stay live — they are how the session ENDS.

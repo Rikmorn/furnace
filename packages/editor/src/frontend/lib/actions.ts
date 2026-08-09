@@ -67,6 +67,7 @@ import {
   type KeyFacts,
   keycap,
   matchBinding,
+  type RefusalClass,
   refused,
 } from "../../action-registry/index.ts";
 import type {
@@ -362,21 +363,47 @@ const NAMED_RENDER: GateEnv = { caller: "named", confirmOpen: false };
  *  of the change: the sentence travels to whoever holds the {@link ActionResult}, and
  *  `spoken` decides only whether a toast is raised. Nothing a human sees moves — the same
  *  classes stay quiet in the same words, and {@link controlVerdict} projects `spoken` back
- *  onto the `string | null` its display callers have always read. */
+ *  onto the `string | null` its display callers have always read.
+ *
+ *  `because` is the third field and the newest (foundations T4b): the sentence is prose and
+ *  may be reworded, so it is the CLASS that a caller branches on. {@link RefusalClass} carries
+ *  what each one obliges a caller to do. Typed as the whole union rather than as the five a
+ *  gate can raise, because there is ONE vocabulary of refusal in this editor and a second
+ *  name for a subset of it would be a second thing to keep in step — `refuseOrClaim` copies
+ *  this field straight onto the {@link ActionResult}, so a narrower type here would buy
+ *  nothing at the only place it travels to. Which five the gate actually raises is stated at
+ *  {@link RefusalClass} and greppable from {@link quiet}'s call sites.
+ *
+ *  THE COST, PLAINLY: nothing stops `quiet("…", "member")` compiling. *"Five of the seven are
+ *  the gate's"* is therefore held by the vocabulary table in `tests/actions.test.ts` and by
+ *  the per-class pins in `tests/keybindings.test.ts` — by pins, not by the type — which is a
+ *  weaker instrument than this commit uses elsewhere and is written down rather than left for
+ *  a reader to notice. */
 export type GateVerdict =
   | { ok: true }
-  | { ok: false; hint: string; spoken: boolean };
+  | { ok: false; hint: string; spoken: boolean; because: RefusalClass };
 
 /** A refusal the user is NOT told about — the reason travels, the toast does not.
  *
- *  THE POLICY, STATED ONCE. Four of the five refusal classes are quiet and one speaks, and
- *  spelling `spoken: false` at each of the four turns a scan of guard clauses into a read of
- *  four object literals. Here, "which classes speak?" is answered by grepping for the one
- *  that does not use this ({@link sessionRefusal}). */
-const quiet = (hint: string): GateVerdict => ({
+ *  THE POLICY, STATED ONCE, and the question it answers is WHO HEARS a refusal — not which
+ *  refusals exist. The union is wider than the gate: {@link RefusalClass} has seven, and two
+ *  of them are raised past the gate entirely.
+ *
+ *  THE COUNT LIVES HERE AND NOWHERE ELSE, because it is one fact serving two audits and a
+ *  fifth gate class should be one edit rather than three. Of the FIVE classes the gate can
+ *  raise, FOUR come through this function and one does not ({@link sessionRefusal}, the only
+ *  spoken one) — so `grep -n "quiet(" src/frontend/lib/actions.ts` returns four calls, and
+ *  both questions are answered off that grep plus the one exception: *which classes speak?*
+ *  (the one not here) and, since T4b gave every refusal a class, *which classes can the gate
+ *  raise?* (those four, each naming its own as its second argument, plus that one). Spelling
+ *  `spoken: false` once per call is what turns a scan of guard clauses into a read of four
+ *  object literals; the class is passed at the call rather than derived from the sentence
+ *  because the sentence is the part that is allowed to change. */
+const quiet = (hint: string, because: RefusalClass): GateVerdict => ({
   ok: false,
   hint,
   spoken: false,
+  because,
 });
 
 /** What a run may be handed beyond the ctx, as the DISPATCHER holds it.
@@ -739,7 +766,7 @@ const BEHAVIORS: ActionBehaviors = {
     run: (ctx, input) => {
       const name = input?.name ?? ctx.world.name;
       if (name === null)
-        return Promise.resolve(refused("name the world first (⌘S)"));
+        return Promise.resolve(refused("name the world first (⌘S)", "inert"));
       return okAfter(() => ctx.run.world.makeDefault(name));
     },
   },
@@ -766,7 +793,8 @@ const BEHAVIORS: ActionBehaviors = {
     enabled: (ctx) => ctx.selectedEntity !== null,
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
-      if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
+      if (entityId === undefined)
+        return Promise.resolve(refused(NO_ENTITY, "inert"));
       return okAfter(() => ctx.host?.duplicateEntity(entityId));
     },
   },
@@ -780,7 +808,7 @@ const BEHAVIORS: ActionBehaviors = {
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
     run: (ctx, input) => {
       const entity = ctx.selectedEntity;
-      if (entity === null) return Promise.resolve(refused(NO_ENTITY));
+      if (entity === null) return Promise.resolve(refused(NO_ENTITY, "inert"));
       // THE ONE ENTITY VERB THAT CANNOT ACT ON AN UNSELECTED ID, and the limit is the
       // confirm rather than the delete: the prompt below names the generator and counts the
       // ops, and both come off `ctx.selectedEntity` — the only entity the chrome can
@@ -792,6 +820,7 @@ const BEHAVIORS: ActionBehaviors = {
         return Promise.resolve(
           refused(
             `select stamp #${entityId} first — Delete confirms against the SELECTED stamp`,
+            "inert",
           ),
         );
       // The same prompt the palette row raises, with the op count in it: a row reads
@@ -818,7 +847,8 @@ const BEHAVIORS: ActionBehaviors = {
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
-      if (entityId === undefined) return Promise.resolve(refused(NO_ENTITY));
+      if (entityId === undefined)
+        return Promise.resolve(refused(NO_ENTITY, "inert"));
       return okAfter(() => ctx.host?.beginMove(entityId));
     },
   },
@@ -890,7 +920,10 @@ const BEHAVIORS: ActionBehaviors = {
       const generatorId = input?.generatorId ?? stampMember(ctx)?.id;
       if (generatorId === undefined)
         return Promise.resolve(
-          refused("nothing to stamp — this project registers no generators"),
+          refused(
+            "nothing to stamp — this project registers no generators",
+            "inert",
+          ),
         );
       return okAfter(() => ctx.host?.startStamp(generatorId));
     },
@@ -1082,6 +1115,13 @@ export const capOf = (def: ActionDef): string | undefined =>
 
 // --- the tool families, as the RAIL renders them -----------------------------
 
+/** What an EFFECT may answer: it ran, or it refused — never `failed`, which is a claim about
+ *  a channel below that an effect is not in a position to make. Named once because three
+ *  places state it (the `arm` field and the two arms {@link familyMembers} builds), and a
+ *  rule spelled three times is a rule that can disagree with itself. The argument is at
+ *  {@link ToolFamilyMember.arm}. */
+type ArmResult = Exclude<ActionResult, { kind: "failed" }>;
+
 /** One member of a tool family, resolved against the current state — what the rail's
  *  corner flyout lists and what the ⇧ chord steps through. */
 export type ToolFamilyMember = {
@@ -1094,12 +1134,44 @@ export type ToolFamilyMember = {
   /** Is THIS member the one the family is currently on? */
   armed: boolean;
   /** DO THE ARM — push at `ctx.run` (`armMember`, which reads `ctx.gesture` and pushes twice
-   *  when it has to drop a live `segment`) or call the host (`startStamp`). THE EFFECT, not
-   *  the dispatch: it does not gate, does not speak and answers nothing, which is why no
-   *  surface may call it. {@link runMember} is its ONE caller — literally, and
+   *  when it has to drop a live `segment`) or call the host (`startStamp`) — and say whether
+   *  it happened. THE EFFECT, not the dispatch: it does not gate and does not speak, which is
+   *  why no surface may call it. {@link runMember} is its ONE caller — literally, and
    *  `grep -rn "member\.arm(" packages/editor/src` is the check — and is what gives a pick
-   *  its gate and its {@link ActionResult}. */
-  arm: (ctx: ActionCtx) => void;
+   *  its gate and its voice.
+   *
+   *  IT ANSWERS SINCE FOUNDATIONS T4b, where it was `(ctx) => void` and *"answers nothing"*
+   *  was written here as part of the reason no surface may call it. Only ONE of the two arms
+   *  ever had anything to say, and it was saying it into a `?.`: the generators half is
+   *  `c.host?.startStamp(g.id)`, so with no engine up the pick did nothing at all and
+   *  {@link runMember} answered `ACTION_OK` — a positive claim about an effect that never
+   *  landed, and the only outright lie the member funnel could tell.
+   *
+   *  THE ALTERNATIVE WAS A CHECK IN {@link runMember}, and it is worse for a reason that is
+   *  about ownership rather than about lines. The precondition is the ARM's, not the pick's:
+   *  the `"rows"` half arms through `ctx.run` and needs no host whatever, so a blanket
+   *  `ctx.host === null` guard in the funnel would refuse Paint — a pick that works perfectly
+   *  well pre-engine — for a fact about a different family. Making it non-blanket means the
+   *  funnel holding a table of which arms need a host: a second copy of knowledge that already
+   *  exists at the one place that WRITES the arm (`familyMembers`), and the kind of copy that
+   *  goes stale in silence, since a fifth family whose arm needs something else again would
+   *  return `ok` and the funnel would be the file someone had to remember to edit.
+   *
+   *  WHAT IT COSTS: an arm now LOOKS like something a surface could call for a verdict, where
+   *  a `void` return advertised that there was nothing here to collect. The rule is unmoved —
+   *  what made a bare arm a bypass was never that it answered nothing, it is that it does not
+   *  GATE and does not SPEAK, and both are still true of every arm below. The rule also stays
+   *  machine-held rather than documented: the one-caller source scan in `tests/actions.test.ts`
+   *  reads the source for `member.arm(` and does not care what the call returns.
+   *
+   *  `ACTION_OK` or `refused` ONLY, and the TYPE says so rather than the prose — this commit's
+   *  own thesis is that a rule worth writing down is worth handing to the compiler. A `failed`
+   *  would claim a layer below has already said something on its own channel
+   *  ({@link ActionResult}'s module header), which an arm is never in a position to know: an
+   *  arm that gets that far THROWS, and {@link runMember} is what turns the throw into the
+   *  `failed` it then voices — the funnel's, from outside the arm, and unaffected by this
+   *  narrowing. */
+  arm: (ctx: ActionCtx) => ArmResult;
 };
 
 /** A rail column entry: one family, its arming action, and its members.
@@ -1173,7 +1245,13 @@ function familyLabel(family: DerivedFamily): (ctx: ActionCtx) => string {
  *  reason {@link DerivedMember} carries no `id` of its own.
  *
  *  `"generators"` — the host's registry, straight through: a stamp "member" is a generator,
- *  and picking one OPENS a session rather than arming a mode. */
+ *  and picking one OPENS a session rather than arming a mode.
+ *
+ *  THE TWO ARMS ANSWER DIFFERENTLY, which is the whole reason `arm` returns anything at all
+ *  ({@link ToolFamilyMember.arm} carries the argument). A `"rows"` arm pushes at `ctx.run`,
+ *  which the ctx always has, so it can only succeed. A `"generators"` arm needs the HOST, and
+ *  the ctx carries a null one until the engine is up — so it is the one arm with a
+ *  precondition, and it states it here rather than leaving the funnel to guess. */
 function familyMembers(
   family: DerivedFamily,
 ): (ctx: ActionCtx) => readonly ToolFamilyMember[] {
@@ -1191,7 +1269,22 @@ function familyMembers(
         // yet) is wrong exactly where it is being read.
         hint: "opens a session on the selection — or click ×2 to draw its region",
         armed: ctx.pendingStamp?.id === g.id || ctx.session?.generator === g.id,
-        arm: (c: ActionCtx) => c.host?.startStamp(g.id),
+        arm: (c: ActionCtx): ArmResult => {
+          // NOT `c.host?.startStamp(...)`. The optional call was the silent no-op the T4a
+          // review measured: with no engine the pick did nothing and the funnel still said
+          // `ok`. Unreachable from the rail today — the generators come off the host too, so
+          // an engine-less session lists no members and draws no flyout — which is exactly
+          // why it needed closing rather than watching: nothing on screen would ever have
+          // shown it, and a named caller does not need a flyout to ask.
+          const host = c.host;
+          if (host === null)
+            return refused(
+              `the engine is not up yet — ${g.name} cannot open a session`,
+              "inert",
+            );
+          host.startStamp(g.id);
+          return ACTION_OK;
+        },
       }));
   return (ctx) => {
     const i = armedIndex(family.members, ctx);
@@ -1200,7 +1293,10 @@ function familyMembers(
       label: m.label,
       hint: m.hint,
       armed: index === i && idle(ctx),
-      arm: (c: ActionCtx) => armMember(m, c),
+      arm: (c: ActionCtx): ArmResult => {
+        armMember(m, c);
+        return ACTION_OK;
+      },
     }));
   };
 }
@@ -1310,6 +1406,10 @@ function sessionRefusal(def: ActionDef, ctx: ActionCtx): GateVerdict {
       // looks dead teaches the user it is dead — which is what every other class has covering
       // it already (the modal itself, their own hand on the keyboard or the mouse).
       spoken: true,
+      // Spelled here rather than through `quiet` for that same reason. What that costs the
+      // two `quiet(`-grep audits — and the count they read — is stated at {@link quiet}, which
+      // is the one place it is written down.
+      because: "session",
     };
   return { ok: true };
 }
@@ -1339,23 +1439,25 @@ export function gateAction(
   env: GateEnv,
 ): GateVerdict {
   if (env.confirmOpen)
-    return quiet("a confirm dialog is open — answer it first");
+    return quiet("a confirm dialog is open — answer it first", "modal");
   if (env.caller === "key") {
     // A menu-only action has no `match` either, so the dispatcher never reaches it; this
     // refuses it as a backstop, so a binding added without a gate cannot slip through
     // ungated. The sentence says "no KEY runs it" and not "nothing runs it", because the
     // named caller runs it perfectly well — this clause is inside the `key` branch.
     if (def.gate === undefined)
-      return quiet("no key runs this verb — name it instead");
+      return quiet("no key runs this verb — name it instead", "menuOnly");
     // A chord is never a character someone is typing; everything else can be.
     if (def.gate === "typed" && env.inTextInput)
       return quiet(
         "a text field has the keyboard — this key is a character being typed",
+        "typing",
       );
     // While the right button is down the fly owns its own letters.
     if (def.flyLetter === true && env.looking)
       return quiet(
         "the look drag owns this letter while the right button is held",
+        "looking",
       );
   }
   return sessionRefusal(def, ctx);
@@ -1466,10 +1568,17 @@ function refuseOrClaim(
     // that could not state its own silent classes. The gate states them now
     // ({@link GateVerdict}), so the fallback has nothing left to cover and is gone rather
     // than kept as dead comfort.
-    return refused(verdict.hint);
+    //
+    // The CLASS travels with the sentence and is copied rather than re-decided: the gate is
+    // the layer that knows which of its clauses refused, and a second classification here
+    // would be a guess made from a string.
+    return refused(verdict.hint, verdict.because);
   }
   onClaim?.();
-  if (!def.enabled(ctx)) return refused(def.label(ctx));
+  // `"inert"` — the canonical instance of it, and the one the class is named after: the gate
+  // is OPEN and the verb still cannot act, because what it needs is not there. The sentence
+  // is the label for the reason the docblock above gives.
+  if (!def.enabled(ctx)) return refused(def.label(ctx), "inert");
   return null;
 }
 
@@ -1519,7 +1628,8 @@ export function runNamed(
   return runAction(def, ctx, namedDispatch(ctx), input);
 }
 
-/** RUN A MEMBER PICK: gate against its FAMILY, do the member's own arm, answer for it.
+/** RUN A MEMBER PICK: find it in its family, gate against that FAMILY, do the member's own
+ *  arm, answer for it.
  *
  *  The second funnel, and what makes {@link runAction}'s *"the one funnel every surface
  *  dispatches through"* literally true — it was not, of exactly this path, until foundations
@@ -1553,6 +1663,34 @@ export function runNamed(
  *  {@link NAMED_RENDER} it does not see a modal at all. This is a DISPATCH, so it asks
  *  {@link namedDispatch}, like {@link runNamed} beside it.
  *
+ *  AN ID, NOT A MEMBER, since foundations T4b — and the pairing it makes unwriteable is the
+ *  reason. Taking the member OBJECT meant taking the caller's word that it came out of THIS
+ *  family: `runMember(brush, someStampMember, ctx)` compiled, gated against the brush and
+ *  armed a stamp session. Neither chrome surface can do it (both map over
+ *  `family.members(ctx)` and hand back one of the objects they just built), which is why this
+ *  was filed rather than fixed at the time — and the whole justification for this funnel is a
+ *  caller with no flyout, which is the caller that can. Resolving here is also the only place
+ *  the pairing CAN be checked: a member carries no back-reference to its family, and giving it
+ *  one would be a field two call sites maintain so that a third can verify it.
+ *
+ *  THE RESOLUTION COMES BEFORE THE GATE, deliberately. An id no member answers to is a
+ *  malformed REQUEST, and answering it with the family's session refusal would send the caller
+ *  to finish a session and come back to the same typo — two round trips to learn one fact,
+ *  and the fact it learns first is the wrong one. Refusing on the id first is also the answer
+ *  that does not depend on when it was asked: `"member"` is stable where the gate's classes
+ *  are transient. Nothing is SAID on this path (no `sayRefusal`), which is not a policy
+ *  exception but the same one — no human can produce an id that is not in the list they just
+ *  clicked, so a toast here would be a sentence written for nobody.
+ *
+ *  THE ARM'S REFUSAL IS SAID, AND THAT IS THE OPPOSITE ANSWER TO THE SAME QUESTION, decided
+ *  separately because the question is different. A miss is unreachable for a human; an arm's
+ *  refusal is not — picking a stamp before the engine is up is something a human could
+ *  provoke, and nobody else says it, which is precisely {@link sayResult}'s idiom. The
+ *  double-toast rule is satisfied by CONSTRUCTION rather than by care: everything already
+ *  spoken for has returned before the arm runs (the gate refusal, said inside
+ *  {@link refuseOrClaim}; the miss, silent by the paragraph above), so the only thing
+ *  {@link sayResult} can ever meet here is a verdict the arm alone reached.
+ *
  *  SYNCHRONOUS, unlike {@link runNamed}, because everything it wraps is: `armMember` pushes a
  *  gesture or an effect at `ctx.run`, and a stamp member calls `host.startStamp`, which
  *  returns `void`. A promise here would be one nothing awaits — both call sites drop the
@@ -1562,19 +1700,45 @@ export function runNamed(
  *  its own channel. The day a member arm becomes async this signature is what has to change,
  *  which is the honest place for that cost to land.
  *
+ *  THE ARM'S OWN VERDICT IS RETURNED RATHER THAN OVERWRITTEN with `ACTION_OK`, which is the
+ *  other half of the honesty this signature bought: the one arm with a precondition is the
+ *  stamp's, it needs a host, and until T4b a null one made the pick a no-op that still
+ *  reported success. {@link ToolFamilyMember.arm} argues the shape and why the check does not
+ *  live in this function.
+ *
  *  No `onClaim`: that seam is the key dispatcher's `preventDefault`, and no key reaches a
  *  member. The ⇧ chords step families through `tool.brushCycle` and its two siblings, which
  *  are ordinary rows and already funnelled. */
 export function runMember(
   family: ToolFamily,
-  member: ToolFamilyMember,
+  memberId: string,
   ctx: ActionCtx,
 ): ActionResult {
+  const members = family.members(ctx);
+  const member = members.find((m) => m.id === memberId);
+  if (member === undefined)
+    // The ids AS WELL AS the miss, because the caller this funnel exists for cannot look at
+    // the flyout to find out what it should have said, and a bare "no such member" leaves it
+    // guessing at a list it has no other way to read.
+    // Bracketed so the empty case reads as one: a project that registers no generators leaves
+    // the stamp family with no members at all, and "its members are" trailing into nothing is
+    // a sentence that looks truncated rather than one that says the list is empty.
+    return refused(
+      `no "${memberId}" in the ${family.name} tools — its members are [${members.map((m) => m.id).join(", ")}]`,
+      "member",
+    );
   const refusal = refuseOrClaim(family.arm, ctx, namedDispatch(ctx));
   if (refusal !== null) return refusal;
   try {
-    member.arm(ctx);
-    return ACTION_OK;
+    const result = member.arm(ctx);
+    // SAID, unlike the miss above — {@link sayResult}'s idiom exactly, and the two silences
+    // are decided separately because they are different questions. Everything that could
+    // reach here having ALREADY been spoken for has returned: a gate refusal at the line
+    // above (said by `refuseOrClaim`) and the member miss before it. So an arm's refusal is
+    // a sentence nobody has said, about something a human genuinely provoked — for
+    // {@link runAction}'s reason, the funnel says what the funnel owns.
+    sayResult(result);
+    return result;
   } catch (err) {
     // The MEMBER's label, not the family's: "Paint failed: …" names what was picked, where
     // the family button says "Brush" whichever of its five is on it. Voiced here for

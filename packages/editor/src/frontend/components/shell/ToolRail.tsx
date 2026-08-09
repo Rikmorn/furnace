@@ -197,8 +197,13 @@ export function ToolRail() {
 					// not because it is a promise: `runMember` is synchronous, unlike
 					// `runNamed` above, and the human who clicked has already heard whatever
 					// there was to hear.
+					//
+					// The ID and not the member (T4b): the funnel resolves it against
+					// the family, so a pairing it cannot check is one this call cannot
+					// make. The row still holds the object — it is what the flyout
+					// draws — and hands over the one field the funnel needs.
 					armMember: (member: ToolFamilyMember) =>
-						void runMember(family, member, ctx),
+						void runMember(family, member.id, ctx),
 				};
 			}),
 		// EXACTLY the ctx FACTS the four rows read, never `ctx` itself and — for the session —

@@ -41,6 +41,7 @@ export {
   ACTION_OK,
   type ActionResult,
   failed,
+  type RefusalClass,
   refused,
 } from "./result.ts";
 export type { ActionInputs, InputOf } from "./schemas.ts";

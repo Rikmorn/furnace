@@ -37,34 +37,124 @@
 // Here rather than in the chrome because the daemon is the consumer that makes the type
 // worth having: an agent calling a verb needs the verdict, and it runs on Node.
 
+/** WHY a refusal happened, as a CLASS rather than as a sentence — the one part of a
+ *  {@link ActionResult} written for a caller that cannot read.
+ *
+ *  THE MESSAGE IS NOT A KEY. `refused`'s `message` is prose addressed to whoever is looking
+ *  at the screen, and it is free to be reworded the moment the wording gets better; a caller
+ *  branching on it breaks on a moved comma. `because` is the half that may be depended on —
+ *  it names the CLASS and says nothing about how the class reads.
+ *
+ *  WHAT EACH ONE TELLS A CALLER TO DO, which is the whole reason a class beats a sentence:
+ *
+ *  - `modal` — a confirm dialog is up and owns the answer. TRANSIENT and not about the
+ *    request at all: a human is being asked something. Retry once it closes.
+ *  - `typing` — a text field has the keyboard, so this KEY is a character someone is typing.
+ *    Transient, and a KEY caller's refusal only: naming the verb runs it.
+ *  - `looking` — the right button is held and the look drag owns this letter. Same shape as
+ *    `typing`: transient, key-caller only.
+ *  - `menuOnly` — no key runs this verb. NOT transient and not about state: it is a property
+ *    of the verb, and it too is a KEY caller's refusal, so a NAMED caller that ever sees this
+ *    has found a bug rather than a locked door.
+ *  - `session` — a stamp session owns the interaction and this verb would re-arm LMB. The one
+ *    class a human is told about out loud, and the caller holds the two verbs that end it
+ *    (`session.confirm` applies, `session.escape` discards).
+ *  - `inert` — the verb cannot act on what it has: no world name, no selected stamp, no
+ *    engine up yet, no generators registered, an argument it cannot use. Changing the state
+ *    changes the answer, but the caller must change SOMETHING — an immediate retry gets the
+ *    same word back. RAISED IN TWO PLACES and it is one class, not two spellings: the
+ *    canonical one is the funnel's own (`refuseOrClaim` — the gate is OPEN and `enabled` is
+ *    false, which is why the verb's LABEL is the honest sentence there), and the second is a
+ *    verb's own body finding mid-run that what it needs is not there.
+ *  - `member` — the tool family has no member by that id ({@link ActionResult} reaches this
+ *    only through the member funnel). The one class about the REQUEST rather than the state:
+ *    a retry cannot help, the id has to change, and the sentence lists the ids that exist.
+ *
+ *  FIVE OF THE SEVEN ARE THE GATE'S (`modal`, `typing`, `looking`, `menuOnly`, `session`) and
+ *  two are raised past it — `inert` by the funnel and by verb bodies, as its own bullet
+ *  states, and `member` at the member funnel's front door. Which side a class comes from is
+ *  not a distinction a caller needs, which is why there is one union and not two.
+ *
+ *  NO `input` CLASS TODAY, deliberately: two of the refusals carrying `inert` are really about
+ *  an ARGUMENT rather than about state, and splitting the class is a decision with no caller
+ *  to settle it yet. That is the one thing this docblock owes a reader here — a split would be
+ *  a WIDENING, which is why the union is exported rather than inlined into the arm below. The
+ *  two sites, the candidate shape and the trigger are held in
+ *  `docs/backlog/editor-and-tooling/refusal-class-has-no-input-arm.md`, whose job that is. */
+export type RefusalClass =
+  | "modal"
+  | "typing"
+  | "looking"
+  | "menuOnly"
+  | "session"
+  | "inert"
+  | "member";
+
 /** What running an action MEANS.
  *
  *  - `{ ok: true }` — it ran, or it handed off to a layer that will answer for itself.
  *  - `refused` — the action's OWN verdict, with the sentence that used to be a
- *    `notify.error` call inside the verb. The dispatcher says it; see the module header.
+ *    `notify.error` call inside the verb, and — since foundations T4b — the
+ *    {@link RefusalClass} that sentence is an instance of. The dispatcher says it; see the
+ *    module header.
  *  - `failed` — an error SURFACED rather than thrown past the dispatcher. The layer that
  *    raised it owns its channel and has already said it; this carries the fact to a caller
- *    who cannot see the screen. */
+ *    who cannot see the screen.
+ *
+ *  ONLY `refused` CARRIES A CLASS. A `failed` is by definition a message from a layer BELOW
+ *  this one, and this file cannot classify what it did not decide — its own union would be
+ *  the set of things that can go wrong inside the engine, the daemon and the filesystem,
+ *  which is not a set anyone can close. A refusal is the action's own verdict, so the action
+ *  layer is exactly the layer that can name its kinds. */
 export type ActionResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly kind: "refused"; readonly message: string }
+  | {
+      readonly ok: false;
+      readonly kind: "refused";
+      readonly message: string;
+      readonly because: RefusalClass;
+    }
   | { readonly ok: false; readonly kind: "failed"; readonly message: string };
 
 /** The verdict of a verb that ran, or that handed off to a channel of its own. A shared
  *  frozen value rather than a fresh literal per run: it carries no payload, most of the table
  *  returns it and nothing may mutate a verdict. (No count — see the note on `handOff` in
- *  `frontend/lib/actions.ts` for why this file states none.) */
-export const ACTION_OK: ActionResult = Object.freeze({ ok: true });
+ *  `frontend/lib/actions.ts` for why this file states none.)
+ *
+ *  DECLARED AS THE ARM IT IS, not as the whole union — the rule for all three constructors
+ *  below, stated here once. A signature narrower than {@link ActionResult} can then still be
+ *  built from them: `ToolFamilyMember.arm` promises `ok` or `refused` and the TYPE holds it,
+ *  which it cannot do while the one `ok` value and the one `refused` factory each claim they
+ *  might be a `failed`. Every one of them is assignable to {@link ActionResult} exactly where
+ *  it was before; this only stops them being LESS precise than what they return. */
+export const ACTION_OK: Extract<ActionResult, { ok: true }> = Object.freeze({
+  ok: true,
+});
 
-/** The action's own refusal, WITH the sentence. Said once, by the dispatcher. */
-export const refused = (message: string): ActionResult => ({
+/** The action's own refusal, WITH the sentence and the class it is an instance of. Said once,
+ *  by the dispatcher.
+ *
+ *  `because` is REQUIRED and has no default. A default would be one of two things: a real
+ *  class, which every call site that forgot to think would then silently claim, or a
+ *  `"other"` that is an eighth class with a name that admits nothing — and a discriminant
+ *  whose commonest value means "nobody decided" is not one a caller can branch on. The type
+ *  error at a new refusal site is the whole mechanism: naming the class is one word, and it
+ *  is asked at the only moment anyone knows the answer. */
+export const refused = (
+  message: string,
+  because: RefusalClass,
+): Extract<ActionResult, { kind: "refused" }> => ({
   ok: false,
   kind: "refused",
   message,
+  because,
 });
 
-/** An error surfaced from a layer that has already reported it on its own channel. */
-export const failed = (message: string): ActionResult => ({
+/** An error surfaced from a layer that has already reported it on its own channel. Typed as
+ *  its own arm, per the rule at {@link ACTION_OK}. */
+export const failed = (
+  message: string,
+): Extract<ActionResult, { kind: "failed" }> => ({
   ok: false,
   kind: "failed",
   message,

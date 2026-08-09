@@ -146,7 +146,10 @@ function memberRows(ctx: ActionCtx): Row[] {
 			// words and now by the same code. `void` because the verdict is DROPPED and not
 			// because it is a promise: `runMember` is synchronous, unlike the `runNamed` that
 			// `actionRow` voids one function up.
-			run: () => void runMember(family, member, ctx),
+			// The ID and not the member (T4b): the funnel resolves it against the family
+			// it was handed, so a row cannot pair one family's gate with another's arm — a
+			// mistake no rendered row can make and the caller this funnel exists for can.
+			run: () => void runMember(family, member.id, ctx),
 		}));
 	});
 }

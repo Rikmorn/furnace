@@ -328,8 +328,9 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 			//
 			// Both used to do nothing and say nothing — the failure mode W-1 spent a whole
 			// round closing everywhere else.
-			if (!host) return refused("the engine is not up yet");
-			if (inFlight.current) return refused("a world write is already running");
+			if (!host) return refused("the engine is not up yet", "inert");
+			if (inFlight.current)
+				return refused("a world write is already running", "inert");
 			inFlight.current = true;
 			setJob(makeDefault ? "bake" : "save");
 			// The SSE bundle-outdated guard reads this: a hard reload mid-write would kill
@@ -381,6 +382,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 					// belongs to `world-actions.ts`, which composes and says its own.
 					return refused(
 						`"${target}" is not a valid world name — ${WORLD_NAME_RULE}`,
+						"inert",
 					);
 				// `saveWorld` has ALREADY said this on its own channel ("bake failed: ENOSPC",
 				// "save refused — could not check whether worlds/x is tracked …"). Surfaced
@@ -467,7 +469,7 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 				// with the reason on it. The sentence was a `notify.error` here; it is now the
 				// verdict, said once by the dispatch funnel.
 				if (name === null)
-					return Promise.resolve(refused("name the world first (⌘S)"));
+					return Promise.resolve(refused("name the world first (⌘S)", "inert"));
 				return write(name, true);
 			},
 			// Both world SWAPS go through the discard gate: they replace the host's

@@ -13,6 +13,10 @@
 import { afterEach, expect, type mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import type {
+  ActionResult,
+  RefusalClass,
+} from "../src/action-registry/index.ts";
 import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
   ACTION_GROUPS,
@@ -60,6 +64,20 @@ afterEach(() => notify.clear());
 
 /** Every sentence the store is holding, newest first. */
 const said = (): string[] => notify.getSnapshot().log.map((m) => m.text);
+
+/** The {@link RefusalClass} a result refuses with, or what it did INSTEAD — `"ok"` or
+ *  `"failed"`. One narrowing, spelled once, so a case that is about the class can name the
+ *  class it expects instead of walking the union at every call; and answering the other two
+ *  outcomes rather than `null` is what makes a failure message say which of them happened.
+ *
+ *  The RETURN TYPE is the vocabulary, not `string`: a case expecting a class that does not
+ *  exist — a typo, or a name the union dropped — is then a compile error rather than a
+ *  runtime diff nobody reads until it fires. */
+const whyRefused = (result: ActionResult): RefusalClass | "ok" | "failed" => {
+  if (result.ok) return "ok";
+  if (result.kind !== "refused") return result.kind;
+  return result.because;
+};
 
 const entity = (over: Partial<FieldEntityInfo> = {}): FieldEntityInfo =>
   ({
@@ -755,6 +773,9 @@ test("with nothing selected and nothing named, the entity trio REFUSES with the 
         ok: false,
         kind: "refused",
         message: "no stamp selected — select one, or name an entityId",
+        // `"inert"` — the class for a verb that cannot act on what it has, and the
+        // backstop's whole content: no selection, and no id named either.
+        because: "inert",
       },
     });
 });
@@ -770,6 +791,9 @@ test("Delete refuses an entityId that is not the SELECTED one — the confirm de
     kind: "refused",
     message:
       "select stamp #99 first — Delete confirms against the SELECTED stamp",
+    // An ARGUMENT refusal wearing `"inert"`; `RefusalClass`'s docblock argues why there is
+    // no `input` class and names this as one of the two that would move if one arrived.
+    because: "inert",
   });
   expect(ctx.run.openConfirm).not.toHaveBeenCalled();
   expect(host.deleteEntity).not.toHaveBeenCalled();
@@ -813,6 +837,7 @@ test("Make default names the OPEN world by default, and refuses an untitled one"
     ok: false,
     kind: "refused",
     message: "name the world first (⌘S)",
+    because: "inert",
   });
 });
 
@@ -830,7 +855,10 @@ test("the funnel gates, claims, checks, runs and SAYS — in that order", async 
   // `edit.undo` is DISABLED here (no undo depth), so the claim landed and the run did not.
   expect({ claims, result }).toEqual({
     claims: ["claimed"],
-    result: { ok: false, kind: "refused", message: "Undo" },
+    // THE CANONICAL `"inert"`: the gate is open, the claim landed, and `enabled` is what
+    // refused — so the reason a caller gets is the label, and the class says which kind of
+    // reason a label is.
+    result: { ok: false, kind: "refused", message: "Undo", because: "inert" },
   });
   expect(
     (ctx.host as unknown as ReturnType<typeof makeHostSpy>).undo,
@@ -865,6 +893,7 @@ test("the gate's refusal is SAID once, and a held key cannot stack it", async ()
       ok: false,
       kind: "refused",
       message: hint,
+      because: "session",
     });
   expect(said()).toEqual([hint]);
 });
@@ -883,6 +912,7 @@ test("the funnel SAYS a `refused` run result and stays QUIET on a `failed` one",
       ok: false,
       kind: "refused",
       message: "name the world first (⌘S)",
+      because: "inert",
     }),
   );
   const named = {
@@ -893,6 +923,9 @@ test("the funnel SAYS a `refused` run result and stays QUIET on a `failed` one",
     ok: false,
     kind: "refused",
     message: "name the world first (⌘S)",
+    // The verb's OWN class, passed straight through: the funnel says a `refused` result out
+    // loud and does not re-classify it.
+    because: "inert",
   });
   expect(said()).toEqual(["name the world first (⌘S)"]);
   notify.clear();
@@ -952,15 +985,23 @@ const family = (id: string): ToolFamily => {
   return found;
 };
 
-/** One member by its label, throwing on a miss: a member renamed in `FAMILY_ROWS` must fail
- *  these cases loudly rather than leave them asserting things about `undefined`. */
-const memberNamed = (
+/** One member's ID, found by its LABEL and throwing on a miss: a member renamed in
+ *  `FAMILY_ROWS` must fail these cases loudly rather than leave them asserting things about
+ *  `undefined`.
+ *
+ *  BY LABEL and answering the ID, because the two are not the same string and only one of
+ *  them is the funnel's argument (T4b). A `"rows"` member's id IS its label; a
+ *  `"generators"` member's id is the generator id and its label is the generator's NAME —
+ *  "Maze" versus `maze`. Reading the id out of the resolved list rather than spelling it here
+ *  keeps that distinction `familyMembers`' to make, and keeps these cases naming members the
+ *  way a human reading the flyout would. */
+const memberIdNamed = (
   members: readonly ToolFamilyMember[],
   label: string,
-): ToolFamilyMember => {
+): string => {
   const found = members.find((m) => m.label === label);
   if (found === undefined) throw new Error(`no member "${label}"`);
-  return found;
+  return found.id;
 };
 
 test("a member pick ANSWERS, and arms exactly the member that was picked", () => {
@@ -970,14 +1011,14 @@ test("a member pick ANSWERS, and arms exactly the member that was picked", () =>
   const ctx = makeCtx();
   const brush = family("brush");
   expect(
-    runMember(brush, memberNamed(brush.members(ctx), "Paint"), ctx),
+    runMember(brush, memberIdNamed(brush.members(ctx), "Paint"), ctx),
   ).toEqual({ ok: true });
   expect(ctx.run.armBrush).toHaveBeenCalledWith("paint");
 
   const stamp = family("stamp");
   const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
   expect(
-    runMember(stamp, memberNamed(stamp.members(ctx), "Maze"), ctx),
+    runMember(stamp, memberIdNamed(stamp.members(ctx), "Maze"), ctx),
   ).toEqual({ ok: true });
   expect(host.startStamp.mock.calls).toEqual([["maze"]]);
   // `ok` on a HAND-OFF, per `ActionResult`'s module header: the host answers for itself,
@@ -993,8 +1034,8 @@ test("a member pick a live session refuses is `refused`, with the FAMILY's own s
   const hint = "finish the session first — ⏎ applies it, Esc discards it";
   const brush = family("brush");
   expect(
-    runMember(brush, memberNamed(brush.members(session), "Paint"), session),
-  ).toEqual({ ok: false, kind: "refused", message: hint });
+    runMember(brush, memberIdNamed(brush.members(session), "Paint"), session),
+  ).toEqual({ ok: false, kind: "refused", message: hint, because: "session" });
   // The arm did not happen — the refusal is the whole verdict, not a message beside an
   // effect that landed anyway.
   expect(session.run.armBrush).not.toHaveBeenCalled();
@@ -1015,9 +1056,94 @@ test("a member arm that THROWS is surfaced as `failed`, named after the MEMBER",
   );
   const stamp = family("stamp");
   expect(
-    runMember(stamp, memberNamed(stamp.members(ctx), "Maze"), ctx),
+    runMember(stamp, memberIdNamed(stamp.members(ctx), "Maze"), ctx),
   ).toEqual({ ok: false, kind: "failed", message: "Maze failed: boom" });
   expect(said()).toEqual(["Maze failed: boom"]);
+});
+
+// --- the member funnel takes an ID (T4b Task 1) ------------------------------
+//
+// T4a's own review filed two things about this funnel and both are here. It took the member
+// OBJECT, so `runMember(brush, aStampMember, ctx)` compiled — gated against the brush and
+// armed a stamp — and neither chrome surface can write that, which is exactly why it stayed
+// open: the caller the funnel EXISTS for is the one with no flyout to pick from. And a stamp
+// arm was `c.host?.startStamp(...)`, so with no engine the pick did nothing and the funnel
+// still said `ok`: the one outright lie it could tell, and unreachable through the rail
+// because an engine-less session lists no generators to draw a flyout from.
+
+test("a member id no member answers to is `refused` as `member`, and names the ids that exist", () => {
+  // THE IDS IN THE SENTENCE, spelled out here rather than derived from `brush.members(ctx)` —
+  // an expectation built from the same list the code reads would pass whatever that list
+  // said. A member renamed in `FAMILY_ROWS` reds this case, which is the point: the sentence
+  // is the only way the caller this funnel exists for can learn what it should have asked.
+  const ctx = makeCtx();
+  expect(runMember(family("brush"), "Pain", ctx)).toEqual({
+    ok: false,
+    kind: "refused",
+    message:
+      'no "Pain" in the Brush tools — its members are [Dig, Fill, Paint, Smooth, Segment]',
+    because: "member",
+  });
+  // Nothing was armed, and nothing was SAID: no human can name an id that is not in the list
+  // they just clicked, so a toast here would be a sentence written for nobody.
+  expect(ctx.run.armBrush).not.toHaveBeenCalled();
+  expect(ctx.run.setGesture).not.toHaveBeenCalled();
+  expect(said()).toEqual([]);
+});
+
+test("an unknown member id is answered BEFORE the family's gate — a bad request, not a bad moment", () => {
+  // THE ORDERING, AS A DECISION. A live session refuses every brush pick, so gating first
+  // would answer a typo with "finish the session first" — the caller finishes it, retries and
+  // meets the same typo, having learnt the wrong fact first. `member` is also the one class
+  // that does not depend on WHEN it was asked, which is what makes it worth reaching first.
+  const session = makeCtx({ session: { generator: "hall" } as never });
+  const brush = family("brush");
+  expect(whyRefused(runMember(brush, "Pain", session))).toBe("member");
+  // …and the family's gate is still there for an id that EXISTS, so this is an ordering pin
+  // and not a hole in the gate.
+  expect(
+    whyRefused(
+      runMember(brush, memberIdNamed(brush.members(session), "Paint"), session),
+    ),
+  ).toBe("session");
+});
+
+test("a stamp pick with no engine is `refused` — and a brush pick with no engine is not", () => {
+  // DIGEST INPUT #2. `ACTION_OK` used to be this funnel's answer for an arm that no-opped
+  // into a null host, which is a positive claim about an effect that never landed.
+  //
+  // THE SECOND HALF IS THE ARGUMENT for where the check lives. A blanket `ctx.host === null`
+  // guard in `runMember` would close the lie and refuse Paint along with it — a pick that
+  // works perfectly well before the engine is up, because a `"rows"` arm pushes at `ctx.run`
+  // and never touches the host. The precondition belongs to the ARM, and this case reds if it
+  // moves into the funnel.
+  const ctx = makeCtx({ host: null });
+  const stamp = family("stamp");
+  expect(
+    runMember(stamp, memberIdNamed(stamp.members(ctx), "Maze"), ctx),
+  ).toEqual({
+    ok: false,
+    kind: "refused",
+    message: "the engine is not up yet — Maze cannot open a session",
+    because: "inert",
+  });
+  // AND IT IS SAID. The opposite answer to the member-miss case above, and the two are
+  // decided separately because they are different questions: a miss is unreachable for a
+  // human, where picking a stamp before the engine is up is something a human can do. Nobody
+  // else says this sentence — the gate never refused and no layer below was reached — which
+  // is `sayResult`'s idiom exactly.
+  expect(said()).toEqual([
+    "the engine is not up yet — Maze cannot open a session",
+  ]);
+  notify.clear();
+  const brush = family("brush");
+  expect(
+    runMember(brush, memberIdNamed(brush.members(ctx), "Paint"), ctx),
+  ).toEqual({ ok: true });
+  expect(ctx.run.armBrush).toHaveBeenCalledWith("paint");
+  // …and an arm that SUCCEEDS still succeeds silently, so the voicing above is the refusal's
+  // and not a new sentence on every pick.
+  expect(said()).toEqual([]);
 });
 
 // --- the DISPATCH env is COMPUTED (T4a Task 2) -------------------------------
@@ -1044,6 +1170,7 @@ test("a NAMED call while a modal is open is `refused` WITH the modal reason, and
     ok: false,
     kind: "refused",
     message: MODAL,
+    because: "modal",
   });
   // THE DISPLAY HALF DID NOT MOVE: the class is still silent, so the dialog on screen stays
   // the only thing saying why. The sentence is for the caller holding the Result.
@@ -1070,6 +1197,7 @@ test("DISPLAY and DISPATCH differ on exactly one clause, and it is the modal one
     ok: false,
     kind: "refused",
     message: MODAL,
+    because: "modal",
   });
   // ONE CLAUSE, not two: with no modal the two seams agree, so the case is not passing by
   // making the display gate answer `true` to everything.
@@ -1093,6 +1221,7 @@ test("a KEY refused by a text field answers with the TYPING reason — the label
     kind: "refused",
     message:
       "a text field has the keyboard — this key is a character being typed",
+    because: "typing",
   });
   expect(said()).toEqual([]);
 });
@@ -1110,6 +1239,7 @@ test("the named env is POLLED at dispatch, not snapshotted with the ctx", async 
     ok: false,
     kind: "refused",
     message: MODAL,
+    because: "modal",
   });
 });
 
@@ -1122,10 +1252,64 @@ test("a MEMBER pick answers the modal in the same words its family's row does", 
   const modal = makeCtx({ isConfirmOpen: () => true });
   const brush = family("brush");
   expect(
-    runMember(brush, memberNamed(brush.members(modal), "Paint"), modal),
-  ).toEqual({ ok: false, kind: "refused", message: MODAL });
+    runMember(brush, memberIdNamed(brush.members(modal), "Paint"), modal),
+  ).toEqual({ ok: false, kind: "refused", message: MODAL, because: "modal" });
   expect(modal.run.armBrush).not.toHaveBeenCalled();
   expect(said()).toEqual([]);
+});
+
+// --- the refusal CLASS, whole (T4b Task 1) -----------------------------------
+//
+// `because` is the agent-facing half of a refusal: the message is prose written for a toast
+// and is free to be reworded, so the CLASS is the part a caller is allowed to depend on. What
+// the table below holds is the vocabulary itself — every class, reached through a funnel, and
+// answering with its own name rather than with a neighbour's.
+
+/** One dispatch per class, keyed BY the class. A `Record<RefusalClass, …>` rather than an
+ *  array of cases, so the coverage is the type's to enforce: an eighth class added to the
+ *  union without a route that produces it does not compile here, and no reviewer has to
+ *  notice the gap. The dispatches are split across both funnels and both caller classes
+ *  because that is where these refusals actually live — three of them are a KEY's alone. */
+const REFUSALS: Record<
+  RefusalClass,
+  () => ActionResult | Promise<ActionResult>
+> = {
+  modal: () =>
+    runNamed(byId("view.frame"), makeCtx({ isConfirmOpen: () => true })),
+  typing: () =>
+    runAction(byId("view.frame"), makeCtx(), { ...KEY, inTextInput: true }),
+  looking: () =>
+    runAction(byId("tool.stamp"), makeCtx(), { ...KEY, looking: true }),
+  // The menu-only backstop: a verb with no `gate` cannot be run by a key, and a NAMED
+  // caller runs it perfectly well — which is why the dispatch here is the KEY one.
+  menuOnly: () => runAction(byId("world.new"), makeCtx(), KEY),
+  session: () =>
+    runAction(
+      byId("tool.brush"),
+      makeCtx({ session: { generator: "hall" } as never }),
+      KEY,
+    ),
+  // `enabled` false with the gate OPEN — no undo depth on a fresh ctx.
+  inert: () => runAction(byId("edit.undo"), makeCtx(), KEY),
+  member: () => runMember(family("brush"), "no-such-member", makeCtx()),
+};
+
+test("every refusal class is REACHABLE through a funnel, and answers with its own name", async () => {
+  // BY NAME, one row at a time, so a swapped pair reds as two named rows rather than as one
+  // opaque object diff — the whole reason to assert the class beside the class it should be.
+  for (const [expected, dispatch] of Object.entries(REFUSALS)) {
+    const result = await dispatch();
+    // `String(…)` and not a cast: `Object.keys`/`entries` widen a `Record`'s keys to `string`,
+    // so the two sides of this comparison are the same value at different widths. Widening the
+    // observed one is free and honest; asserting the key back down would be the assertion this
+    // repo's rules exist to keep out, and there is nothing here for it to protect — the table
+    // is keyed by `RefusalClass`, so a key that is not a class never compiled in the first
+    // place.
+    expect({ expected, got: String(whyRefused(result)) }).toEqual({
+      expected,
+      got: expected,
+    });
+  }
 });
 
 test("`member.arm` has exactly ONE caller in the editor — the funnel itself", () => {
