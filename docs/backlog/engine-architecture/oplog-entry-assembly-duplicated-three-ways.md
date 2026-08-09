@@ -5,9 +5,14 @@ union the per-op dirty sets, merge the per-op inverses FIRST-image-wins, loop-pu
 ops onto `log.ops` (never spread — the ~65k JSC argument-count ceiling), push one
 `{ kind: "ops", ops, inverse }` entry, clear the redo stack.
 
-- `reapplyOps` — `packages/core/src/field/ops.ts:1277-1289` (the redo replay path)
-- `commitGenerator` — `packages/core/src/field/generators.ts:1024-1053`
-- `logApplyGroup` — `packages/core/src/field/ops.ts:964-982` (added in foundations T3a)
+- `reapplyOps` — `packages/core/src/field/ops.ts:1445-1457` (the redo replay path)
+- `commitGenerator` — `packages/core/src/field/generators.ts:1045-1074`
+- `logApplyGroup` — `packages/core/src/field/ops.ts:1130-1148` (added in foundations T3a)
+
+<!-- Line numbers re-derived 2026-08-09 (T4a Task 5): T4a grew ops.ts 1264 -> 1458
+     across Tasks 3-5 and generators.ts 1058 -> 1079, so all three citations had
+     staled. The blocks themselves are unchanged — this entry's trigger is still
+     unmet. -->
 
 The rule-of-three threshold is met. It was NOT extracted in T3a deliberately: the
 refactor reaches into `generators.ts`, which is outside a slice whose contract was "core

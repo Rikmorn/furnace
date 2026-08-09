@@ -941,7 +941,14 @@ export function evaluateGenerator(
  *  BEFORE the first write — validate-all-then-apply, so a bad op leaves the
  *  store, the log, and the id counter untouched (the setup-loud-before-
  *  mutation posture; a single pass would strand earlier ops applied but
- *  unlogged). Per-chunk inverse merge is FIRST-wins: each chunk's first
+ *  unlogged). What that does NOT buy is a transaction, and the residue is
+ *  {@link logApplyGroup}'s exactly: all-or-nothing covers VALIDATION only.
+ *  `assertOpValid` checks that a shape's numbers are finite and its lengths
+ *  positive, never that a length is BUILDABLE, so a def emitting a
+ *  finite-but-absurd radius clears pass 1 and dies in the applier — leaving the
+ *  span ops before it written into the store with no entry describing them.
+ *  Ids survive that (they commit only once pass 2 finishes); the store is not
+ *  rolled back. Per-chunk inverse merge is FIRST-wins: each chunk's first
  *  snapshot is its PRE-COMMIT state, so undo restores the field exactly.
  *  Returns the commit's dirty chunk set and a COPY of the recorded
  *  {@link GeneratorEntity} — whose `entityId` intentionally equals the entity
@@ -959,7 +966,10 @@ export function evaluateGenerator(
  *    {@link GeneratorDef.emits} declaration, the evaluated result is EMPTY (no
  *    ops AND no placements — a generator must emit something), or any evaluated
  *    op/placement fails
- *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid};
+ *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid}
+ *    — that last class re-thrown as `commitGenerator: generator "<id>" — <the
+ *    predicate's own message>` with the original on `cause`, because a span
+ *    nobody wrote is addressed by its GENERATOR, not by a position inside it;
  *    a `DataCloneError` if `opts.params`/`opts.region` hold structured-clone-
  *    incompatible values (e.g. a function in an unknown key) — in all cases
  *    before any mutation. */
@@ -997,26 +1007,37 @@ export function commitGenerator(
   // undo entry.
   const params = structuredClone(opts.params);
   const region = structuredClone(opts.region);
-  // Pass 1 — stamp real ids and validate the WHOLE span before any write.
+  // Pass 1 — stamp real ids and validate the WHOLE span before any write, under
+  // the DEF's address. Deliberately not an index the way `logApplyGroup` names
+  // one: nobody wrote this span, so "op 37 of 55" addresses nothing a reader can
+  // open — the generator is the thing to fix, and its id is the same locator the
+  // empty-result rejection above already uses.
   const firstId = log.nextId;
   let nextId = firstId;
   const span: FieldOp[] = [];
-  for (const op of ops) {
-    const s = { ...op, id: nextId++ };
-    if (s.kind === "patch") assertPatchValid(s, opts.table);
-    else assertOpValid(s, opts.table);
-    span.push(s);
-  }
-  // Placements ride the span as ONE placement op appended AFTER the field ops,
-  // still inside opSpan — validated setup-loud like every other span member.
-  if (placements.length > 0) {
-    assertPlacementsValid(placements);
-    const placementOp: PlacementOp = {
-      id: nextId++,
-      kind: "placement",
-      records: placements,
-    };
-    span.push(placementOp);
+  try {
+    for (const op of ops) {
+      const s = { ...op, id: nextId++ };
+      if (s.kind === "patch") assertPatchValid(s, opts.table);
+      else assertOpValid(s, opts.table);
+      span.push(s);
+    }
+    // Placements ride the span as ONE placement op appended AFTER the field ops,
+    // still inside opSpan — validated setup-loud like every other span member.
+    if (placements.length > 0) {
+      assertPlacementsValid(placements);
+      const placementOp: PlacementOp = {
+        id: nextId++,
+        kind: "placement",
+        records: placements,
+      };
+      span.push(placementOp);
+    }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`commitGenerator: generator "${def.id}" — ${detail}`, {
+      cause: e,
+    });
   }
   // Pass 2 — apply; merge per-chunk inverses FIRST-wins (pre-commit state). A
   // placement op writes no cells (applyFieldOp returns null), so it contributes

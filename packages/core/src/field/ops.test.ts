@@ -1805,6 +1805,45 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
     expect(logState(s, log)).toEqual(state);
   });
 
+  // The rejection has to be ACTIONABLE, not just correct. `assertOpValid` was
+  // written for the single-op path and carries no locator, so a batch author
+  // (the case a group exists for) got a fault with no address: "unknown class
+  // id 99" says nothing about WHICH of twenty ops carries it.
+  test("the rejection names the op's list index, with the predicate's own error on cause", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+
+    // TWO bad ops, at 2 and 3, so the pin discriminates: it proves validation
+    // stops at the FIRST failure rather than reporting the last one it saw, and
+    // that the index is not accidentally right by being the list's end.
+    const badClass: BrushOp = {
+      ...mossBand(),
+      mask: { kind: "class", classId: 99 },
+    };
+    const badRadius = digSphere([2, 2, 2], Number.NaN);
+    const group = [room(), dirtBand(), badClass, badRadius];
+
+    let caught: unknown;
+    try {
+      logApplyGroup(s, log, group, TABLE);
+    } catch (e) {
+      caught = e;
+    }
+    if (!(caught instanceof Error))
+      throw new Error(`expected an Error, got ${String(caught)}`);
+
+    expect(caught.message).toMatch(/^field op group: ops\[2\] — /);
+    expect(caught.message).toContain("unknown class id 99");
+    // ops[3]'s fault is a DIFFERENT message, and must not be the one reported.
+    expect(caught.message).not.toContain("radius");
+    // The predicate's own error survives whole, both inline and on `cause`.
+    const cause = caught.cause;
+    if (!(cause instanceof Error))
+      throw new Error(`expected an Error cause, got ${String(cause)}`);
+    expect(caught.message.endsWith(cause.message)).toBe(true);
+    expect(() => assertOpValid(badClass, TABLE)).toThrow(cause.message);
+  });
+
   // Pass 2 is NOT covered by the all-before-any guarantee: `assertOpValid`
   // checks that a shape's numbers are finite and its lengths positive, never
   // that a length is BUILDABLE, so an op can validate and still throw out of the
@@ -1813,45 +1852,73 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
   // SPACE must not also be corrupted: `commitGenerator` stamps from a LOCAL
   // counter and commits `log.nextId` only after pass 2, and this pins the same
   // posture here, so `log.ops` never acquires a gap it cannot explain.
-  test("an applier throw burns no ids: log.nextId survives a pass-2 failure", () => {
-    // A smooth over a sphere a terametre across: finite and positive, so valid
-    // on paper, and fatal in the applier — its scratch buffer is ONE Int8Array
-    // holding one byte per sample of the bounds, and no runtime allocates 1e38
-    // of them.
-    const unbuildable: BrushOp = {
-      id: 0,
-      kind: "brush",
-      effect: "smooth",
-      smooth: { strength: 64, iterations: 1, mode: "both" },
-      shape: {
-        kind: "sphere",
-        center: [1, 1, 1],
-        radius: 1e12,
-      },
-    };
-    // This test is only about PASS 2, so prove the op clears pass 1 — otherwise
-    // it silently degrades into a duplicate of the all-before-any test above.
-    expect(() => assertOpValid(unbuildable, TABLE)).not.toThrow();
-    expect(() => applyOp(createFieldStore(), unbuildable, TABLE)).toThrow();
+  /** A smooth over a sphere a terametre across: finite and positive, so valid on
+   *  paper, and fatal in the applier — its scratch buffer is ONE Int8Array
+   *  holding one byte per sample of the bounds, and no runtime allocates 1e38 of
+   *  them. The one op both pass-2 tests below need. */
+  const unbuildable = (): BrushOp => ({
+    id: 0,
+    kind: "brush",
+    effect: "smooth",
+    smooth: { strength: 64, iterations: 1, mode: "both" },
+    shape: { kind: "sphere", center: [1, 1, 1], radius: 1e12 },
+  });
 
+  /** The premise both pass-2 tests rest on: the op really does clear pass 1 and
+   *  really does die in the applier. Asserted in each, so neither silently
+   *  degrades into a duplicate of the all-before-any test above. */
+  const expectClearsPass1AndDiesApplying = (op: BrushOp): void => {
+    expect(() => assertOpValid(op, TABLE)).not.toThrow();
+    expect(() => applyOp(createFieldStore(), op, TABLE)).toThrow();
+  };
+
+  /** A group whose op 1 writes chunks the `room()` fixture does not — the room
+   *  is at the origin, this dig 17 m along x — so anything of op 1's found in
+   *  the store after the throw can only be the group's doing. Returns the store,
+   *  the log and op 1's chunk set, with the disjointness ASSERTED rather than
+   *  reasoned. */
+  const arrangePassTwoFailure = () => {
     const s = createFieldStore();
     const log = createOpLog();
     logApply(s, log, room(), TABLE);
+    const first = digBox([18, 2, 2], [1, 1, 1]);
+    const stranded = applyOp(createFieldStore(), first, TABLE).dirty;
+    expect(stranded.size).toBeGreaterThan(0);
+    expect([...stranded].some((k) => s.chunks.has(k))).toBe(false);
+    return { s, log, first, stranded };
+  };
+
+  test("an applier throw burns no ids: log.nextId survives a pass-2 failure", () => {
+    const op = unbuildable();
+    expectClearsPass1AndDiesApplying(op);
+    const { s, log, first } = arrangePassTwoFailure();
     const nextId = log.nextId;
 
-    expect(() =>
-      logApplyGroup(
-        s,
-        log,
-        [digBox([18, 2, 2], [1, 1, 1]), unbuildable],
-        TABLE,
-      ),
-    ).toThrow();
+    expect(() => logApplyGroup(s, log, [first, op], TABLE)).toThrow();
 
     // No entry was pushed, so nothing may have consumed an id.
     expect(log.ops.length).toBe(1);
     expect(log.undoStack.length).toBe(1);
     expect(log.nextId).toBe(nextId);
+  });
+
+  // The OTHER half of that same failure, and a test rather than a tail
+  // assertion because it is a TRIPWIRE, not a wanted behaviour: it pins what the
+  // TSDoc declares — the store is not rolled back — so a rollback landing reds a
+  // test whose name says what changed. `restoreImages` deletes the newly
+  // allocated chunk entries, so the flip is real and not merely theoretical.
+  test("an applier throw STRANDS the earlier ops' writes — the declared residue, pinned so a rollback reds it", () => {
+    const op = unbuildable();
+    expectClearsPass1AndDiesApplying(op);
+    const { s, log, first, stranded } = arrangePassTwoFailure();
+
+    expect(() => logApplyGroup(s, log, [first, op], TABLE)).toThrow();
+
+    // Op 1's writes sit in the store with no log entry describing them and no
+    // ⌘Z that reaches them — the residue the group backlog entry is narrowed to.
+    for (const key of stranded) expect(s.chunks.has(key)).toBe(true);
+    expect(log.ops.length).toBe(1); // …and nothing in the log accounts for them
+    expect(log.undoStack.length).toBe(1);
   });
 
   test("an empty group is free: no entry, no dirty chunks, and the redo step survives", () => {

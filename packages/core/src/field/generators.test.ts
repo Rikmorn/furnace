@@ -656,10 +656,42 @@ describe("field generators — commitGenerator", () => {
   });
 
   test("an invalid evaluated span leaves store, log, and id counter untouched", () => {
-    // Validate-all-then-apply: the SECOND op is invalid (unknown class id), so
-    // a single-pass commit would have applied the first fill before throwing.
+    // Validate-all-then-apply: the LAST op is invalid (unknown class id), so a
+    // single-pass commit would have applied the two before it before throwing.
     const s = createFieldStore();
     const log = createOpLog();
+    // TWO valid ops, one per channel, so BOTH counters this test pins are
+    // non-vacuous. A kit fill on a fresh store yields dirty 1 / chunks 0 /
+    // materials 1 — its density write is a no-op, a fresh store being already
+    // SOLID everywhere — so a fill-only span would leave `chunks.size === 0`
+    // true whether or not the validation pass ran, and half the assertion would
+    // prove nothing. The dig supplies the density half.
+    const digsFirst: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: {
+        kind: "box",
+        center: [5, 1, 1],
+        halfExtents: [0.5, 0.5, 0.5],
+      },
+    };
+    const firstOp: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: KIT_CLASS_ID,
+      shape: {
+        kind: "box",
+        center: [1, 1, 1],
+        halfExtents: [0.5, 0.5, 0.5],
+      },
+    };
+    const scratch = createFieldStore();
+    applyOp(scratch, digsFirst, TABLE);
+    applyOp(scratch, firstOp, TABLE);
+    expect(scratch.chunks.size).toBeGreaterThan(0);
+    expect(scratch.materials.size).toBeGreaterThan(0);
     const badDef: GeneratorDef = {
       id: "bad",
       name: "Bad",
@@ -670,17 +702,8 @@ describe("field generators — commitGenerator", () => {
       usesSeed: false, // fixture: evaluate takes no arguments at all
       evaluate: () => ({
         ops: [
-          {
-            id: 0,
-            kind: "brush",
-            effect: "fill",
-            material: KIT_CLASS_ID,
-            shape: {
-              kind: "box",
-              center: [1, 1, 1],
-              halfExtents: [0.5, 0.5, 0.5],
-            },
-          },
+          digsFirst,
+          firstOp,
           {
             id: 0,
             kind: "brush",
@@ -705,11 +728,116 @@ describe("field generators — commitGenerator", () => {
         table: TABLE,
       }),
     ).toThrow(/unknown class/);
+    // The rejection is addressed by the DEF, not by a position in a span nobody
+    // wrote — and the predicate's own error survives whole, inline and on
+    // `cause`.
+    let caught: unknown;
+    try {
+      commitGenerator(s, log, badDef, {
+        params: {},
+        seed: 1,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    if (!(caught instanceof Error))
+      throw new Error(`expected an Error, got ${String(caught)}`);
+    expect(caught.message).toMatch(/^commitGenerator: generator "bad" — /);
+    const cause = caught.cause;
+    if (!(cause instanceof Error))
+      throw new Error(`expected an Error cause, got ${String(cause)}`);
+    expect(caught.message.endsWith(cause.message)).toBe(true);
+
     expect(s.chunks.size).toBe(0);
     expect(s.materials.size).toBe(0);
     expect(log.ops.length).toBe(0);
     expect(log.undoStack.length).toBe(0);
     expect(log.nextId).toBe(1);
+  });
+
+  // The other half of the same failure, and the reason this test exists at all:
+  // `commitGenerator`'s TSDoc DECLARES that validation atomicity is not a
+  // transaction, so the declaration gets held the way `logApplyGroup`'s does. A
+  // rollback landing reds this — which is the signal that should fire, not a
+  // regression.
+  test("an op that VALIDATES and then throws in the applier strands the span ops before it", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    // TWO writing ops, one per channel, because a fresh store's density is
+    // already SOLID everywhere: a fill or a paint changes only the MATERIAL
+    // channel and allocates no density chunk (measured: dig -> chunks 1 /
+    // materials 0, paint -> chunks 0 / materials 1). A single-op fixture pins
+    // whichever channel it happens to touch and reads as a false negative on
+    // the other, so the span carries both — which also makes it a span whose
+    // stranded ops are plural, as the TSDoc says.
+    const digs: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    };
+    const paints: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "paint",
+      material: 1,
+      shape: { kind: "box", center: [5, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    };
+    // Finite and positive, so pass 1 has no opinion; its smooth scratch buffer
+    // is one Int8Array byte per sample of the bounds, which no runtime
+    // allocates. The op reaches pass 2 and dies there.
+    const unbuildable: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "smooth",
+      smooth: { strength: 64, iterations: 1, mode: "both" },
+      shape: { kind: "sphere", center: [1, 1, 1], radius: 1e12 },
+    };
+    // Prove the premise rather than assume it: both writing ops really write,
+    // to the channels named above, and the third really clears validation and
+    // really dies in the applier.
+    const scratch = createFieldStore();
+    applyOp(scratch, digs, TABLE);
+    applyOp(scratch, paints, TABLE);
+    expect(scratch.chunks.size).toBeGreaterThan(0);
+    expect(scratch.materials.size).toBeGreaterThan(0);
+    expect(() => assertOpValid(unbuildable, TABLE)).not.toThrow();
+    expect(() => applyOp(createFieldStore(), unbuildable, TABLE)).toThrow();
+
+    const strandingDef: GeneratorDef = {
+      id: "strander",
+      name: "Strander",
+      paramSchema: {},
+      defaults: {},
+      contextFree: true,
+      emits: "ops",
+      usesSeed: false, // fixture: evaluate takes no arguments at all
+      evaluate: () => ({ ops: [digs, paints, unbuildable], placements: [] }),
+    };
+    expect(() =>
+      commitGenerator(s, log, strandingDef, {
+        params: {},
+        seed: 1,
+        region: REGION,
+        policy: "replace",
+        table: TABLE,
+      }),
+    ).toThrow();
+
+    // The id space IS kept whole — ids commit only once pass 2 finishes.
+    expect(log.ops.length).toBe(0);
+    expect(log.undoStack.length).toBe(0);
+    expect(log.redoStack.length).toBe(0);
+    expect(log.nextId).toBe(1);
+    // The store is NOT. Both earlier ops' writes sit there — one channel each —
+    // with no entry describing them and no ⌘Z that reaches them: the residue
+    // the group backlog entry is narrowed to, on the generator path rather than
+    // the group path.
+    expect(s.chunks.size).toBe(scratch.chunks.size);
+    expect(s.materials.size).toBe(scratch.materials.size);
   });
 });
 

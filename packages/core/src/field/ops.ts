@@ -1075,6 +1075,18 @@ export function logApply(
  *  pushed and the redo stack survives — a phantom history step would cost a real
  *  one.
  *
+ *  That rejection also names WHICH op it was — `field op group: ops[2] — <the
+ *  predicate's own message>`, the index into the list passed in, the original
+ *  riding on `cause`, first failure wins. It is the oplog decoder's `atOp` split
+ *  (WHERE here, WHAT in the predicate) applied one layer up, and it earns its
+ *  place for the same reason: {@link assertOpValid} was written for
+ *  {@link logApply}, where the op in hand is the one the user just drew and
+ *  "which op" is not a question. A caller handing over a list it WROTE — a
+ *  batched op stream rather than a drawn gesture — has no other way to find the
+ *  record to fix. The INDEX, not the op's `id`: ids here are still the caller's
+ *  unstamped placeholders (pass 2 assigns the real ones), so the list position
+ *  is the only address that exists yet.
+ *
  *  What this does NOT buy is a transaction. The all-or-nothing guarantee covers
  *  VALIDATION only: an op that passes {@link assertOpValid} and then throws out
  *  of the APPLIER (`assertOpValid` checks that every shape number is finite and
@@ -1089,7 +1101,9 @@ export function logApply(
  *
  *  @returns the union of the ops' dirty chunk sets.
  *  @throws {@link Error} if any op fails {@link assertOpValid} — before any
- *    mutation. */
+ *    mutation, naming the rejected op's list index and carrying the predicate's
+ *    own error on `cause`. The FIRST rejection wins: validation stops there, so
+ *    a list with two bad ops reports the earlier one. */
 export function logApplyGroup(
   store: FieldStore,
   log: OpLog,
@@ -1097,8 +1111,19 @@ export function logApplyGroup(
   table: MaterialTable,
 ): Set<ChunkKey> {
   if (ops.length === 0) return new Set();
-  // Pass 1 — validate the WHOLE list before any write.
-  for (const op of ops) assertOpValid(op, table);
+  // Pass 1 — validate the WHOLE list before any write, under a locator. ONE try
+  // around the whole loop rather than one per op; `index` advances only past an
+  // op that PASSED, so on a throw it is the rejected op's position.
+  let index = 0;
+  try {
+    for (const op of ops) {
+      assertOpValid(op, table);
+      index++;
+    }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`field op group: ops[${index}] — ${detail}`, { cause: e });
+  }
   // Pass 2 — apply. Ids come from a LOCAL counter committed only once the pass
   // completes (the `commitGenerator` posture): an applier throw leaves the
   // log's id space gapless rather than burning the ids it got as far as.

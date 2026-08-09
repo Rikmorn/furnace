@@ -875,15 +875,19 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   single ⌘Z (the entry type was always plural; this is the managed way to fill it).
   Its four contract clauses: every op is validated BEFORE the first is applied, so a
   mid-list rejection mutates nothing (store, `log.ops`, both stacks and `nextId` all
-  untouched); ids stamp sequentially in list order onto COPIES of the records, leaving
+  untouched) and NAMES the rejected op —
+  `field op group: ops[2] — <the predicate's own message>`, the zero-based index into
+  the list passed in, the original on `cause`, first rejection wins (T4a; the index
+  rather than the op's `id`, which is still the caller's unstamped placeholder at that
+  point); ids stamp sequentially in list order onto COPIES of the records, leaving
   the caller's op objects alone; the entry's inverse keeps each chunk's FIRST pre-image
   (the `redo` replay convention), so undo restores pre-group bytes even where ops
   overlap; and an EMPTY list is free — no entry is pushed and the redo stack survives,
   rather than costing a phantom history step. It is NOT a transaction: all-or-nothing
   covers validation only, and an op that validates but throws out of the APPLIER leaves
   earlier ops' writes in the store with no entry describing them (the same exposure
-  `commitGenerator` has). Ids survive that failure — they commit only after the apply
-  pass — but the store is not rolled back.
+  `commitGenerator` has, declared on both since T4a). Ids survive that failure — they
+  commit only after the apply pass — but the store is not rolled back.
 - **Patch ops (F3a)** — `PatchOp` = ABSOLUTE masked per-cell writes, one `PatchChunk`
   slice per chunk: 512-byte density/material bitmasks (bit `lx + 16·(ly + 16·lz)`) plus
   one value per set bit in ascending bit order, each channel tracking its own mask.
@@ -971,7 +975,13 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   and, if any, wraps `placements` in ONE placement op appended after them (inside `opSpan`),
   then records the `EntityOp` (`GeneratorEntity`: generator id, params, seed, region, opSpan
   — full provenance) under ONE undo entry; an empty result (no ops AND no placements) is
-  rejected setup-loud. **Layout invariant:** a live entity's span ops sit immediately
+  rejected setup-loud. The WHOLE span validates before the first write, and a rejection is
+  addressed by the DEF (T4a) — `commitGenerator: generator "<id>" — <the predicate's own
+  message>`, the original on `cause`; deliberately NOT an index the way `logApplyGroup`
+  names one, because nobody wrote this span, so a position inside it addresses nothing a
+  reader can open. Validation atomicity is not a transaction on this path either: an op
+  that validates and then throws out of the APPLIER strands the span ops before it, ids
+  intact and the store not rolled back. **Layout invariant:** a live entity's span ops sit immediately
   BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and `entityId`
   is the entity op's own log id.
 - **The cave generator (F3b)** — the first PATCH-emitting generator: a deterministic
@@ -1087,7 +1097,12 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   unconditionally. A `contextFree: false` generator (scatter, F3b) RE-COOKS against a
   scratch restore of its region's pre-span state — built without touching the live store,
   so a rejecting re-cook is as atomic as any other validation failure — instead of reading
-  the live end-of-log store. Returns `{dirty, entity, drift}`: `dirty` is the whole affected set
+  the live end-of-log store. The whole evaluated span validates before the first write, and
+  a rejection is addressed by the DEF — `reconfigureGenerator: generator "<id>" — <the
+  predicate's own message>`, the original on `cause` (T4a; the `commitGenerator` form, so
+  all three committing paths address a rejection the same way and only `logApplyGroup`,
+  whose list the CALLER wrote, uses an index instead).
+  Returns `{dirty, entity, drift}`: `dirty` is the whole affected set
   (a restored-but-unrewritten chunk still needs a remesh), `entity` is a COPY of the new
   record, and `drift` is a `DriftFinding[]` — `orphaned` (the replayed op
   wrote nothing) or `drifted` (its chunks read differently than before), each with

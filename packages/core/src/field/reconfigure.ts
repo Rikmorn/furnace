@@ -219,7 +219,13 @@ function mergeProvenance(
  *    contradicting its `emits` declaration ({@link evaluateGenerator}'s guard),
  *    evaluates to an empty result, or emits an op / placement
  *    {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid}
- *    rejects. */
+ *    rejects — that last class re-thrown as `reconfigureGenerator: generator
+ *    "<id>" — <the predicate's own message>` with the original on `cause`. What
+ *    every committing path shares is that shape: a locator, an em dash, the
+ *    predicate's message intact, the original on `cause`. What they do NOT share
+ *    is the locator itself — this path and {@link commitGenerator} name the DEF
+ *    because nobody wrote these spans, while `logApplyGroup` names a list INDEX,
+ *    which is reserved for ops the CALLER handed over and can address. */
 function evaluateSpan(
   def: GeneratorDef,
   provenance: Provenance,
@@ -239,14 +245,26 @@ function evaluateSpan(
     throw new Error(
       `reconfigureGenerator: generator "${def.id}" evaluated to an empty result`,
     );
-  for (const op of ops) {
-    if (op.kind === "patch") assertPatchValid(op, table);
-    else assertOpValid(op, table);
-  }
+  // Validated under the DEF's address, the {@link commitGenerator} form: nobody
+  // wrote this span, so a position inside it points at nothing a reader can
+  // open, and the generator is the thing to fix. Same locator the empty-result
+  // rejection above already uses — the two now agree. The empty check stays
+  // OUTSIDE the try, or it would arrive double-prefixed with its own name.
   const span: SpanOp[] = [...ops];
-  if (placements.length > 0) {
-    assertPlacementsValid(placements);
-    span.push({ id: 0, kind: "placement", records: placements });
+  try {
+    for (const op of ops) {
+      if (op.kind === "patch") assertPatchValid(op, table);
+      else assertOpValid(op, table);
+    }
+    if (placements.length > 0) {
+      assertPlacementsValid(placements);
+      span.push({ id: 0, kind: "placement", records: placements });
+    }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`reconfigureGenerator: generator "${def.id}" — ${detail}`, {
+      cause: e,
+    });
   }
   return span;
 }
@@ -686,7 +704,11 @@ function placementDrift(
  *   hold its span where the record says, the generator rejects the merged
  *   params (including a `contextFree: false` re-cook that rejects — the live
  *   store is still untouched), the evaluation is empty, or an evaluated op or
- *   placement fails {@link assertOpValid}/{@link assertPlacementsValid}; a
+ *   placement fails
+ *   {@link assertOpValid}/{@link assertPatchValid}/{@link assertPlacementsValid}
+ *   — that last class arriving as `reconfigureGenerator: generator "<id>" — <the
+ *   predicate's own message>` with the original on `cause`, addressed by the DEF
+ *   because nobody wrote the span; a
  *   `DataCloneError` if `changes.params`/`region` — or
  *   any field the RECORD itself carries, which the spread copies forward — hold
  *   structured-clone-incompatible values. Every one of those is a VALIDATION

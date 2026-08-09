@@ -869,9 +869,82 @@ describe("reconfigureGenerator — setup-loud guards", () => {
     expect(snapshotLog(log)).toEqual(beforeLog);
   });
 
+  // `evaluateSpan`'s per-op `assertOpValid` loop is the one clause of this
+  // function's @throws contract that no case above reaches: every rejection they
+  // pin fires in step 1 or inside `evaluateGenerator`, strictly ABOVE that loop,
+  // so the clause had zero coverage while the docblock asserted it.
+  //
+  // Reaching it needs a span carrying a bad op, and none of the four registered
+  // generators can produce one — hall and maze re-run `assertOpValid` with the
+  // same table inside their own evaluate, the cave emits at most one op, and
+  // scatter emits none. Since reconfigure re-resolves its def through the
+  // registry (a synthetic def never gets there), the registered def's own
+  // `evaluate` is swapped and restored under `finally` — the pattern
+  // `generators.test.ts` already uses in "reconfigureGenerator enforces the fact
+  // too", where the hall is made to lie about `emits`.
+  test("an evaluated op that fails validation throws with NOTHING mutated", () => {
+    const { store, log } = makeWorld();
+    const e = commitHall(store, log);
+    logApply(store, log, SHELL_DIG, TABLE);
+    const beforeStore = snapshotAll(store);
+    const beforeLog = snapshotLog(log);
+
+    const kitFill: BrushOp = {
+      id: 0,
+      kind: "brush",
+      effect: "fill",
+      material: KIT_CLASS_ID,
+      shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+    };
+    const real = HALL.evaluate;
+    let caught: unknown;
+    try {
+      // op 1 valid, op 2 not — a single-pass reconfigure would have taken the
+      // first before rejecting the second.
+      HALL.evaluate = () => ({
+        ops: [kitFill, { ...kitFill, material: 99 }],
+        placements: [],
+      });
+      try {
+        reconfigureGenerator(store, log, e.entityId, {}, TABLE);
+      } catch (err) {
+        caught = err;
+      }
+    } finally {
+      HALL.evaluate = real;
+    }
+    expect(HALL.evaluate).toBe(real); // the lie really was reverted
+
+    // Addressed by the DEF, not by a position in a span nobody wrote — the
+    // `commitGenerator` form. What every committing path shares is the SHAPE
+    // (locator, em dash, the predicate's message intact, the original on
+    // `cause`); the DEF locator is shared with `commitGenerator` only, since
+    // `logApplyGroup` names a list index for ops the CALLER handed over.
+    if (!(caught instanceof Error))
+      throw new Error(`expected an Error, got ${String(caught)}`);
+    expect(caught.message).toMatch(
+      /^reconfigureGenerator: generator "hall" — /,
+    );
+    expect(caught.message).toContain("unknown class");
+    const cause = caught.cause;
+    if (!(cause instanceof Error))
+      throw new Error(`expected an Error cause, got ${String(cause)}`);
+    expect(caught.message.endsWith(cause.message)).toBe(true);
+
+    expect(snapshotAll(store)).toEqual(beforeStore);
+    expect(snapshotLog(log)).toEqual(beforeLog);
+    // Non-vacuity: the SAME call with the real evaluate back succeeds, so the
+    // rejection came from the span and not from anything about this fixture.
+    expect(() =>
+      reconfigureGenerator(store, log, e.entityId, {}, TABLE),
+    ).not.toThrow();
+  });
+
   // The empty-evaluation leg is DEFENSIVE: every registered generator emits at
   // least its shell fill, so no params reach it — the same unreachable guard
-  // commitGenerator carries. It is left untested rather than faked.
+  // commitGenerator carries. It is left untested rather than faked, and the
+  // `evaluate` swap above would hold it the same way. Filed:
+  // docs/backlog/engine-architecture/reconfigure-empty-evaluation-leg-unheld.md
 });
 
 describe("setGeneratorFrozen / bakeGeneratorEntity — the protection verbs", () => {
