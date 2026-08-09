@@ -1,3 +1,4 @@
+import { MCP_PATH } from "./mcp.ts";
 import { startServer } from "./server.ts";
 
 const DEFAULT_PORT = 4500;
@@ -21,6 +22,11 @@ try {
   });
   console.log(`furnace editor daemon serving ${root}`);
   console.log(`  http://127.0.0.1:${server.port}/`);
+  // The agent door's address, printed beside the chrome's because it is the one thing about
+  // it a human has to type somewhere else (foundations T4b): an MCP client is configured with
+  // a URL, and this daemon's port is the OS's choice under `--port 0` and a default otherwise.
+  // The path comes from `mcp.ts` rather than a literal, so the banner cannot outlive a move.
+  console.log(`  mcp  http://127.0.0.1:${server.port}${MCP_PATH}`);
 } catch (err) {
   console.error(
     `furnace-editor: ${err instanceof Error ? err.message : String(err)}`,

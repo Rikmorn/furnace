@@ -145,10 +145,12 @@ export function createEventHub(): EventHub {
      * is reachable only through `GET /api/events`. The mint is written INTO the stream
      * it opens, so receiving a token means holding that stream open; and resolution is
      * a live-table lookup, so a token whose stream has closed names nothing. The MCP
-     * door (`/mcp`, T4b Task 5) never routes here and holds no stream — it is a guest,
-     * and its calls read THROUGH a claimed session rather than holding one. The
+     * door (`/mcp`, `daemon/mcp.ts`) never routes here and holds no stream — it is a
+     * guest, and its calls read THROUGH a claimed session rather than holding one. The
      * guarantee is structural rather than a check: there is nothing to enforce, because
-     * there is no path.
+     * there is no path. As built it is also visible in the tool table: the door projects
+     * three commands and none of the token-taking ones, because a tool that could not be
+     * given a token is a tool with no argument to declare.
      *
      * WHY THE FIRST FRAME IS A REAL EVENT AND NOT THE `": connected"` LINE. It could
      * not have been: a line beginning `:` is an SSE COMMENT, and `EventSource` exposes

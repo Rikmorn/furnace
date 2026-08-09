@@ -132,8 +132,9 @@ Nothing a human sees moved: the chrome is served BY this daemon, so it was reach
 loopback by construction and its `fetch` POSTs carry a loopback origin, while its
 `<script>`/`EventSource` GETs carry none. Coverage splits by question: `tests/origin.test.ts`
 holds the spelling table (12 admitted rows, 14 refused, each carrying why), and
-`tests/server.test.ts` holds the wiring — the refusal on **all five** route branches, plus the
-loopback and absent cases.
+`tests/server.test.ts` holds the wiring — the refusal on **all six** route branches (the sixth
+is the T4b agent door, and it needs its own row precisely because it sits first on the ladder),
+plus the loopback and absent cases.
 
 **Then the request target is parsed, and that can fail** (foundations T4a, 2026-08-09).
 `new URL(target, "http://localhost")` THROWS on targets the HTTP parser accepts — `//`,
@@ -150,13 +151,14 @@ plain Node ≥20.
 
 | Method + path | Behaviour |
 | --- | --- |
+| `<any> /mcp` | The **agent door** (foundations T4b, `src/daemon/mcp.ts`). A `POST` is handed to a freshly built MCP `Server` + streamable-HTTP transport, which reads the body itself and writes the whole response; **every other method gets `405` + `Allow: POST`** in plain text, since this endpoint opens no server→client stream. It matches on **path alone**, which is why it is FIRST: the `GET <anything else>` branch below is greedy, and a `/mcp` mounted after it would have its GET answered as a missing static file. |
 | `GET /engine.js` | Builds and returns the browser engine bundle (§3) as `text/javascript`. esbuild build failure → `500` with the diagnostics as plain text. |
 | `GET /api/events` | Subscribes the response to the SSE change feed (§5). Stays open. |
 | `POST /api/<command>` | Reads the request body, JSON-parses it (`{}` if empty body; invalid JSON → `400 invalid-json`), and `dispatch()`es the command (§4). Always `200` with the handler result, or the error envelope on an `EditorError`. |
 | `GET <anything else>` | Chrome first: serves a static file from the prebuilt chrome dir (§7), with a path-traversal guard. On a chrome miss, falls back to **project asset serving**: the path is mapped onto the project root (root-contained; dotfile segments and `node_modules` refused) so a project's root-absolute asset URLs resolve exactly as on the consumer's own dev server. This is how the chrome reaches the three project→editor catalogs (`/catalog/materials.json`, `/catalog/entities.json`, `/catalog/agent.json` — §11, §14, §15) and the archetype `/catalog/*.fmesh` meshes. Neither hit: missing chrome dir → `503` with a "run build:frontend" hint; otherwise `404`. |
 | any other method | `404 not-found`. |
 
-**Error handling.** The `route` body is wrapped in a try/catch: a thrown `EditorError` becomes `{ error: { code, message } }` at the code's HTTP status (`httpStatus`, §6); any other thrown value becomes `500 internal` with the error's message. The `Origin` check sits INSIDE that try for exactly this reason — the catch is the daemon's one typed-envelope edge, and a second emitter beside it would be a parallel path to keep in step. There is **no request body-size cap** — by design, since the daemon binds localhost and serves a single user (`readBody` documents this; revisit if it ever accepts non-localhost connections). **Authentication is out of scope** and stays so: `forbidden-origin` is a rebinding refusal, not a credential check.
+**Error handling.** The `route` body is wrapped in a try/catch: a thrown `EditorError` becomes `{ error: { code, message } }` at the code's HTTP status (`httpStatus`, §6); any other thrown value becomes `500 internal` with the error's message. **Ahead of both since foundations T4b sits the committed-response guard — `if (res.headersSent) { res.destroy(); return; }`** — because the `/mcp` branch returns with the response already written (measured: `res.headersSent` is true after every `handleRequest`). Without it a throw in that window makes `sendJson`'s `writeHead` throw a SECOND time from inside the one typed-envelope edge, and that throw escapes an `async` function nobody awaits — the same shape T4a's `requestUrl` closed, where Node takes the unhandled rejection as fatal and kills the process. Nothing in the branch throws there today, so the guard is unpinnable by a black-box test and is kept on that argument rather than on a red test. The `Origin` check sits INSIDE that try for exactly this reason — the catch is the daemon's one typed-envelope edge, and a second emitter beside it would be a parallel path to keep in step. There is **no request body-size cap** — by design, since the daemon binds localhost and serves a single user (`readBody` documents this; revisit if it ever accepts non-localhost connections). **Authentication is out of scope** and stays so: `forbidden-origin` is a rebinding refusal, not a credential check.
 
 **What the daemon trusts, and where the untrusted bytes are actually checked.** Three things
 are enforced HERE, and they are the whole list: the `Origin` (above), each command's zod input
@@ -209,7 +211,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 2. `handler.input.safeParse(input)` fails → `EditorError("invalid-input", …)` naming the first failing path;
 3. otherwise runs the handler with the parsed input.
 
-Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected).
+Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects three commands as tools and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP.
 
 There are **13 commands in five families**, and the chrome speaks **11** of them (`frontend/lib/api.ts`); the two it does not are `session.release` and `session.state` — neither has a client method on purpose, see the table. It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
@@ -394,6 +396,8 @@ channels.** Two things make it so, and neither is free:
 | `internal` | 500 | any other uncaught error at the route boundary. |
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
+
+**The second edge arrived in foundations T4b, and it is what "each transport edge owns its own mapping" was written for.** `src/daemon/mcp.ts`'s `AGENT_REMEDY` is `httpStatus`'s sibling: an exhaustive `Record<EditorErrorCode, string>`, so an eleventh code is a compile error until this edge has said what to do about it too. A throw out of `dispatch()` becomes an `isError: true` tool result whose text is `<code>: <the daemon's message>` followed by **what the AGENT should do** — whether retrying is sensible, and whether a human has to move first. That second half is the part no daemon-side message is written for: the messages are addressed to a human reading an error envelope, and an agent needs to know that `no-session` will not change until someone opens a tab (so do not poll), that `session-timeout` is worth one retry, and that `internal` is not worth any. `isError` rather than a JSON-RPC error, deliberately — "no editor is open" is an answer and must reach the agent's model, not its error handler; a name that was never advertised (`session_claim`, `field_load`) is the opposite case and is refused as a protocol error. Three codes are reachable through three no-argument reads (`no-session`, `session-timeout`, `internal`) plus `invalid-input` from the forwarded arguments (§4); the rest are stated because the union is closed and T4c will project verbs that reach four more.
 
 **The union gained its ninth and tenth members in foundations T4b** — `no-session` and
 `session-timeout`, argued in the rows above and at `errors.ts`. The tenth is also the table's

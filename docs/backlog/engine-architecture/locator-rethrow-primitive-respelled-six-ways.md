@@ -57,6 +57,18 @@ one (a different separator, a swallowed original, a locator that eats the predic
 message instead of prefixing it); or T4b/T4c adding locators on the MCP verb boundary,
 which would put the convention in front of an agent rather than a developer.
 
+**The MCP clause was CHECKED at T4b Task 5 and did not fire — still six sites.**
+`packages/editor/src/daemon/mcp.ts` mounts the agent door and its error edge
+(`toolFailure`, one `Record<EditorErrorCode, string>`) does neither of the two things this
+entry is about: it **converts** a throw into a VALUE — an `isError: true` tool result an
+agent reads — rather than re-throwing one, and it adds **no locator**, because MCP
+correlates a result to the call that produced it, so naming the tool in the text would be
+the convention respelled for a reader already holding the answer to it. The `<code>:`
+prefix it does write is the `EditorErrorCode` crossing the transport edge (`errors.ts`'s
+"the domain speaks codes"), not a call-site name. **T4c is the clause's remaining live
+half**: it projects mutation verbs, whose failures name a target the agent chose, and that
+is where a locator becomes tempting.
+
 **Reference:** the six sites above; `docs/reference/core-modules.md`'s `logApplyGroup`,
 `commitGenerator` and `reconfigureGenerator` entries, which document the resulting error
 strings as a family; `oplog-entry-assembly-duplicated-three-ways.md`, the same

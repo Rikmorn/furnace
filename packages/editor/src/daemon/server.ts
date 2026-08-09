@@ -14,6 +14,7 @@ import { loadConfig } from "./config.ts";
 import { EditorError, httpStatus } from "./errors.ts";
 import { createEventHub } from "./events.ts";
 import { createHandlers, dispatch, type Handlers } from "./handlers.ts";
+import { createMcpDoor, MCP_PATH, type McpDoor } from "./mcp.ts";
 import { assertLoopbackOrigin } from "./origin.ts";
 import { chokidarWatchDir, type WatchDir } from "./watch.ts";
 
@@ -252,6 +253,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       backchannel,
     },
   });
+  // The agent door (foundations T4b), handed the same registry every other client uses — it
+  // projects three of its commands as tools and computes nothing (`daemon/mcp.ts`). One line
+  // here because ALL the transport is in that module: the SDK-v2 migration rewrites it and
+  // must not have to come through the route table to do so.
+  const mcp: McpDoor = createMcpDoor(handlers);
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,
     config.extensions,
@@ -285,6 +291,23 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       // guarded `POST /api/*`.
       assertLoopbackOrigin(req.headers.origin);
       const url = requestUrl(req);
+      // THE AGENT DOOR, AND IT IS FIRST ON THE LADDER FOR A STRUCTURAL REASON (foundations
+      // T4b). It is the only branch that matches on PATH ALONE — it owns every method on
+      // `/mcp`, answering a POST through the transport and everything else with its own 405
+      // — where every branch below is a (method, path) pair. A path-only branch has to
+      // precede the method-only ones or they eat it: `GET <anything else>` FOUR branches down
+      // is greedy, so a `/mcp` mounted after it would have its GET answered as a missing
+      // static file, and the 405 that tells a client this endpoint opens no stream would be
+      // unreachable. First is the position where that cannot be reintroduced by a later
+      // branch, rather than merely not true today.
+      //
+      // The origin check still runs ahead of it, and costs MCP nothing: an SDK client sends
+      // no `Origin` at all (measured at T4b Task 0), which `origin.ts`'s absent-origin clause
+      // admits by the argument it already makes.
+      if (url.pathname === MCP_PATH) {
+        await mcp.handle(req, res);
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/engine.js") {
         const result = await bundler.build();
         if (!result.ok) {
@@ -345,6 +368,29 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         },
       });
     } catch (err) {
+      // **THE COMMITTED-RESPONSE GUARD, and it is required rather than defensive**
+      // (foundations T4b). `mcp.handle` returns with the response already written — measured
+      // at T4b Task 0, `res.headersSent` is true after every `handleRequest`, 12 of 12 — so
+      // any throw from that point on arrives here over a response that can no longer be
+      // given a status. `sendJson`'s `writeHead` then throws a SECOND time from inside the
+      // daemon's one typed-envelope edge, and that throw escapes an `async` function nobody
+      // awaits: the exact shape T4a's `requestUrl` closed, where **Node takes the unhandled
+      // rejection as fatal and KILLS THE PROCESS** while the Bun runtime leaves the socket
+      // open. Re-measured this session against both runtimes rather than inherited.
+      //
+      // `destroy()` rather than `end()`: the response is mid-body and there is no honest way
+      // to append a refusal to a payload a client is already parsing. A torn connection is a
+      // failure the client reports; a silently truncated JSON body is one it does not.
+      //
+      // NOTHING IN THE `/mcp` BRANCH THROWS AFTER `handleRequest` TODAY — the only calls in
+      // that window are the transport's own `close()` pair, which do not — so this guard is
+      // unpinnable by a black-box test and is kept on the same argument T4a's parse move
+      // rests on: the cost is one branch, and the failure it forecloses is a remote,
+      // unauthenticated daemon kill the day any code in that window learns to throw.
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
       if (err instanceof EditorError) {
         sendJson(res, httpStatus(err.code), {
           error: { code: err.code, message: err.message },

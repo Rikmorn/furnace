@@ -2,8 +2,9 @@
 
 Tracker for what the editor's `bun test` harness cannot currently do deterministically or
 at all: single-process global-state collisions between the DOM / GPU / daemon test
-families, one flaky daemon test, and the coverage boundary the FieldHost worker seam moved
-but did not erase. Merged so there is **one place to check whenever a test-ordering or
+families, one flaky daemon test, the coverage boundary the FieldHost worker seam moved
+but did not erase, and (T4b) a dependency whose mere construction de-optimizes the shared
+process by ~3×. Merged so there is **one place to check whenever a test-ordering or
 environment failure appears in `packages/editor/tests/`**. Sections keep their original
 content.
 
@@ -354,3 +355,61 @@ than this one turned out to be.
 its comments on why the worker is injected); `packages/editor/src/field-host/field-host.ts`
 (`createFieldHost`'s `deps` parameter); `packages/editor/tests/preview-host.gpu.test.ts`
 (prior art for the GPU fixture).
+
+## Constructing an MCP SDK object triples the rest of the `bun test` process
+
+**Context.** Measured at foundations T4b Task 5 (2026-08-09), on `bun` 1.3.14 with
+`@modelcontextprotocol/sdk@1.30.0`. Constructing **any** SDK `Protocol` object — `new
+Client(...)` or `new Server(...)`, with no transport, no HTTP and no request — costs the
+REST of the shared test process about **3× wall clock**. It belongs in this file because it
+is the same absence of per-file isolation the section at the top is about, arriving from a
+new direction: a dependency, not a global.
+
+| run | wall clock | fails |
+| --- | --- | --- |
+| `bun test` (workspace), no MCP object anywhere | 64 s | 0 |
+| `bun test` (workspace), one MCP object in one test file | 194 s | 6–7 |
+| `bun test packages/editor`, no MCP object | 31.4 s | 0 |
+| `bun test packages/editor`, one `new Client()` and nothing else | 48.5 s | 0 |
+| `bun test packages/editor`, the MCP work in a `Bun.spawn` child | 32.0 s | 0 |
+
+The failures are all `@furnace/core` **wall-clock budget** tests, dragged over ceilings they
+otherwise clear by up to 10× (`cave carve — budget` 148 ms → 1581 ms against a 500 ms
+ceiling; `flood-material` 79.8 ms → over its 100 ms ceiling). The production daemon is not
+implicated: with `daemon/mcp.ts` imported and mounted but no MCP object constructed in any
+test, the workspace suite is 64 s / 0 fail.
+
+**What it is NOT** — each eliminated by measurement rather than by argument: not the
+transport (`new Server(...)` alone, no transport, reproduces it in full); not Ajv (`new
+Ajv()` alone reproduces none of it, and supplying the SDK's `jsonSchemaValidator` option —
+which skips the default Ajv construction entirely — changes nothing); not SSE
+(`enableJsonResponse: true` changes nothing); not `globalThis` pollution (nothing added,
+removed or re-attributed around the call); not GC pressure (a forced collection afterwards
+changes nothing); not module load (importing the SDK without constructing anything costs
+nothing, and `daemon/server.ts` imports it on every run regardless). The mechanism is
+unidentified. The symptom is diffuse — CPU- and allocation-heavy tests slow the most, a
+tight `Math.sqrt` loop not at all — and the magnitude matches what
+`tests/gpu-fixture-survives-dom.test.ts` records for `GlobalRegistrator.unregister()`.
+
+**How T4b lives with it.** `tests/mcp.test.ts` spawns `tests/_helpers/mcp-probe.ts` in a
+fresh runtime, which performs every protocol exchange and prints one JSON transcript the
+test file asserts on — the same remedy, and the same argument, that
+`tests/action-registry/node-door.test.ts` already uses for a different kind of process
+pollution. Nothing in `src/` changed to accommodate it.
+
+**Why it is filed rather than fixed.** The fix is either upstream (an SDK whose shape we do
+not control) or a change to how this repo gates: per-package `bun test` runs in separate
+processes (verified green — core 20.2 s, dungeon 11.3 s, editor 48.6 s, each alone), or
+`bun test --isolate` (**not** usable today: 32 fails, since the GPU fixtures depend on
+shared process state), or making the core wall-clock budgets calibrate against a
+per-process baseline instead of an absolute ceiling. All three are program-level decisions
+about the gate.
+
+**Trigger to revisit:** T4c wanting MCP coverage the transcript shape cannot express (a
+streaming tool, an interleaving the probe cannot script); OR an SDK upgrade — re-measure
+the table first, since a v2 SDK may not have this at all; OR any move to change the repo's
+gate command, which should settle this at the same time.
+
+**Reference:** `packages/editor/tests/_helpers/mcp-probe.ts` (the measurement and the
+eliminations, at source); `packages/editor/tests/action-registry/node-door.test.ts` (the
+`Bun.spawn` precedent).

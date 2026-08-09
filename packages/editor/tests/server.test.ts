@@ -11,6 +11,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
+import { openFeed as openDaemonFeed } from "./_helpers/daemon-feed.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "mini-project");
 let server: RunningServer;
@@ -192,8 +193,8 @@ test("GET /engine.js with a broken extensions entry → 500 with diagnostics", a
 // `origin.test.ts`, where a row costs nothing. What is asked HERE is the other
 // question — does every route branch actually go through the check — and that one
 // needs a live server, so it gets exactly one case per branch and no spellings.
-// `route`'s ladder has five, and a suite that only posted would not notice a check
-// that had drifted into the POST branch.
+// `route`'s ladder has six since T4b mounted the agent door, and a suite that only
+// posted would not notice a check that had drifted into the POST branch.
 
 const origin = (p: string, value: string, init: RequestInit = {}) =>
   fetch(url(p), { ...init, headers: { ...init.headers, origin: value } });
@@ -209,7 +210,7 @@ async function expectForbiddenOrigin(res: Response): Promise<void> {
 
 const EVIL = "http://evil.example";
 
-test("every route branch refuses a cross-origin request — all five", async () => {
+test("every route branch refuses a cross-origin request — all six", async () => {
   // 1. POST /api/* — the branch a check is most likely to be written into.
   await expectForbiddenOrigin(
     await origin("/api/project.get", EVIL, { method: "POST", body: "{}" }),
@@ -227,6 +228,16 @@ test("every route branch refuses a cross-origin request — all five", async () 
   // 5. The no-route fallback, reached by method rather than by path.
   await expectForbiddenOrigin(
     await origin("/api/project.get", EVIL, { method: "DELETE" }),
+  );
+  // 6. POST /mcp — the agent door (T4b). It sits FIRST on the ladder, which is precisely
+  //    why it needs its own row: a check written after it would leave the one branch whose
+  //    caller is not the chrome unguarded. What proves the MCP transport never ran is the
+  //    `error.code === "forbidden-origin"` assertion inside `expectForbiddenOrigin` — NOT
+  //    the content-type beside it, which an earlier version of this comment credited: the
+  //    SDK transport writes `application/json` too (`createJsonErrorResponse`), so that
+  //    header cannot tell the two apart. Only the daemon's own envelope carries this code.
+  await expectForbiddenOrigin(
+    await origin("/mcp", EVIL, { method: "POST", body: "{}" }),
   );
 });
 
@@ -290,6 +301,30 @@ test("the origin check runs BEFORE the target is parsed", async () => {
   );
   expect(raw).toContain("403");
   expect(raw).toContain("forbidden-origin");
+});
+
+test("the agent door owns every method on its path — GET and DELETE earn 405", async () => {
+  // THE LADDER POSITION, asserted from outside rather than read off the source. `/mcp`
+  // matches on PATH ALONE and sits ahead of the greedy `GET <anything else>` branch; mounted
+  // after it, this GET would be answered as a missing static file and the 405 that tells a
+  // client this endpoint opens no server→client stream would be unreachable. The SDK's own
+  // client depends on that 405: it reads the status as "this server offers no notification
+  // stream" and carries on (`client/streamableHttp.js`), where a 404 or a 503 is an error.
+  //
+  // DELETE is the session-termination request a stateful transport would answer. This door
+  // has no session to terminate — the daemon's only session is the SSE claim — so it earns
+  // the same refusal, and the `Allow` header is what says so without a body to parse.
+  //
+  // A METHOD REFUSED AT THE DOOR, which is not the other thing this tranche calls a refused
+  // method: `tests/mcp.test.ts` uses that phrase for a claimed CHROME declining to serve a
+  // backchannel method (`SessionAnswer`'s error arm → `internal`). Same door, two meanings —
+  // so the transcript field there is `sessionRefusedTheMethod` and this one is about HTTP.
+  for (const method of ["GET", "DELETE"]) {
+    const raw = await rawRequest(`${method} /mcp HTTP/1.1`);
+    expect(raw, method).toContain("405");
+    expect(raw.toLowerCase(), method).toContain("allow: post");
+    expect(raw, method).toContain("accepts POST only");
+  }
 });
 
 type SseReader = {
@@ -381,84 +416,10 @@ test("a command's emission reaches a live SSE subscriber over HTTP", async () =>
 // token is read off the wire, not handed over by a fixture, because "the chrome can get
 // this" is exactly the claim being made.
 
-const TOKEN_IN_FRAME = /"token":"([^"]+)"/;
-
-/** One live feed, over a RAW SOCKET rather than `fetch` + `AbortController`.
- *
- *  Two reasons, and the second is the one that forced it. (1) Destroying a socket is
- *  literally what a browser tab does when it goes away, which is the departure the claim's
- *  whole lifetime hangs on. (2) `AbortController` here is not necessarily Bun's:
- *  `tests/gpu-fixture-survives-dom.test.ts` registers happy-dom in this same process and
- *  restores only `fetch`, `createImageBitmap` and `ImageData` — so a full-suite run leaves
- *  happy-dom's `AbortController` standing, Bun's `fetch` does not honour a foreign signal,
- *  and `abort()` silently tears nothing down. Measured: the stale-token case below passes
- *  alone and hangs its poll out in a whole-package run. A socket has no such ambiguity. */
-type Feed = {
-  token: string;
-  /** Everything the daemon has written to this connection so far. */
-  text(): string;
-  /** Resolve once `needle` has arrived on this connection. */
-  until(needle: string, timeoutMs?: number): Promise<string>;
-  /** Kill it the way a closing tab does. */
-  hangUp(): void;
-};
-
-function openFeed(): Promise<Feed> {
-  return new Promise((done, fail) => {
-    const socket = connect(server.port, "127.0.0.1", () => {
-      socket.write("GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
-    });
-    let text = "";
-    const waiting: { needle: string; hit: (text: string) => void }[] = [];
-    socket.on("data", (chunk: Buffer) => {
-      text += chunk.toString("utf8");
-      for (let i = waiting.length - 1; i >= 0; i--) {
-        const w = waiting[i];
-        if (w && text.includes(w.needle)) {
-          waiting.splice(i, 1);
-          w.hit(text);
-        }
-      }
-    });
-    socket.on("error", fail);
-
-    const until = (needle: string, timeoutMs = 8000): Promise<string> =>
-      new Promise((hit, miss) => {
-        if (text.includes(needle)) {
-          hit(text);
-          return;
-        }
-        const timer = setTimeout(
-          () =>
-            miss(
-              new Error(`no ${needle} within ${timeoutMs}ms; got:\n${text}`),
-            ),
-          timeoutMs,
-        );
-        waiting.push({
-          needle,
-          hit: (t) => {
-            clearTimeout(timer);
-            hit(t);
-          },
-        });
-      });
-
-    until("event: session-token").then((first) => {
-      const token = TOKEN_IN_FRAME.exec(first)?.[1];
-      if (token === undefined) {
-        fail(new Error(`no token in the first frame:\n${first}`));
-        return;
-      }
-      done({
-        token,
-        text: () => text,
-        until,
-        hangUp: () => socket.destroy(),
-      });
-    }, fail);
-  });
-}
+// The feed harness moved to `tests/_helpers/daemon-feed.ts` at T4b Task 5, when
+// `tests/mcp.test.ts` became its second caller — the raw-socket argument (a closing tab, and
+// happy-dom's `AbortController`) travelled with it and is stated there.
+const openFeed = () => openDaemonFeed(server.port);
 
 const post = (command: string, body: unknown) =>
   fetch(url(`/api/${command}`), { method: "POST", body: JSON.stringify(body) });
@@ -657,7 +618,15 @@ test("a chrome that answers NOTHING still produces a body a client can parse", a
   // body with `payload` ABSENT — the canonical serialization of a handler that answered
   // `undefined`. That resolves the ask with `undefined`, `JSON.stringify(undefined)` is the
   // VALUE undefined, and `res.end(undefined)` sends a 200 with `content-type:
-  // application/json` and no bytes at all. T4b Task 5's MCP door is a client of this.
+  // application/json` and no bytes at all.
+  //
+  // THE MCP DOOR IS NOT A CLIENT OF THIS FIX — it meets the SAME hazard at its own edge and
+  // pays for it separately, which Task 5 found by building it. `/mcp` never reaches
+  // `sendJson`: the transport writes its own response, so `daemon/mcp.ts`'s `toolAnswer`
+  // carries the identical `?? "null"` coalesce and `tests/mcp.test.ts` pins the identical
+  // case. (This comment predicted otherwise until Task 5; corrected there.) Two edges, one
+  // rule, because the rule belongs where the content-type is DECIDED and each edge decides
+  // its own.
   //
   // The POST below is the shape the wire really emits: the key is dropped by
   // `JSON.stringify`, not by a decision in this test.

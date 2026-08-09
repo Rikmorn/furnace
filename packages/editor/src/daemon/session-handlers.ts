@@ -208,11 +208,19 @@ export function createSessionHandlers(
   // rather than having it silently dropped.
   //
   // THE PAYLOAD IS RELAYED UNTYPED, deliberately: `shared/wire.ts` declares `SessionState`
-  // and BOTH ENDS THAT CARE import it — the chrome to build it, the MCP door (T4b Task 5)
-  // to read it — while this module is the relay in between and validating here would put a
-  // third author on a shape neither of them would learn about from the other. The daemon
-  // cannot compute one field of it, which is the whole reason the backchannel exists; it
-  // has no standing to police it either.
+  // for the end that BUILDS it (`frontend/lib/session-answerers.ts`), while this module is
+  // the relay in between and validating here would put a second author on a shape the
+  // builder would not learn about from it. The daemon cannot compute one field of it, which
+  // is the whole reason the backchannel exists; it has no standing to police it either.
+  //
+  // AND THE RELAY STAYS UNTYPED ALL THE WAY OUT, which Task 5 settled by building the far
+  // end: `daemon/mcp.ts` hands the payload to an agent as text and does NOT import
+  // `SessionState` either. An earlier draft of this comment predicted it would — "both ends
+  // that care import it" — and that was wrong about which ends care. The second reader is
+  // the AGENT, and what it reads is the tool description and `editor-architecture.md` §4,
+  // not a TypeScript declaration. A `SessionState` import at the door would be a cast over
+  // bytes the daemon did not produce and cannot check: the same third-author problem one
+  // hop further along.
   //
   // The `ask` rejects rather than hangs — no session, many sessions, a departed tab, a
   // silent one, an unserved method — and each of those is already an `EditorError` with a
