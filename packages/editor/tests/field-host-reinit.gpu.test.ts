@@ -1,12 +1,21 @@
-// The dispose → re-init round trip on a real (bun-webgpu) context: the AA switch's
-// whole mechanism (F4.5a Task 9). What it pins is the half that is invisible from the
-// chrome — that the world the user was looking at COMES BACK.
+// The dispose → re-init round trip on a real (bun-webgpu) context (F4.5a Task 9). What it
+// pins is the half that is invisible from the chrome — that the world the user was looking
+// at COMES BACK.
+//
+// ITS ORIGINAL CALLER IS GONE and the round trip is not: it was written for the View
+// popover's AA switch, which was a dispose + init at a different sample count, and MSAA
+// left the editor at foundations T4c. `dispose()` + `init()` on one host stays part of
+// `FieldHost`'s declared contract — a double-invoked mount is the same shape, and so is
+// any future re-acquisition — and what makes that contract worth anything is exactly what
+// these two cases assert. A capability with no caller and no test is a capability that has
+// already rotted.
 //
 // `dispose` destroys every chunk mesh, and the host's dirty set only ever holds chunks
 // something EDITED, so an `init` that did not re-mark the store's chunks would leave the
-// viewport empty until the next brush stroke: "toggling antialiasing deleted my world".
-// The observable is `FieldStats.remeshVersion`, the monotonic "a remesh landed" counter
-// (its TSDoc asks for a consumer or a deletion — this is a consumer).
+// viewport empty until the next brush stroke — the defect that once had the user-facing
+// name "toggling antialiasing deleted my world". The observable is
+// `FieldStats.remeshVersion`, the monotonic "a remesh landed" counter (its TSDoc asks for
+// a consumer or a deletion — this is a consumer).
 //
 // Needs a device because remeshing is the thing under test: `remeshOne` returns at the
 // context guard without one, so nothing downstream of the dirty set runs headlessly.
@@ -181,7 +190,7 @@ async function fixture() {
 }
 
 test.skipIf(!bunWebGpuAvailable())(
-  "a re-init re-meshes the world the dispose tore down (the AA switch's real cost)",
+  "a re-init re-meshes the world the dispose tore down — the round trip's real cost",
   async () => {
     const f = await fixture();
     try {
@@ -196,10 +205,10 @@ test.skipIf(!bunWebGpuAvailable())(
       await f.frameAndSettle(48);
       expect(f.version()).toBe(meshed);
 
-      // The AA switch, exactly as CanvasHost performs it: same host, same canvas, new
-      // sample count. The store, the log and the camera ride through; the meshes do not.
+      // The round trip, exactly as CanvasHost would perform it: same host, same canvas.
+      // The store, the log and the camera ride through; the meshes do not.
       f.host.dispose();
-      await f.host.init(f.canvas, { sampleCount: 1 });
+      await f.host.init(f.canvas);
       await f.frameAndSettle(80);
       // The world came back. Delete `init`'s re-mark of the store's chunks and this is
       // the line that fails — everything else about the round trip still passes, which
@@ -233,7 +242,7 @@ test.skipIf(!bunWebGpuAvailable())(
       // ticked over an X-ray that is simply gone, which is the reading
       // `field-voidcast.ts`'s `invalidateVoidCast` refuses to ship.
       f.host.dispose();
-      await f.host.init(f.canvas, { sampleCount: 1 });
+      await f.host.init(f.canvas);
       expect(casts()).toBe(2);
       // Re-REQUESTED, not complained about: no "re-toggle the void layer", no "still
       // building" (the in-flight latch cleared with the job the dispose rejected), no

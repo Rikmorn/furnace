@@ -311,8 +311,8 @@ export type Selection = {
   previewBatch(): LineBatch | null;
   /** Rebuild the cell cubes. Called from `ret.init` as well as from every
    *  selection change: the selection survives a dispose (it is CPU state), so a
-   *  re-init — the AA switch, which never touches the selection — would otherwise
-   *  come back with the outline and no cubes. */
+   *  re-init — which touches the selection at no point — would otherwise come back
+   *  with the outline and no cubes. */
   rebuildCells(): void;
   /** Free the cell layer's GPU handles. `ret.dispose`'s, beside every other
    *  destroy in that context block. */

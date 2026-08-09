@@ -450,21 +450,24 @@ export type FieldHost = {
   /** Acquires the GPU context on `canvas`, builds the materials and starts the render
    *  loop. Throws if a context already exists — one host, one live canvas.
    *
-   *  `sampleCount` is the scene pass's MSAA (default 4; `1` = off), and it is fixed for
-   *  the context's life: changing it is a `dispose()` + `init()` on the same host, which
-   *  is exactly what the View popover's AA switch does. Everything the editor cannot
-   *  rebuild — the field store, the op log, the tool, the camera, the selection — is CPU
-   *  state that survives a dispose; only GPU objects are torn down, and `init` puts back
-   *  what depended on them: every allocated chunk is re-marked for re-meshing, and a
-   *  ticked void layer re-requests its cast.
+   *  NO OPTIONS, and the one it used to take is the reason to say so: the editor's context
+   *  is `sampleCount: 1`, full stop (foundations T4c). MSAA left the editor with the View
+   *  popover's AA switch, and what replaced the switch's value is a capability — a
+   *  single-sample context is the only kind `frame.renderToTexture` accepts, so the
+   *  viewport's own meshes and lines can be drawn into an offscreen target with no second
+   *  set of pipelines. The engine keeps its MSAA support for consumers that want it.
+   *
+   *  A DISPOSE + INIT ROUND TRIP IS STILL PART OF THE CONTRACT even though nothing in the
+   *  chrome performs one on demand any more. Everything the editor cannot rebuild — the
+   *  field store, the op log, the tool, the camera, the selection — is CPU state that
+   *  survives a dispose; only GPU objects are torn down, and `init` puts back what depended
+   *  on them: every allocated chunk is re-marked for re-meshing, and a ticked void layer
+   *  re-requests its cast.
    *
    *  ONE thing does not survive: a live stamp session dies with its ghost, announced
    *  through {@link subscribeStamp} so the chrome sees it go. A round trip taken with a
    *  stamp open therefore discards it. */
-  init(
-    canvas: HTMLCanvasElement,
-    opts?: { sampleCount?: 1 | 4 },
-  ): Promise<void>;
+  init(canvas: HTMLCanvasElement): Promise<void>;
   dispose(): void;
   newWorld(): void;
   /** Loads a previously saved world (manifest + chunk bytes + material siblings + ops). */
@@ -1516,8 +1519,9 @@ const ANCHOR_CROSS_HALF_M = 0.25;
  *
  * `deps.requestContext` overrides how {@link FieldHost.init} acquires the GPU
  * context, and exists for the same class of reason: a real context never reports
- * the options it was built from, so the only way to prove `init` asks for the MSAA
- * the caller wanted is to record the request. Production omits it.
+ * the options it was built from, so the only way to prove `init` asks for a
+ * SINGLE-SAMPLE context — which is what makes an offscreen capture of this
+ * viewport possible at all — is to record the request. Production omits it.
  */
 export function createFieldHost(deps?: {
   spawnWorker?: () => WorkerLike;
@@ -3490,8 +3494,10 @@ export function createFieldHost(deps?: {
     canvasEl.removeEventListener("blur", onBlur);
     canvasEl = null;
     // The cache describes a canvas that is gone. A re-init on a fresh element
-    // (the AA switch) would otherwise find the answer unchanged and write
-    // nothing, leaving the new canvas with the browser default.
+    // would otherwise find the answer unchanged and write nothing, leaving the
+    // new canvas with the browser default. (The AA switch was this line's named
+    // caller and left with MSAA at T4c; `dispose()` + `init()` is still on the
+    // facade, so the hazard is the API's rather than that control's.)
     lastCursor = null;
   };
 
@@ -3610,12 +3616,15 @@ export function createFieldHost(deps?: {
   //     naming that a module would make the roster read as complete while the
   //     thing it describes had not moved.
   return {
-    async init(canvas, opts) {
+    async init(canvas) {
       if (ctx) throw new Error("field-host: already initialized");
       disposed = false; // clear a prior dispose() so a re-init'd instance lives
-      ctx = await requestContext(canvas, {
-        sampleCount: opts?.sampleCount ?? 4,
-      });
+      // `sampleCount: 1` is STATED rather than defaulted, because it is the one context
+      // property the editor depends on being what it is: `frame.renderToTexture` refuses
+      // any other count, and the capture path draws the live viewport's own pipelines
+      // into an offscreen target. Core's own default is already 1 — spelling it is what
+      // makes a reader (and `field-host-headless.test.ts`) see the requirement.
+      ctx = await requestContext(canvas, { sampleCount: 1 });
       // Three statements behind ONE verb since 2026-08-08
       // (`field-camera-rig.ts`): build the perspective camera, write the stored
       // orbit pose into it, bind it to the canvas for resize. The ORDER inside
@@ -3632,11 +3641,11 @@ export function createFieldHost(deps?: {
       props.rebuild();
       advisor.rebuildMarkers();
       // The selection survives a dispose (it is CPU state), so its CELL display
-      // has to be rebuilt here too or a re-init — the AA switch, which never
-      // touches the selection — would come back with the outline and no cubes.
+      // has to be rebuilt here too, or a re-init — which touches the selection at
+      // no point — would come back with the outline and no cubes.
       selection.rebuildCells();
       // Re-mesh whatever the store already holds. At the FIRST init this is empty
-      // and costs nothing; at a re-init (the AA switch) it is the whole world, and
+      // and costs nothing; at a re-init it is the whole world, and
       // without it the field never comes back — `dispose` destroys every chunk mesh
       // and `dirty` only ever holds chunks something EDITED. The paced drain
       // (`field-world.ts`'s `REMESH_PER_FRAME`) is what keeps the burst from
@@ -3713,10 +3722,13 @@ export function createFieldHost(deps?: {
       // re-init would promise a commit the user can no longer see.
       //
       // ANNOUNCED, not silent. The original reasoning — "a remounting panel gets
-      // null pushed on re-subscribe" — assumed every dispose came with a chrome
-      // remount, and the AA switch broke that: it disposes and re-inits under
-      // chrome that never unmounts, leaving the session card driving a session the
-      // host has already destroyed. The seam is how the chrome finds out.
+      // null pushed on re-subscribe" — assumed every dispose comes with a chrome
+      // remount, and `dispose()` is a facade member that promises no such thing:
+      // called under chrome that stays mounted, a silent drop leaves the session
+      // card driving a session the host has already destroyed. The seam is how the
+      // chrome finds out. (The AA switch was the caller that PROVED the assumption
+      // false, and it left with MSAA at T4c; what the assumption was wrong about is
+      // the API, so removing the caller does not make it true again.)
       // cancelStampSession, not a bare `stamp = null`: it runs endMove() first
       // (before its own null guard) so no cursor mapping survives the teardown,
       // and it notifies. One teardown, one place.

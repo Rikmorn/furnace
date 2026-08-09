@@ -47,20 +47,17 @@ export function App() {
 	// every binding while a prompt is open.
 	const { confirm, confirmRef, openConfirm, resolveConfirm } =
 		useConfirmDialog();
-	// Which world this session is authoring, for the claim below. Created HERE and filled
-	// by `WorldProvider` for the `bakeBusyRef` reason: the name lives far below this
-	// provider and its reader sits beside it.
-	const worldNameRef = useRef<string | null>(null);
-
 	// The session claim (T4b): this tab tells the daemon it is the one an agent may read
 	// and drive. It rides the feed's frames (the daemon names each connection on connect)
 	// but owns no subscription of its own — `feed` is the stable handler set the feed
-	// calls into, `lost` is the terminal state the cover renders from.
-	const claim = useSessionClaim({ worldNameRef, openConfirm });
+	// calls into, `lost` is the terminal state the cover renders from, and
+	// `setAuthoredWorld` is how `WorldProvider` — far below here, where the world name
+	// lives — tells it to re-key (T4c).
+	const claim = useSessionClaim({ openConfirm });
 
 	// How the backchannel READS this session (T4b): a thunk that projects the chrome's
 	// mirrors into the wire's SessionState. Created HERE and filled by
-	// `ActionContextProvider` for the `worldNameRef` reason — the mirrors live far below
+	// `ActionContextProvider` for the `bakeBusyRef` reason — the mirrors live far below
 	// this component and the reader sits beside the feed that asks for them.
 	const sessionStateRef = useRef<SessionStateReader | null>(null);
 
@@ -160,7 +157,7 @@ export function App() {
 		openConfirm,
 		confirmRef,
 		bakeBusyRef,
-		worldNameRef,
+		setAuthoredWorld: claim.setAuthoredWorld,
 		claimLostRef: claim.claimLostRef,
 		sessionStateRef,
 		viewportFocusRef,

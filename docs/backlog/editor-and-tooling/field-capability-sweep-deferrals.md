@@ -51,14 +51,19 @@ first time a world has enough entities that one-at-a-time is the bottleneck.
 
 Explicitly ruled out by the pick architecture rather than merely unbuilt. The field pick is a
 **CPU ray cast**, which is affordable per CLICK and not per pointermove, so selection is
-click-driven and nothing highlights under the cursor. The CPU choice has its own reasons: the
-host acquires its context at `sampleCount: 4` and core's `frame.renderToTexture` throws on any
-context whose sample count isn't 1, so a GPU id pass cannot even be rendered on the default
-editor context — and the two things most worth picking (entity footprints, gizmo handles) have
-no meshes at all.
+click-driven and nothing highlights under the cursor.
 
-**Trigger: a GPU pick path exists** — i.e. the sample-count constraint is lifted or the id pass
-gets a context of its own. Until then this is not a deferral, it is a consequence.
+The CPU choice had two reasons and now has one. **The sample-count blocker is GONE** — the
+host used to acquire its context at `sampleCount: 4` and core's `frame.renderToTexture`
+throws on anything but 1, so an id pass could not be rendered at all; foundations T4c removed
+MSAA from the editor and the context is now `sampleCount: 1`. What survives is that the two
+things most worth picking (entity footprints, gizmo handles) have **no meshes at all**, so an
+id pass would have to invent geometry for both before it beat the ray test.
+
+**Trigger: a GPU pick path exists.** Half of what that once meant has happened. The remaining
+half is id materials (or id geometry) for the mesh-less candidate kinds — which T4c's capture
+work does NOT produce, since it draws the viewport's own pipelines rather than an id pass.
+Until then this is still a consequence rather than a deferral, on one reason instead of two.
 
 ## Camera bookmarks
 

@@ -386,11 +386,14 @@ test("subscribeCameraPose pushes the current pose immediately, then on every cam
   expect(poses.length).toBe(2);
 });
 
-// --- init's MSAA option (F4.5a Task 9) --------------------------------------
+// --- the context init asks for (F4.5a Task 9, re-aimed at T4c) ---------------
 //
-// The AA switch is a dispose + re-init at a different sample count, so what has to
-// be true is that `init` asks for the count it was given. A real context never
-// reports the options it was built from, which is what `deps.requestContext` is
+// It used to pin the AA switch's mechanism — that `init` asked for whichever sample
+// count it was handed. MSAA left the editor at T4c and the option with it, and what
+// is left is a stronger claim than the one it replaced: the count is now FIXED at 1,
+// because `frame.renderToTexture` refuses every other value and the capture path
+// draws the live viewport's own pipelines into an offscreen target. A real context
+// never reports the options it was built from, which is what `deps.requestContext` is
 // for: it RECORDS the request and then refuses, because everything init does past
 // that line needs a device.
 
@@ -413,19 +416,13 @@ function recordingContextRequests(): {
 
 const FAKE_CANVAS = {} as HTMLCanvasElement;
 
-test("init asks for 4× MSAA by default", async () => {
+test("init asks for a SINGLE-SAMPLE context, which is what makes a capture possible", async () => {
   const stub = recordingContextRequests();
   const host = createFieldHost({ requestContext: stub.requestContext });
   await expect(host.init(FAKE_CANVAS)).rejects.toThrow("stub context");
-  expect(stub.seen).toEqual([{ sampleCount: 4 }]);
-});
-
-test("init honours an explicit sampleCount (the AA switch's whole mechanism)", async () => {
-  const stub = recordingContextRequests();
-  const host = createFieldHost({ requestContext: stub.requestContext });
-  await expect(host.init(FAKE_CANVAS, { sampleCount: 1 })).rejects.toThrow(
-    "stub context",
-  );
+  // The literal 1, not "not 4": core's `frame.renderToTexture` throws on any context
+  // whose sample count is not exactly 1, so this is the requirement rather than a
+  // preference. Raising it here is how the editor loses offscreen rendering.
   expect(stub.seen).toEqual([{ sampleCount: 1 }]);
 });
 

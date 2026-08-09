@@ -220,7 +220,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects three commands as tools and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP.
 
-There are **13 commands in five families**, and the chrome speaks **11** of them (`frontend/lib/api.ts`); the two it does not are `session.release` and `session.state` — neither has a client method on purpose, see the table. It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+There are **13 commands in five families**, and the chrome speaks **12** of them (`frontend/lib/api.ts`); the one it does not is `session.state`, which has no client method on purpose — see the table. (It was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
 `session.*` is the first family whose answer depends on **which caller is asking** rather than only on what it asked, which is why three of the five carry a connection `token` (§5.1). The other two are the two halves of the backchannel and neither takes one. `session.answer` is the **only command the daemon is the logical originator of** — it is the return leg of a question the daemon asked, and it names a pending ask rather than a connection, so it carries a `requestId` instead. `session.state` is the **only command the daemon cannot answer**: it relays the question to whichever session is CLAIMED and hands back what that session said, so naming a connection would let a caller read a tab the human is not in — the failure the claim exists to prevent.
 
@@ -236,7 +236,7 @@ There are **13 commands in five families**, and the chrome speaks **11** of them
 | `world.duplicate` | `{ from, to }` | `{}` — copies a world under a new name; `already-exists` (409) if the target is taken. Emits `worlds-changed`. |
 | `session.claim` | `{ name: string \| null, token }` | `{}` — this connection is now the editing session for `name` (`null` = the untitled scratch). Refused `already-exists` (409) when a DIFFERENT live connection holds it; `no-session` (409) when the token names no live connection. Re-claiming a world this connection already holds succeeds. §5.1. |
 | `session.steal` | `{ name: string \| null, token }` | `{}` — takes the world whatever anyone else thinks, and sends the displaced connection a `claim-lost` frame. Never refuses on held-ness (an unheld world is simply claimed); `no-session` on a dead token. |
-| `session.release` | `{ token }` | `{}` — drops whatever this connection holds. **No chrome method**: a tab that stops authoring is a tab that closed, and the SSE departure hook has already released it. The command exists because the claim's lifetime is only statable with both of its ends. |
+| `session.release` | `{ token }` | `{}` — drops whatever this connection holds. It had **no chrome method** through T4b, on the argument that a tab which stops authoring is a tab that closed and the SSE departure hook has already released it. T4c found the exception and gave it one: a claim that RE-KEYS on a world switch can be REFUSED, and the daemon drops the old key only when a new claim succeeds — so without a release the tab would go on holding the world it just left (§26.1). Reached only on that refusal, and never with a `name`: the connection is what holds, so the connection is what is dropped. |
 | `session.state` | `{}` | The claimed session's `SessionState` (`src/shared/wire.ts`), RELAYED — the first command that asks rather than answers. A discriminated union on `ready`: the not-ready arm carries nothing but the discriminant (the engine bundle is async and a tab is claimable before its field host exists, so an empty-looking world would be a false claim of emptiness), and the ready arm carries `cursor`, `world`, `tool`, `gesture`, `session`, `selection`, `selectedEntity`, `camera`, `stats` and `history`. **No token and no input** — it addresses whoever is claimed (§5.1), so zero and many both refuse with `no-session`, a silent tab earns `session-timeout` (§6), and the daemon validates nothing on the way past: it cannot compute one field of this, which is the whole reason the backchannel exists. `cursor` is an opaque compare-only change token that rides the history payload (§17.6). |
 | `session.answer` | `{ requestId, ok: true, payload }` \| `{ requestId, ok: false, error }` | `{ delivered }` — hands one answer to the backchannel ask it names (`daemon/backchannel.ts`). **No token**: the `requestId` was minted into exactly one connection's stream, so holding it means holding that stream — the same structural argument the token itself rests on. `delivered: false` is the honest report for an id naming no pending ask (an answer that lost the race with its own ask's timeout, a duplicate, a forged one), not an error — refusing would manufacture a client-side failure for a designed race. A discriminated union so a refusal cannot pose as a success with a missing payload. |
 
@@ -1409,16 +1409,21 @@ listener has to sit *below* the provider it reads.
   "not laid out yet" — it is the layout contract broken**, and it logs then throws rather
   than waiting for a resize that will never come. (The log precedes the throw on purpose:
   there is no error boundary above it, so the throw blanks the page.)
-- **`sampleCount` is a CONTEXT property**, so the View popover's AA switch cannot be a
-  host setter — the only way to change it is dispose + init. The cost is a re-init, not a
-  reset: the field, the op log, the tool and the camera are CPU state the host keeps
-  across a dispose.
-- **The re-init chain.** The host holds one context and throws on a second `init`, and
-  its dispose is *deferred* (dispose only once `init` has SETTLED, because init awaits
-  the GPU context and disposing mid-await pulls it out from under trailing creations). An
-  AA change runs cleanup and effect in the **same** React commit, so the next init must
-  wait for the previous teardown — a `teardown` ref carries that promise forward. It also
-  makes a double-invoked mount safe, which the deferred dispose alone did not.
+- **`init` takes the canvas and nothing else** (foundations T4c). It took a `sampleCount`
+  until MSAA left the editor; the context is now `sampleCount: 1`, full stop, which is
+  what makes an offscreen capture of this viewport possible at all (core's
+  `frame.renderToTexture` refuses every other count). The View popover's AA switch went
+  with it, and so did the one thing in the chrome that performed a re-init on demand.
+- **The re-init chain, now insurance.** The host holds one context and throws on a second
+  `init`, and its dispose is *deferred* (dispose only once `init` has SETTLED, because init
+  awaits the GPU context and disposing mid-await pulls it out from under trailing
+  creations). Any cleanup and effect landing in the **same** React commit therefore needs
+  the next init to wait for the previous teardown, which a `teardown` ref carries forward.
+  The AA switch was that caller; with it gone the shape is un-reached today — `App` builds
+  one host and `main.tsx` renders without `StrictMode` — and the chaining is kept, and
+  labelled as insurance in its own comment, because either of those is a one-line change.
+  `dispose()` + `init()` on one host stays in `FieldHost`'s contract and
+  `tests/field-host-reinit.gpu.test.ts` still walks it on a real device.
 - The canvas is `tabIndex={0}` with a visible focus ring: the host attaches its WASD/QE
   fly, `[`/`]` radius and arrow-nudge keydowns to the CANVAS, so the ring is the only
   signal those keys will land anywhere.
@@ -1603,9 +1608,11 @@ indistinct) is now a *debug flag*, not a peer. The advisor's flag markers stay
 looks away stops doing its job in the mode meant for mood.
 
 **`hooks/useView.tsx`** owns what the field LOOKS like — shading, layer visibility, the
-slice plane, viewport AA — and nothing about what is in it. It is shell state for the
-world-state reason: the View popover drives it, the burger's View group drives the same
-values, and the canvas layer reads the AA setting.
+slice plane — and nothing about what is in it. It is shell state for the world-state
+reason: the View popover drives it and the burger's View group drives the same values.
+Since foundations T4c **every member is a push to a host seam**, which is what makes it a
+view state rather than a settings bag; the one member that was not, `sampleCount`, left
+with MSAA, and with it the `FieldCanvas` wrapper that existed only to read it.
 
 It is the **chrome→host direction**, which is why it is not part of `useFieldHostState`
 (host→chrome). The host has no shading/layers/slice subscription to mirror, so this
@@ -1613,7 +1620,7 @@ provider is the source of truth and **pushes: one effect per seam, each keyed on
 value**, so a shading change never re-sends the layer flags (`setLayers` is edge-sensitive
 for `voidCast`) and a slider drag never re-sends the shading mode. Defaults:
 `DEFAULT_LAYERS` all-true but `voidCast` (opt-in — ticking it runs a whole-world cast),
-`SLICE_DEFAULT_Y = 8`, `DEFAULT_SAMPLE_COUNT = 4`. The layer set is restated here rather
+`SLICE_DEFAULT_Y = 8`. The layer set is restated here rather
 than imported because the chrome cannot value-import the host (the project-first
 invariant), and it is pushed at engine-ready so the two agree from the first frame.
 
@@ -1750,7 +1757,7 @@ each organ WENT, which is why it stays. What left, and where it went:
 | --- | --- |
 | every host subscription — stats, tool-error, camera-pose, entities, drift, (F4.5b Task 2) tool, selection, stamp, flags, and (Task 4) entity-selection | `hooks/useFieldHostState.tsx` (the provider) |
 | world verbs (Save / Open / Bake) | `hooks/useWorld.tsx` + the world chip + the drawer |
-| shading, layer gates, slice plane, AA | `hooks/useView.tsx` + `shell/ViewPopover.tsx` |
+| shading, layer gates, slice plane, AA | `hooks/useView.tsx` + `shell/ViewPopover.tsx` — except AA, which left the editor entirely at T4c rather than moving |
 | the catalog fetch | `hooks/useCatalogs.tsx` (mounted once by the shell) |
 | the committed-entity list + drift report | `shell/EntitiesPalette.tsx` — the first organ out, the layers panel since Task 4 |
 | the status line | `lib/notify-store.ts` (toasts + the log) |
@@ -1845,15 +1852,19 @@ cannot disagree at boot). Under it LMB selects and drags rather
 than strokes, and the wheel travels the camera instead of sizing the brush.
 
 **`field-host/field-pick.ts` is the arbitration, and it is pure and GPU-free** — the
-`field-ghost.ts` / `field-placements.ts` sibling. CPU rather than a GPU id pass, and that is a
-decision with reasons rather than a fallback: the field host acquires its context at
-`sampleCount: 4` and core's `frame.renderToTexture` throws on any context whose
-`_internal.sampleCount !== 1`, so the id pass cannot even be RENDERED on the default editor
-context; and the two things most worth picking — entity footprints and gizmo handles — have
-no meshes at all (a `drawLines` batch and pure math respectively). The consequence is
-written into the design rather than tolerated: **a CPU pick is affordable per CLICK, not per
-pointermove, so there is no hover pre-highlight anywhere in the editor.** Selection is
-click-driven.
+`field-ghost.ts` / `field-placements.ts` sibling. CPU rather than a GPU id pass, and that is
+a decision with reasons rather than a fallback. It had **two** reasons and now has one, which
+is worth stating rather than quietly restating the survivor: the field host used to acquire
+its context at `sampleCount: 4`, and core's `frame.renderToTexture` throws on any context
+whose `_internal.sampleCount !== 1`, so an id pass could not even be RENDERED here —
+**foundations T4c removed MSAA from the editor and that blocker is gone.** What still stands
+is the reason that was never about the context: the two things most worth picking — entity
+footprints and gizmo handles — have no meshes at all (a `drawLines` batch and pure math
+respectively), so an id pass would have to invent geometry for both before it could beat a
+ray test that already resolves them. The consequence is written into the design rather than
+tolerated: **a CPU pick is affordable per CLICK, not per pointermove, so there is no hover
+pre-highlight anywhere in the editor.** Selection is click-driven. That deferral's filed
+trigger ("a GPU pick path exists") is one step closer and still short of fired.
 
 - **Three candidate kinds**, and `PICK_TIER` is a total `Record<PickCandidate["kind"],
   PickTier>` rather than a predicate, so adding a kind without classifying it does not
@@ -4865,26 +4876,38 @@ and the literal reading of the settled policy's *"a typed error, never a hang"*:
   reaches it with ONE human at ONE keyboard is worth writing down, because it is not two
   people opening two editors.**
 
-  **The stale claim key.** `useSessionClaim`'s `onToken` claims under `worldNameRef.current`
-  **at token time**, and a world switch deliberately does not re-claim (the callback's deps are
-  a ref and the confirm seam, so nothing re-runs it; the sibling is filed at
-  `read-only-chrome-for-an-unclaimed-session.md`). That cost nothing while nothing routed by
-  the claim's world — Task 2's own reasoning, and true when it was written. Task 3 then made
-  the GLOBAL claim COUNT load-bearing through `soleTarget()`, and the two compose:
+  **The stale claim key — CLOSED at T4c, and the shape is worth keeping because the fix is
+  read off it.** Through T4b, `useSessionClaim`'s `onToken` claimed under
+  `worldNameRef.current` **at token time** and a world switch deliberately did not re-claim.
+  That cost nothing while nothing routed by the claim's world — Task 2's own reasoning, and
+  true when it was written. Task 3 then made the GLOBAL claim COUNT load-bearing through
+  `soleTarget()`, and the two composed: a tab that booted on the untitled scratch, claimed
+  `null` and was then pointed at world `W` went on holding `null` while authoring `W`, so a
+  SECOND tab opening `W` claimed it with **no conflict, no steal prompt and no toast** — and
+  the daemon held two claims, making every later `session_state` the two-claims refusal with
+  nothing anywhere explaining why. **A conflict test only works if the key is true.** (The
+  key also un-lied itself at random: any reconnect re-read the world and re-keyed, and the
+  `bun run edit` loop restarts the daemon on every source change, so which behaviour a user
+  got depended on when they last saved a source file.)
 
-  > A tab boots on the untitled scratch and claims key `null`. The human loads world `W`. The
-  > tab still holds `null` — until any reconnect mints a new token and re-keys it to `"W"`, and
-  > **the `bun run edit` loop restarts the daemon on every source change**, so reconnects are
-  > routine rather than rare. In that window a second tab opening on the scratch claims `null`
-  > with **no conflict, no steal prompt and no toast** — the key really is free — and the
-  > daemon now holds two claims. Every `session_state` from that moment is the two-claims
-  > refusal, and the human has seen nothing that would explain it.
+  **What ships now.** `useSessionClaim` owns the authored world and re-claims under the new
+  name the moment it changes; `editor-context.ts` carries the verb (`setAuthoredWorld`) down
+  to `WorldProvider`, which calls it from the one effect that already tracked the name. The
+  T4b ref went — a ref carries a value and what the claim needed was the EVENT. **One command
+  does the re-key**, because `daemon/claims.ts` gives a connection at most one world and a
+  successful claim of `W` drops `null` in the same step; `session.release` (which had no
+  client method until now, on the argument that a tab which stops authoring is a tab that
+  closed) is reached only on the REFUSED path, where the old key would otherwise survive and
+  the fix would manufacture the very lie it exists to end. A LOST tab still never re-claims:
+  the re-key is a second route into the same body, and the cover's guard is inside it.
+  `tests/chrome/session-claim.test.tsx` §(a2) pins all five branches.
 
-  **The thesis survives** — the answer is typed, immediate and carries a remedy a human can
-  act on (*"close all but the tab you want driven"*), which is exactly what the branch is for,
-  and it is strictly better than picking one. What is missing is that the chrome gives no
-  warning on the way in, because from the claim table's point of view nothing went wrong. The
-  fix travels with the filed re-claim-on-world-switch entry.
+  **What did NOT change, and is not a defect:** two tabs on two DIFFERENT worlds are still
+  two claims, and `session_state` still refuses. That is the claim table's design (one claim
+  per world) and the refusal is the right answer — typed, immediate, and carrying a remedy a
+  human can act on (*"close all but the tab you want driven"*), which is strictly better than
+  picking one. What T4c removed is the case where the conflict was invisible because the key
+  was wrong.
 - **The connection departs mid-ask** → `no-session` **now**, not at the timeout. The two
   sentences send a caller to different places — a timeout says "it is slow, wait longer", this
   says "the tab you were reading closed" — and only the second is true and has a remedy. It also
@@ -5073,13 +5096,13 @@ none needs a design decision and every one of them is cheapest inside work alrea
   a budget change moves the behaviour and leaves the advertisement lying. Pinning the
   description against the constant is a test change and belongs in whatever commit next moves
   the budget — not in a docs commit.
-- **Two deletion candidates, both surfaced by the pass and neither taken.** `session.release`
-  has no production caller — its only callers are tests, and the argument for keeping it
-  ("the claim's lifetime is only statable with both ends") is the same argument `api.ts`
-  explicitly uses to REJECT giving it a client method. And `session.ping` + `BASE_ANSWERERS`
-  are a liveness probe with no production prober. `AGENTS.md`'s deletion-pass-before-addition
-  rule makes both fair questions for T4c, which is the tranche that will decide what the
-  `session.*` family is for.
+- ~~**Two deletion candidates**~~ — **one, now.** `session.release` was the first: no
+  production caller, its only callers tests, and the argument for keeping it ("the claim's
+  lifetime is only statable with both ends") the same argument `api.ts` used to REJECT giving
+  it a client method. **T4c Task 0 answered it by USE rather than by deletion**: the claim
+  re-keys on a world switch, a refused re-key is a real moment at which a tab must give up a
+  claim without closing, and the release is what says so (§26.1). The remaining candidate
+  stands: `session.ping` + `BASE_ANSWERERS` are a liveness probe with no production prober.
 - **One terminal branch is untested**: a client that disconnects mid-call. It is reasoned from
   source, not pinned, and it belongs to the live walk rather than to a suite — clause 5's
   step (d) is the closest thing to it.

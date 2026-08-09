@@ -42,7 +42,7 @@ type EditorContextOverrides = {
 	openConfirm?: EditorContextValue["openConfirm"];
 	confirmRef?: EditorContextValue["confirmRef"];
 	bakeBusyRef?: EditorContextValue["bakeBusyRef"];
-	worldNameRef?: EditorContextValue["worldNameRef"];
+	setAuthoredWorld?: EditorContextValue["setAuthoredWorld"];
 	claimLostRef?: EditorContextValue["claimLostRef"];
 	sessionStateRef?: EditorContextValue["sessionStateRef"];
 	viewportFocusRef?: EditorContextValue["viewportFocusRef"];
@@ -78,9 +78,10 @@ export function makeEditorContext(
 		// No write in flight. A test that wants to assert the SSE reload guard passes its
 		// own ref and reads it after a save.
 		bakeBusyRef: overrides.bakeBusyRef ?? { current: false },
-		// Untitled, which is what a fresh session is: `WorldProvider` fills this from its
-		// own `name`, and the session claim reads it to claim under.
-		worldNameRef: overrides.worldNameRef ?? { current: null },
+		// Nobody is listening for a world switch. `App` fills this from `useSessionClaim`,
+		// which re-keys its claim; a case that renders a panel alone has no claim to re-key,
+		// and one that wants to see the call passes its own.
+		setAuthoredWorld: overrides.setAuthoredWorld ?? noop,
 		// The claim is held. A case that wants the claim-lost cover's keyboard suppression
 		// passes its own ref — see tests/chrome/keybindings-dom.test.ts.
 		claimLostRef: overrides.claimLostRef ?? { current: false },

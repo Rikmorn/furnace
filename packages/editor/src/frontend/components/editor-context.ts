@@ -97,16 +97,17 @@ export type EditorContextValue = {
    *  state, and a reload mid-upload would kill the write. The shell's world verbs are
    *  the writers. */
   bakeBusyRef: RefObject<boolean>;
-  /** The world this session is authoring — a saved name, or null for the untitled
-   *  scratch. A ref for the `bakeBusyRef` reason exactly: the reader sits ABOVE the
-   *  owner. `useSessionClaim` (App level, beside the feed that mints the connection
-   *  token) needs the name to claim under; `WorldProvider` (deep inside the shell)
-   *  is where the name actually lives. `WorldProvider` is the only writer.
+  /** Say which world this session is now authoring — a saved name, or null for the
+   *  untitled scratch. `WorldProvider` (deep inside the shell, where the name lives) is the
+   *  only caller; `useSessionClaim` (App level, beside the feed that mints the connection
+   *  token) owns the verb and re-keys its claim under the new name.
    *
-   *  Read at CLAIM time rather than subscribed to: a world switch does not re-claim,
-   *  which costs nothing today because nothing routes by the claim's world — see
-   *  `useSessionClaim`'s header and the backlog filing it names. */
-  worldNameRef: RefObject<string | null>;
+   *  A VERB TRAVELLING DOWN, not a value travelling up, and it was the latter through T4b
+   *  (`worldNameRef`, a ref App created and `WorldProvider` filled). The claim read it once
+   *  per connection and a world switch therefore left the key stale until the next
+   *  reconnect — see `useSessionClaim`'s header for what that composed into. A ref cannot
+   *  carry "this CHANGED"; the switch is an event, so the seam is the call. */
+  setAuthoredWorld: (world: string | null) => void;
   /** Whether another session has taken this tab's claim, as a ref. The `confirmRef`
    *  seam exactly: the window keydown listener binds ONCE and must see the current value
    *  without re-binding, so the flag is written synchronously beside the state that
@@ -121,8 +122,12 @@ export type EditorContextValue = {
    *  projects the chrome's mirrors into the wire's `SessionState`, or `null` before the
    *  shell has committed a render.
    *
-   *  The `worldNameRef` shape exactly, and for the same reason at a larger scale: the
-   *  READER sits above the owner. `useSessionAnswer` mounts at App, beside the one
+   *  The `bakeBusyRef` shape, and for the same reason at a larger scale: the READER sits
+   *  above the owner. (`worldNameRef` was the closer analogue until T4c retired it — that
+   *  one inverted, because a claim needs the CHANGE and not the value; this one does not,
+   *  since a question arriving is what reads it.)
+   *
+   *  `useSessionAnswer` mounts at App, beside the one
    *  subscription that feeds the daemon's frames; the mirrors it must project — selection,
    *  tool, gesture, session, history — are latched by providers deep inside the shell. A
    *  ref rather than state because nothing renders from it: it is read by an event handler

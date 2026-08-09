@@ -20,12 +20,15 @@ import type { SessionAnswerers } from "../lib/session-answerers.ts";
  * a richer method would need are already latched. Two reasons, and the second is the one
  * that decided it. (1) `session.ping` reads nothing, so structure bought for a method that
  * does not exist would be structure bought on a guess. (2) The chrome already has a NAMED
- * PATTERN for "a fact that lives far below App, read above it" and uses it three times —
- * `bakeBusyRef`, `worldNameRef` and `viewportFocusRef` are each created in `App` and filled
- * from below. (This sentence named `claimLostRef` as the third until T4b Task 4: that one is
- * created AND written inside `useSessionClaim`, a hook `App` itself calls, so only its
+ * PATTERN for "a fact that lives far below App, read above it" —
+ * `bakeBusyRef` and `viewportFocusRef` are each created in `App` and filled
+ * from below. (This sentence named `claimLostRef` as one of them until T4b Task 4: that one
+ * is created AND written inside `useSessionClaim`, a hook `App` itself calls, so only its
  * reader sits below and it is not this pattern. `viewportFocusRef` — `App`'s, installed by
- * `CanvasHost` — is, and `session.state`'s reader ref became the fourth.) A method needing selection or camera can take the same route, so
+ * `CanvasHost` — is, and `session.state`'s reader ref is the third. It named `worldNameRef`
+ * too, until T4c retired that ref: the claim's world is no longer a value read from above
+ * but a verb called from below, `setAuthoredWorld`, because a ref cannot say "this
+ * CHANGED".) A method needing selection or camera can take the same route, so
  * mounting low is not the only way to reach low facts, and mounting HERE keeps the answerer
  * beside the one subscription that feeds it. The registry is a parameter either way, which
  * is what makes the mount point movable if that judgement turns out wrong.

@@ -18,6 +18,7 @@ import "../inspector/_register.ts";
 // canvas's aria-label, each fails a case below.
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { ReactElement } from "react";
+import { StrictMode } from "react";
 import type {
 	FieldTool,
 	SegmentHud,
@@ -26,6 +27,7 @@ import type {
 } from "../../src/field-host/index.ts";
 import type { ConfirmRequest } from "../../src/frontend/components/ConfirmDialog.tsx";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
+import { CanvasHost } from "../../src/frontend/components/shell/CanvasHost.tsx";
 import {
 	NUDGE_FAR_PX,
 	NUDGE_PX,
@@ -1875,17 +1877,17 @@ test("a view toggle's documentation opens on the checkbox's own FOCUS, not just 
 	await renderShell(stub);
 	await openViewPopover();
 
-	const antialiasing = screen.getByRole("checkbox", { name: "antialiasing" });
+	const voidCast = screen.getByRole("checkbox", { name: "void cast" });
 	// The attribute this replaced — its absence is half the claim (a `title` would satisfy
 	// a text assertion while reaching no keyboard at all).
-	expect(antialiasing.closest("label")?.getAttribute("title")).toBeNull();
+	expect(voidCast.closest("label")?.getAttribute("title")).toBeNull();
 
 	act(() => {
-		fireEvent.focus(antialiasing);
+		fireEvent.focus(voidCast);
 	});
 	expect(
 		within(await screen.findByRole("tooltip")).getByText(
-			/multisampling on the viewport pass/,
+			/meshes the air as a solid/,
 		),
 	).toBeTruthy();
 });
@@ -2054,7 +2056,8 @@ test("the void checkbox drives host.setLayers(voidCast) and leaves the other lay
 // `<button>`, and `ViewPopover` spells an `htmlFor` on every row. That attribute is NOT what
 // makes this pass: `button` is a labelable element, so a `<label>` wrapping one is already
 // associated with it. Measured both ways at the F4.5c Task 12 quality round — stripping all
-// four `htmlFor={boxId(…)}` leaves the chrome directory at 368/0 AND leaves this case green,
+// `htmlFor={boxId(…)}` (four sites at the time, three since the antialiasing row went at
+// T4c) leaves the chrome directory green AND leaves this case green,
 // and a direct probe shows `label.control` resolving to the wrapped `<button>` with no `for`
 // at all. So this case pins the BEHAVIOUR (the text is a hit target) and is deliberately
 // indifferent to which of the two associations delivers it — which is the right level, since
@@ -2063,9 +2066,14 @@ test("the void checkbox drives host.setLayers(voidCast) and leaves the other lay
 // The harness PROVES the behaviour rather than approximating it: happy-dom implements
 // label→control activation for the Radix button, so the click really does reach
 // `onCheckedChange`. This is not the `.focus()`-versus-click limitation that qualifies other
-// claims in this suite. Both a layers row and the lone antialiasing row are covered — the AA
-// one sits outside every group and pays a GPU context rebuild, so a dead hit target there is
-// the most expensive one to ship.
+// claims in this suite. TWO rows are covered, and the second is the one whose visible text
+// and accessible name DIFFER (`void` / `void cast`) — the case where a `getByText` address
+// and a `getByLabelText` one really are different questions. It is also the row that costs
+// the most to get wrong: ticking it starts a whole-world cast job.
+//
+// The second row used to be `antialiasing`, chosen because a dead hit target on the one
+// control with a visible GPU cost was the most expensive to ship. MSAA left the editor at
+// foundations T4c and took the last ungrouped row with it.
 test("clicking a row's TEXT toggles it — the label association the house checkbox needs", async () => {
 	fetch404();
 	const stub = makeStubHost();
@@ -2082,20 +2090,16 @@ test("clicking a row's TEXT toggles it — the label association the house check
 		grid: false,
 	});
 
-	// The antialiasing row is its own `htmlFor` site, under no group, and it is the row whose
-	// association is worth the most: its effect is a GPU context rebuild, so a dead hit
-	// target here reads as "the editor ignored me" on the one control with a visible cost.
-	// Asserted through the re-init (there is no `setSampleCount` seam — the round trip IS the
-	// verb), which is also why this half needs the two settled turns.
-	const initsBefore = stub.calls.init.mock.calls.length;
-	const aaRow = screen.getByText("antialiasing", { selector: "label" });
-	await act(async () => {
-		fireEvent.click(aaRow);
-		await Promise.resolve();
-		await Promise.resolve();
+	// …and the row whose text is NOT its accessible name. `getByLabelText("void cast")` would
+	// find the control by a string this row does not display, so it cannot tell whether the
+	// visible word is a hit target; the text address is the only one that asks.
+	const voidRow = screen.getByText("void", { selector: "label" });
+	act(() => {
+		fireEvent.click(voidRow);
 	});
-	expect(stub.calls.init.mock.calls.length).toBe(initsBefore + 1);
-	expect(stub.calls.init.mock.calls.at(-1)?.[1]).toEqual({ sampleCount: 1 });
+	expect(stub.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
+		voidCast: true,
+	});
 });
 
 test("the flags layer is a free display gate, beside the other six", async () => {
@@ -2118,40 +2122,50 @@ test("the flags layer is a free display gate, beside the other six", async () =>
 	});
 });
 
-test("the AA switch re-inits the SAME host at the new sample count", async () => {
-	fetch404();
+// The AA switch's own case ("re-inits the SAME host at the new sample count") went with the
+// switch at foundations T4c. Two of its three claims moved to homes that outlive any chrome
+// control — the context `init` asks for is `field-host-headless.test.ts`, the CPU state that
+// survives a round trip is `field-host-reinit.gpu.test.ts` against a real device — and the
+// third, the ORDERING of `CanvasHost`'s teardown chain, is below, because a chain with no
+// caller AND no witness is the definition of something that has already rotted.
+//
+// STRICTMODE IS THE WITNESS, and it is the honest one rather than the convenient one. The
+// obvious alternative — rerender with a second host identity and assert
+// `[init, dispose, init]` — was measured and **does not red when the chain is cut**: the
+// old host's deferred dispose happens to settle before the new host's init either way, so
+// it would pin a coincidence. StrictMode's double-invoke is the shape the chain actually
+// orders, and cutting the chain flips this assertion.
+test("a double-invoked mount leaves the host INITED, not disposed — the teardown chain", async () => {
+	// WHAT BREAKS WITHOUT IT, in the order it happens: React runs the effect, the cleanup,
+	// then the effect again on the SAME instance, and the refs survive all three. The first
+	// init never lands (its `cancelled` flag is set by the cleanup before the microtask
+	// runs), so the only two calls that reach the host are the deferred dispose and the
+	// second init. Unchained, the second init resolves off an already-settled
+	// `Promise.resolve()` and gets there FIRST — measured as `["init","dispose"]`, which
+	// leaves the host disposed with the chrome believing it is live: a viewport that is
+	// blank until a reload, with nothing logged.
+	//
+	// `main.tsx` renders without `StrictMode` today, so this is insurance — but insurance
+	// that is now CHECKED, which is the whole difference between this and a comment.
 	const stub = makeStubHost();
-	await renderShell(stub);
-	const canvas = screen.getByLabelText("field viewport");
-	expect(stub.calls.init.mock.calls).toEqual([[canvas, { sampleCount: 4 }]]);
-
-	await openViewPopover();
+	render(
+		<StrictMode>
+			<EditorContext.Provider value={makeEditorContext()}>
+				<CanvasHost host={stub.host} onError={() => undefined} />
+			</EditorContext.Provider>
+		</StrictMode>,
+	);
 	await act(async () => {
-		fireEvent.click(screen.getByLabelText("antialiasing"));
-		// Two turns: the dispose is deferred behind the settled init, and the re-init is
-		// chained behind that dispose.
+		await Promise.resolve();
 		await Promise.resolve();
 		await Promise.resolve();
 	});
-	// Sample count is a CONTEXT property, so the only way to change it is a round trip —
-	// and the round trip has to stay ORDERED. The host holds ONE context and refuses a
-	// second init while it is up, and its dispose is deferred behind the settled init,
-	// so an unchained re-init lands on "already initialized": the sequence IS the
-	// assertion, not the call count.
+
+	// The LAST entry is the claim; the pair is what makes it legible.
 	expect(stub.order.filter((c) => c === "init" || c === "dispose")).toEqual([
-		"init",
 		"dispose",
 		"init",
 	]);
-	expect(stub.calls.init.mock.calls[1]).toEqual([canvas, { sampleCount: 1 }]);
-	// …and nothing failed on the way: a refused re-init reports on the status bar, which
-	// is exactly what a user would see if the ordering broke.
-	expect(screen.queryByText(/field host init failed/) === null).toBe(true);
-	// The SAME host, not a new one: everything the editor cannot rebuild (the field, the
-	// op log, the camera) is CPU state that rides through the dispose. A re-created host
-	// here would silently be "your world is gone" on an AA toggle.
-	expect(stub.calls.init.mock.calls[1]?.[0]).toBe(canvas);
-	expect(screen.getByLabelText("field viewport")).toBe(canvas);
 });
 
 test("the view survives a restart: the popover writes UiState.view and a stored one is pushed", async () => {
@@ -2197,10 +2211,13 @@ test("the view survives a restart: the popover writes UiState.view and a stored 
 	expect(next.calls.setLayers.mock.calls.at(-1)?.[0]).toMatchObject({
 		grid: false,
 	});
-	// AA is deliberately NOT persisted: restoring it would dispose and rebuild the GPU
-	// context moments after the first one came up, because the store arrives late.
+	// …and a restored view NEVER touches the GPU context. Every member of the persisted
+	// projection is a host SEAM push, so adopting one is a call and never a re-acquisition:
+	// exactly one init, for the mount. (The member that would have broken that rule was
+	// `sampleCount`, which is why it was excluded from the blob; it left with MSAA at T4c
+	// and the rule now holds by construction rather than by exception.)
 	expect(next.calls.init.mock.calls).toEqual([
-		[screen.getByLabelText("field viewport"), { sampleCount: 4 }],
+		[screen.getByLabelText("field viewport")],
 	]);
 });
 

@@ -769,7 +769,7 @@ test("openEntity seeds a reconfigure session from provenance; applyReconfigure r
   }
 });
 
-test("a dispose ANNOUNCES the session it destroys (the AA switch disposes under a live panel)", async () => {
+test("a dispose ANNOUNCES the session it destroys, because chrome need not be unmounting", async () => {
   const uninstall = installFakeWorker();
   try {
     const host = createFieldHost();
@@ -782,9 +782,11 @@ test("a dispose ANNOUNCES the session it destroys (the AA switch disposes under 
     expect(sessions.at(-1)?.phase).toBe("ready");
 
     // The session dies with its ghost — but the panel is NOT necessarily remounting
-    // around it. F4.5a's AA switch disposes and re-inits the host under chrome that
-    // never unmounts, so a silent drop leaves the stamp inspector driving a session
-    // the host has already destroyed: a live Apply over nothing.
+    // around it. `dispose()` is a facade member and promises nothing about chrome
+    // lifecycle, so a silent drop leaves the stamp inspector driving a session the host
+    // has already destroyed: a live Apply over nothing. (F4.5a's AA switch was the caller
+    // that made that concrete — it disposed and re-inited under chrome that never
+    // unmounted — and it left with MSAA at T4c. The contract it exposed did not.)
     //
     // `cancelAnimationFrame` is the first line of `dispose` and does not exist in bun
     // (this host never inited, so nothing scheduled a frame either). Stubbed for the

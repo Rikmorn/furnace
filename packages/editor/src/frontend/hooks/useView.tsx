@@ -1,8 +1,13 @@
-// What the field LOOKS like — shading, layer visibility, the slice plane, viewport AA —
-// and nothing about what is in it. Shell state, not panel state: the View popover in the
-// top bar drives it, the burger's View group drives the same values, and the canvas layer
-// reads the AA setting, so it cannot live inside a palette that closing would take with
-// it (the world-state precedent).
+// What the field LOOKS like — shading, layer visibility, the slice plane — and nothing
+// about what is in it. Shell state, not panel state: the View popover in the top bar
+// drives it and the burger's View group drives the same values, so it cannot live inside a
+// palette that closing would take with it (the world-state precedent).
+//
+// It held a fourth member, `sampleCount`, and the canvas layer reading it was a second
+// reason this had to be shell state. MSAA left the editor at foundations T4c; the reason
+// above is the one that survives, and it was always sufficient on its own. What the
+// removal DID change is the type's shape — see `ViewState` below: every member is now a
+// push to a host seam, which is what makes this a view state rather than a settings bag.
 //
 // It is a pure chrome→host concern, which is why it is NOT part of `useFieldHostState`.
 // The line between the two providers is the DIG LOOP, not the direction of travel:
@@ -28,10 +33,13 @@
 // Split into STATE and ACTIONS contexts, the useWorkspace/useWorld pattern — and honest
 // about who benefits TODAY: nobody. Both of this provider's chrome consumers (the View
 // popover, the burger's View group) read state AND actions, because a control that writes
-// a toggle has to show it. The split is here for the shape, not for a saved render, and
-// the one place a view change is genuinely expensive to propagate is handled elsewhere:
-// Shell keeps ShellChrome off the STATE context with a `FieldCanvas` wrapper, documented
-// there. Delete this split rather than defend it if F4.5b's consumers arrive read-only.
+// a toggle has to show it. The split is here for the shape, not for a saved render.
+//
+// It used to have one live beneficiary and no longer does: `Shell` kept `ShellChrome` off
+// the STATE context behind a `FieldCanvas` wrapper, whose whole job was reading
+// `sampleCount` for the canvas. T4c deleted both the member and the wrapper, so no consumer
+// of this provider takes state without actions. Delete this split rather than defend it if
+// a read-only consumer never arrives.
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -105,26 +113,23 @@ const SLICE_DEFAULT_Y = 8;
  *  frame, which reads as the tick having damaged something. */
 const SLICE_SEED_CLEARANCE_M = 0.5;
 
-/** MSAA for the viewport pass. 4 is the default (the value the host used unconditionally
- *  before the switch existed); 1 turns it off. */
-const DEFAULT_SAMPLE_COUNT = 4;
-
 /** How the field is drawn. `slice.y` survives the plane being switched off, so re-ticking
- *  the box returns to the depth the user chose rather than to the park. */
+ *  the box returns to the depth the user chose rather than to the park.
+ *
+ *  EVERY MEMBER IS A PUSH TO A HOST SEAM, which is what makes this a view state rather
+ *  than a settings bag. The one member that was not — `sampleCount`, whose only way to
+ *  take effect was disposing and rebuilding the GPU context — left with MSAA at
+ *  foundations T4c; the editor's context is `sampleCount: 1`, full stop. */
 export type ViewState = {
 	shading: FieldHostShading;
 	layers: FieldLayers;
 	slice: { enabled: boolean; y: number };
-	/** Viewport MSAA. Changing it re-inits the GPU context (CanvasHost owns that round
-	 *  trip) — the one view control that costs more than a uniform write. */
-	sampleCount: 1 | 4;
 };
 
 export type ViewActions = {
 	setShading: (mode: FieldHostShading) => void;
 	setLayers: (next: FieldLayers) => void;
 	setSlice: (next: { enabled: boolean; y: number }) => void;
-	setSampleCount: (n: 1 | 4) => void;
 };
 
 const ViewStateContext = createContext<ViewState | null>(null);
@@ -152,16 +157,11 @@ const defaultView = (): ViewState => ({
 	shading: "studio",
 	layers: { ...DEFAULT_LAYERS },
 	slice: { enabled: false, y: SLICE_DEFAULT_Y },
-	sampleCount: DEFAULT_SAMPLE_COUNT,
 });
 
-/** The persisted projection. `sampleCount` is deliberately absent: restoring it would
- *  mean disposing and re-initing the GPU context moments after the first one came up
- *  (the store arrives late, off an async project.get), i.e. a visible teardown on every
- *  cold start to honour a switch the user last touched days ago. AA is a session choice
- *  until that ordering is worth solving.
+/** The persisted projection.
  *
- *  `layers.voidCast` is absent for the SAME reason, one step worse. The host boots with
+ *  `layers.voidCast` is absent, and knowingly so. The host boots with
  *  the X-ray off and `setLayers` acts on the false→true EDGE, so a restored `true` always
  *  presents that edge — and what the edge does depends on an unpinned race between this
  *  store and the catalog-gated world restore. Win it and the user gets a spurious
@@ -213,7 +213,6 @@ function deserializeView(stored: UiState["view"]): ViewState {
 		shading: stored.shading === "normals" ? "normals" : "studio",
 		layers,
 		slice,
-		sampleCount: base.sampleCount,
 	};
 }
 
@@ -334,7 +333,6 @@ export function ViewProvider({
 							: { enabled: true, y: top + SLICE_SEED_CLEARANCE_M },
 				}));
 			},
-			setSampleCount: (sampleCount) => edit((s) => ({ ...s, sampleCount })),
 		};
 	}, [host]);
 

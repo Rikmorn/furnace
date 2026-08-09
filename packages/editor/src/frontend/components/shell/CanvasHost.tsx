@@ -13,23 +13,15 @@ import { useEditor } from "../editor-context.ts";
  * it is the shell's CSS contract broken, and waiting for a resize that will never come
  * would hide it. Fail loud instead.
  *
- * `sampleCount` is the viewport's MSAA, and it is a CONTEXT property: the only way to
- * change it is to dispose the host and init it again, which is why the View popover's AA
- * switch lands here rather than on a host setter. The cost is a re-init, not a reset —
- * everything the editor cannot rebuild (the field, the op log, the tool, the camera) is
- * CPU state the host keeps across a dispose.
- *
  * `onError` carries an init REJECTION (a GPU/context failure) to the status bar —
  * local, not a global engine-error: the chrome is still usable and the message is the
  * only diagnosis a user gets.
  */
 export function CanvasHost({
 	host,
-	sampleCount,
 	onError,
 }: {
 	host: FieldHost;
-	sampleCount: 1 | 4;
 	onError: (message: string) => void;
 }) {
 	const ref = useRef<HTMLCanvasElement>(null);
@@ -41,11 +33,25 @@ export function CanvasHost({
 	const heldAtGestureStart = useRef(false);
 	// The tail of the LAST teardown, so the next init can wait for it. The host holds one
 	// context and throws on a second `init`, and its dispose is deferred (see the cleanup
-	// below) — so an AA change, whose cleanup and re-run happen in the same React commit,
-	// would otherwise call `init` while the old context is still up and take the whole
-	// tree down with "already initialized". Chaining is what makes re-init expressible at
-	// all; it also happens to make a double-invoked mount safe, which the deferred dispose
-	// alone did not.
+	// below) — so ANY cleanup and re-run that land in the same React commit would otherwise
+	// call `init` while the old context is still up and take the whole tree down with
+	// "already initialized". The effect's dep list declares that shape is possible (a new
+	// `host` identity), and a double-invoked mount is the same shape again.
+	//
+	// INSURANCE, BUT CHECKED INSURANCE. The caller that used to reach this every day is
+	// gone — the View popover's AA switch was a dispose + re-init at a different sample
+	// count, and MSAA left the editor at foundations T4c — and what remains is un-reached
+	// today, because `App` builds ONE host and `main.tsx` renders without `StrictMode`.
+	// Both are a one-line change away, so the ordering stays; what would ordinarily rot is
+	// the CLAIM that it works, so `shell.test.tsx`'s *"a double-invoked mount leaves the
+	// host INITED, not disposed"* renders this instance under `StrictMode` and asserts it.
+	//
+	// Measured there rather than reasoned: unchained, the double-invoke's second init
+	// resolves off an already-settled promise and beats the deferred dispose, so the host
+	// ends up DISPOSED behind chrome that thinks it is live — a viewport blank until
+	// reload, with nothing logged. (A two-host-identity test was tried first and rejected:
+	// the old host's dispose settles before the new host's init either way, so it passes
+	// chained or not. It would have pinned a coincidence.)
 	const teardown = useRef<Promise<unknown>>(Promise.resolve());
 
 	// Latest-ref, because the effect below is a GPU LIFECYCLE: it must re-run for a new
@@ -76,11 +82,11 @@ export function CanvasHost({
 		let cancelled = false;
 		const started = teardown.current
 			.then(() => {
-				// The teardown this waited on may have been THIS effect's own cleanup (an AA
-				// change re-runs it in the same commit): starting a context for a canvas the
-				// tree has already dropped would leak a device nobody disposes.
+				// This runs a microtask later at the earliest, and the cleanup can already have
+				// fired by then — an unmount, or this effect's own re-run. Starting a context
+				// for a canvas the tree has already dropped would leak a device nobody disposes.
 				if (cancelled) return;
-				return host.init(canvas, { sampleCount });
+				return host.init(canvas);
 			})
 			.catch((err: unknown) => {
 				if (!cancelled)
@@ -104,15 +110,16 @@ export function CanvasHost({
 				.finally(() => host.dispose())
 				.catch(() => undefined);
 		};
-	}, [host, sampleCount]);
+	}, [host]);
 
 	// The focus seam (F4.5c Task 10), installed for as long as there is a canvas.
 	//
-	// A SEPARATE effect from the GPU lifecycle above, and it must stay one: that effect
-	// re-runs on an AA change (it disposes and rebuilds the WebGPU context), while the
-	// element it is about never changes — React creates this `<canvas>` once and keeps it.
-	// Folding the two together would tear the listeners down and rebuild them for a reason
-	// that has nothing to do with focus, and would drop the record mid-gesture.
+	// A SEPARATE effect from the GPU lifecycle above, and it must stay one: that effect is
+	// about the DEVICE and re-runs whenever the host changes, tearing the WebGPU context
+	// down and rebuilding it, while the element this one is about never changes — React
+	// creates this `<canvas>` once and keeps it. Folding the two together would tear the
+	// listeners down and rebuild them for a reason that has nothing to do with focus, and
+	// would drop the record mid-gesture.
 	//
 	// CAPTURE phase, on the WINDOW, for both events. Capture is what puts this before the
 	// focus transfer the gesture is about to cause — a browser focuses a clicked control as

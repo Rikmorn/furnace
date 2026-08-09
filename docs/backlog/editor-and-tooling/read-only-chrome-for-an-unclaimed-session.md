@@ -35,16 +35,20 @@ world; Task 4's `session.state` reads through it. So the cost of the narrowing t
 one thing: a second tab is a normal editor that the agent cannot see. It is not a correctness
 gap, and no pin depends on it.
 
-**A related narrowing rides the same decision — now with its own entry:** the chrome claims at
-CONNECT with the world it is authoring at that moment and does **not** re-claim when the user
-switches worlds (`useSessionClaim`, `editor-context.ts`'s `worldNameRef`). The claim's world is
-a label in T4b, never a routing key — but "a stale label costs nothing" undersold it: the
-whole-branch review found the label composes with the load-bearing claim COUNT into a silent
-two-claims state (a tab holding stale `null` lets a second tab claim `null` conflict-free;
-every later agent read is the two-claims refusal with no chrome warning —
-`editor-architecture.md` §26.1's worked scenario). The fix is filed at
-[[re-claim-on-world-switch]]; a read-only mode would additionally make the label load-bearing
-(read-only *for a world*), so the two entries should be designed together.
+**A related narrowing rode the same decision and has since SHIPPED, which changes what is
+left here.** The chrome used to claim at CONNECT under whatever world it was authoring at
+that moment and never re-claim on a switch, so the claim's world was a label that could go
+stale — and the whole-branch review found that a stale label composed with the load-bearing
+claim COUNT into a silent two-claims state. Foundations T4c fixed it: `useSessionClaim` owns
+the authored world and re-keys on every change, `editor-context.ts` carries the verb
+(`setAuthoredWorld`) instead of the old `worldNameRef`, and a refused re-claim releases what
+this tab left. See `editor-architecture.md` §26.1 for the shipped shape.
+
+**What that leaves for THIS entry.** The claim's world is now TRUE, which makes it usable as
+a routing key for the first time — a read-only mode would be read-only *for a world*, and
+the design pass this entry asks for can now assume the key means what it says. The two were
+filed to be designed together; one is done, and it removed the obstacle rather than the
+question.
 
 ## Trigger to revisit
 

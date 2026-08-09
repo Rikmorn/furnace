@@ -93,7 +93,6 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
         voidCast: false,
       },
       slice: { enabled: false, y: 8 },
-      sampleCount: 4,
     },
     workspace: { hidden: false },
     generators: [
@@ -123,7 +122,6 @@ export function makeCtx(over: Partial<ActionCtx> = {}): ActionCtx {
         setShading: mock(),
         setLayers: mock(),
         setSlice: mock(),
-        setSampleCount: mock(),
       },
       workspace: {
         move: mock(),

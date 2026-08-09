@@ -203,12 +203,15 @@ export type SessionStateReader = () => SessionState;
  * version would still have one honest thing to spread. The wire mounts at `App`
  * (`useSessionAnswer`'s header argues where and why) and the mirrors live far below it, so
  * the reader travels the route this chrome already uses for exactly this — a ref created in
- * `App` and filled from below. THREE precedents, named precisely because an earlier version
- * of this sentence named the wrong set: `bakeBusyRef` (filled by the shell's world verbs),
- * `worldNameRef` (filled by `WorldProvider`) and `viewportFocusRef` (created in `App`,
- * installed by `CanvasHost`). NOT `claimLostRef`, which is created AND written inside
- * `useSessionClaim` — a hook `App` itself calls — so only its READER is below and it is a
- * different shape. Nothing about the wire moved to make this reachable.
+ * `App` and filled from below. TWO precedents, named precisely because an earlier version
+ * of this sentence named the wrong set: `bakeBusyRef` (filled by the shell's world verbs)
+ * and `viewportFocusRef` (created in `App`, installed by `CanvasHost`). It was three until
+ * T4c: `worldNameRef` (filled by `WorldProvider`) was retired when the session claim learnt
+ * to re-key, because a ref carries a VALUE and what the claim needed was the EVENT — the
+ * seam is now a verb travelling the other way, `setAuthoredWorld`. NOT `claimLostRef`
+ * either, which is created AND written inside `useSessionClaim` — a hook `App` itself calls
+ * — so only its READER is below and it is a different shape. Nothing about the wire moved
+ * to make this reachable.
  *
  * **AN UNFILLED REF ANSWERS `{ ready: false }` rather than throwing or refusing**, and the
  * distinction matters to whoever asked. A refusal would say "this tab cannot serve that

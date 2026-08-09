@@ -24,7 +24,7 @@ import { ActionContextProvider } from "../../hooks/useActionContext.tsx";
 import { CatalogProvider } from "../../hooks/useCatalogs.tsx";
 import { FieldHostStateProvider } from "../../hooks/useFieldHostState.tsx";
 import { PaletteStackProvider } from "../../hooks/usePaletteStack.tsx";
-import { useViewState, ViewProvider } from "../../hooks/useView.tsx";
+import { ViewProvider } from "../../hooks/useView.tsx";
 import { WorkspaceProvider } from "../../hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../hooks/useWorld.tsx";
 import { useEditor } from "../editor-context.ts";
@@ -148,7 +148,7 @@ function ShellChrome({
           absent (engine still booting, init failed). */}
 						<div className="relative min-h-0 min-w-0 flex-1 bg-viewport-background">
 							{engineReady && host && (
-								<FieldCanvas host={host} onError={setViewportError} />
+								<CanvasHost host={host} onError={setViewportError} />
 							)}
 							{/* The palette bodies are built HERE so their elements survive the
                   layer's own drag re-renders untouched (see PaletteLayer's `content`).
@@ -208,20 +208,4 @@ function ShellChrome({
 			</TooltipProvider>
 		</ActionContextProvider>
 	);
-}
-
-/** The canvas plus the one piece of view state it needs. A separate component so
- *  ShellChrome does NOT read the view context: ShellChrome builds the palette bodies, so
- *  every render of it rebuilds those elements and re-renders all five palettes with them
- *  — the same reason it now reads no state context at all. Here the re-render stops at a
- *  canvas element React never re-creates. */
-function FieldCanvas({
-	host,
-	onError,
-}: {
-	host: FieldHost;
-	onError: (message: string) => void;
-}) {
-	const { sampleCount } = useViewState();
-	return <CanvasHost host={host} sampleCount={sampleCount} onError={onError} />;
 }

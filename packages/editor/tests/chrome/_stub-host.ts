@@ -353,10 +353,12 @@ export function makeStubHost(
     // Modelled on the real host's lifecycle, both halves of it. It REFUSES a second
     // init while a context is up ("one host, one live canvas") and it SETTLES
     // ASYNCHRONOUSLY, because the real one awaits a device — and those two together are
-    // what make an unordered dispose→init (the AA switch's hazard) visible here instead
-    // of only in a browser.
-    init: (canvas, initOpts) => {
-      calls.init(canvas, initOpts);
+    // what would make an unordered dispose→init visible here instead of only in a browser.
+    // Nothing in the chrome performs one on demand since MSAA left the editor (T4c); the
+    // fidelity is kept because `CanvasHost`'s teardown chain is still the thing that would
+    // have to be right the day one is reachable again.
+    init: (canvas) => {
+      calls.init(canvas);
       order.push("init");
       if (opts.initRejection !== undefined)
         return Promise.reject(new Error(opts.initRejection));

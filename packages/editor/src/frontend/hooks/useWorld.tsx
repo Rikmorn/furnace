@@ -168,7 +168,7 @@ export function useWorldActions(): WorldActions {
 }
 
 export function WorldProvider({ children }: { children: ReactNode }) {
-	const { fieldHostRef, openConfirm, store, bakeBusyRef, worldNameRef } =
+	const { fieldHostRef, openConfirm, store, bakeBusyRef, setAuthoredWorld } =
 		useEditor();
 	const { stats } = useFieldHostState();
 	const { catalogSettled } = useCatalog();
@@ -178,12 +178,16 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 	const [job, setJob] = useState<WorldJob | null>(null);
 
 	// The session claim is asserted at App level, ABOVE this provider, and it claims under
-	// the world this session is authoring — so the name has to travel up. A ref rather
-	// than a lift of the state: `name` is the axis this whole provider is built around,
-	// and moving it to App would take every world verb with it.
+	// the world this session is authoring — so every change of `name` has to travel up. A
+	// call rather than a lift of the state: `name` is the axis this whole provider is built
+	// around, and moving it to App would take every world verb with it.
+	//
+	// EVERY change, including the one back to `null` that New performs, and including the
+	// first: the claim value-guards its own key, so a mount that reports the untitled
+	// scratch it is already on posts nothing.
 	useEffect(() => {
-		worldNameRef.current = name;
-	}, [name, worldNameRef]);
+		setAuthoredWorld(name);
+	}, [name, setAuthoredWorld]);
 
 	// The op count the last stats push carried. `null` means the baseline is being
 	// re-established — a load or a New just replaced the world, and the count the chrome

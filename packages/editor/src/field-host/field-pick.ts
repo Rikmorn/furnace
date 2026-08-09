@@ -4,11 +4,14 @@
 // store) and raycasts the field for the occluder; this module does the geometry
 // and decides the winner.
 //
-// CPU, not a GPU id pass, and that is a measured choice rather than a fallback:
-// the field host acquires its context at `sampleCount: 4`, `frame.renderToTexture`
-// refuses any non-1 sample count, and the two things most worth picking — entity
-// footprints and gizmo handles — have no meshes at all (they are `drawLines`
-// batches and pure math).
+// CPU, not a GPU id pass, and one of the two reasons that decided it has since been
+// REMOVED rather than merely restated: the host used to acquire its context at
+// `sampleCount: 4`, which `frame.renderToTexture` refuses outright, so an id pass could
+// not even be rendered here. MSAA left the editor at foundations T4c and that blocker is
+// gone. What still stands is the reason that was never about the context: the two things
+// most worth picking — entity footprints and gizmo handles — have no meshes at all (they
+// are `drawLines` batches and pure math), so an id pass would have to invent geometry for
+// them before it could beat a ray test that already resolves both.
 //
 // The whole per-click bill, not just this module's share of it: the ray tests
 // here are ~32k scalar ops at this slice's scale (tens of entities, hundreds of
@@ -20,7 +23,10 @@
 //
 // Its consequence is written into the design and not just tolerated: a CPU pick
 // is affordable per CLICK, not per pointermove, so there is no hover
-// pre-highlight anywhere in the editor. Selection is click-driven.
+// pre-highlight anywhere in the editor. Selection is click-driven. That deferral's
+// filed trigger ("a GPU pick path exists") is now one step closer than it was —
+// the context no longer refuses one — and one step short of fired, because
+// nothing has built the id materials the two mesh-less candidate kinds would need.
 
 type Vec3T = [number, number, number];
 

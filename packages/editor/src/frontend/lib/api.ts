@@ -104,15 +104,19 @@ export const api = {
   // connection and wrote into it as its first frame — `daemon/events.ts` argues at
   // length what that name is and is not for. `name` is the world being authored, or
   // null for the untitled scratch (`WorldState.name`'s own nullable, on the wire).
-  //
-  // `session.release` has no method here on purpose: a tab that stops authoring is a
-  // tab that closed, and the daemon's SSE close hook has already released it. The
-  // command exists because the claim's lifetime is only statable with both ends of it;
-  // adding an unused client method would be scaffold, not symmetry.
   sessionClaim: (name: string | null, token: string) =>
     call<Record<string, never>>("session.claim", { name, token }),
   sessionSteal: (name: string | null, token: string) =>
     call<Record<string, never>>("session.steal", { name, token }),
+  // `session.release` had no method here until T4c, on the argument that a tab which stops
+  // authoring is a tab that closed and the daemon's SSE close hook has already released it.
+  // That was true while a claim was taken once per connection. It stopped being true when
+  // the claim learnt to RE-KEY on a world switch: a re-claim that is refused leaves this
+  // connection still holding the world it just left, and the only way to put that right is
+  // to say so. NO `name` — the daemon releases everything the token's connection holds,
+  // which is at most one world (`daemon/claims.ts`).
+  sessionRelease: (token: string) =>
+    call<Record<string, never>>("session.release", { token }),
 
   // The backchannel's return path (T4b). ONE argument, and it is the wire type itself
   // (`shared/wire.ts`) rather than a pair this function reassembles — the first method here

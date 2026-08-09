@@ -1,14 +1,14 @@
 // The View popover (D-F4.5-16): everything about what the viewport SHOWS, in the top
-// bar, one click from anywhere — shading, the layer gates, the X-ray, the slice plane and
-// the viewport's antialiasing. It replaces the panel's layers row, which put display
-// state inside a palette that closing took away with it.
+// bar, one click from anywhere — shading, the layer gates, the X-ray and the slice plane.
+// It replaces the panel's layers row, which put display state inside a palette that
+// closing took away with it.
 //
 // Pure presentation over `useView`: the provider owns the values, the persistence and
 // every host push, so this file decides only what the controls look like and which verb
 // each one calls.
 //
-// Three labelled groups plus a lone switch, because they are different kinds of control
-// wearing the same widget. The seven under "layers" are free display gates over state
+// Three labelled groups, because they are different kinds of control wearing the same
+// widget. The seven under "layers" are free display gates over state
 // that already exists — `flags` included: the advisor analyses whether or not its markers
 // are drawn, so hiding them costs nothing and starts nothing. The two under "overlays"
 // each COST something: ticking void runs a whole-world cast job that can refuse (chunk
@@ -17,11 +17,6 @@
 // thing, the X-ray overlay toggle is another — and the group label is what makes it
 // visible here, since one more identical checkbox in a flat row would read as one more
 // free gate.
-//
-// Antialiasing stands ALONE at the bottom, under no group, because it is the one control
-// here that is not about the scene at all: it changes how the picture is drawn, and it
-// pays for it with a GPU context rebuild. (It also has nowhere honest to sit — an
-// "overlay" it is not.)
 //
 // Every control here documents itself through a real TOOLTIP rather than a `title`
 // (D-25): the sentences below are what each toggle costs and what it does to the picture,
@@ -64,9 +59,6 @@ const VOID_CAST_HINT =
 
 const SLICE_HINT =
 	"cut the world at a height: everything at or above the plane reads as air, for display AND for what the brush targets";
-
-const AA_HINT =
-	"multisampling on the viewport pass. Changing it rebuilds the GPU context: the world, your edits and the camera survive, the picture blinks — but a stamp you have not committed is discarded";
 
 // The exclusion above, made machine-checked: putting `voidCast` in the group stops
 // compiling rather than quietly shipping an expensive toggle dressed as a free one (and
@@ -165,7 +157,7 @@ export function ViewPopover({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const { shading, layers, slice, sampleCount } = useViewState();
+	const { shading, layers, slice } = useViewState();
 	const view = useViewActions();
 	// "Open it, change something, close it, keep flying" is this popover's normal loop —
 	// it is the surface that made the dead-keys class worth fixing at all.
@@ -274,20 +266,6 @@ export function ViewPopover({
 						</span>
 					</label>
 				</div>
-				<ActionTip hint={AA_HINT}>
-					<label
-						className={`${LABEL_CLASS} border-border border-t pt-3`}
-						htmlFor={boxId("antialiasing")}
-					>
-						<Checkbox
-							id={boxId("antialiasing")}
-							checked={sampleCount === 4}
-							onCheckedChange={(c) => view.setSampleCount(c === true ? 4 : 1)}
-							aria-label="antialiasing"
-						/>
-						antialiasing
-					</label>
-				</ActionTip>
 			</PopoverContent>
 		</Popover>
 	);
