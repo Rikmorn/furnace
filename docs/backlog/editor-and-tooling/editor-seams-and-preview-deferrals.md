@@ -128,6 +128,14 @@ The game does not look like that. `packages/dungeon/src/main.ts` requests
 is fine for sculpting geometry (arguably better: an unfiltered view of the surface) and wrong
 for judging mood, emissive materials, or anything a bloom threshold decides.
 
+**New cost on the `hdr: true` path, added by foundations T4c.** `frame.drawLinesToTexture`
+(the off-screen line overlay the capture path composites gizmos and markers with) refuses HDR
+contexts outright: the line pipelines write `ctx.format` while `renderToTexture` writes
+`workingColorFormat`, and on HDR those differ, so no one texture can hold both the meshes and
+their overlays. Whoever promotes this entry must therefore also decide what capture does —
+either the line pipelines gain a `workingColorFormat` target variant, or off-screen captures
+lose their overlays. Not a blocker; a bill that is now visible before the work starts.
+
 The `frame.render` HDR↔effects contract is (verified in `packages/core/src/frame/render.ts`) that
 it throws **only on the inverse** — `hdr === true` **and** an empty effect chain (an
 `rgba16float` scene target with no pass to reach the LDR swap chain). A non-HDR context with

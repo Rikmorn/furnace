@@ -18,7 +18,12 @@ export {
   loop,
 } from "./loop.ts";
 export { type RenderOptions, render } from "./render.ts";
-export { type DrawLinesOptions, drawLines } from "./render-lines.ts";
+export {
+  type DrawLinesOptions,
+  type DrawLinesToTextureOptions,
+  drawLines,
+  drawLinesToTexture,
+} from "./render-lines.ts";
 export {
   type RenderToTextureOptions,
   renderToTexture,

@@ -7,6 +7,7 @@ export const state: {
   pipAngle: PipAngle;
   pipResolution: PipResolution;
   pipDepth: boolean;
+  pipLit: boolean;
   yaw: number;
 } = $state({
   angle: 0,
@@ -14,5 +15,6 @@ export const state: {
   pipAngle: "front",
   pipResolution: "512",
   pipDepth: true,
+  pipLit: true,
   yaw: 0,
 });

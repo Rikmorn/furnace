@@ -307,8 +307,8 @@ export function unlit(ctx: Context): Promise<Shader<{ color: "vec4f" }>> {
  * binding keeps working. Add a highlight by setting both `specular.rgb` and
  * `specular.w`. Engine-owned, shared per ctx (compiled once); {@link destroy}
  * no-ops. Pass to `material.create` with a `binding` carrying at least
- * `{ color }`. Supply `frame.render({ lights })` or the surface renders
- * ambient-only.
+ * `{ color }`. Supply `frame.render({ lights })` — or `frame.renderToTexture({
+ * lights })` for an off-screen pass — or the surface renders ambient-only.
  *
  * NOTE: lit no longer shares `unlit`'s layout (it adds `specular`), so an
  * unlit↔lit material swap requires a `{ color, specular }` binding.
@@ -363,7 +363,8 @@ export function unlitInstanced(
  *
  * Engine-owned, shared per ctx (compiled once); {@link destroy} no-ops. Pass to
  * `material.create` with a `binding` carrying at least `{ color }`, and supply
- * `frame.render({ lights })` or the surface renders ambient-only.
+ * `frame.render({ lights })` — or `frame.renderToTexture({ lights })` off-screen
+ * — or the surface renders ambient-only.
  */
 export function litInstanced(
   ctx: Context,
@@ -428,7 +429,8 @@ export function textured(ctx: Context): Promise<Shader<Record<string, never>>> {
  * These reach the shader via `MaterialDescriptor.texture` — no `@group(1)` uniform
  * layout is declared (`Shader<Record<string, never>>`). Declares
  * `textureBinding: true`; `material.create` will require a `texture` when this
- * shader is used. Supply `frame.render({ lights })` or the surface renders
+ * shader is used. Supply `frame.render({ lights })` — or
+ * `frame.renderToTexture({ lights })` off-screen — or the surface renders
  * ambient-only (textured).
  */
 export function texturedLit(

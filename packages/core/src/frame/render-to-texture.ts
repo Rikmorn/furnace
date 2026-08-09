@@ -11,6 +11,7 @@ import {
 } from "../stats/internal.ts";
 import type { Vec4 } from "../transform/types.ts";
 import { vec4 } from "../transform/vec4.ts";
+import type { Ambient, Light } from "./lights.ts";
 import {
   _frameRenderInternals,
   type RenderPassBase,
@@ -41,6 +42,16 @@ import { trianglesForTopology } from "./triangles-for-topology.ts";
  *   **only** when every drawn material was created with `depthEnabled: false`.
  *   Must be format `depth24plus` when supplied; any other format throws
  *   `FurnaceGpuError`.
+ * - `lights` / `ambient`: same semantics as `RenderOptions` — packed into the
+ *   engine Scene UBO (`@group(0) @binding(1)`) and read by `usesScene`
+ *   pipelines. Omitted/empty `lights` → ambient-only; omitted `ambient` → the
+ *   engine's neutral low default. Pass the on-screen frame's values to make an
+ *   off-screen pass match what the viewport shows.
+ *
+ * **`fog` is deliberately absent.** `RenderOptions` has it; this does not. The
+ * Scene UBO carries a fog slot either way, so the off-screen pass always packs
+ * fog *disabled* (density `0`). Add the field when a consumer needs fogged
+ * off-screen output — nothing in the packing path blocks it.
  *
  * **Strict submission order — no blend partitioning.** Unlike `frame.render`,
  * which records blended materials after every opaque draw, this pass records
@@ -75,6 +86,18 @@ export type RenderToTextureOptions = RenderPassBase & {
    *  transform + tint from the instance vertex buffers). Resolved against the
    *  dedicated instanced-mesh pool. Same invalid-handle semantics as `meshes`. */
   instanced?: InstancedMesh[];
+  /** Per-frame lights for the off-screen pass, packed into the Scene UBO
+   *  exactly as `frame.render` packs `RenderOptions.lights`. Omitted/empty →
+   *  ambient-only. Clamped to `MAX_LIGHTS` (16) with a once-only `log.warn`
+   *  (never throws — shared with the render path). Shadows are NOT cast in an
+   *  off-screen pass regardless of each light's `shadow` config: this pass
+   *  supplies no casters, so `_packScene` leaves every light's Scene-UBO shadow
+   *  slot at its `-1` default and `fr_shadowFactor` returns 1.0 (fully lit)
+   *  before touching the shadow array. */
+  lights?: Light[];
+  /** Per-frame hemisphere ambient for the off-screen pass. Omitted → the same
+   *  neutral low default (`intensity ≈ 0.05`) `frame.render` uses. */
+  ambient?: Ambient;
 };
 
 const DEFAULT_CLEAR_COLOR: Vec4 = vec4.fromValues(0, 0, 0, 1);
@@ -131,9 +154,15 @@ function recordDraw(
       cameraBuffer,
       sceneBuffer,
       material.usesScene,
-      // usesShadows binds the shadow array/sampler even in RTT: the array is cleared
-      // (depth = 1.0) and fr_shadowFactor returns 1.0 (lit) for non-casting slots — a
-      // harmless no-op. RTT runs no shadow passes (see the RTT deferral note above).
+      // usesShadows binds the shadow array/sampler even in RTT, where nothing ever
+      // samples them. The guarantee lives in ONE place — this pass passes no casters
+      // (see the _writeSceneBuffer call below), so `_packScene` leaves every light's
+      // shadow slot at its NO_SHADOW_SLOT (-1) default and `fr_shadowFactor` returns
+      // 1.0 before its first texture read (shader/shadows.ts). It does NOT live in the
+      // array's contents: only `_recordShadowPasses` writes or clears that array and it
+      // runs from `frame.render` alone, so during a capture it still holds the previous
+      // on-screen frame's maps. Harmless precisely because the slot is -1 — anyone
+      // populating `casters` here must supply the passes too, not assume a clean array.
       material.usesShadows,
     ),
   );
@@ -168,6 +197,21 @@ function recordDraw(
  * into a consumer-supplied `GPUTexture` instead of the swap chain. No
  * post-effects chain — pipe the result through another `render` call (as a
  * shader input) for compositing.
+ *
+ * **Lit off-screen passes are supported.** `opts.lights` / `opts.ambient` are
+ * packed into the Scene UBO exactly as `frame.render` packs its own, so an
+ * off-screen pass can reproduce the on-screen composition (thumbnail bakes,
+ * planar reflections, agent-facing viewport captures). Omit both for the
+ * ambient-only default. **Shadows are still not cast off-screen** — this pass
+ * supplies no shadow casters, so every light's Scene-UBO shadow slot stays `-1`
+ * and `fr_shadowFactor` returns 1.0 without sampling the shadow array; a light's
+ * `shadow` config is inert here. (The array itself is bound but never read, and
+ * is NOT cleared by this call — only `frame.render`'s shadow passes write it.)
+ * `fog` is not accepted; the Scene UBO's fog lane is always packed disabled
+ * (density `0`).
+ *
+ * To composite line overlays on top of the result, follow this call with
+ * `drawLinesToTexture` against the same texture + depth texture.
  *
  * Reuses the engine-owned per-camera uniform buffer and `@group(0)` bind
  * group cache shared with `render`, so calling both with the same camera
@@ -274,13 +318,18 @@ export function renderToTexture(
     ctx,
     opts.camera,
   );
-  // Off-screen passes carry no lights param — write a default (ambient-only)
-  // Scene so lit materials still validate + draw. No shadow casters in the
-  // off-screen path. (Off-screen lighting + shadows: backlog.)
+  // Lights/ambient are passed through verbatim, exactly as `frame.render` does
+  // — an off-screen pass can therefore reproduce the on-screen composition (the
+  // capture case). Omitting both still yields the default ambient-only Scene, so
+  // lit materials validate + draw either way. Shadows stay out via THIS empty
+  // caster list and nothing else: `_packScene` defaults every light's shadow slot
+  // to -1 and only caster entries overwrite it, so the receiver's
+  // `fr_shadowFactor` short-circuits to 1.0. `fog` is not plumbed —
+  // `_writeSceneBuffer` defaults it to density 0 (disabled).
   const sceneBuffer = _frameRenderInternals._writeSceneBuffer(
     ctx,
-    undefined,
-    undefined,
+    opts.lights,
+    opts.ambient,
     [],
   );
   const colorView = opts.texture.createView();

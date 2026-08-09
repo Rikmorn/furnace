@@ -8,17 +8,21 @@
     pipAngle: PipAngle;
     pipResolution: PipResolution;
     pipDepth: boolean;
+    pipLit: boolean;
     onPipAngleChange: (v: PipAngle) => void;
     onPipResolutionChange: (v: PipResolution) => void;
     onPipDepthChange: (v: boolean) => void;
+    onPipLitChange: (v: boolean) => void;
   };
   let {
     pipAngle,
     pipResolution,
     pipDepth,
+    pipLit,
     onPipAngleChange,
     onPipResolutionChange,
     onPipDepthChange,
+    onPipLitChange,
   }: Props = $props();
 
   const isPipAngle = makeUnionGuard<PipAngle>(["overhead", "side", "front"]);
@@ -46,3 +50,4 @@
   onChange={(v) => { if (isPipResolution(v)) onPipResolutionChange(v); }}
 />
 <Toggle label="pipDepth" value={pipDepth} onChange={onPipDepthChange} />
+<Toggle label="pipLit" value={pipLit} onChange={onPipLitChange} />

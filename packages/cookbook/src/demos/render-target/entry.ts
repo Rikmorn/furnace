@@ -1,6 +1,7 @@
 import * as binding from "@furnace/core/binding";
 import type { Camera } from "@furnace/core/camera";
 import * as camera from "@furnace/core/camera";
+import type { Ambient, Light } from "@furnace/core/frame";
 import * as frame from "@furnace/core/frame";
 import * as geometry from "@furnace/core/geometry";
 import type { Context } from "@furnace/core/gpu";
@@ -58,6 +59,48 @@ const PIP_POSITIONS: Record<PipAngle, readonly [number, number, number]> = {
 
 const GIZMO_SIZE = 0.25;
 const GIZMO_COLOR: Vec4 = vec4.fromValues(1.0, 0.65, 0.2, 1);
+
+// The lit probe: one `shader.lit` sphere, off-centre so it clears the subject
+// cube's silhouette, and inside the ROOM_SIZE=4 box so the room backs it.
+//
+// Placement is constrained from three directions at once and does NOT have a
+// solution that satisfies all of them (searched, not guessed):
+//   - the MAIN camera (fov 45°, radius 2.5) frames only ~±1.0 m at the origin,
+//     so the probe must stay near the middle to appear in both views — which is
+//     the whole point of drawing it in both draw lists;
+//   - clearing the rotating subject (silhouette up to 18.3° from a PiP camera
+//     at 1.7 m) needs the probe well OFF that preset's view axis;
+//   - `overhead`/`side`/`front` put their axes on +Y/+X/+Z, so "off-axis for
+//     all three" means a corner, and every corner is outside the main view.
+// So: this position is clear of the subject at `front` (the default, +3.4°
+// worst-case cube rotation / +8.5° face-on) and `overhead` (+4.6°/+9.7°), and
+// sits DIRECTLY on the `side` preset's view axis, where the subject hides it
+// with `pipDepth` on. That last one is a rig limitation, not an oversight —
+// switch preset or toggle `pipDepth` to see the probe again.
+const PROBE_RADIUS = 0.3;
+const PROBE_POSITION: readonly [number, number, number] = [-0.95, 0.2, 0];
+const PROBE_COLOR: Vec4 = vec4.fromValues(0.55, 0.6, 0.7, 1);
+// specular = vec4(specColor.rgb, shininess) — opt out of shader.lit's matte default.
+const PROBE_SPECULAR: Vec4 = vec4.fromValues(0.5, 0.5, 0.5, 48);
+
+// One key light travelling down-and-away from the upper front-right. Both the
+// main pass and (when `pipLit` is on) the offscreen pass are handed THIS array.
+// STUDIO_AMBIENT goes to BOTH passes unconditionally — only `lights` is toggled,
+// so the demo swings exactly one variable and the "off" state is ambient-lit
+// rather than near-black.
+const KEY_LIGHTS: Light[] = [
+  {
+    type: "directional",
+    direction: [-0.4, -1, -0.6],
+    color: [1, 0.96, 0.9],
+    intensity: 1.6,
+  },
+];
+const STUDIO_AMBIENT: Ambient = {
+  sky: [0.5, 0.55, 0.7],
+  ground: [0.2, 0.18, 0.16],
+  intensity: 0.15,
+};
 
 // --- Monitor shader ---
 
@@ -142,6 +185,8 @@ type SceneRef = {
   subjectMeshNoDepth: Mesh;
   roomMeshNoDepth: Mesh;
   monitorMesh: Mesh;
+  probeMesh: Mesh;
+  probeMeshNoDepth: Mesh;
   pip: PipResources;
   mainCam: Camera;
   pipCam: Camera;
@@ -238,6 +283,46 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       material: roomMatNoDepth,
     });
 
+    // The lit probe, in both depth flavours — same reason the subject and room
+    // are duplicated: a `depth: false` material may only be drawn into a pass
+    // with no depth attachment, which is what the pipDepth:false branch builds.
+    const litShader = await shader.lit(ctx);
+    const probeBinding = binding.create(ctx, litShader);
+    binding.set(ctx, probeBinding, {
+      color: PROBE_COLOR,
+      specular: PROBE_SPECULAR,
+    });
+    const probeMat = await material.create(ctx, {
+      shader: litShader,
+      binding: probeBinding,
+    });
+    const probeBindingNoDepth = binding.create(ctx, litShader);
+    binding.set(ctx, probeBindingNoDepth, {
+      color: PROBE_COLOR,
+      specular: PROBE_SPECULAR,
+    });
+    const probeMatNoDepth = await material.create(ctx, {
+      shader: litShader,
+      binding: probeBindingNoDepth,
+      depth: false,
+    });
+    const probeGeo = geometry.sphere(ctx, { radius: PROBE_RADIUS });
+    const probePos = vec3.fromValues(
+      PROBE_POSITION[0],
+      PROBE_POSITION[1],
+      PROBE_POSITION[2],
+    );
+    const probeMesh = mesh.create(ctx, {
+      geometry: probeGeo,
+      material: probeMat,
+    });
+    mesh.setPosition(ctx, probeMesh, probePos);
+    const probeMeshNoDepth = mesh.create(ctx, {
+      geometry: probeGeo,
+      material: probeMatNoDepth,
+    });
+    mesh.setPosition(ctx, probeMeshNoDepth, probePos);
+
     const sampler = ctx.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -295,6 +380,8 @@ async function buildScene(ctx: Context): Promise<SceneRef> {
       subjectMeshNoDepth,
       roomMeshNoDepth,
       monitorMesh,
+      probeMesh,
+      probeMeshNoDepth,
       pip,
       mainCam,
       pipCam,
@@ -450,6 +537,12 @@ await mountDemo({
     onPipDepthChange: (v: boolean) => {
       state.pipDepth = v;
     },
+    get pipLit() {
+      return state.pipLit;
+    },
+    onPipLitChange: (v: boolean) => {
+      state.pipLit = v;
+    },
   },
   setup: async (ctx) => {
     input.attach(ctx.canvas);
@@ -525,20 +618,38 @@ await mountDemo({
     // Pass 1: PiP. depthEnabled ON → correct occlusion (depthTexture + depth materials);
     // OFF → genuine depth-less offscreen (no depthTexture + depthEnabled:false materials),
     // so geometry composites in draw order — a visible "why offscreen needs depth" artifact.
+    //
+    // `pipLit` is the SECOND offscreen lesson: renderToTexture takes the same
+    // per-frame `lights`/`ambient` frame.render takes, packed into the same
+    // Scene UBO. Handing it the main pass's own array is what makes an offscreen
+    // pass match the on-screen composition (thumbnail bakes, reflection probes,
+    // agent-facing captures). Exactly ONE field is toggled — `ambient` is passed
+    // to both passes either way — so withholding the key light leaves the probe
+    // ambient-lit and flat in the PiP while the identical sphere in the main
+    // view keeps its highlight.
+    const pipLights = state.pipLit ? KEY_LIGHTS : undefined;
     if (state.pipDepth) {
       frame.renderToTexture(ctx, {
         texture: scene.pip.texture,
         depthTexture: scene.pip.depthTexture,
-        meshes: [scene.subjectMesh, scene.roomMesh],
+        meshes: [scene.subjectMesh, scene.roomMesh, scene.probeMesh],
         camera: scene.pipCam,
         clearColor: CLEAR_PIP,
+        lights: pipLights,
+        ambient: STUDIO_AMBIENT,
       });
     } else {
       frame.renderToTexture(ctx, {
         texture: scene.pip.texture,
-        meshes: [scene.subjectMeshNoDepth, scene.roomMeshNoDepth],
+        meshes: [
+          scene.subjectMeshNoDepth,
+          scene.roomMeshNoDepth,
+          scene.probeMeshNoDepth,
+        ],
         camera: scene.pipCam,
         clearColor: CLEAR_PIP,
+        lights: pipLights,
+        ambient: STUDIO_AMBIENT,
       });
     }
 
@@ -548,11 +659,14 @@ await mountDemo({
       meshes: [
         scene.roomMesh,
         scene.subjectMesh,
+        scene.probeMesh,
         scene.monitorMesh,
         scene.gizmoMesh,
       ],
       camera: scene.mainCam,
       clearColor: CLEAR_MAIN,
+      lights: KEY_LIGHTS,
+      ambient: STUDIO_AMBIENT,
     });
   },
 });

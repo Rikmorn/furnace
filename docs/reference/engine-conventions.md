@@ -318,9 +318,9 @@ The engine's built-in shaders compose the `Camera`/`Object` binding preamble fro
 
 ## Lighting
 
-Multi-light Blinn-Phong lighting landed in Stage 3 Phase 2. Lights and ambient are **per-frame value-type data** (`Light` / `Ambient`, no handle or lifecycle — same posture as `Camera`), passed each frame via `RenderOptions.lights` / `RenderOptions.ambient`. The engine packs them into the Scene UBO (§Binding contract, `@group(0) @binding(1)`) and binds it only for pipelines whose shader declares `usesScene` (the built-in `shader.lit` / `shader.texturedLit`, or any custom shader composing the public `shader.sceneBinding` / `shader.lightingHelpers` fragments).
+Multi-light Blinn-Phong lighting landed in Stage 3 Phase 2. Lights and ambient are **per-frame value-type data** (`Light` / `Ambient`, no handle or lifecycle — same posture as `Camera`), passed each frame via `RenderOptions.lights` / `RenderOptions.ambient` — and, since foundations T4c, via the identically-named `RenderToTextureOptions` fields, so an off-screen pass can carry the on-screen frame's own lighting instead of falling back to ambient-only. The engine packs them into the Scene UBO (§Binding contract, `@group(0) @binding(1)`) and binds it only for pipelines whose shader declares `usesScene` (the built-in `shader.lit` / `shader.texturedLit`, or any custom shader composing the public `shader.sceneBinding` / `shader.lightingHelpers` fragments).
 
-**Light cap and overflow policy.** `MAX_LIGHTS = 16` (`frame/lights.ts`) — the fixed `array<Light, 16>` in the Scene UBO. Overflow is **clamped, not rejected**: `frame.render` packs only the first 16 lights and, on the first frame where more are supplied, emits a single `log.warn` (`warnedLightOverflow` latch in `frame/render.ts: _writeSceneBuffer`). It **never throws** — light count is a per-frame hot-path quantity, so the policy is runtime-quiet (clamp + warn-once). The Scene UBO is **engine-managed**, not a `Binding<L>`: the binding layout system has no array support, so the engine owns the packer (`_packScene`) and the per-ctx buffer directly.
+**Light cap and overflow policy.** `MAX_LIGHTS = 16` (`frame/lights.ts`) — the fixed `array<Light, 16>` in the Scene UBO. Overflow is **clamped, not rejected**: `_writeSceneBuffer` — shared by `frame.render` and `frame.renderToTexture` — packs only the first 16 lights and, on the first frame where more are supplied, emits a single `log.warn` (`warnedLightOverflow` latch in `frame/render.ts: _writeSceneBuffer`). It **never throws** — light count is a per-frame hot-path quantity, so the policy is runtime-quiet (clamp + warn-once). The Scene UBO is **engine-managed**, not a `Binding<L>`: the binding layout system has no array support, so the engine owns the packer (`_packScene`) and the per-ctx buffer directly.
 
 **Light kinds and direction convention.** `Light` is a discriminated union on `type`:
 - `directional` — infinitely-far parallel rays. `direction` is the world-space **travel** direction (a sun pointing straight down is `[0, -1, 0]`); the shader uses `L = -direction` to get the surface→light vector.
@@ -338,6 +338,8 @@ Multi-light Blinn-Phong lighting landed in Stage 3 Phase 2. Lights and ambient a
 - `shader.texturedLit` — albedo is sampled from the texture and shaded with the **same** Blinn-Phong model, but specular is a **fixed engine default** (0.04 grey, shininess 32). Its `@group(1)` is sampler + texture only (a texture binding is mutually exclusive with a uniform binding), so per-material specular can't be supplied here; per-material textured specular is a backlog item.
 
 Supplying no lights renders ambient-only (the surface still shows hemisphere ambient × albedo).
+
+**Off-screen passes light, but never cast.** `frame.renderToTexture` accepts `lights`/`ambient` and packs them into the same Scene UBO, but supplies no shadow casters — so `_packScene` leaves every light's shadow slot at its `-1` default and `fr_shadowFactor` short-circuits to 1.0 *before* sampling. A light's `shadow` config is therefore inert off-screen. **The guarantee is the slot, not the atlas:** the shadow array is bound but never read, and nothing in the off-screen path clears it (`_recordShadowPasses` runs from `frame.render` only), so during a capture it still holds the previous on-screen frame's maps. Anyone giving `renderToTexture` real casters must record the shadow passes too. `renderToTexture` also takes no `fog` — its Scene UBO fog lane is always packed disabled (density `0`).
 
 ## Shadows
 
@@ -507,7 +509,21 @@ draw list — 0.12% of a 16.67ms budget).
 Threshold: 1–100 calls/frame.
 
 Applies to: `frame.render`, `frame.renderToTexture`, `frame.encode`,
-`gpu.getCurrentTextureView`.
+`gpu.getCurrentTextureView`, `frame.drawLines`, `frame.drawLinesToTexture`.
+
+`frame.drawLines` carries ONE documented runtime-quiet exception inside an
+otherwise warm-path-loud body: on a multisampled context whose frame went
+through a post chain it warns once and skips instead of throwing, because a
+throw there would turn a missing overlay into a per-frame crash on a
+legitimately-configured consumer. Its off-screen sibling
+`frame.drawLinesToTexture` has no such carve-out — it owns no swap chain to
+protect, so each precondition it checks (null inputs, missing attachments, an
+MSAA or HDR context, wrong colour/depth format, a multisampled attachment)
+throws at call time. Two coupling conditions are deliberately left to WebGPU's
+own validation, which names them clearly: attachment size agreement and
+`RENDER_ATTACHMENT` usage. `frame.renderToTexture` draws the same line, except
+that it does not check its attachments' sample count — the one asymmetry, and
+the newer function is the stricter one.
 
 ### Hot-path trust (math primitives, per-frame setters, >100 calls/frame)
 
