@@ -12,7 +12,7 @@ export const errorMessage = (err: unknown): string =>
  *  component, so neither can own it for the other, and a user who meets both in one
  *  minute must not be told about "this untitled session" and then about something else.
  *
- *  THE DAEMON SAYS IT DIFFERENTLY ON PURPOSE (`daemon/handlers.ts`'s `describeWorld`:
+ *  THE DAEMON SAYS IT DIFFERENTLY ON PURPOSE (`daemon/session-handlers.ts`'s `describeWorld`:
  *  `the untitled session` / `world "x"`), and the divergence is a different AUDIENCE
  *  rather than drift — that copy is argued at its own site. */
 export const worldPhrase = (world: string | null): string =>

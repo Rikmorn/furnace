@@ -13,6 +13,7 @@ export type EditorErrorCode =
   | "already-exists"
   | "forbidden-origin"
   | "no-session"
+  | "session-timeout"
   | "internal";
 
 const HTTP_STATUS: Record<EditorErrorCode, number> = {
@@ -62,6 +63,28 @@ const HTTP_STATUS: Record<EditorErrorCode, number> = {
   // the same reason `already-exists` is 409, and unlike a 404's "the thing you named
   // is not here", which would be a claim about the world rather than about the session.
   "no-session": 409,
+  // The claimed editor session was asked something and did not answer inside the budget
+  // (`daemon/backchannel.ts`, foundations T4b). It is the code that makes "a typed error,
+  // never a hang" true for the one path where the daemon does not own the answer.
+  //
+  // 504 — THE FIRST STATUS IN THIS TABLE THAT DESCRIBES A RELATIONSHIP RATHER THAN A
+  // REQUEST, and it is earned rather than borrowed: 504 is for a server "acting as a
+  // gateway or proxy" that "did not receive a timely response from an upstream server"
+  // (RFC 9110 §15.6.5), and the backchannel is the moment this daemon acquires an upstream
+  // at all. Every other row answers about the request, the path or its own state; this one
+  // answers about a browser tab the daemon is relaying to.
+  //
+  // Decided against three that look closer. 408 is the WRONG DIRECTION — it says the
+  // CLIENT was too slow to send its request, which would send an agent off to speed up
+  // something that was never late. 500 is `internal`'s own row and would be a lie about
+  // blame: a timeout is a stated outcome with a remedy (the tab is busy, gone or blocked;
+  // ask again, or check the editor), not an uncaught error, and the two differ on whether
+  // retrying is sensible — the half a client actually branches on. 409 would inherit
+  // `no-session`'s reasoning without its premise: nothing here conflicts with the daemon's
+  // state, the session exists and is claimed, it simply did not speak. Keeping the two
+  // apart is the point — "the session is gone" and "the session is silent" have different
+  // remedies, and an ask that loses its connection deliberately answers with the FORMER.
+  "session-timeout": 504,
   internal: 500,
 };
 

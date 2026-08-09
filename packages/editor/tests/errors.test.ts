@@ -23,6 +23,10 @@ test("httpStatus maps every code to its spec'd status", () => {
     "already-exists": 409,
     "forbidden-origin": 403,
     "no-session": 409,
+    // 504, and the only 5xx in this table that is not `internal`: the daemon acting as a
+    // gateway to the claimed browser tab, which did not answer in time (RFC 9110 §15.6.5).
+    // Argued against 408/500/409 at `errors.ts`.
+    "session-timeout": 504,
     internal: 500,
   };
   for (const [code, status] of Object.entries(expected)) {

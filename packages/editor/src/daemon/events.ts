@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { SessionRequest } from "../shared/wire.ts";
 import type { ClaimKey } from "./claims.ts";
 
 const HEARTBEAT_MS = 15_000;
@@ -14,26 +15,35 @@ const HEARTBEAT_MS = 15_000;
  *  each raise it after their FS mutation succeeds); consumers should refetch
  *  world.list.
  *
- *  THE LAST TWO ARE NOT BROADCASTS, and the union says so nowhere else, so it says it
- *  here (foundations T4b). `session-token` and `claim-lost` are written to ONE
- *  connection through {@link EventHub.emitTo}; delivering either to every subscriber
- *  would be a bug rather than noise — a broadcast token would hand every tab the name
- *  of every other tab's connection, and a broadcast `claim-lost` would blank the tab
- *  that just WON the world. What stays true for all five is the wire: one generic
- *  `event: <type>\ndata: <json>` frame, one hand-mirrored `ServerEvent` arm and one
+ *  THE LAST THREE ARE NOT BROADCASTS, and the union says so nowhere else, so it says it
+ *  here (foundations T4b). `session-token`, `claim-lost` and `session-request` are written
+ *  to ONE connection through {@link EventHub.emitTo}; delivering any of them to every
+ *  subscriber would be a bug rather than noise — a broadcast token would hand every tab the
+ *  name of every other tab's connection, a broadcast `claim-lost` would blank the tab that
+ *  just WON the world, and a broadcast `session-request` would have N tabs answer one
+ *  question, N−1 of them about a session nobody asked about. What stays true for all six is
+ *  the wire: one generic `event: <type>\ndata: <json>` frame, one `ServerEvent` arm and one
  *  `EVENT_TYPES` row in `frontend/lib/events.ts` (an unlisted type is silently never
- *  delivered — `tests/events.test.ts` holds the type-level mirror pin).
+ *  delivered — `tests/events.test.ts` pins both halves at type level).
  *
  *  `session-token` = "this connection is now named `token`", the FIRST frame every
  *  subscriber gets; see {@link EventHub.subscribe} for what the name is and is not for.
  *  `claim-lost` = another session took `world` from the connection this frame is
- *  addressed to (`daemon/claims.ts`). */
+ *  addressed to (`daemon/claims.ts`). `session-request` = the daemon is asking THIS
+ *  connection a question on someone's behalf and expects a `session.answer` POST back
+ *  (`daemon/backchannel.ts`).
+ *
+ *  AND THE LAST ARM IS THE FIRST ONE THIS UNION DOES NOT SPELL OUT. It composes
+ *  `SessionRequest` from `shared/wire.ts`, which the chrome's mirror imports too — so the
+ *  request frame is the one event type the two sides cannot disagree about by hand. The
+ *  other five stay hand-mirrored; `shared/wire.ts` argues why, and files the retrofit. */
 export type DaemonEvent =
   | { type: "bundle-outdated" }
   | { type: "generation-baked"; files: number }
   | { type: "worlds-changed" }
   | { type: "session-token"; token: string }
-  | { type: "claim-lost"; world: ClaimKey };
+  | { type: "claim-lost"; world: ClaimKey }
+  | ({ type: "session-request" } & SessionRequest);
 
 /**
  * SSE broadcaster for daemon events. Events are notification-only dirty-bits:

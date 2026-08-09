@@ -7,6 +7,7 @@ import {
 } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createBackchannel } from "./backchannel.ts";
 import { createEngineBundler, type EngineBundler } from "./bundle.ts";
 import { createClaims } from "./claims.ts";
 import { loadConfig } from "./config.ts";
@@ -208,11 +209,20 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   claims.onDrop((connection, world) =>
     hub.emitTo(connection, { type: "claim-lost", world }),
   );
+  // The relay to the claimed chrome (foundations T4b): one line, because it is handed both
+  // halves and wires its OWN departure listener — unlike the claim table two lines up,
+  // which knows nothing of hubs. That asymmetry is argued at `createBackchannel`; what it
+  // buys here is that there is no third wire for this function to forget.
+  const backchannel = createBackchannel(hub, claims);
   const handlers: Handlers = createHandlers({
     root: opts.root,
     emit: (event) => hub.emit(event),
     isTracked: createGitTrackedChecker(opts.root),
-    session: { claims, connectionFor: (token) => hub.connectionFor(token) },
+    session: {
+      claims,
+      connectionFor: (token) => hub.connectionFor(token),
+      backchannel,
+    },
   });
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,

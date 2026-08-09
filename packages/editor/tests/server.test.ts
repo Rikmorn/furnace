@@ -579,6 +579,33 @@ test("the untitled session claims under `null`, and collides with no world name"
   }
 });
 
+test("`session.answer` reaches the running daemon's correlation table", async () => {
+  // THE PRODUCTION WIRING for the backchannel, and it is the only half of it a live server
+  // can be asked about in this tranche: nothing over HTTP starts an ask yet (T4b Task 4's
+  // `session.state` is the first caller), so what is reachable from out here is the RETURN
+  // path. What the table DOES lives in `tests/backchannel.test.ts`.
+  //
+  // THE RESIDUE, named rather than implied, because Task 2's sabotage lesson is that an
+  // unpinned wire reads exactly like a pinned one — and this one is unpinned. Measured: a
+  // seam handed a DIFFERENT backchannel instance reddens nothing here, since an id naming
+  // no pending ask is indistinguishable across tables, and nothing over HTTP starts an ask
+  // in this tranche to tell them apart. The realistic version of that bug — forgetting the
+  // field — is a compile error, `SessionSeam.backchannel` being required. T4b Task 4's
+  // `session.state` is the first command that starts an ask over HTTP: ONE round trip
+  // through it pins the instance for free, and should.
+  //
+  // No token, deliberately: the requestId is the whole credential, and this asserts the
+  // command accepts a body without one.
+  const res = await post("session.answer", {
+    requestId: "00000000-0000-4000-8000-000000000000",
+    ok: true,
+    payload: { anything: true },
+  });
+  expect(res.status).toBe(200);
+  // An id naming no pending ask is reported, not refused — the routine late-answer race.
+  expect(await res.json()).toEqual({ delivered: false });
+});
+
 test("a hang-up frees the world for the NEXT connection, with no steal", async () => {
   // THE PRODUCTION WIRING, and it needs its own case: `tests/claims.test.ts` builds its
   // own hub/claims pair the way `startServer` does, so it proves the two modules compose

@@ -98,6 +98,18 @@ export type Claims = {
   /** The connection holding `world`, or undefined when nobody does. */
   holder(world: ClaimKey): ServerResponse | undefined;
   /**
+   * Every connection that holds a claim right now, in the order the claims were taken.
+   *
+   * A QUERY WITH NO POLICY IN IT, deliberately. The backchannel needs to address "the
+   * editing session" without being told a world — an MCP client has no world to name and
+   * no token to present — and the honest reading of this table is that the answer may be
+   * zero, one, or several, since one claim per WORLD is the rule and two tabs on two
+   * worlds are both legitimate. Which of those counts is speakable-for is a decision, and
+   * it lives in `backchannel.ts` where the refusal it produces is written. Returning a
+   * hand-picked "the session" from here would bury that decision in a table.
+   */
+  claimedConnections(): ServerResponse[];
+  /**
    * Be told when a LIVE holder is displaced, so something can tell it. Fires only from
    * {@link Claims.steal}: the other way a claim ends is the connection dying, and there
    * is nobody left to notify. `server.ts` is the one caller, turning each drop into a
@@ -146,6 +158,9 @@ export function createClaims(): Claims {
     },
     holder(world) {
       return holders.get(world);
+    },
+    claimedConnections() {
+      return [...holders.values()];
     },
     onDrop(handler) {
       dropHandlers.push(handler);

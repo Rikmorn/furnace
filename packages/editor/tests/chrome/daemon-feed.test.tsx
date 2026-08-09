@@ -59,6 +59,12 @@ const inertSession: SessionFeed = {
 	onLost: () => undefined,
 };
 
+/** The backchannel's answerer, inert for the same reason and under the same stability
+ *  rule — module-level, so the feed's effect does not re-subscribe per render. The real
+ *  answerer's chain (request frame → registry → `session.answer` POST) is driven in
+ *  `tests/chrome/session-answer.test.tsx`. */
+const inertAnswerer = () => undefined;
+
 /** The two shell-owned modal openers (⌘K, and `?`'s shortcut overlay). These cases mount
  *  the TopBar alone, where neither surface is mounted, so both funnels are inert. */
 const noopOpenPalette = () => undefined;
@@ -199,7 +205,12 @@ function Feed({
 	bakeBusyRef: RefObject<boolean>;
 	stub: ReturnType<typeof makeStubHost>;
 }) {
-	const worldsVersion = useDaemonFeed(ready, bakeBusyRef, inertSession);
+	const worldsVersion = useDaemonFeed(
+		ready,
+		bakeBusyRef,
+		inertSession,
+		inertAnswerer,
+	);
 	return (
 		<EditorContext.Provider
 			value={makeEditorContext({

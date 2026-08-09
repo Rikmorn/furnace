@@ -39,8 +39,9 @@ export type HandlerContext = {
    *  Undefined when no git repo is available at all — world.list then
    *  reports every row's `tracked` as null. */
   isTracked?: (rel: string) => boolean | null;
-  /** The live session seam (foundations T4b): the claim table, plus the event hub's
-   *  token→connection resolver. `server.ts` fills both from the one hub it built.
+  /** The live session seam (foundations T4b): the claim table, the event hub's
+   *  token→connection resolver, and the backchannel's correlation table. `server.ts` fills
+   *  all three from the one hub it built.
    *
    *  OPTIONAL for the same reason `isTracked` is, and with the same honest degradation
    *  rather than a special case: a registry built with no event feed — the four daemon

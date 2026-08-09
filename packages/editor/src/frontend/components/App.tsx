@@ -2,10 +2,12 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FieldHost } from "../../field-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
 import { useDaemonFeed } from "../hooks/useDaemonFeed.ts";
+import { useSessionAnswer } from "../hooks/useSessionAnswer.ts";
 import { useSessionClaim } from "../hooks/useSessionClaim.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
+import { BASE_ANSWERERS } from "../lib/session-answerers.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { ClaimLostOverlay } from "./ClaimLostOverlay.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -53,12 +55,20 @@ export function App() {
 	// calls into, `lost` is the terminal state the cover renders from.
 	const claim = useSessionClaim({ worldNameRef, openConfirm });
 
+	// The other half of that conversation (T4b): the daemon relays a question to whichever
+	// tab holds the claim, and this answers it. Nothing renders — see the hook's header for
+	// why it mounts here rather than beside the chrome's latched mirrors. `BASE_ANSWERERS`
+	// is a module constant, which is what satisfies the stability rule the feed's dep list
+	// imposes on this callback.
+	const onSessionRequest = useSessionAnswer(BASE_ANSWERERS);
+
 	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders
 	// the world list — the world drawer is the first consumer.
 	const worldsVersion = useDaemonFeed(
 		state.status === "ready",
 		bakeBusyRef,
 		claim.feed,
+		onSessionRequest,
 	);
 
 	// Per-project UI persistence. The project root comes from the daemon (project.get);

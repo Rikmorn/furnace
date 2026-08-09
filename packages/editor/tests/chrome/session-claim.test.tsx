@@ -38,6 +38,9 @@ import {
 afterEach(cleanup);
 afterEach(() => notify.clear());
 
+/** Module-level, so it satisfies the stability contract `useDaemonFeed` states for it. */
+const inertAnswerer = () => undefined;
+
 // --- the browser's EventSource, faked ----------------------------------------
 
 type Listener = (event: MessageEvent) => void;
@@ -129,7 +132,9 @@ function Session({ worldNameRef }: { worldNameRef: RefObject<string | null> }) {
 	const { confirm, openConfirm, resolveConfirm } = useConfirmDialog();
 	const bakeBusyRef = useRef(false);
 	const claim = useSessionClaim({ worldNameRef, openConfirm });
-	useDaemonFeed(true, bakeBusyRef, claim.feed);
+	// The answerer is inert here: this file is the CLAIM's chain, and the backchannel rides
+	// the same subscription without touching it (`tests/chrome/session-answer.test.tsx`).
+	useDaemonFeed(true, bakeBusyRef, claim.feed, inertAnswerer);
 	return (
 		<>
 			<ConfirmDialog request={confirm} onResolve={resolveConfirm} />

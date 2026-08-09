@@ -3,8 +3,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createEventHub, type DaemonEvent } from "../src/daemon/events.ts";
 // Type-only, and deliberately so: this is the only file that names both sides of the
 // feed, and an `import type` is erased before it can pull the frontend module (and its
-// DOM globals) into a daemon test process.
-import type { ServerEvent } from "../src/frontend/lib/events.ts";
+// DOM globals) into a daemon test process. `EVENT_TYPES` rides the same erased import
+// though it is declared as a value — `typeof EVENT_TYPES` is a type query, so the
+// subscription-list pin below reads the array's shape without the module ever loading.
+import type { EVENT_TYPES, ServerEvent } from "../src/frontend/lib/events.ts";
 
 type FakeRes = {
   chunks: string[];
@@ -73,6 +75,25 @@ test("the frontend's event union mirrors the daemon's, arm for arm", () => {
   // reads rides the wire. Add such a field to both unions by hand.
   const mirrored: Mirrors<DaemonEvent, ServerEvent> = true;
   expect(mirrored).toBe(true);
+});
+
+test("the SUBSCRIPTION list covers every arm — the half the union pin cannot see", () => {
+  // THE HOLE THIS CLOSES, and it is the worst-behaved kind. An `EventSource` delivers only
+  // the names it was asked for, so an arm added to both unions but not to `EVENT_TYPES`
+  // type-checks, ships, and silently never arrives — no error, no listener, no symptom
+  // anywhere but the feature that quietly does nothing. The pin above cannot see it: it
+  // compares two TYPES, and `EVENT_TYPES` is an array of strings.
+  //
+  // Mutual, like its neighbour, and both directions earn their keep: a missing row is the
+  // dead-event bug, and an EXTRA row is a listener for a frame the daemon stopped emitting
+  // — dead code that reads as live wiring. `as const` is what makes the array's element
+  // type readable as a union at all, which is why the declaration carries it.
+  //
+  // Enforced by `bun run typecheck` rather than by this run, exactly as the union pin is:
+  // drift makes the annotation `false` and the assignment a compile error.
+  const listed: Mirrors<ServerEvent["type"], (typeof EVENT_TYPES)[number]> =
+    true;
+  expect(listed).toBe(true);
 });
 
 test("subscribe sends SSE headers; emit broadcasts a typed event frame", () => {

@@ -1,19 +1,23 @@
 // packages/editor/src/daemon/session-handlers.ts
 import type { ServerResponse } from "node:http";
 import { z } from "zod";
+import type { SessionAnswer } from "../shared/wire.ts";
+import type { Backchannel } from "./backchannel.ts";
 import type { ClaimKey, Claims } from "./claims.ts";
 import { EditorError } from "./errors.ts";
 import type { Handlers } from "./handlers.ts";
 import { WORLD_NAME_RE } from "./worlds.ts";
 
 /**
- * Everything the `session.*` family needs from the running daemon: the claim table, and
- * the event hub's token→connection resolver. `server.ts` fills both from the one hub it
- * built; `HandlerContext.session` carries it in.
+ * Everything the `session.*` family needs from the running daemon: the claim table, the
+ * event hub's token→connection resolver, and the backchannel's correlation table.
+ * `server.ts` fills all three from the one hub it built; `HandlerContext.session` carries
+ * it in.
  */
 export type SessionSeam = {
   claims: Claims;
   connectionFor(token: string): ServerResponse | undefined;
+  backchannel: Backchannel;
 };
 
 /** The world a `session.*` command names: a saved world, or `null` for the untitled
@@ -43,6 +47,55 @@ const claimedWorld = z.string().regex(WORLD_NAME_RE).nullable();
  *  changed shape). */
 const sessionToken = z.string().min(1);
 
+/** One answer to one relayed question (`shared/wire.ts`'s `SessionAnswer`, as a schema).
+ *
+ *  IT CARRIES NO TOKEN, and that is the one place this family's shape breaks — argued
+ *  rather than overlooked. The other three commands take a token because they say
+ *  something ABOUT a connection and a POST cannot otherwise name one. This one names a
+ *  pending ASK instead, and the `requestId` it names it by was minted by the daemon and
+ *  written into exactly one connection's stream: holding it means holding that stream, on
+ *  the same structural argument the token's own docblock makes for itself
+ *  (`daemon/events.ts`'s `subscribe`). Adding a token would be a second name for a fact
+ *  the first one already carries, and would let a request be answered with the wrong half
+ *  of a mismatched pair — one more state to define for nothing.
+ *
+ *  A discriminated union rather than an optional `error`, so a chrome that means "I could
+ *  not do this" cannot spell it as a successful answer with a missing payload — the
+ *  distinction the ask's caller branches on.
+ *
+ *  `payload` IS `z.unknown().optional()`, AND THE `.optional()` IS A CORRECTNESS FIX RATHER
+ *  THAN A LOOSENING — an earlier version of this comment claimed `z.unknown()` already
+ *  accepted an absent key, and it does not. Measured on zod 4.4.3: a body missing the key
+ *  fails with *"expected nonoptional, received undefined"*, i.e. a 400. That body is not
+ *  malformed — it is the CANONICAL serialization of a handler that answered `undefined`,
+ *  because `JSON.stringify` drops undefined-valued keys. Any answerer in any language
+ *  produces it. A validator that refuses a body the wire itself emits is wrong about JSON,
+ *  not strict about a contract, and the cost lands three hops away: the chrome's answer POST
+ *  400s, the seam swallows it, and the asker waits out the whole budget to be told
+ *  `session-timeout` — a sentence about how FAST the session is, for a handler that answered
+ *  instantly. Exactly the failure `shared/wire.ts` argues the union exists to prevent.
+ *
+ *  FIXED HERE RATHER THAN BY COERCING `undefined` → `null` IN THE CHROME, which was the
+ *  alternative. The coercion would put the rule in ONE client, and every other answerer — a
+ *  curl, the CLI, a second tab of a different vintage — would have to reproduce it to be
+ *  understood, against the whole reason `dispatch` is a single funnel. `z.strictObject`
+ *  still rejects an extra key and an explicit `null` still parses, so nothing else moved.
+ *  Absent and `null` stay distinguishable: absent is a handler that returned nothing, `null`
+ *  is one that returned `null`, and the relay preserves the difference rather than
+ *  flattening it on the way past. */
+const sessionAnswer = z.discriminatedUnion("ok", [
+  z.strictObject({
+    requestId: z.string().min(1),
+    ok: z.literal(true),
+    payload: z.unknown().optional(),
+  }),
+  z.strictObject({
+    requestId: z.string().min(1),
+    ok: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
 /** A world in a sentence a human reads.
  *
  *  THE CHROME HAS ITS OWN (`frontend/lib/humanize.ts`'s `worldPhrase`), and the wording
@@ -65,16 +118,19 @@ function describeWorld(world: ClaimKey): string {
  * modules already split this way (`worlds.ts`, `claims.ts`, `bundle.ts`, `origin.ts`), and
  * this family is the one whose answer depends on WHICH caller is asking rather than only
  * on what it asked. `handlers.ts` is the filesystem verbs; nothing here touches a file, and
- * nothing there touches connection identity. T4b Task 4 adds `session.state` to this file
- * rather than to that one.
+ * nothing there touches connection identity. That split earned itself in one task:
+ * `session.answer` landed here rather than on top of the filesystem verbs, and T4b Task 4's
+ * `session.state` lands here too.
  *
  * Returned as its own `Handlers` map rather than mutating a passed-in one: a builder that
  * answers with what it built is a query, and `createHandlers` merges it in one line.
  *
  * @param session - undefined when the registry was built with no event feed. Every command
- * here then resolves NO token and answers `no-session`, which is the true answer rather
- * than a stub: a daemon with no feed has no connections, so there is no session for anyone
- * to be. `HandlerContext.session` argues why that seam is optional at all.
+ * here then answers `no-session` — the three token-taking ones because they resolve no
+ * token, and `session.answer` because there is no correlation table for it to settle
+ * against. That is the true answer rather than a stub: a daemon with no feed has no
+ * connections, so there is no session for anyone to be, and nothing here can have asked
+ * one anything. `HandlerContext.session` argues why that seam is optional at all.
  */
 export function createSessionHandlers(
   session: SessionSeam | undefined,
@@ -135,6 +191,37 @@ export function createSessionHandlers(
       const { claims, connection } = resolveSession(token);
       claims.release(connection);
       return Promise.resolve({});
+    },
+  });
+
+  // The return path of the backchannel (`daemon/backchannel.ts`): a POST, through the same
+  // `dispatch` validator every other command uses. It is not a second channel and could not
+  // usefully be one — the request rides the SSE feed because that is the only pipe the
+  // daemon can push down, and the answer rides a POST because that is the only pipe the
+  // chrome can push up. One direction each, both already built.
+  handlers.set("session.answer", {
+    input: sessionAnswer,
+    run: (input) => {
+      // Boundary cast: dispatch() validated input against this command's schema.
+      const answer = input as SessionAnswer;
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so nothing here asked the editor anything",
+        );
+      }
+      // `delivered: false` IS THE ANSWER, not an error — and the case it reports is by
+      // design rather than by accident. An answer can lose the race with its own ask's
+      // timeout, and the chrome cannot know that when it posts; refusing it would manufacture
+      // a client-side failure for a tab that did exactly the right thing a moment late. A
+      // duplicate and a forged id land here too, and all three are harmless for the same
+      // structural reason: `deliver` takes the entry off the table before settling it, so a
+      // requestId names nothing once it has been used. Reporting the boolean rather than
+      // swallowing it keeps the true answer available to a caller that wants it (and to the
+      // pin that asserts a second answer settles nothing) without inventing a failure.
+      return Promise.resolve({
+        delivered: session.backchannel.deliver(answer),
+      });
     },
   });
 

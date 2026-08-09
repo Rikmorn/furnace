@@ -1,4 +1,5 @@
 // packages/editor/src/frontend/lib/api.ts
+import type { SessionAnswer } from "../../shared/wire.ts";
 
 /** A daemon command failure: the contract `code` plus the human message.
  *
@@ -112,4 +113,20 @@ export const api = {
     call<Record<string, never>>("session.claim", { name, token }),
   sessionSteal: (name: string | null, token: string) =>
     call<Record<string, never>>("session.steal", { name, token }),
+
+  // The backchannel's return path (T4b). ONE argument, and it is the wire type itself
+  // (`shared/wire.ts`) rather than a pair this function reassembles — the first method here
+  // whose body is a shared contract instead of an object literal built to match a schema by
+  // eye. Which is the point of the shared type: there is no second spelling to drift.
+  //
+  // NO TOKEN, unlike its two siblings above, because the `requestId` already names one
+  // connection — the daemon minted it into this tab's stream. `session-handlers.ts` argues
+  // it where the schema is.
+  //
+  // `delivered` is the daemon's honest answer to a stale id (an answer that lost the race
+  // with its own ask's timeout), not an error. Nothing in the chrome reads it: the answerer
+  // is fire-and-forget by design, and the only party that could act on a late answer is the
+  // agent that asked, which has already been told.
+  sessionAnswer: (answer: SessionAnswer) =>
+    call<{ delivered: boolean }>("session.answer", answer),
 };
