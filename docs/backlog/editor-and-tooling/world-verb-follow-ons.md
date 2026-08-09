@@ -78,9 +78,10 @@ Two gaps survive that decision.
 
 ### 1. Rename and duplicate still teach by error toast
 
-Both handlers refuse a taken name with `already-exists`
-(`daemon/handlers.ts:339` and `:369`), so the user types, submits, and learns from a red
-toast. D-25's "the commit verb explains refusals" arguably wants a line in the field there
+Both handlers refuse a taken name with `already-exists` — the `throw new EditorError
+("already-exists", …)` inside `handlers.set("world.rename", …)` and
+`handlers.set("world.duplicate", …)` in `daemon/handlers.ts` — so the user types, submits, and
+learns from a red toast. D-25's "the commit verb explains refusals" arguably wants a line in the field there
 too — but it is a DIFFERENT line ("that name is taken" / the verb is refused), not the
 overwrite warning, so it needs its own copy and its own prop rather than a second consumer
 of `overwrites`. That is the design question this half is filed on.
@@ -119,8 +120,14 @@ contract and doing them together is most of the saving.
 - `packages/editor/src/frontend/components/shell/WorldDrawer.tsx` — `NameForm`'s
   `overwrites` prop and the docblock stating why rename/duplicate must not pass one; `:512`
   is the one form that does.
-- `packages/editor/src/daemon/handlers.ts:316-373` — the `existsSync` collision check in
-  `world.rename` / `world.duplicate` and its case-insensitive-filesystem comment.
+- `packages/editor/src/daemon/handlers.ts` — the `existsSync` collision check in the
+  `world.rename` and `world.duplicate` handler bodies, and its case-insensitive-filesystem
+  comment. **Cited by SYMBOL rather than by line, deliberately**: this entry has now carried
+  wrong line numbers twice (`:500-540`, then `:316-373`/`:339`/`:369` — the T4b re-cite that
+  was meant to fix them landed ~29 off, `:339` being a comment and `:369` sitting inside
+  `dispatch`). `grep -n 'already-exists' packages/editor/src/daemon/handlers.ts` is the
+  durable instrument; the file's line numbers move whenever the registry gains or sheds a
+  family, and it shed one to `session-handlers.ts` in T4b.
 - `packages/editor/src/frontend/lib/world-actions.ts:98-104` — the tracked-overwrite
   confirm's predicate.
 
@@ -154,7 +161,8 @@ misbehaves today — a `legacy` row is correctly refused everywhere it appears.
 
 What is stale is the vocabulary and the copy that explains it, in four places:
 
-- `packages/editor/src/daemon/worlds.ts:26,75` — the `WorldRow["kind"]` union and the
+- `packages/editor/src/daemon/worlds.ts` — the `WorldRow["kind"]` union (`:28` at head, not
+  the `:26` this entry carried) and the
   ternary that produces it.
 - `packages/editor/src/frontend/lib/api.ts:53-54` — the client-side type and its docblock
   ("`legacy` = a v1 world directory with a manifest but no oplog").

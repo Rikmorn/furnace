@@ -92,6 +92,52 @@ planning, TTS) is separate again: `docs/backlog/ai-agents/llm-as-planner-experim
 >   from the workspace; low-level `Server` API + raw JSON Schema is the intended
 >   answer, with the documented fallback if the SDK insists on its own zod).
 
+> **Re-anchored 2026-08-09 (foundations T4b — item 1's READ half is BUILT; this entry still
+> does not delete, per the T3-close note above: deletion is T4c's, with the items-3/4
+> disposition).** What T4b consumed, so the T4c planner reads the residue rather than the
+> original wording:
+>
+> - **Item 1 (inbound MCP), read half — DONE.** `src/daemon/mcp.ts` mounts a streamable-HTTP
+>   transport on the existing Node `http` server, projecting `session_state`, `world_list` and
+>   `project_get`. It uses the low-level `Server` API as this entry predicted; it does **not**
+>   use `z.toJSONSchema()` on the handlers' schemas — the three tools take no arguments and
+>   carry a hand-written `NO_ARGUMENTS` document, so the reflection question is still open and
+>   belongs to the ACTION rows rather than to the commands. `dispatch()` does stay the single
+>   validator: the door forwards the caller's arguments rather than composing its own.
+>   **What remains of item 1 is every MUTATING verb**, which is T4c.
+> - **The SDK's zod-version surface probe — RUN, and the research doc's reading confirmed.**
+>   `@modelcontextprotocol/sdk@1.30.0`, 182 packages, exactly one zod in the tree. **1.30.0
+>   declares zod BOTH ways** — read at
+>   `packages/editor/node_modules/@modelcontextprotocol/sdk/package.json`:
+>   `dependencies.zod = "^3.25 || ^4.0"` **and** `peerDependencies.zod = "^3.25 || ^4.0"` with
+>   `peerDependenciesMeta.zod.optional === false`. So the research doc's "non-optional peer" is
+>   right, and an earlier note here inferring `dependencies` **instead of** a peer was wrong:
+>   it read the lockfile, which records the `dependencies` half, and never opened the SDK's own
+>   manifest. Corrected 2026-08-09 at T4b Task 7. **The remediation is unchanged and is the
+>   part that matters**: the single instance still depends on the workspace zod satisfying that
+>   range, so **re-run the single-instance check on any zod bump** — a workspace zod outside
+>   `^3.25 || ^4.0` gets the SDK a second copy (via its `dependencies` half) plus a peer
+>   warning, and the "exactly one zod" premise this door rests on is gone.
+> - **Item 2's stated prerequisite — the daemon↔frontend request/response backchannel — is
+>   BUILT** (`src/daemon/backchannel.ts`: SSE frame out, `session.answer` POST back, correlated
+>   by id, typed `session-timeout` at 10 s and `no-session` on departure). So `viewport.capture`
+>   is now **only** the WebGPU canvas-readback half, which is still un-spiked.
+> - **The session-claim policy recorded below is SETTLED and SHIPPED**, with one declared
+>   narrowing: read-only mode is not built, so a second tab gets the steal prompt and a
+>   claim-lost cover instead. Filed separately at
+>   `read-only-chrome-for-an-unclaimed-session.md`. The "daemon stays stateless" tension
+>   reconciled as recorded in `docs/reference/editor-architecture.md` §2 — two
+>   connection-scoped tables, nothing durable.
+> - **The action-registry projection is still NOT built**, and the line above about it is now
+>   half-stale: `toJsonSchema` IS called on the six action rows, but only by
+>   `tests/action-registry/projection-round-trip.test.ts`, the plumbing pin that lands before
+>   the projection. `schemas.ts` still has no export-map entry, and T4b **declined** to add one
+>   with the reason measured: the daemon reaches in-package modules relatively, so even T4c's
+>   projection needs none. One posture question came out of that pin and is filed:
+>   `action-input-schemas-strip-what-commands-refuse.md`.
+> - Items **3** (embedded agent) and **4** (outbound editor→LLM) are untouched and remain the
+>   two that must be re-filed or explicitly dropped before this file goes.
+
 **Trigger to revisit:** appetite after M5 lands — outbound UX needs chrome to live in and capture
 wants a stable viewport; slot into the epic execution order at that point. Also reopens early if
 a sandboxed-client need shows up (someone wants Claude desktop/web driving the editor).

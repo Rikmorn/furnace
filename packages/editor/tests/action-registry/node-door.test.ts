@@ -77,11 +77,17 @@ test("the action registry imports clean in a bare runtime", async () => {
   expect(Number(r.text)).toBeGreaterThan(0);
 });
 
-test("the package export map reaches it — the daemon's route in", async () => {
-  // `bundle.test.ts`'s note names the failure mode this covers: the daemon bundles from the
-  // CONSUMER's root, so it names editor modules by BARE SPECIFIER. A module with no export
-  // map entry is unreachable from there however clean it imports, and nothing else in this
-  // suite would notice — `field-host` was the only entry until this task added a second.
+test("the package export map RESOLVES the bare specifier — with no importer yet", async () => {
+  // WHAT THIS COVERS, restated at T4b Task 7 because its old name ("the daemon's route in")
+  // was the premise T4b measured and refuted. `bundle.test.ts`'s note is about the
+  // CONSUMER-ROOT door: the daemon bundles a generated entry from someone else's project
+  // root, so anything named THERE must be a bare specifier, and a module with no export-map
+  // entry is unreachable however cleanly it imports. That is a real failure mode and this
+  // case is a real guard on it. What is NOT true is that the daemon is the caller: T4b's MCP
+  // door reads this directory not at all, the daemon's own source uses relative paths, and
+  // `grep -rn "@furnace/editor/action-registry" packages/` finds no importer at all today.
+  // So this pins that the entry RESOLVES and the graph loads through it — which is what
+  // keeps the entry honest until an outside-the-package consumer arrives to use it.
   const r = await rowsSeenByABareRuntime("@furnace/editor/action-registry");
   if (!r.ok) throw new Error(`the export map did not resolve:\n${r.text}`);
   expect(Number(r.text)).toBeGreaterThan(0);

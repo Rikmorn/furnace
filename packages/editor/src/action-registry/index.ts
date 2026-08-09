@@ -6,11 +6,17 @@
 // (`docs/reference/api-posture.md` §R8) — importing a declared name through a file path is
 // fine, importing an undeclared one is the violation.
 //
-// THE SECOND EXPORT-MAP ENTRY, and why there had to be one. `packages/editor/package.json`
-// carried exactly one (`./field-host`), because the chrome was the only thing that ever
-// needed to name a piece of the editor from outside its own tree. The daemon is the second:
-// it runs on Node, it bundles from the CONSUMER's project root, and a bare-specifier entry
-// is how it reaches this module without a relative path out of someone else's `src/`.
+// THE SECOND EXPORT-MAP ENTRY, AND ITS STATED REASON WAS WRONG — corrected in place at T4b
+// Task 7 rather than left standing above its own refutation. `packages/editor/package.json`
+// carried exactly one (`./field-host`) before this directory; `./action-registry` is the
+// second, and it was added on the premise that THE DAEMON would need it — "it runs on Node,
+// it bundles from the CONSUMER's project root, and a bare-specifier entry is how it reaches
+// this module". T4b built the daemon-side reader that premise was about, and it is false:
+// `daemon/mcp.ts` reads this directory not at all, the daemon's own source reaches in-package
+// modules by RELATIVE path, and `grep -rn "@furnace/editor/action-registry" packages/` finds
+// no importer anywhere — only this comment. The entry resolves and is pinned
+// (`tests/action-registry/node-door.test.ts`); what it does not yet have is a consumer. The
+// trigger that would give it one is the paragraph below, and it is not a daemon-side one.
 //
 // THIS BARREL IS THE ZOD-FREE SURFACE. Everything named below is safe for the chrome to
 // VALUE-import, and that is what makes the narrowed leakage rule work: the ban is on

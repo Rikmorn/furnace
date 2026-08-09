@@ -221,7 +221,11 @@ export function createBackchannel(hub: EventHub, claims: Claims): Backchannel {
           // contract: `emitTo` → `frameFor` → `JSON.stringify`, which raises synchronously
           // on `params` carrying a cycle, a BigInt or a throwing `toJSON`. A caller
           // branching on `err.code` would read `undefined` where this type promises one of
-          // four codes. The entry would also sit out its whole budget before the timer
+          // THREE codes — `no-session`, `session-timeout`, `internal`, which is what `ask`'s
+          // `@throws` names across its four clauses (`internal` covers two of them, this
+          // being the second). An earlier version of this line said four, counting the
+          // clauses rather than the codes; the number a caller branches on is the codes.
+          // The entry would also sit out its whole budget before the timer
           // cleared it — not a leak, but ten seconds of a caller waiting for a frame that
           // was never written.
           //

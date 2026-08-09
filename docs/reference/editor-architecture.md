@@ -67,15 +67,22 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 
 **Binding & lifecycle.** `startServer(opts)` (`src/daemon/server.ts`) creates a `node:http` server and listens on **`127.0.0.1`** only — one local single-user session. Port defaults to `4500` (`main.ts`), overridable with `--port`; tests pass `port: 0` to let the OS pick. `close()` tears down the server, the SSE hub, the extensions-directory watch, and the esbuild bundler context.
 
-**The daemon's ONE piece of resident state — the session claim** (foundations T4b, 2026-08-09).
-`src/daemon/claims.ts` records which SSE connection is authoring which world. It is the first
-daemon-resident state the editor has ever had, and it is reconciled with "the daemon stays
-stateless" rather than excused: **there is no DURABLE authoring state — the claim table is the
-same class of thing as the subscriber set beside it in `events.ts`.** A claim is born when a
-live connection asks for one and dies when that connection departs; nothing is written to disk,
-nothing is read back at boot, and a restart begins with an empty table because a restart begins
-with an empty hub. The daemon still holds no document, no schema and no generator. See §5.1 for
-the claim's mechanics, the connection token, and the runtime defect the wiring uncovered.
+**The daemon's resident state — TWO tables of one kind, and no other** (foundations T4b,
+2026-08-09). The **session claim** (`src/daemon/claims.ts`) records which SSE connection is
+authoring which world; the **backchannel's pending asks** (`src/daemon/backchannel.ts`) record
+which questions are out to that connection awaiting a `session.answer`. The claim is the first
+daemon-resident state the editor ever had and the ask table arrived one task later — this
+paragraph said *one* until the second existed, which is the correction rather than a
+restatement.
+
+Both reconcile with "the daemon stays stateless" rather than excusing it, and on the same
+argument: **there is no DURABLE state here — each is the same class of thing as the subscriber
+set beside them in `events.ts`.** A claim is born when a live connection asks for one and dies
+when that connection departs; an ask is born when a command relays a question and dies when it
+is answered, times out, or its connection goes. Nothing is written to disk, nothing is read back
+at boot, and a restart begins with both empty because a restart begins with an empty hub. The
+daemon still holds no document, no schema and no generator. See §5.1 for the claim's mechanics,
+the connection token, and the runtime defect the wiring uncovered, and §26.1 for the relay.
 
 **One check runs ahead of every route — the `Origin` refusal** (foundations T4a, 2026-08-09).
 `route`'s first statement is `assertLoopbackOrigin(req.headers.origin)` (`src/daemon/origin.ts`):
@@ -2845,14 +2852,19 @@ allowed to stand:
 
 ## 19. Deferred
 
-- **AI bindings** — MCP mount, `viewport.capture`, embedded agent, and outbound editor→LLM
-  were descoped from M4 into a dedicated milestone,
-  `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md`. The transport-agnostic
-  substrate the milestone mounts over is still here: one zod-validated `dispatch()` choke
-  point (§4), a closed error-code union (§6), and the `MCP/agent bindings` notes in
-  `errors.ts` / `handlers.ts`. What T2 changed is the *verb set* an agent would be handed —
-  8 field/world commands rather than 17 document mutations, and the "disk edits beat mutation
-  tools" rationale now points at the field artifact rather than at a scene JSON.
+- **AI bindings — the MCP mount is no longer deferred; its READ half shipped in foundations
+  T4b** (§26). `/mcp` is a live route, `src/daemon/mcp.ts` projects `session_state`,
+  `world_list` and `project_get`, and the daemon↔chrome backchannel the milestone named as
+  `viewport.capture`'s prerequisite is built and carrying `session.state`. **What stays
+  deferred is the rest of that milestone** — every MUTATING tool (T4c), `viewport.capture`
+  itself (the WebGPU canvas-readback half was never spiked), the embedded agent, and outbound
+  editor→LLM. `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` is still
+  the register and carries a dated note of what T4b consumed; the transport-agnostic substrate
+  the rest mounts over is unchanged — one zod-validated `dispatch()` choke point (§4, which the
+  agent door funnels through rather than beside) and a closed error-code union (§6, which now
+  has its second transport edge). The *verb set* an agent would be handed is 13 commands, and
+  the "disk edits beat mutation tools" rationale points at the field artifact rather than at a
+  scene JSON.
 - **A scene-authoring surface is NOT deferred — it is gone.** The chrome half went at F4.5a,
   the daemon half and `@furnace/core/scene` at foundations T2, and the backlog entry that
   parked the capability was resolved by that deletion rather than by building it. There is no
@@ -3355,7 +3367,7 @@ by counting top-level members of each file's exported `*Deps` and public record 
 
 | Module | Lines | Deps | Seam | Notes |
 | --- | ---: | ---: | ---: | --- |
-| `field-history-feed.ts` | 220 | 1 | 2 | the narrowest record in the directory — `{ substrate }` alone |
+| `field-history-feed.ts` | 396 | 2 | 2 | 220 lines / 1 dep at T3d, where `{ substrate }` alone was the directory's narrowest record — T4b's revision token added `worldEpoch` (§26) and it now ties `field-drift.ts` at 2 |
 | `field-drift.ts` | 164 | 2 | 4 | substrate + one module ref |
 | `field-materials.ts` | 587 | 2 | 14 | seam ≫ deps: the surplus is inbound READS (§2.8's third mechanism) |
 | `field-view.ts` | 225 | 3 | 5 | both non-substrate deps are another module's VERBS |
@@ -4766,3 +4778,315 @@ diverging) and `reconfigure-empty-evaluation-leg-unheld.md` (Task 5 pinned one o
 failure classes `reconfigureGenerator`'s `@throws` names, not both). AGENTS.md asks that
 end-of-tranche surfaced findings be summarised so the user can decide follow-ups; this is that
 list, and it stood at one until the count was taken from the diff.
+
+## 26. Foundations T4b — an agent reads a live session (2026-08-09)
+
+The tranche where an agent first reads a furnace editing session **truthfully**. T4a made the
+substrate honest with no agent connected (§25); this one connects one — and connects it to the
+**READ half only**. Nothing an MCP client can call here edits a world, writes a file or moves the
+human's camera.
+
+Four things had to become true, in order, and each is a task's worth of work:
+
+- the daemon had to know **which tab is authoring**, having never held a byte of session
+  identity (§5.1);
+- it had to be able to **ask that tab a question**, because every fact an agent wants about a
+  live session lives in the other bundle (§26.1);
+- it needed something worth asking for, with a **change cursor that admits what it misses**
+  (`session.state`, §4; the cursor, §17.6);
+- and it had to **advertise all of that in a protocol an agent already speaks** (§26.2).
+
+The tranche opened on a fifth, ahead of any of them: T4a's own review had left `runMember` able
+to claim a success it never delivered, and refusals with no machine-readable class. Both are
+faults only a caller who cannot see the screen ever meets, so both closed **before** anything
+agent-facing was mounted on top — `because: RefusalClass` (seven names: `modal`, `typing`,
+`looking`, `menuOnly`, `session`, `inert`, `member`; required, no default) and an `arm` that
+returns an `ActionResult` typed `Exclude<ActionResult, {kind:"failed"}>`. §22.6 carries both.
+
+**This section is an index for everything that already had a home, and the record for the two
+things that did not.** The claim table and the connection token are §5.1; the daemon's two
+resident tables and the route ladder's new first branch are §2; the five `session.*` commands
+and the forwarded-arguments decision are §4; the SSE feed's three addressed frames are §5; the
+two new error codes and the MCP edge's `AGENT_REMEDY` are §6; the revision token and the change
+guard that pays for it are §17.6; `shared/wire.ts` arriving as the first contract the daemon and
+the chrome both *import* rather than mirror is §7's layer note. What lands **here** is the relay
+itself (§26.1), the agent door (§26.2), and the exit table (§26.3).
+
+**Measured at head, each from the artifact rather than from a commit message.** The registry is
+**13 commands** across five families (`grep -rn 'handlers\.set(' src/daemon/` returns fourteen
+lines: eight named verbs in `handlers.ts`, five in `session-handlers.ts`, and the loop that
+merges the second map into the first), and the chrome speaks **11** of them. `DaemonEvent`
+has **6 arms** and `EVENT_TYPES` mirrors all six. `EditorErrorCode` went **8 → 10**
+(`no-session` 409, `session-timeout` 504) and `HTTP_STATUS` covers all ten. The agent door
+advertises **3 tools**. `FieldHost` went **65 → 66 members** — `cameraPose()` — which is the
+whole facade delta: `historyRevision()` was added and deleted inside the same task, once
+measurement showed a polled token answers ahead of the latched payload beside it. The suite is
+**3057 pass / 1 skip / 0 fail across 359 files**, with **7 new test files** and two new helpers
+(`tests/_helpers/mcp-probe.ts`, `tests/_helpers/daemon-feed.ts`).
+
+**Human-visible surface, stated so the gate walk can be honest about it — five surfaces, and
+they are the whole list** (the toast trio counting as one, since all three speak through the
+same stack):
+
+1. the **steal prompt** — a refused claim opens the existing `useConfirmDialog`;
+2. the **claim-lost cover** — `components/ClaimLostOverlay.tsx`, terminal in three channels;
+3. **claim-on-connect** — silent when it works, which is every time but a contended world;
+4. **three toasts on the claim path** — `notify.error` when a claim fails for anything other
+   than a conflict, `notify.error` when a steal fails, `notify.success` when one lands;
+5. **one new daemon banner line** — `main.ts` printing `mcp  http://127.0.0.1:<port>/mcp`
+   beside the chrome's URL, because the door's address is the one thing about it a human has
+   to type somewhere else, and the path comes from `mcp.ts` so the banner cannot outlive a move.
+
+All three toasts sit on commands that did not exist before, so **nothing a human could
+previously see has moved**. Silence on a failed steal was the alternative and is refused on
+the chrome's own established pattern: `useWorld`'s `runVerb` toasts BOTH outcomes of every
+world verb, because a click that says nothing reads as a click that did nothing.
+
+### 26.1 The backchannel — one ask, one id, one budget
+
+`src/daemon/backchannel.ts` exists because of the two-bundle constraint. `project.get` and
+`world.list` answer from disk with no tab open; **every other fact an agent wants — what is
+selected, which tool is armed, where the camera points, what the history holds — lives in the
+chrome's mirrors, in the browser.** The daemon cannot compute them, cannot cache them honestly
+and must not guess. So it **relays**: one addressed `session-request` frame out to the claimed
+connection, one `session.answer` POST back, correlated by `requestId`. **A relay with a
+correlation table, never a reader** — `ask()` returns whatever the session said and the daemon
+validates not one field of it, having no standing to police a shape neither half would learn
+about from it.
+
+**Every way an ask can end is a rejection that ARRIVES**, which is the whole point of the type
+and the literal reading of the settled policy's *"a typed error, never a hang"*:
+
+- **No claimed session, or more than one** → `no-session`, immediately, with the message
+  carrying which. Many is **refused rather than resolved by picking**, because picking is the
+  failure this tranche exists to avoid: an agent would read a tab the human is not in and
+  nothing anywhere would say so. Two claimed tabs is a state the claim table allows by design
+  (one claim per *world*), so it is a real branch, not a defensive one — and **the route that
+  reaches it with ONE human at ONE keyboard is worth writing down, because it is not two
+  people opening two editors.**
+
+  **The stale claim key.** `useSessionClaim`'s `onToken` claims under `worldNameRef.current`
+  **at token time**, and a world switch deliberately does not re-claim (the callback's deps are
+  a ref and the confirm seam, so nothing re-runs it; the sibling is filed at
+  `read-only-chrome-for-an-unclaimed-session.md`). That cost nothing while nothing routed by
+  the claim's world — Task 2's own reasoning, and true when it was written. Task 3 then made
+  the GLOBAL claim COUNT load-bearing through `soleTarget()`, and the two compose:
+
+  > A tab boots on the untitled scratch and claims key `null`. The human loads world `W`. The
+  > tab still holds `null` — until any reconnect mints a new token and re-keys it to `"W"`, and
+  > **the `bun run edit` loop restarts the daemon on every source change**, so reconnects are
+  > routine rather than rare. In that window a second tab opening on the scratch claims `null`
+  > with **no conflict, no steal prompt and no toast** — the key really is free — and the
+  > daemon now holds two claims. Every `session_state` from that moment is the two-claims
+  > refusal, and the human has seen nothing that would explain it.
+
+  **The thesis survives** — the answer is typed, immediate and carries a remedy a human can
+  act on (*"close all but the tab you want driven"*), which is exactly what the branch is for,
+  and it is strictly better than picking one. What is missing is that the chrome gives no
+  warning on the way in, because from the claim table's point of view nothing went wrong. The
+  fix travels with the filed re-claim-on-world-switch entry.
+- **The connection departs mid-ask** → `no-session` **now**, not at the timeout. The two
+  sentences send a caller to different places — a timeout says "it is slow, wait longer", this
+  says "the tab you were reading closed" — and only the second is true and has a remedy. It also
+  lands in milliseconds rather than ten seconds. The listener is registered by this module
+  (`hub.onClose(abandonAsksOn)`) rather than by `server.ts`, unlike the claim table beside it:
+  `Claims` knows nothing of hubs and must be wired from outside; this module is *handed* the
+  hub, so watching it is its own business — one fewer line `startServer` can forget.
+- **Silence** → `session-timeout` at `DEFAULT_ASK_TIMEOUT_MS` = **10 s**. The number is chosen
+  against the CLIENT's floor, not against a feel for browser speed: Claude Code's per-request
+  timer for an HTTP MCP server is 60 s and its config knobs can only *raise* it, so 60 s is a
+  floor no client configuration goes under and 10 s is strictly inside it for every client.
+  **The pin asserts the inequality, not the number.**
+- **The session answers that it could not serve the method** → `internal`. The chrome supplies
+  PROSE, never a code: `EditorErrorCode` is the daemon's closed union and the chrome is not one
+  of its throwers, so the chrome says the sentence and the daemon decides the code — the same
+  division `claims.ts` already keeps. Without this arm an unrecognised method would produce no
+  answer and time out, and the route is routine rather than exotic: the `bun run edit` loop
+  restarts the daemon on every source change while the tab keeps its bundle.
+- **`params` that will not serialize** → `internal`. `hub.emitTo` is wrapped because
+  `JSON.stringify` raises synchronously inside the frame builder, and a raw `TypeError` with
+  `code: undefined` would escape a contract promising **three** codes while the entry sat out
+  its full budget.
+
+**Three codes across four clauses**, and the distinction is the one a caller branches on:
+`no-session`, `session-timeout` and `internal` are the whole set `ask` can reject with —
+`internal` covers two of the four clauses above (a chrome that refuses the method, and
+`params` that will not serialize). `ask`'s `@throws` names them correctly; a comment beside
+the emit guard said "four" by counting clauses, and is corrected in the same commit as this
+section.
+
+**One-shot is structural rather than remembered.** Every exit routes through `takePending`,
+which removes the entry from the map *before* settling it — so a duplicate answer, a late one
+that lost the race with its own timeout, and a forged `requestId` are the same harmless miss.
+`session.answer` reports `{ delivered: false }` for all three rather than refusing: a late
+answer is the routine race (the chrome cannot know its ask has timed out), and a 4xx would
+manufacture a client-side failure for a tab that did exactly the right thing a moment late.
+
+**The chrome's half is a registry, not a component.** `hooks/useSessionAnswer.ts` mounts at
+`App` with `lib/session-answerers.ts` as a parameter, so a new method is a row rather than a
+change to the wire. It renders nothing and notifies nothing. The seam **normalizes** rather than
+narrows — `Promise.resolve(handler(…)).then(answer, refuse)` with the synchronous `catch` kept,
+both arms load-bearing and pinned separately — because a seam that served only synchronous
+answers would push a worker round trip into a fire-and-forget inside a sync body, i.e. the same
+silence one door over. What makes async safe is the correlation id: answers may come back out of
+order, which is what the table is for.
+
+### 26.2 The agent door — three reads, guests only
+
+`src/daemon/mcp.ts` is **one branch on the route ladder and one module behind it**, and its
+whole mapping is a table of three rows: `session_state` → `session.state`, `world_list` →
+`world.list`, `project_get` → `project.get`. **Every tool is a `dispatch()` call and computes
+nothing.** A tool that computed anything would be a second author on an answer the registry
+already owns, and §4's *"every client funnels through one validator"* would stop being literal
+at the one edge where the caller is least trusted. Route position and the committed-response
+guard are §2; the error mapping is §6.
+
+**`field.load` is deliberately not projected**: it answers with a whole world — every chunk and
+`.mat` sibling base64'd, plus the oplog — which is megabytes against a per-result budget
+measured in tens of thousands of tokens. There is no honest way to hand that to an agent as
+text, and a truncation would be a lie in the one direction this tranche exists to close. What a
+trimmed world read looks like is T4c's question, and it is a design question rather than a
+plumbing one.
+
+**And no `session.*` verb is projected, which is the guest clause in one line.** `claim`,
+`steal` and `release` are not absent because they would be dangerous — they are **unspellable**:
+all three take a connection token minted *into* an SSE stream, and this door holds no stream, so
+an MCP client can never present one structurally rather than by a check. `session.answer` is the
+chrome's return leg and names a pending ask, not a caller. An agent therefore reads **through**
+whichever session is claimed and can never become one; a call to an unadvertised name is refused
+as a protocol error rather than an `isError` result, which is that same line. `readOnlyHint`
+states the posture in the protocol's own vocabulary, and it is a *hint* by specification — the
+guarantee is that no mutating command is projected at all.
+
+**A server and a transport per POST, closed in a `finally` through `allSettled`.** A stateless
+transport cannot be reused in SDK 1.30.0 — the second request throws inside the SDK's own hono
+listener and the client sees a bare 500 with an **empty body**, always on the second call and
+never the first, so it survives every smoke test (measured on both runtimes at Task 0). A
+stateful transport was the other shape and is fenced out on purpose: it serves exactly one
+client, so it would need a table keyed by `Mcp-Session-Id` and **the daemon would then have two
+session concepts**. The editor's one session is the SSE claim a human's tab holds; a per-request
+transport is what keeps that literally true, and it buys the guest clause for free — two agents
+are two independent POSTs reading through one human's claim.
+
+**`MCP_INSTRUCTIONS` is 2,036 bytes** (pinned ≤ 2,048) and carries exactly four things an agent
+that has never heard of furnace cannot infer, each chosen because not knowing it produces a
+specific mistake: that the live half is **relayed** to a browser tab (without it a `no-session`
+refusal reads as a broken server), the **claim model** (without it an agent watching two tabs
+cannot tell the human what to do), that the **cursor is compare-only** (without it an agent
+caches a payload against a token certifying one member of it), and that **`{ready:false}` is a
+real answer** — the arm `shared/wire.ts` declares and this door really returns, which an agent
+that read only the first three would meet as a payload carrying none of the fields promised one
+line up.
+
+**That fourth clause is INSURANCE, not a description of today, and `wire.ts` is explicit about
+it: the arm is currently UNREACHABLE through the daemon.** Follow the gate: a tab is asked only
+if it is claimed, it claims only after a token arrives, and the token arrives on a feed
+`useDaemonFeed` opens only once `state.status === "ready"` — by which point `App` has assigned
+the field host (synchronously, immediately before the dispatch that makes the editor ready) and
+the shell has long since committed. Two network round trips stand between the commit that fills
+the chrome's reader and the earliest possible ask. A tab that failed to boot (`engine-error`,
+`no-webgpu` — both live states) never opens a feed at all and earns `no-session` instead, which
+is the honest sentence and has a different remedy. So the chrome CAN spell `{ready:false}` and
+today nothing relayed can receive it; the clause is in the instructions because it is the answer
+that stays honest **when the gate moves**, which `wire.ts` names as the trigger — whoever opens
+the feed before `ready` puts a permanently-not-ready tab behind an arm that reads as "still
+starting" to a caller that will retry for ever, and owes it a reason field in the same change.
+Its one reachable caller today is `tests/chrome/session-state.test.tsx`, which asks the registry
+row directly. The tool descriptions carry the rest, where they are read next to the call.
+
+**How to connect.** The daemon prints the URL at startup; `claude mcp add --transport http
+furnace http://127.0.0.1:4500/mcp` registers it, and the tools then appear as
+`mcp__furnace__session_state` and siblings — **the client namespaces by the key the human wrote
+in its own config**, which is why the tool names here carry no prefix of their own and
+`SERVER_INFO.name` identifies the server in logs rather than the tools. Under `--port 0` read
+the port off the banner.
+
+**The SDK has a price this tranche measured rather than paid.** Constructing *any* MCP SDK
+`Protocol` object — `new Client(…)` or `new Server(…)`, no transport, no HTTP, no request —
+inflates the wall clock of *the rest of that `bun test` process* by multiples, enough to drag
+several `@furnace/core` budget tests over ceilings they otherwise clear by an order of
+magnitude. (The per-run table is in the filed entry below, where it can be re-measured rather
+than trusted; the figures are not restated here, because a wall clock is the one number a
+reference doc has no way to keep true.) Eliminated by measurement rather than
+argument (not the transport, not Ajv, not SSE, not `globalThis`, not GC, not module load —
+`daemon/server.ts` imports the SDK on every run and the suite is unaffected with the door
+mounted and unexercised). So `tests/mcp.test.ts` spawns `tests/_helpers/mcp-probe.ts` in a
+**fresh runtime**, which performs every exchange and prints one JSON transcript the cases assert
+on — the same remedy `tests/action-registry/node-door.test.ts` already uses for a different kind
+of process pollution. Nothing in `src/` changed to accommodate it, and the whole table plus the
+eliminations is filed under
+`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`.
+
+### 26.3 The T4b exit — all seven clauses
+
+Verdicts re-derived at the tranche's head from the artifact, not from the commit that claimed
+each one. **Clause 5 is the review session's to walk** and is the only one not closed here.
+
+| Clause | Verdict |
+| --- | --- |
+| **1. An MCP call with no claimed session returns a typed error, never a hang — timeout path included** | **HOLDS.** Every exit from `ask()` is a rejection that arrives (§26.1), and each has its own case. At the agent door: `tests/mcp.test.ts` *"session_state with no editor open refuses in a sentence an agent can act on"*. At the relay: `tests/backchannel.test.ts` *"no claimed session → `no-session` at once, with nothing written to anyone"*, *"two claimed sessions have no single one to speak for — refused, not picked"*, *"silence becomes a typed `session-timeout`, never a hang"*, *"the session's departure rejects its pending asks AT ONCE, with `no-session`"*, *"a departure abandons only ITS OWN pending asks"*. At the HTTP edge: `tests/server.test.ts` *"with no session claimed, `session.state` says so rather than hanging"*. The budget is pinned as an **inequality** against the client floor it must sit under (*"the default budget sits inside the client timer that would otherwise expire first"*), not as the literal 10 s. **One residue, stated rather than claimed away:** a chrome that REFUSES a method answers `internal` — indistinguishable at the code level from a daemon fault, with only `AGENT_REMEDY`'s sentence carrying the difference. Filed. |
+| **2. Exactly one connection holds a world's claim; steal transfers it and the loser is told; nothing survives restart** | **HOLDS.** `tests/claims.test.ts` covers the table (*"one connection holds a world; a second is refused and changes nothing"*, *"a connection holds AT MOST ONE world — claiming a second releases the first"*, *"the untitled session is a KEY, distinct from every named world"*, *"steal transfers the claim and tells ONLY the connection that lost it"*, *"stealing an UNHELD world simply claims it, and notifies nobody"*). **Nothing survives restart is pinned by CONSTRUCTION, not by clearing** — *"a fresh hub/claims pair starts empty"* builds a second pair, which is what a restart is. `tests/server.test.ts` holds the wiring the module tests cannot see: *"a second session is refused, steals, and the loser is TOLD over its own feed"* and *"a hang-up frees the world for the NEXT connection, with no steal"* — the second exists **because sabotage found that cutting `server.ts`'s own `hub.onClose(… release …)` reddened nothing**, the module suite having built its own pair. The claim's liveness rests on a runtime defect this uncovered and fixed (`res.on("close")` never fires under Bun, §5.1), pinned per-half: *"the RESPONSE's departure alone releases"*, *"the REQUEST's departure alone releases"*, *"one departure is announced ONCE"*, and *"release is IDENTITY-CONDITIONAL: a late close cannot revoke a newer claim"*. |
+| **3. The backchannel round-trips with correlation ids; concurrent asks never cross** | **HOLDS.** `tests/backchannel.test.ts` *"a question reaches the claimed session and its answer resolves the ask"* and *"two concurrent asks resolve to their OWN answers"* — swapping the two ids in the resolver reds that case **alone and by name**, which is what makes it a crossing test rather than a round-trip test twice. The frame is **addressed, not broadcast**, pinned by its negative (*"a request is ADDRESSED — a second subscriber never sees another session's question"*) and again end-to-end at the door (*"TWO agents read through ONE claim, and the unclaimed tab is never asked"*). One-shot is structural — `takePending` removes before settling — and pinned from both sides (*"a late answer settles nothing and is REPORTED as having settled nothing"*, *"a SECOND answer cannot settle a second ask"*, *"an invented requestId is accepted and delivers nothing"*). The **instance** wiring is pinned by `tests/server.test.ts`'s round trip, which reds if the seam is handed a backchannel built over a different hub or a different claim table — a hole Task 3 reported as un-reddened and Task 4 closed by building the far end. |
+| **4. `session.state` reports the live chrome truthfully, with a cursor that changes on edit / undo / world-swap** | **HOLDS, and its boundary is pinned rather than merely stated.** `tests/chrome/session-state.test.tsx`: *"a mounted chrome answers what its mirrors actually hold"*, *"every mirror the payload names moves the answer"*, *"the live SESSION and the selected ENTITY are projected, not passed through"*, *"the payload is a COPY — no member aliases live chrome state"*, *"the CAMERA is POLLED at answer time — never mirrored, never on the ctx"* (with *"the ACTION CONTEXT did not grow a member for this"* pinned as a **type**, mutually, so a removed member reds as loudly as an added one), and *"an UNFILLED reader and a HOSTLESS chrome share one honest arm"* for the `{ready:false}` discriminant that makes a false claim of emptiness unspellable. Cursor motion is `tests/field-host-history.test.ts`: *"the token moves on a mutation, and an undo/redo round trip returns it"*, *"a NEW WORLD over an empty one still moves the token — and PUBLISHES"* (the world-swap leg, which also forced the change guard's three new terms), and *"`ops.length` is LOAD-BEARING — undo, then a mutation that mints no op"*. **What the cursor does NOT certify is pinned too**: it rides the history payload and certifies `history` alone, and its one reachable alias (freeze → ⌘Z → bake) is reproduced rather than described, in *"THE ONE ALIAS IT CARRIES, pinned so the gap cannot be forgotten"*. |
+| **5. Claude Code end-to-end: connect, list, read truth** | **NOT CLOSED HERE — the REVIEW session walks it**, against the user's own daemon on a real world. It is the only clause no test can stand in for, because what it checks is that the payload matches what a *human* sees. The walk, and what a pass looks like: (a) start the editor (`bun run dungeon:editor`), open a world, and confirm the banner's second line prints `mcp  http://127.0.0.1:<port>/mcp`; (b) `claude mcp add --transport http furnace http://127.0.0.1:4500/mcp`, then a Claude Code session **lists exactly three tools** — `session_state`, `world_list`, `project_get` — and no fourth; (c) `session_state` returns `ready: true` and its `world`, `tool`, `gesture`, `selection` and `camera` **agree with what is on screen** — arm a different tool, select an entity, orbit, and read again to see each move; (d) kill the tab mid-call and the next call answers the **typed** `no-session` (fast) or `session-timeout` (at the budget) with `isError: true` and a remedy sentence — never a hang; (e) a **second** Claude Code client against the same daemon reads the same claim as a guest, and neither client can claim, steal or release. Any step that needs a source change fails the clause. *(The deferred HOLISTIC user gate stays at T4 close; this is the functional gate only.)* |
+| **6. Advertisement round-trips validation for all six schemas** | **HOLDS, with one divergence stated rather than hidden.** `tests/action-registry/projection-round-trip.test.ts` is the first caller of `toJsonSchema` on an action at all, and **it compares VERDICTS, not shapes** — a case asserting the reflected document *looks like* the zod schema re-derives one side from the other and would keep agreeing while both drifted together. `admits()` reads the advertised document the way a client would (root `type`, `required`, each property's `type` and its bounds) and its answer must equal `safeParse().success` for the same value; every sample runs against **every** row, so no row is graded only on arguments tailored to it. A second case forbids agreement bought by reading less: every keyword the six documents carry must be one the reader interprets, and `admitsField` **throws** on an unreadable type rather than returning `false`, which would look like a refusal the advertisement made. **The divergence:** all six rows are `z.object`, which STRIPS unknown keys, and the reflected document carries no `additionalProperties` — so both *admit* a stray key and the compared verdicts agree, while the OUTPUT differs. That is a live posture split against the daemon's `z.strictObject` commands, it becomes agent-visible the moment T4c projects these rows, and it is filed rather than changed here (a behaviour change does not belong in a plumbing commit). |
+| **7. `runMember` refuses unknown members, never claims false success, and every refusal carries a `because`** | **HOLDS.** The funnel takes an **id**, and resolution happens **before** the gate deliberately: an id no member answers to is a malformed *request*, and answering it with "finish the session first" would send the caller off to end a session and back to the same typo. `tests/actions.test.ts`: *"a member id no member answers to is `refused` as `member`, and names the ids that exist"*, *"an unknown member id is answered BEFORE the family's gate — a bad request, not a bad moment"*, and *"a stamp pick with no engine is `refused` — and a brush pick with no engine is not"* — the pair that pins the false-success fix at the ARM rather than as a blanket guard in the funnel, since Paint needs no host and a blanket guard would refuse it for a fact about a different family. The compiler holds the no-false-success rule rather than a docblock: `arm` returns `Exclude<ActionResult, {kind:"failed"}>`. The vocabulary is exhaustive by type — *"every refusal class is REACHABLE through a funnel, and answers with its own name"* is a `Record<RefusalClass, …>`, so an eighth class with no route producing it does not compile — and the one-funnel rule is a source scan asserting the caller list is exactly `["frontend/lib/actions.ts"]`. **The same false-`ok` shape survives ONE DOOR OVER and is filed, not claimed closed**: the action table reaches the host through `ctx.host?.` at 14 sites, ten action ids reachable pre-engine today, and fixing it coherently overturns five deliberate always-live stances — `named-run-bodies-claim-ok-with-no-host.md`. |
+
+**Backlog dispositions, re-derived from `git diff --name-status 0e89327d~1..HEAD -- docs/backlog/`
+rather than from memory: seven added, five modified.** **NONE DELETED** — the donor entry
+(`editor-ai-integration-milestone.md`) deletes at **T4c** with the disposition of its items 3
+and 4, which are outside T4's scope; it carries a dated re-anchor instead, recording that its
+item 1's READ half is built, that the backchannel its `viewport.capture` needed now exists, and
+that the SDK zod probe ran (1.30.0 declares zod BOTH as a `dependencies` entry and as a
+NON-optional peer, read from the SDK's own manifest — so the workspace's single instance rests
+on that one zod satisfying `^3.25 || ^4.0`, and **the check is re-run on any zod bump**).
+**Seven filed**, five of them mid-tranche by the tasks that
+surfaced them: `named-run-bodies-claim-ok-with-no-host.md`, `refusal-class-has-no-input-arm.md`
+and `member-id-is-a-display-label.md` (Task 1),
+`read-only-chrome-for-an-unclaimed-session.md` (Task 2's declared narrowing of the settled
+policy — this tranche ships steal plus the cover, because read-only is a per-control decision
+across the whole shell and half of it would be worse than none),
+`wire-contracts-are-hand-mirrored.md` (Task 3 — `shared/wire.ts` is shared where the other three
+cross-boundary contracts are still hand-mirrored), and two at this seal:
+`action-input-schemas-strip-what-commands-refuse.md` (clause 6's divergence) and
+`backchannel-refusals-blur-two-causes.md` (clause 1's residue, plus the shutdown half —
+`hub.close()` fires no close handlers, so a daemon shutdown leaves a pending ask to its unref'd
+timer instead of telling it the daemon is gone; unreachable today, live the day an ask outlives
+a restart). **Three appended to** rather than duplicated:
+`editor-test-harness-fragility.md` (the SDK's per-process cost, the eliminations, and the three
+programme-level fixes), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
+parameters), and `locator-rethrow-primitive-respelled-six-ways.md`, whose standing trigger was
+**checked and did not fire** — the MCP edge converts a throw into a value rather than
+re-throwing one and adds no locator, so it is still six sites, with T4c's mutation verbs named
+as the clause's remaining live half. **One re-cited**: `world-verb-follow-ons.md`'s
+`handlers.ts` line numbers, which the session family's split into `session-handlers.ts` moved.
+Nothing was reclassified as "defer" without being written down, and nothing surfaced was
+absorbed silently — this list is the summary AGENTS.md asks for at a tranche's end.
+
+**Four things the whole-branch review surfaced that are NOT filed, recorded here so the T4c
+opener meets them rather than rediscovering them.** Each is stated rather than filed because
+none needs a design decision and every one of them is cheapest inside work already scheduled.
+
+- **The 10 s budget has two spellings.** `session_state`'s agent-facing description hardcodes
+  *"within 10 seconds"*; `DEFAULT_ASK_TIMEOUT_MS` is what decides, and the pin deliberately
+  asserts the INEQUALITY against the client floor rather than the number (§26.3 clause 1). So
+  a budget change moves the behaviour and leaves the advertisement lying. Pinning the
+  description against the constant is a test change and belongs in whatever commit next moves
+  the budget — not in a docs commit.
+- **Two deletion candidates, both surfaced by the pass and neither taken.** `session.release`
+  has no production caller — its only callers are tests, and the argument for keeping it
+  ("the claim's lifetime is only statable with both ends") is the same argument `api.ts`
+  explicitly uses to REJECT giving it a client method. And `session.ping` + `BASE_ANSWERERS`
+  are a liveness probe with no production prober. `AGENTS.md`'s deletion-pass-before-addition
+  rule makes both fair questions for T4c, which is the tranche that will decide what the
+  `session.*` family is for.
+- **One terminal branch is untested**: a client that disconnects mid-call. It is reasoned from
+  source, not pinned, and it belongs to the live walk rather than to a suite — clause 5's
+  step (d) is the closest thing to it.
+- **The SDK's per-process cost was removed from the TEST process, not from the daemon.** The
+  measured multiple was eliminated by moving `Server` construction into a spawned probe; the
+  production daemon still constructs a `Server` and a transport **per POST** (§26.2), and
+  **nobody has measured a daemon that has actually served MCP traffic.** The gate session will
+  have one running and an agent calling it, which is the cheapest place this can be found out.
+  It is a note for the walk rather than a defect: nothing predicts a problem, and nothing has
+  looked.

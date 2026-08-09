@@ -203,9 +203,23 @@ cleared by the component that owns the canvas element, and read by four unrelate
 `worldsVersion` still fails that test on both counts (produced by a hook, consumed by exactly
 one component).
 
-**Trigger to revisit:** the next edit to `EditorContextValue` for any reason, or the mirror pin
-biting during an unrelated refactor. Cheap to take then — the provider stack already exists and
-`WorldProvider` is the natural home.
+**A second reason to touch the same hook, added 2026-08-09 (foundations T4b).** The signature
+is now **four positional parameters** — `useDaemonFeed(ready, bakeBusyRef, session, onRequest)`
+— having taken `session: SessionFeed` for the claim and `onRequest` for the backchannel's
+answerer in the same tranche. That is `clean-code.md`'s stated smell line (*"more than ~4
+positional parameters is a smell"*) reached exactly, and the four are not cohesive: a boolean
+gate, a ref, a handler record and a callback. It was left as-is deliberately — both tranche
+commits were carrying behavioural change, and a signature churn under a behavioural diff is
+what makes a review round unreadable (this entry's own standing argument).
+
+**The agreed disposition is not a separate entry**: convert to a single options object
+**whenever that signature is next touched, for any reason**. It is a mechanical change with one
+call site (`App.tsx`), so it costs nothing then and is not worth a commit of its own now. A
+FIFTH parameter is the hard trigger — take it in that commit rather than adding to the list.
+
+**Trigger to revisit:** the next edit to `EditorContextValue` for any reason, the next edit to
+`useDaemonFeed`'s signature, or the mirror pin biting during an unrelated refactor. Cheap to
+take then — the provider stack already exists and `WorldProvider` is the natural home.
 
 **Reference:** `packages/editor/src/frontend/hooks/useDaemonFeed.ts`,
 `packages/editor/src/frontend/components/editor-context.ts` (`worldsVersion`'s docblock, and

@@ -99,7 +99,7 @@ run, and a number that looks fresh but isn't is worse than one that admits its d
 | `export function createFieldHost` | **line 1505** → end of file (**2,495 lines**) *(re-derived 2026-08-08 at the T3d review)*. Was line 1673 / 4,665 lines at the T3c review |
 | `return { … }` object literal | **line 3587** *(re-derived 2026-08-08 at the T3d review)*. Was 5,673 at the T3c review |
 | Closure-level bindings | **56** *(re-derived 2026-08-08 at T3d Task 6: **9 `let` / 47 `const`** — 20 module records, 16 functions, 20 data. The data side is the substrate's sixteen backing slots plus four bindings owned by THREE of the four rows declared FACADE-RESIDENT (`catalogs`, `lifecycle`, `input` — `history`'s `stepHistory` owns no state, which is half its argument for staying); §2.11's eighth bullet is the accounting)*. Was **232** at the T3c review by §2's rule — the closure still holds no top-level `if`/`for`/`while`/`try` and no `function` declarations, re-verified, so indentation level 2 is still exactly the closure scope). The split: **69 `let` / 163 `const`**, and the function/data split IS re-derived this time — **125 function-valued / 107 data**, where the data side is 95 cluster-owned bindings + the 3 containers extractions left behind as substrate value members (`propMeshes`, `ghostMeshes`, `voidCastMeshes`) + 9 module/infrastructure records (`substrate`, `router`, `props`, `segment`, `historyFeed`, `voidcast`, `viewState`, `machine`, `stats`). §6's per-cluster counts at head sum to exactly 125 functions and 95 cluster-owned state, which is the cross-foot the mixed-epoch record never had. Was 270 after `view`, 272 after the `history` feed, 275 after `stats`, 281 after `props`, 284 after `voidcast`, 289 at T3a, 293 originally. |
-| `FieldHost` public members | **65** *(re-verified 2026-08-08 at T3d Task 6; the comment-stripped type block is byte-identical to master at every T3d commit, sha `7568c33b…`)*: 62 defined in the return literal and 3 shorthand re-exports — which are `cameraRig.frameSelection` / `cameraRig.frameWorld` / `cameraRig.snapView` since T3d Task 4, module refs rather than the closure functions the T3c note named. Was 66 until foundations T3c deleted `commitSession` — zero production callers |
+| `FieldHost` public members | **66** *(re-derived 2026-08-09 at foundations T4b Task 7, by counting top-level members of the `FieldHost` type block and of the `return { … }` literal independently and diffing the two name sets — they agree exactly)*: **54 written with a body** (including `async init`) and **12 bare delegating property assignments**, which split 6 to `cameraRig` (`frameSelection`, `frameWorld`, `cameraAimedByHand`, `snapView`, `isLooking`, `cameraPose`) and 6 to `advisor` (`setAgentProfile`, `subscribeFlags`, `setFlagFilters`, `verifyFlag`, `selectFlag`, `flagMarkerCount`). **The previous sub-split — "62 defined in the return literal and 3 shorthand re-exports" — did not partition the literal and is not carried forward**: its "3" named the three delegations that changed OWNER at T3d Task 4 (`cameraRig.frameSelection` / `frameWorld` / `snapView`), not every bare one, of which there were already nine more. The TOTAL it carried (65) was right for T3d. Was **65** through T3d and T3c (the comment-stripped type block byte-identical to master at every T3d commit, sha `7568c33b…`); **66** again since foundations T4b added `cameraPose()` — a poll beside `subscribeCameraPose`, for the agent backchannel. Was 66 before foundations T3c deleted `commitSession` — zero production callers — so the total has returned to its T3b2 value by a different member |
 | Clusters below | 23 *(2026-08-03)* — **19 EXTRACTED and 4 DECLARED FACADE-RESIDENT** at head (`catalogs`, `input`, `lifecycle`, and `history`'s `stepHistory` half); zero rows are merely un-examined *(re-derived 2026-08-08 at T3d Task 6)*. Was 14 live at the T3c review |
 | Cross-cluster **read** edges | 244 *(2026-08-03 — stale, see §2.2; deliberately NOT re-attributed at the 2026-08-07 sweep, see §2.5)* |
 | Cross-cluster **mutation** edges | **70 edges over 71 write sites** at birth *(the unit correction is §5's opening note)* — at head **59 stand and ALL 59 cross a module boundary** (18 of them MODULE→MODULE; **zero remain cluster-to-cluster inside the closure**) and **11 are structurally gone** *(re-tallied per write site 2026-08-08 at T3d Task 6, §5.7)* |
@@ -1166,8 +1166,10 @@ things a reader of §4–§6 should take from it.
 The clusters were first hypothesised from the `FieldHost` type. Following the code changed
 four things:
 
-1. **The surface is 66 members, not 56** (65 at head — foundations T3c deleted
-   `commitSession`; the figure here is the hypothesis-epoch one). The hypothesis omitted two whole families: the
+1. **The surface is 66 members, not 56** (the figure here is the hypothesis-epoch one, and
+   head is **66** again by a different route — foundations T3c deleted `commitSession` to make
+   it 65, foundations T4b added `cameraPose` to make it 66; re-derived 2026-08-09, §1's Fact
+   table carries the method). The hypothesis omitted two whole families: the
    **walkability advisor** (`setAgentProfile`, `subscribeFlags`, `setFlagFilters`,
    `verifyFlag`, `selectFlag`, `flagMarkerCount`) and the **telemetry channels**
    (`subscribeStats`, `isLooking`, `subscribeCameraPose`, `subscribeSegmentHud`). It also
@@ -3208,7 +3210,7 @@ collapse the same way into `selectionBox()`.
     dispose half SPLIT in two on `field-materials.ts`'s precedent (`unbind()` at 3677 inside
     the context guard, `release()` at 3714 outside it)
 
-**Public members (4):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking` — all four delegate now; `frameChunks` keeps `chunkSetBox` (`world`'s) on this side and hands the box to `cameraRig.centreOn`
+**Public members (5):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking`, `cameraPose` — all five delegate now; `frameChunks` keeps `chunkSetBox` (`world`'s) on this side and hands the box to `cameraRig.centreOn`. **`cameraPose` arrived at foundations T4b** (`cameraPose: cameraRig.pose`, `field-host.ts:4020`) and is a POLL beside the subscription rather than a second channel: the pose moves between renders, so a surface that DRAWS it takes `subscribeCameraPose` and a caller answering a question asked at an arbitrary moment — the agent backchannel's `session.state` — takes this. It is also what keeps the pose seam's one-subscriber rule (`tests/chrome/shell.test.tsx`) true, which both mirror-shaped alternatives would have broken
 
 ### Cluster: render — **EXTRACTED 2026-08-08** (`field-render.ts`, foundations T3d Task 3)
 
@@ -3306,7 +3308,9 @@ per-site counts below are the birth epoch, per §2.5's read-side caveat):
   - none
 
 **Public members (0):** none — internal only. The seam is one verb the host calls, not a
-facade member; `FieldHost` is 65 members before and after
+facade member; `FieldHost` was 65 members before and after this extraction, and is **66** at
+head (foundations T4b's `cameraPose`, which belongs to `camera` — see §1's Fact table). The
+zero is the claim that matters here and it is unchanged: this cluster adds no facade member
 
 
 ### Cluster: picking — **EXTRACTED 2026-08-07** (`field-picking.ts`)

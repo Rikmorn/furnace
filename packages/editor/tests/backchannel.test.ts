@@ -276,7 +276,10 @@ test("an explicit `null` payload stays distinct from an absent one", async () =>
 
 test("params that cannot ride the wire reject TYPED, rather than throwing past the contract", async () => {
   // `emitTo` → `frameFor` → `JSON.stringify` raises SYNCHRONOUSLY on a cycle, and `ask`'s
-  // contract promises one of four codes. Without the guard the raw `TypeError` escapes with
+  // contract promises one of THREE codes (`no-session`, `session-timeout`, `internal` — four
+  // clauses in its `@throws`, but `internal` covers two of them, this being one; the number a
+  // caller branches on is the codes, and "four" was the propagated slip, corrected at T4b
+  // Task 7). Without the guard the raw `TypeError` escapes with
   // `code: undefined`, and the entry sits out its whole budget before the timer clears it —
   // not a leak, but ten seconds of a caller waiting for a frame that was never written.
   const { backchannel, session } = daemon();
