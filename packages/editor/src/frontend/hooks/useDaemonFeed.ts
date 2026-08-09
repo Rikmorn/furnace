@@ -1,10 +1,15 @@
 import { type RefObject, useEffect, useState } from "react";
 import { subscribeEvents } from "../lib/events.ts";
+import type { SessionFeed } from "./useSessionClaim.ts";
 
 /**
- * The daemon's SSE feed, reduced to the two things the chrome does with it: a version
- * counter that anything rendering the world list refetches on, and the hard reload a
- * stale engine bundle needs.
+ * The daemon's SSE feed, reduced to what the chrome does with it: a version counter
+ * that anything rendering the world list refetches on, the hard reload a stale engine
+ * bundle needs, and — since foundations T4b — the two frames the session claim rides.
+ *
+ * It remains the ONE place in the chrome that reads an event `type`. The claim's own
+ * logic lives next door in `useSessionClaim`; what arrives here is a `SessionFeed` of
+ * named handlers, so this file learns no policy and that file learns no wire.
  *
  * A hook rather than App-local state for the reason Shell's header gives: App owns the
  * WebGPU probe and the dynamic import of /engine.js, neither of which reaches `ready`
@@ -21,21 +26,37 @@ import { subscribeEvents } from "../lib/events.ts";
  * or one built outside render): the ref is in this effect's dep list, so an
  * inline-constructed `{ current: … }` re-subscribes on every render — one EventSource
  * opened and closed per render, against a daemon that holds each one.
+ * @param session - the claim's three handlers ({@link SessionFeed}). It is in this
+ * effect's dep list under the same STABILITY rule as `bakeBusyRef` above, and the cost
+ * of breaking it is worse here: a re-subscribe mints a new connection token and
+ * re-claims, so an unstable object would make the editor fight itself once per render.
  * @returns a counter bumped on every `worlds-changed` / `generation-baked` event.
  */
 export function useDaemonFeed(
   ready: boolean,
   bakeBusyRef: RefObject<boolean>,
+  session: SessionFeed,
 ): number {
   const [worldsVersion, setWorldsVersion] = useState(0);
 
   useEffect(() => {
     if (!ready) return;
     return subscribeEvents({
-      // Nothing to catch up on: the editor mirrors no daemon-owned document. The
-      // field world lives in the host until the user saves it.
-      onOpen: () => undefined,
+      // Nothing to CATCH UP on: the editor mirrors no daemon-owned document, and the
+      // field world lives in the host until the user saves it. What a (re)connect does
+      // mean is that the previous connection's name is dead — the claim forgets it here
+      // and re-asserts on the token frame below, which is the first frame of the new
+      // stream and the earliest moment a claim can be made at all.
+      onOpen: () => session.onOpen(),
       onEvent: (event) => {
+        if (event.type === "session-token") {
+          session.onToken(event.token);
+          return;
+        }
+        if (event.type === "claim-lost") {
+          session.onLost(event.world);
+          return;
+        }
         if (event.type === "bundle-outdated") {
           // Generator/extension source changed: the engine bundle is stale. A hard
           // reload is the only way to pick it up, and it would kill an in-flight
@@ -54,7 +75,7 @@ export function useDaemonFeed(
         }
       },
     });
-  }, [ready, bakeBusyRef]);
+  }, [ready, bakeBusyRef, session]);
 
   return worldsVersion;
 }

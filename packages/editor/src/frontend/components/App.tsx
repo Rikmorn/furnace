@@ -2,10 +2,12 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FieldHost } from "../../field-host/index.ts"; // type-only
 import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
 import { useDaemonFeed } from "../hooks/useDaemonFeed.ts";
+import { useSessionClaim } from "../hooks/useSessionClaim.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
 import { initialState, reduce } from "../lib/state.ts";
+import { ClaimLostOverlay } from "./ClaimLostOverlay.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import {
 	EditorContext,
@@ -40,10 +42,24 @@ export function App() {
 	// every binding while a prompt is open.
 	const { confirm, confirmRef, openConfirm, resolveConfirm } =
 		useConfirmDialog();
+	// Which world this session is authoring, for the claim below. Created HERE and filled
+	// by `WorldProvider` for the `bakeBusyRef` reason: the name lives far below this
+	// provider and its reader sits beside it.
+	const worldNameRef = useRef<string | null>(null);
+
+	// The session claim (T4b): this tab tells the daemon it is the one an agent may read
+	// and drive. It rides the feed's frames (the daemon names each connection on connect)
+	// but owns no subscription of its own — `feed` is the stable handler set the feed
+	// calls into, `lost` is the terminal state the cover renders from.
+	const claim = useSessionClaim({ worldNameRef, openConfirm });
 
 	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders
 	// the world list — the world drawer is the first consumer.
-	const worldsVersion = useDaemonFeed(state.status === "ready", bakeBusyRef);
+	const worldsVersion = useDaemonFeed(
+		state.status === "ready",
+		bakeBusyRef,
+		claim.feed,
+	);
 
 	// Per-project UI persistence. The project root comes from the daemon (project.get);
 	// until it resolves the store is undefined and persistence is simply off — the shell
@@ -112,6 +128,8 @@ export function App() {
 		openConfirm,
 		confirmRef,
 		bakeBusyRef,
+		worldNameRef,
+		claimLostRef: claim.claimLostRef,
 		viewportFocusRef,
 		store,
 	};
@@ -120,6 +138,15 @@ export function App() {
 		<EditorContext.Provider value={ctxValue}>
 			<ConfirmDialog request={confirm} onResolve={resolveConfirm} />
 			<Shell />
+			{/* LAST in this subtree, but DOM order is NOT what orders it against the
+			    overlays that matter, and the first version of this comment claimed it was.
+			    React mounts into `#root` (`main.tsx`); every Radix overlay in the chrome —
+			    the confirm dialog, the command palette, each popover — portals to
+			    `document.body`, i.e. AFTER `#root`. So a same-z cover paints UNDER them,
+			    the exact inverse. What orders it is the z-index: the cover declares one
+			    step above the control library's whole layer, pinned in
+			    `tests/chrome/session-claim.test.tsx`. */}
+			<ClaimLostOverlay lost={claim.lost} />
 		</EditorContext.Provider>
 	);
 }

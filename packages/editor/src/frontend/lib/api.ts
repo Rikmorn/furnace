@@ -2,13 +2,16 @@
 
 /** A daemon command failure: the contract `code` plus the human message.
  *
- *  NOT EXPORTED, as of the F4.5 seal, and the fact is worth one line rather than a rediscovery:
- *  no caller in the chrome branches on it. Every catch site reads `.message` off an
- *  `instanceof Error` narrowing, because what the surfaces need from a failed command is a
- *  sentence to show, not a class to switch on. `code` is still carried — it is the daemon's
- *  contract (`daemon/errors.ts`) and the first thing a caller that DID need to branch would
- *  reach for. Re-exporting is one keyword; do it when a call site actually needs the name. */
-class ApiClientError extends Error {
+ *  EXPORTED SINCE FOUNDATIONS T4b, which is the condition the F4.5 seal set for it: it was
+ *  private while every catch site in the chrome read `.message` off an `instanceof Error`
+ *  narrowing — a sentence to show, not a class to switch on — and the note ended "re-exporting
+ *  is one keyword; do it when a call site actually needs the name." `useSessionClaim` is that
+ *  call site, and it is not a preference: a refused `session.claim` must raise a STEAL prompt,
+ *  and every other failure must raise a toast, so the decision is a branch on `code` and there
+ *  is no honest way to take it off a message written for humans to read (T4a's own rule — prose
+ *  is free to be reworded, the machine-readable half is not). Still ONE caller: everything else
+ *  keeps reading `.message`. */
+export class ApiClientError extends Error {
   readonly code: string;
   constructor(code: string, message: string) {
     super(message);
@@ -95,4 +98,18 @@ export const api = {
     call<Record<string, never>>("world.duplicate", { from, to }),
   worldMakeDefault: (name: string) =>
     call<Record<string, never>>("world.makeDefault", { name }),
+
+  // The session claim (T4b). `token` is the name the daemon minted for THIS tab's SSE
+  // connection and wrote into it as its first frame — `daemon/events.ts` argues at
+  // length what that name is and is not for. `name` is the world being authored, or
+  // null for the untitled scratch (`WorldState.name`'s own nullable, on the wire).
+  //
+  // `session.release` has no method here on purpose: a tab that stops authoring is a
+  // tab that closed, and the daemon's SSE close hook has already released it. The
+  // command exists because the claim's lifetime is only statable with both ends of it;
+  // adding an unused client method would be scaffold, not symmetry.
+  sessionClaim: (name: string | null, token: string) =>
+    call<Record<string, never>>("session.claim", { name, token }),
+  sessionSteal: (name: string | null, token: string) =>
+    call<Record<string, never>>("session.steal", { name, token }),
 };

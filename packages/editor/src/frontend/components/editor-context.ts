@@ -96,6 +96,26 @@ export type EditorContextValue = {
    *  state, and a reload mid-upload would kill the write. The shell's world verbs are
    *  the writers. */
   bakeBusyRef: RefObject<boolean>;
+  /** The world this session is authoring — a saved name, or null for the untitled
+   *  scratch. A ref for the `bakeBusyRef` reason exactly: the reader sits ABOVE the
+   *  owner. `useSessionClaim` (App level, beside the feed that mints the connection
+   *  token) needs the name to claim under; `WorldProvider` (deep inside the shell)
+   *  is where the name actually lives. `WorldProvider` is the only writer.
+   *
+   *  Read at CLAIM time rather than subscribed to: a world switch does not re-claim,
+   *  which costs nothing today because nothing routes by the claim's world — see
+   *  `useSessionClaim`'s header and the backlog filing it names. */
+  worldNameRef: RefObject<string | null>;
+  /** Whether another session has taken this tab's claim, as a ref. The `confirmRef`
+   *  seam exactly: the window keydown listener binds ONCE and must see the current value
+   *  without re-binding, so the flag is written synchronously beside the state that
+   *  renders the cover (`useSessionClaim`).
+   *
+   *  It is a SECOND ref rather than a second reason to set `confirmRef`, because that one
+   *  is also what `ctx.isConfirmOpen()` reports into the gate env — a claim-lost refusal
+   *  would then answer `because: "modal"`, which is false. Read by
+   *  `useGlobalKeybindings`, and by nothing else. */
+  claimLostRef: RefObject<boolean>;
   /** The viewport focus seam ({@link ViewportFocus}), as a ref: App creates it,
    *  `CanvasHost` fills it, and every dismissible overlay reads it through
    *  `useViewportFocusReturn`. A ref rather than state because it is filled in an effect

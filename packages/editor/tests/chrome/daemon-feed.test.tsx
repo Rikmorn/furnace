@@ -27,6 +27,7 @@ import { ActionContextProvider } from "../../src/frontend/hooks/useActionContext
 import { CatalogProvider } from "../../src/frontend/hooks/useCatalogs.tsx";
 import { useDaemonFeed } from "../../src/frontend/hooks/useDaemonFeed.ts";
 import { FieldHostStateProvider } from "../../src/frontend/hooks/useFieldHostState.tsx";
+import type { SessionFeed } from "../../src/frontend/hooks/useSessionClaim.ts";
 import { ViewProvider } from "../../src/frontend/hooks/useView.tsx";
 import { WorkspaceProvider } from "../../src/frontend/hooks/useWorkspace.tsx";
 import { WorldProvider } from "../../src/frontend/hooks/useWorld.tsx";
@@ -44,6 +45,19 @@ import {
 	within,
 } from "../inspector/_harness.tsx";
 import { makeStubHost } from "./_stub-host.ts";
+
+/** The session claim, INERT. This file is about the feed's own two jobs — the refetch
+ *  trigger and the reload guard — and the claim rides the same subscription without
+ *  touching either. Its own chain (token frame → claim → steal → the lost cover) is
+ *  driven end to end in `tests/chrome/session-claim.test.tsx`, where a case can stub the
+ *  daemon's answer; wiring the real hook here would post a `session.claim` through this
+ *  file's world-list stub on every case that emits a token, and none of them emits one.
+ *  Module-level, so it satisfies the stability contract `useDaemonFeed` states. */
+const inertSession: SessionFeed = {
+	onOpen: () => undefined,
+	onToken: () => undefined,
+	onLost: () => undefined,
+};
 
 /** The two shell-owned modal openers (⌘K, and `?`'s shortcut overlay). These cases mount
  *  the TopBar alone, where neither surface is mounted, so both funnels are inert. */
@@ -185,7 +199,7 @@ function Feed({
 	bakeBusyRef: RefObject<boolean>;
 	stub: ReturnType<typeof makeStubHost>;
 }) {
-	const worldsVersion = useDaemonFeed(ready, bakeBusyRef);
+	const worldsVersion = useDaemonFeed(ready, bakeBusyRef, inertSession);
 	return (
 		<EditorContext.Provider
 			value={makeEditorContext({

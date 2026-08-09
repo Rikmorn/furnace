@@ -517,8 +517,8 @@ const EXCLUDED_FILLS: readonly ExcludedFill[] = [
   },
   {
     spelling: "bg-black/80",
-    files: ["components/ui/dialog.tsx"],
-    why: "the scrim. Nothing focusable sits on it, and the dialog it dims is bg-background, which is in the set",
+    files: ["components/ui/dialog.tsx", "components/ClaimLostOverlay.tsx"],
+    why: "the scrim, in both spellings — Radix's dialog overlay and the claim-lost cover, which is a plain fixed layer rather than a Dialog (it has no dismissal to wire). Nothing focusable sits on either; the panel each dims is bg-background, which is in the set, and the cover's one button sits on that panel",
   },
   {
     spelling: "bg-border",

@@ -214,7 +214,7 @@ test("every route branch refuses a cross-origin request — all five", async () 
   await expectForbiddenOrigin(
     await origin("/api/project.get", EVIL, { method: "POST", body: "{}" }),
   );
-  // 2. GET /api/events — this branch HIJACKS the response (`hub.subscribe(res)`
+  // 2. GET /api/events — this branch HIJACKS the response (`hub.subscribe(req, res)`
   //    writes its own headers and never ends), so a check placed after it would
   //    leak an open feed to the attacking page. The JSON content-type inside
   //    `expectForbiddenOrigin` is the half that proves no stream opened.
@@ -370,5 +370,244 @@ test("a command's emission reaches a live SSE subscriber over HTTP", async () =>
   } finally {
     live?.close();
     rmSync(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+// --- The session claim, WIRED (foundations T4b) -------------------------------
+//
+// What the table DOES lives in `tests/claims.test.ts`, where a case costs nothing. What
+// is asked HERE is the half only a live server can answer: that a POST — a different
+// HTTP request from the stream it speaks for — reaches the right connection at all. The
+// token is read off the wire, not handed over by a fixture, because "the chrome can get
+// this" is exactly the claim being made.
+
+const TOKEN_IN_FRAME = /"token":"([^"]+)"/;
+
+/** One live feed, over a RAW SOCKET rather than `fetch` + `AbortController`.
+ *
+ *  Two reasons, and the second is the one that forced it. (1) Destroying a socket is
+ *  literally what a browser tab does when it goes away, which is the departure the claim's
+ *  whole lifetime hangs on. (2) `AbortController` here is not necessarily Bun's:
+ *  `tests/gpu-fixture-survives-dom.test.ts` registers happy-dom in this same process and
+ *  restores only `fetch`, `createImageBitmap` and `ImageData` — so a full-suite run leaves
+ *  happy-dom's `AbortController` standing, Bun's `fetch` does not honour a foreign signal,
+ *  and `abort()` silently tears nothing down. Measured: the stale-token case below passes
+ *  alone and hangs its poll out in a whole-package run. A socket has no such ambiguity. */
+type Feed = {
+  token: string;
+  /** Everything the daemon has written to this connection so far. */
+  text(): string;
+  /** Resolve once `needle` has arrived on this connection. */
+  until(needle: string, timeoutMs?: number): Promise<string>;
+  /** Kill it the way a closing tab does. */
+  hangUp(): void;
+};
+
+function openFeed(): Promise<Feed> {
+  return new Promise((done, fail) => {
+    const socket = connect(server.port, "127.0.0.1", () => {
+      socket.write("GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    });
+    let text = "";
+    const waiting: { needle: string; hit: (text: string) => void }[] = [];
+    socket.on("data", (chunk: Buffer) => {
+      text += chunk.toString("utf8");
+      for (let i = waiting.length - 1; i >= 0; i--) {
+        const w = waiting[i];
+        if (w && text.includes(w.needle)) {
+          waiting.splice(i, 1);
+          w.hit(text);
+        }
+      }
+    });
+    socket.on("error", fail);
+
+    const until = (needle: string, timeoutMs = 8000): Promise<string> =>
+      new Promise((hit, miss) => {
+        if (text.includes(needle)) {
+          hit(text);
+          return;
+        }
+        const timer = setTimeout(
+          () =>
+            miss(
+              new Error(`no ${needle} within ${timeoutMs}ms; got:\n${text}`),
+            ),
+          timeoutMs,
+        );
+        waiting.push({
+          needle,
+          hit: (t) => {
+            clearTimeout(timer);
+            hit(t);
+          },
+        });
+      });
+
+    until("event: session-token").then((first) => {
+      const token = TOKEN_IN_FRAME.exec(first)?.[1];
+      if (token === undefined) {
+        fail(new Error(`no token in the first frame:\n${first}`));
+        return;
+      }
+      done({
+        token,
+        text: () => text,
+        until,
+        hangUp: () => socket.destroy(),
+      });
+    }, fail);
+  });
+}
+
+const post = (command: string, body: unknown) =>
+  fetch(url(`/api/${command}`), { method: "POST", body: JSON.stringify(body) });
+
+async function errorBody(
+  res: Response,
+): Promise<{ code: string; message: string }> {
+  const body = (await res.json()) as {
+    error: { code: string; message: string };
+  };
+  return body.error;
+}
+
+test("a claim is asserted BY the connection the daemon named", async () => {
+  const feed = await openFeed();
+  try {
+    const claimed = await post("session.claim", {
+      name: "cavern",
+      token: feed.token,
+    });
+    expect(claimed.status).toBe(200);
+    expect(await claimed.json()).toEqual({});
+    // Re-asserting on the same connection is granted, not a conflict with itself.
+    expect(
+      (await post("session.claim", { name: "cavern", token: feed.token }))
+        .status,
+    ).toBe(200);
+    // …and releasing hands the world back without closing the tab.
+    expect((await post("session.release", { token: feed.token })).status).toBe(
+      200,
+    );
+  } finally {
+    feed.hangUp();
+  }
+});
+
+test("a token naming no live connection → 409 no-session, never a hang", async () => {
+  // Both flavours, because they arrive by different routes and a client can only act on
+  // the answer if it is the same one: a token this daemon never minted (a tab left over
+  // from a previous daemon, a typo) and a token whose feed has since closed — the
+  // ordinary reconnect, where a POST loses the race with its own stream.
+  const invented = await post("session.claim", {
+    name: "cavern",
+    token: "00000000-0000-4000-8000-000000000000",
+  });
+  expect(invented.status).toBe(409);
+  expect((await errorBody(invented)).code).toBe("no-session");
+
+  const feed = await openFeed();
+  feed.hangUp();
+  // The daemon notices within milliseconds (3.5 ms measured at the T4b Task 0 spike, and
+  // `req.on("close")` is what carries it on this runtime), but a poll states a CONDITION
+  // where a sleep would state a guess.
+  let stale: Response | undefined;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    stale = await post("session.claim", { name: "cavern", token: feed.token });
+    if (stale.status === 409) break;
+    await stale.text();
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  expect(stale?.status).toBe(409);
+  expect(await errorBody(stale as Response)).toEqual({
+    code: "no-session",
+    message:
+      "no live editor connection for that token — the editor's event feed mints a new one on every (re)connect",
+  });
+}, 20_000);
+
+test("a second session is refused, steals, and the loser is TOLD over its own feed", async () => {
+  const holder = await openFeed();
+  const rival = await openFeed();
+  try {
+    expect(
+      (await post("session.claim", { name: "grotto", token: holder.token }))
+        .status,
+    ).toBe(200);
+
+    const refused = await post("session.claim", {
+      name: "grotto",
+      token: rival.token,
+    });
+    expect(refused.status).toBe(409);
+    const error = await errorBody(refused);
+    expect(error.code).toBe("already-exists");
+    // The message carries the remedy, which is the half that differs from a taken
+    // directory name — same code, a different way out.
+    expect(error.message).toContain("steal it");
+
+    expect(
+      (await post("session.steal", { name: "grotto", token: rival.token }))
+        .status,
+    ).toBe(200);
+
+    // ADDRESSED, not broadcast: the loser hears it and the winner does not.
+    expect(await holder.until("event: claim-lost")).toContain(
+      'data: {"type":"claim-lost","world":"grotto"}',
+    );
+    expect(rival.text()).not.toContain("claim-lost");
+  } finally {
+    holder.hangUp();
+    rival.hangUp();
+  }
+}, 20_000);
+
+test("the untitled session claims under `null`, and collides with no world name", async () => {
+  const feed = await openFeed();
+  try {
+    expect(
+      (await post("session.claim", { name: null, token: feed.token })).status,
+    ).toBe(200);
+    // A MISSING `name` is a malformed request rather than a null one: the schema's field
+    // is required-and-nullable, so "I am editing nothing yet" has to be stated.
+    const omitted = await post("session.claim", { token: feed.token });
+    expect(omitted.status).toBe(400);
+    expect((await errorBody(omitted)).code).toBe("invalid-input");
+  } finally {
+    feed.hangUp();
+  }
+});
+
+test("a hang-up frees the world for the NEXT connection, with no steal", async () => {
+  // THE PRODUCTION WIRING, and it needs its own case: `tests/claims.test.ts` builds its
+  // own hub/claims pair the way `startServer` does, so it proves the two modules compose
+  // and NOT that `startServer` actually composed them. Cutting `hub.onClose(… release …)`
+  // in `server.ts` reddens nothing else in the suite — measured, which is why this exists.
+  //
+  // It is also the reconnect design's whole premise as an end-to-end claim: a tab that
+  // goes away leaves its world unheld, so the tab that comes back CLAIMS rather than
+  // steals, and no human is asked a question.
+  const first = await openFeed();
+  expect(
+    (await post("session.claim", { name: "vault", token: first.token })).status,
+  ).toBe(200);
+  first.hangUp();
+
+  const second = await openFeed();
+  try {
+    let retaken: Response | undefined;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      retaken = await post("session.claim", {
+        name: "vault",
+        token: second.token,
+      });
+      if (retaken.status === 200) break;
+      await retaken.text();
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    expect(retaken?.status).toBe(200);
+  } finally {
+    second.hangUp();
   }
 }, 20_000);

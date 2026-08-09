@@ -67,6 +67,16 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 
 **Binding & lifecycle.** `startServer(opts)` (`src/daemon/server.ts`) creates a `node:http` server and listens on **`127.0.0.1`** only — one local single-user session. Port defaults to `4500` (`main.ts`), overridable with `--port`; tests pass `port: 0` to let the OS pick. `close()` tears down the server, the SSE hub, the extensions-directory watch, and the esbuild bundler context.
 
+**The daemon's ONE piece of resident state — the session claim** (foundations T4b, 2026-08-09).
+`src/daemon/claims.ts` records which SSE connection is authoring which world. It is the first
+daemon-resident state the editor has ever had, and it is reconciled with "the daemon stays
+stateless" rather than excused: **there is no DURABLE authoring state — the claim table is the
+same class of thing as the subscriber set beside it in `events.ts`.** A claim is born when a
+live connection asks for one and dies when that connection departs; nothing is written to disk,
+nothing is read back at boot, and a restart begins with an empty table because a restart begins
+with an empty hub. The daemon still holds no document, no schema and no generator. See §5.1 for
+the claim's mechanics, the connection token, and the runtime defect the wiring uncovered.
+
 **One check runs ahead of every route — the `Origin` refusal** (foundations T4a, 2026-08-09).
 `route`'s first statement is `assertLoopbackOrigin(req.headers.origin)` (`src/daemon/origin.ts`):
 a request that DECLARES a browser origin which is not this machine's loopback is refused
@@ -201,7 +211,9 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected).
 
-There are **8 commands in four families**, and **the chrome speaks all 8** (`frontend/lib/api.ts` has one method per command). It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+There are **11 commands in five families**, and the chrome speaks **10** of them (`frontend/lib/api.ts`); the eleventh, `session.release`, has no client method on purpose — see the table. It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+
+`session.*` is the first family whose answer depends on **which caller is asking** rather than only on what it asked, which is why each of the three carries a connection `token` (§5.1).
 
 | Command | Input schema | Returns |
 | --- | --- | --- |
@@ -213,6 +225,9 @@ There are **8 commands in four families**, and **the chrome speaks all 8** (`fro
 | `world.delete` | `{ name }` | `{}` — removes a world directory. **Refused for the current default**, and refused outright when `worlds/index.json` exists but is unparseable, because then it cannot tell whether this IS the default. Emits `worlds-changed`. |
 | `world.rename` | `{ from, to }` | `{}` — case-insensitive-FS aware; emits `worlds-changed`. |
 | `world.duplicate` | `{ from, to }` | `{}` — copies a world under a new name; `already-exists` (409) if the target is taken. Emits `worlds-changed`. |
+| `session.claim` | `{ name: string \| null, token }` | `{}` — this connection is now the editing session for `name` (`null` = the untitled scratch). Refused `already-exists` (409) when a DIFFERENT live connection holds it; `no-session` (409) when the token names no live connection. Re-claiming a world this connection already holds succeeds. §5.1. |
+| `session.steal` | `{ name: string \| null, token }` | `{}` — takes the world whatever anyone else thinks, and sends the displaced connection a `claim-lost` frame. Never refuses on held-ness (an unheld world is simply claimed); `no-session` on a dead token. |
+| `session.release` | `{ token }` | `{}` — drops whatever this connection holds. **No chrome method**: a tab that stops authoring is a tab that closed, and the SSE departure hook has already released it. The command exists because the claim's lifetime is only statable with both of its ends. |
 
 `field.load` and every `world.*` verb share ONE name schema — `z.string().regex(WORLD_NAME_RE)` — and `worlds.ts`'s top comment tracks the other copies of that regex.
 
@@ -233,17 +248,124 @@ The `path` `.min(1)` guard is load-bearing: an empty path resolves to the root d
 
 `src/daemon/events.ts` is the SSE broadcaster. Events are **notification-only dirty-bits** — there is no payload protocol beyond the event itself; a consumer refetches whichever command owns the changed state (`world.list` on `worlds-changed`), so a slow consumer naturally coalesces N changes into one refetch. Each subscriber gets a 15 s heartbeat comment (`: ping`); the heartbeat interval is `unref`'d so it never holds the process open.
 
-The feed carries **three** events — `DaemonEvent = { type: "bundle-outdated" } | { type: "generation-baked"; files: number } | { type: "worlds-changed" }` (`src/daemon/events.ts`, verified against the source). It carried five more until foundations T2: the document session's own `SessionEvent` union (`scene-opened`, `document-changed`, `saved`, `file-conflict`, `file-invalid`) died with the session.
+The feed carries **five** events (`src/daemon/events.ts`, verified against the source). It carried five more until foundations T2 — the document session's own `SessionEvent` union (`scene-opened`, `document-changed`, `saved`, `file-conflict`, `file-invalid`) died with the session — and gained two in foundations T4b. **The last two are ADDRESSED rather than broadcast**: they are written to ONE connection through `hub.emitTo`, because a broadcast token would hand every tab the name of every other tab's connection and a broadcast `claim-lost` would blank the tab that just WON the world. Everything else about them is identical — the same generic frame, the same hand-mirrored `ServerEvent` arm, the same `EVENT_TYPES` row.
 
 | Event `type` | Payload fields | Emitted when |
 | --- | --- | --- |
 | `bundle-outdated` | none beyond `type` | a source file under the extensions entry's directory changed ("Directory watching", below) — the browser should reload to pick up the freshly-rebuilt `/engine.js`. |
 | `generation-baked` | `files` (count written) | `generation.bake` wrote the browser-uploaded file set to the project root (§4). |
 | `worlds-changed` | none beyond `type` | the worlds directory or its index changed — `world.delete` / `rename` / `duplicate` / `makeDefault` each raise it AFTER their FS mutation succeeds. Consumers refetch `world.list` (§16.4). |
+| `session-token` *(addressed)* | `token` | **the first frame every subscriber gets** — the name the daemon minted for this connection, which `session.*` commands echo back. §5.1. |
+| `claim-lost` *(addressed)* | `world` (`string \| null`) | another session stole the world this connection was authoring. Only the displaced connection receives it. §5.1. |
 
 The SSE wire frame is `event: <type>\ndata: <json>\n\n` — every event rides it generically. The frontend `ServerEvent` union + `EVENT_TYPES` subscription list (`frontend/lib/events.ts`) mirror this daemon union and are kept in lockstep.
 
 **There is no file watching any more.** `WatchFile` / `chokidarWatchFile` — the single-file watcher with the scene session's conflict matrix behind it (echo suppression by canonical form, dirty-conflict, clean-reload-as-undoable-mutation) — was deleted with the session in foundations T2. The daemon watches exactly one thing now, a directory:
+
+### 5.1 The session claim, and the connection token (foundations T4b)
+
+`src/daemon/claims.ts` is a `Map<world, ServerResponse>` — at most one connection per world,
+at most one world per connection (a partial bijection). The three commands live in
+`src/daemon/session-handlers.ts`, their own module on the daemon's existing convention
+(`worlds.ts`, `claims.ts`, `bundle.ts`, `origin.ts` are each one concern): `handlers.ts` is the
+filesystem verbs, nothing there touches connection identity, and nothing in the session module
+touches a file. `createHandlers` merges the map it returns. `server.ts` wires the table to the hub
+in two lines: `hub.onClose(conn => claims.release(conn))` and
+`claims.onDrop((conn, world) => hub.emitTo(conn, { type: "claim-lost", world }))`.
+
+**The world key is `string | null`.** `null` is the untitled scratch a fresh editor boots into,
+mirroring the chrome's own `WorldState.name` (§16.4), which is "never prefilled" by design. It
+is a KEY rather than an absence, because the commonest session in the editor's life — a user
+digging before they have named anything — must be claimable, or an agent could never reach a
+fresh editor at all. Two untitled tabs then contend for the same key, which is the policy's own
+answer: they cannot both be the session an agent drives.
+
+**No grace period across a reconnect, because none is needed** — measured at the T4b Task 0
+spike, not assumed: the daemon notices a departure ~3.5 ms after the socket dies and the
+browser's automatic re-subscribe arrives ~3.0 s later, so the claim simply drops and the
+reconnecting tab re-claims and wins. What IS structural is that `release(conn)` is
+**identity-conditional** — an entry is dropped only when its holder IS that connection —
+because a new subscribe can land ~52 ms before an old close, and an unconditional release would
+let a reloading tab's late close revoke the claim its own new connection had just taken.
+
+**The connection token.** A POST and the SSE stream are different HTTP requests, so a command
+acting for *this* connection needs a way to say which one it is. The hub mints an opaque
+`randomUUID` inside `subscribe`, writes it as the stream's first frame (`session-token`), and
+resolves it back to the `ServerResponse` by live-table lookup. It rides the **body**, not a
+header, because `dispatch()` has exactly one input channel by design and a header would carry a
+transport assumption into the module built to outlive its transport.
+
+*What the token is NOT*: authentication. The daemon binds loopback and serves one local user
+(§2); the question a token answers has N equally legitimate answers, one per open tab — *which*
+of my subscribers are you, never *may* you. A leaked token grants exactly what a second tab
+already has. It is not a second thing to steal either, on `origin.ts`'s own threat model:
+obtaining one means reading a response body, the rebinding page cannot open this stream (403
+before `subscribe` is reached) and could not read it if it did (no CORS headers). **An MCP
+client can never present one**, structurally rather than by a check: the mint is written into
+the stream it opens, so holding a token means holding that stream, and the `/mcp` door never
+routes there. Guests, not claimants.
+
+**A runtime defect this uncovered, and fixed.** `res.on("close", …)` — the daemon's only
+liveness signal since its first commit — **never fires under Bun** (1.3.14, measured by raw
+socket destroy, `fetch` abort and reader cancel alike; Node 22 fires it in 2–5 ms). Both `edit`
+scripts start this daemon with `bun`, so the SSE subscriber cleanup had been a silent no-op in
+the live editor the whole time. `req.on("close")` fires on **both** runtimes within 2 ms, and on
+neither while a client is still connected. `subscribe` now watches both halves, latched so one
+departure is announced once. Pinned in `tests/claims.test.ts` (the request half alone releases;
+one departure, one announcement) and end-to-end in `tests/server.test.ts` (a hang-up frees the
+world for the next connection, with no steal — the case that pins `server.ts`'s own wiring).
+
+**A lost tab never claims again.** `onToken` returns early while the claim-lost flag is set, and
+the case is routine rather than exotic: after a steal, the daemon restarts (every source change in
+the `bun run edit` loop does that) or the stream blips, `EventSource` reconnects **both** tabs, and
+the daemon has no memory of who lost what — so without the guard the covered tab re-claims and may
+win the race. It would then HOLD the claim while displaying "another editor session took over" and
+suppressing its own keyboard: an agent driving "the session" wired to a tab the human cannot
+operate, and the tab the human is actually in refused and steal-prompted. The early return is what
+makes the cover's own sentence true — *reload to claim it back*, a reload being the one thing that
+legitimately produces a fresh tab with no memory of having lost.
+
+**Chrome side.** `hooks/useSessionClaim.ts` claims on the **token frame**, not on `onOpen`: the
+token arrives as the stream's first frame, so at open there is nothing to present yet. `onOpen`
+keeps the one job it can honestly do — forget the dead connection's token, so no POST goes out
+carrying a name the daemon has already dropped. A refusal opens the steal prompt through the
+existing `useConfirmDialog`; losing the claim raises `components/ClaimLostOverlay.tsx`, a
+full-viewport cover no gesture dismisses whose one control is a reload. **True read-only mode is
+NOT built** — that narrowing of the settled policy ("a second tab gets read-only or an explicit
+steal") is deliberate and filed at
+`docs/backlog/editor-and-tooling/read-only-chrome-for-an-unclaimed-session.md`.
+
+**The cover is the whole enforcement of that narrowing, so it has to be terminal in both
+channels.** Two things make it so, and neither is free:
+
+- **It outranks the portalled layer.** React mounts into `#root`; every Radix overlay portals to
+  `document.body`, a sibling AFTER it — so at equal `z-50` a confirm prompt paints *over* the
+  cover. The cover declares `z-[60]`, one step above the control library's whole layer, and
+  `tests/chrome/session-claim.test.tsx` derives that maximum from `components/ui/` rather than
+  hard-coding it, so a library-wide raise reds instead of silently going over the top.
+- **It suppresses the keyboard.** A full-viewport layer stops a pointer by existing; the window
+  keydown listener is on the WINDOW and never saw one, so ⌘K, ⌘S, ⌘Z and every tool letter would
+  keep dispatching behind it — ⌘K's palette being itself a portalled dialog, i.e. the first
+  bullet in action. `useGlobalKeybindings` takes a third ref (`claimLostRef`) and returns before
+  it matches anything. A ref **of its own**, not `confirmRef`: that one also feeds
+  `ctx.isConfirmOpen()` into the gate env, so reusing it would make a claim-lost refusal answer
+  `because: "modal"` — false in the vocabulary T4a built (§22.6). It short-circuits BEFORE the
+  funnel rather than refusing through it, because a refusal speaks through the toast stack, which
+  renders inside the canvas cell — behind the cover, where nobody can read it. Nothing is
+  prevented, matching what a modal-refused key already does. Pinned in
+  `tests/chrome/keybindings-dom.test.ts`, with its control case.
+- **It traps focus.** The third channel, and the one neither of the above touches: **tab order
+  follows DOM order and z-index does not affect it.** `<Shell />` stays mounted behind the cover
+  with real buttons in the top bar and status bar, so Tab off "Reload" walked into the shell and
+  ⏎ invoked that button's own `onClick` — not a keybinding, so the window guard cannot see it.
+  The cover installs a capture-phase `focusin` listener that hands focus back to its one control:
+  a bounce, which is what a focus scope is. Pinned by a case that MOVES focus, with a control
+  case proving the trap is not always on — `aria-modal` is a declaration and happy-dom implements
+  no `inert` semantics, so a pin written against either would pass while the hole stayed open.
+  The residue is named at the source: `aria-modal="true"` is the only thing telling assistive tech
+  to ignore the rest of the document; there is no `inert`/`aria-hidden` enforcement, because
+  marking the shell subtree means either a wrapper element around `<Shell />` (against its own
+  layout contract) or a component mutating its siblings.
 
 ### Directory watching
 
@@ -262,13 +384,15 @@ The SSE wire frame is `event: <type>\ndata: <json>\n\n` — every event rides it
 | `unknown-command` | 404 | no handler for the command name. |
 | `not-found` | 404 | the named world does not exist or has no manifest; also `server.ts`'s no-route fallback for an unsupported method/path. |
 | `outside-root` | 404 | a resolved path escapes the project root. *(404, not 400 — don't reveal what exists outside root.)* |
-| `already-exists` | 409 | the write would clobber something that is already there (`world.duplicate` / `world.rename` onto a taken name). |
+| `already-exists` | 409 | **two occupancy classes** since T4b: the write would clobber something already there (`world.duplicate` / `world.rename` onto a taken name), OR the world is already claimed by another live editor session (`session.claim`). Both mean "what you asked for is occupied; pick differently or displace"; the remedies differ (another name / `session.steal`) and the DISAMBIGUATOR is the command, which every caller has in hand. A ninth code would be surface no consumer needs — split it the day a caller must tell the two apart without knowing which command it ran. |
+| `no-session` | 409 | the caller named a session connection the daemon does not have — a token from a feed that has since closed, or one it never minted (T4b, §5.1). *(409, not 404: nothing is hidden here, unlike `outside-root`. 404 already carries three meanings in this table, and an agent must be able to tell "no such command" from "you hold no session" — this code exists precisely so that call answers discriminably and never hangs. 409 is also the accurate one: a conflict with the CURRENT STATE of the target, RFC 9110 §15.5.10.)* |
 | `forbidden-origin` | 403 | the request declared an `Origin` that is not this machine's loopback (`daemon/origin.ts`, called ahead of every route — §2). *(403, not 404 — unlike `outside-root` there is nothing to hide: the page already knows the port answered, and no CORS headers are sent, so the body is unreadable to it anyway.)* |
 | `internal` | 500 | any other uncaught error at the route boundary. |
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
 
-**The union gained its eighth member in foundations T4a** — `forbidden-origin`, the first code
+**The union gained its ninth member in foundations T4b** — `no-session`, argued in the row above
+and at `errors.ts`. **Its eighth arrived in foundations T4a** — `forbidden-origin`, the first code
 whose thrower is neither a handler nor `dispatch()` but the route boundary itself, and the
 first 403. Its NAME is the contract half that matters: it says which fact was refused (the
 origin) rather than which status HTTP chose, so a future MCP binding maps it without inheriting
@@ -277,6 +401,8 @@ is an exhaustive `Record<EditorErrorCode, number>`, so adding a member is a comp
 its status is stated; `tests/errors.test.ts` restates the whole table independently.
 
 **Seven codes went with the scene half in foundations T2** — `validation-failed`, `no-session`, `unsaved-changes`, `nothing-to-undo`, `nothing-to-redo` and `unreadable` (all thrown only by the session, the mutations or the scene reader), plus `extension-build-failed`, whose only throwers were in the deleted registry bundle (§3). `invalid-json` survives on its own merit: `server.ts` still throws it for an unparseable request body. Deleting a code is a wire-contract change, which is why they went in the same commit as their throwers rather than being left as unreachable rows.
+
+**One of the seven came back, and it is worth saying which and why.** `no-session` is spelled the same in T4b and means something else: the T2 one was the *document* session — "no scene is open" — and the T4b one is the *editing* session, a connection identity (§5.1). Nothing carries over from the old meaning; the name was simply the right one for the new fact, and reserving a retired spelling forever would be an odd thing to owe a deleted feature.
 
 ## 7. Serving the chrome — the build, and the zero-engine rule
 
@@ -1657,15 +1783,23 @@ mirror that outlives its surface is the bug, and it has no symptom except those 
   ready, so it reads `bakeBusyRef` (a ref, not state) to see the current value without
   re-subscribing. A reload mid-upload would kill the write.
 
-Those two reductions now cover the feed **exhaustively**: since foundations T2 the daemon's
-whole `DaemonEvent` union is the three events these two branches consume (§5), so there is
-no feed member the chrome quietly ignores. It was a subset when this hook was written — the
-five `SessionEvent` members rode the same feed and the chrome dropped every one of them.
+Those two reductions covered the feed **exhaustively** from foundations T2 until T4b: the
+daemon's whole `DaemonEvent` union was the three events these two branches consume (§5), so
+there was no feed member the chrome quietly ignored. It was a subset when this hook was
+written — the five `SessionEvent` members rode the same feed and the chrome dropped every
+one of them. **T4b added a third reduction, and the exhaustiveness holds**: the two addressed
+frames (`session-token`, `claim-lost`) route into a `SessionFeed` of named handlers, so this
+hook is still the ONE place in the chrome that reads an event `type` while the claim's policy
+lives in `useSessionClaim` (§5.1). Its `session` parameter carries the same STABILITY rule as
+`bakeBusyRef`, and the cost of breaking it is worse — a re-subscribe mints a new connection
+token and re-claims.
 
 It is a hook rather than App-local state for Shell's reason: a feed wired inside App is a
 feed no test can drive, because App owns the WebGPU probe and the `/engine.js` import.
-There is **nothing to catch up on** at `onOpen` — the editor mirrors no daemon-owned
-document; the field world lives in the host until the user saves it.
+There is still **nothing to catch up on** at `onOpen` — the editor mirrors no daemon-owned
+document; the field world lives in the host until the user saves it. What a (re)connect DOES
+mean since T4b is that the previous connection's token is dead, and forgetting it is the one
+honest job that seam has (§5.1).
 
 ## 17. F4.5b — the hands (2026-08-01)
 

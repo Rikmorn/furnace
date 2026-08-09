@@ -79,7 +79,7 @@ Two gaps survive that decision.
 ### 1. Rename and duplicate still teach by error toast
 
 Both handlers refuse a taken name with `already-exists`
-(`daemon/handlers.ts:510` and `:540`), so the user types, submits, and learns from a red
+(`daemon/handlers.ts:339` and `:369`), so the user types, submits, and learns from a red
 toast. D-25's "the commit verb explains refusals" arguably wants a line in the field there
 too — but it is a DIFFERENT line ("that name is taken" / the verb is refused), not the
 overwrite warning, so it needs its own copy and its own prop rather than a second consumer
@@ -119,8 +119,8 @@ contract and doing them together is most of the saving.
 - `packages/editor/src/frontend/components/shell/WorldDrawer.tsx` — `NameForm`'s
   `overwrites` prop and the docblock stating why rename/duplicate must not pass one; `:512`
   is the one form that does.
-- `packages/editor/src/daemon/handlers.ts:500-540` — the `existsSync` collision check and
-  its case-insensitive-filesystem comment.
+- `packages/editor/src/daemon/handlers.ts:316-373` — the `existsSync` collision check in
+  `world.rename` / `world.duplicate` and its case-insensitive-filesystem comment.
 - `packages/editor/src/frontend/lib/world-actions.ts:98-104` — the tracked-overwrite
   confirm's predicate.
 
@@ -156,7 +156,7 @@ What is stale is the vocabulary and the copy that explains it, in four places:
 
 - `packages/editor/src/daemon/worlds.ts:26,75` — the `WorldRow["kind"]` union and the
   ternary that produces it.
-- `packages/editor/src/frontend/lib/api.ts:50-51` — the client-side type and its docblock
+- `packages/editor/src/frontend/lib/api.ts:53-54` — the client-side type and its docblock
   ("`legacy` = a v1 world directory with a manifest but no oplog").
 - `packages/editor/src/frontend/components/shell/WorldDrawer.tsx:44` (`LEGACY_REASON`),
   `:240-241`, `:279` (the `legacy` badge), `:291`, `:418`.

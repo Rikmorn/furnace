@@ -282,7 +282,7 @@ concerned — the parameter bounds only how many further reads it will attempt, 
 one it is sitting in.
 
 What hides this today is the daemon's SSE heartbeat (`HEARTBEAT_MS = 15_000`,
-`daemon/events.ts:4`): every 15 s a `: ping` frame wakes the read, the predicate fails, and
+`daemon/events.ts:5`): every 15 s a `: ping` frame wakes the read, the predicate fails, and
 the now-expired deadline throws. So the failure mode is not a hang but a ~15 s failure
 whose message ("SSE timeout; buffer so far:") names an 8 s timeout — which is precisely how
 the flake above got mis-attributed once already. Two consequences worth naming: any test

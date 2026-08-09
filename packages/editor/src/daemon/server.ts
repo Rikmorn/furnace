@@ -8,6 +8,7 @@ import {
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEngineBundler, type EngineBundler } from "./bundle.ts";
+import { createClaims } from "./claims.ts";
 import { loadConfig } from "./config.ts";
 import { EditorError, httpStatus } from "./errors.ts";
 import { createEventHub } from "./events.ts";
@@ -194,10 +195,24 @@ function createGitTrackedChecker(
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const config = loadConfig(opts.root);
   const hub = createEventHub();
+  // The claim table's whole lifetime, in two lines (foundations T4b). The hub's close
+  // hook is the daemon's ONE liveness signal, so a claim ends when the connection that
+  // asserted it does — that is the reconciliation with "the daemon stays stateless":
+  // this table is the same class of thing as the subscriber set (`daemon/claims.ts`
+  // states it in full). Nothing persists it and nothing reloads it; a restart begins
+  // with an empty table because a restart begins with an empty hub.
+  const claims = createClaims();
+  hub.onClose((connection) => claims.release(connection));
+  // A steal tells the connection it displaced, and ONLY that one. Addressed rather than
+  // broadcast because a broadcast would blank the tab that just won the world.
+  claims.onDrop((connection, world) =>
+    hub.emitTo(connection, { type: "claim-lost", world }),
+  );
   const handlers: Handlers = createHandlers({
     root: opts.root,
     emit: (event) => hub.emit(event),
     isTracked: createGitTrackedChecker(opts.root),
+    session: { claims, connectionFor: (token) => hub.connectionFor(token) },
   });
   const bundler: EngineBundler = await createEngineBundler(
     opts.root,
@@ -246,7 +261,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         return;
       }
       if (req.method === "GET" && url.pathname === "/api/events") {
-        hub.subscribe(res);
+        // BOTH halves: the hub watches `req` as well as `res` for the client's
+        // departure, because `res`'s close event never fires under Bun — the runtime
+        // this daemon is started on. Measured; argued at `subscribe`.
+        hub.subscribe(req, res);
         return;
       }
       if (req.method === "POST" && url.pathname.startsWith("/api/")) {

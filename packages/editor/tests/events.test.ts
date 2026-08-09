@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createEventHub, type DaemonEvent } from "../src/daemon/events.ts";
 // Type-only, and deliberately so: this is the only file that names both sides of the
 // feed, and an `import type` is erased before it can pull the frontend module (and its
@@ -9,7 +9,13 @@ import type { ServerEvent } from "../src/frontend/lib/events.ts";
 type FakeRes = {
   chunks: string[];
   headers?: Record<string, string>;
+  /** Every departure handler the hub registered, on the response AND on the request.
+   *  Both, because `res.on("close")` never fires under Bun and `req.on("close")` fires
+   *  under both — measured at T4b Task 2 and argued at `subscribe`. Firing the whole
+   *  list is how a case says "the client left", whichever half a runtime would report
+   *  it on. */
   closeHandlers: (() => void)[];
+  req: IncomingMessage;
   res: ServerResponse;
 };
 
@@ -17,6 +23,7 @@ function fakeRes(): FakeRes {
   const fake: FakeRes = {
     chunks: [],
     closeHandlers: [],
+    req: undefined as never,
     res: undefined as never,
   };
   // Boundary cast: the hub only calls writeHead/write/end/on("close") — a
@@ -38,6 +45,13 @@ function fakeRes(): FakeRes {
       return fake.res;
     },
   } as unknown as ServerResponse;
+  // Boundary cast: the hub asks the request for nothing but its close event.
+  fake.req = {
+    on(event: string, handler: () => void) {
+      if (event === "close") fake.closeHandlers.push(handler);
+      return fake.req;
+    },
+  } as unknown as IncomingMessage;
   return fake;
 }
 
@@ -65,8 +79,8 @@ test("subscribe sends SSE headers; emit broadcasts a typed event frame", () => {
   const hub = createEventHub();
   const a = fakeRes();
   const b = fakeRes();
-  hub.subscribe(a.res);
-  hub.subscribe(b.res);
+  hub.subscribe(a.req, a.res);
+  hub.subscribe(b.req, b.res);
   expect(a.headers?.["content-type"]).toBe("text/event-stream");
   hub.emit({ type: "generation-baked", files: 3 });
   const frame = a.chunks.at(-1);
@@ -79,7 +93,7 @@ test("subscribe sends SSE headers; emit broadcasts a typed event frame", () => {
 test("a closed subscriber stops receiving", () => {
   const hub = createEventHub();
   const a = fakeRes();
-  hub.subscribe(a.res);
+  hub.subscribe(a.req, a.res);
   for (const h of a.closeHandlers) h();
   const before = a.chunks.length;
   hub.emit({ type: "worlds-changed" });

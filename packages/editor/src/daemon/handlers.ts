@@ -10,6 +10,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { EditorError } from "./errors.ts";
 import type { DaemonEvent } from "./events.ts";
+import { createSessionHandlers, type SessionSeam } from "./session-handlers.ts";
 import {
   deleteWorld,
   duplicateWorldDir,
@@ -38,13 +39,29 @@ export type HandlerContext = {
    *  Undefined when no git repo is available at all — world.list then
    *  reports every row's `tracked` as null. */
   isTracked?: (rel: string) => boolean | null;
+  /** The live session seam (foundations T4b): the claim table, plus the event hub's
+   *  token→connection resolver. `server.ts` fills both from the one hub it built.
+   *
+   *  OPTIONAL for the same reason `isTracked` is, and with the same honest degradation
+   *  rather than a special case: a registry built with no event feed — the four daemon
+   *  suites that exercise the filesystem verbs alone (`handlers`, `field-load`,
+   *  `generation-bake`, `worlds`) — resolves NO token, so every `session.*` command
+   *  answers `no-session`. That is not a stub answer, it is the true one: a daemon with
+   *  no feed has no connections, and therefore no session for anyone to be. Requiring
+   *  the seam would force those suites to construct a hub they never speak to, and
+   *  `tests/handlers.test.ts` holds the behaviour so the paragraph is not the only
+   *  thing saying it. */
+  session?: SessionSeam;
 };
 
-// Shared by field.load and every world.* verb below — the ONE handlers.ts
-// copy of WORLD_NAME_RE (worlds.ts's top comment tracks the other copies).
+// Shared by field.load and every world.* verb below. The `session.*` family builds its
+// own nullable schema on the same constant (`session-handlers.ts`) — two schemas, one
+// regex, and worlds.ts's top comment tracks the copies of the regex itself.
 const worldName = z.string().regex(WORLD_NAME_RE);
 
-/** Build the command set: the project read, the bake transport, and the field/world verbs. */
+/** Build the command set: the project read, the bake transport, the field/world verbs,
+ *  and the session claim (foundations T4b — the only family whose answer depends on
+ *  WHICH caller is asking rather than only on what it asked). */
 export function createHandlers(ctx: HandlerContext): Handlers {
   const handlers: Handlers = new Map();
 
@@ -327,6 +344,12 @@ export function createHandlers(ctx: HandlerContext): Handlers {
       return Promise.resolve({});
     },
   });
+
+  // The session family lives in its own module (`session-handlers.ts`): it is the one
+  // whose answer depends on WHICH caller is asking, and nothing in it touches a file.
+  for (const [command, handler] of createSessionHandlers(ctx.session)) {
+    handlers.set(command, handler);
+  }
 
   return handlers;
 }

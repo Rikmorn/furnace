@@ -12,6 +12,7 @@ export type EditorErrorCode =
   | "outside-root"
   | "already-exists"
   | "forbidden-origin"
+  | "no-session"
   | "internal";
 
 const HTTP_STATUS: Record<EditorErrorCode, number> = {
@@ -22,6 +23,19 @@ const HTTP_STATUS: Record<EditorErrorCode, number> = {
   // Traversal reports 404, not 400: don't reveal whether anything exists
   // outside the project root.
   "outside-root": 404,
+  // TWO OCCUPANCY CLASSES SHARE THIS CODE since foundations T4b, and the reader who
+  // meets it on `session.claim` deserves the argument rather than a rediscovery. The
+  // original meaning is a NAME ON DISK (`world.duplicate`/`world.rename` onto a taken
+  // one); the second is a CLAIM IN MEMORY — the world is fine, what is taken is the
+  // authoring right, and it evaporates when the holding tab closes. Both are "what you
+  // asked for is already occupied; pick differently or displace", both are 409, and
+  // the remedies (another name / `session.steal`) differ. A ninth code would have been
+  // surface with no consumer that needs it: the DISAMBIGUATOR is the command, and every
+  // caller has one in hand — `api.ts`'s `call` takes it as its first argument, and the
+  // MCP door dispatches tool → command before any error exists. The same reasoning
+  // `invalid-input` records for a malformed request target (`server.ts`'s `requestUrl`).
+  // SPLIT IT the day a caller must tell the two apart WITHOUT knowing which command it
+  // ran; nothing can today.
   "already-exists": 409,
   // A declared browser origin that is not this machine's loopback. 403, not
   // 404: unlike `outside-root` there is nothing to hide — the page already
@@ -31,6 +45,23 @@ const HTTP_STATUS: Record<EditorErrorCode, number> = {
   // would want. `origin.ts` throws it; see `assertLoopbackOrigin` for the
   // threat model and for why an ABSENT origin passes.
   "forbidden-origin": 403,
+  // The caller named a session connection the daemon does not have (foundations T4b):
+  // a token from a feed that has since closed, or one this daemon never minted.
+  //
+  // 409 RATHER THAN 404, decided against the `outside-root` precedent two rows up and
+  // NOT by inheriting it. That row is 404 to hide EXISTENCE, and the question here is
+  // what existence would be hidden: none. The command is real, the world is nobody's
+  // secret, and the session in question is the caller's own — there is nothing here a
+  // stranger could learn, and refusing to say would be the harmful direction, since
+  // 404 already carries three meanings in this table (`unknown-command`, `not-found`,
+  // `outside-root`) and a fourth would leave an agent unable to tell "no such command"
+  // from "you hold no session". This code exists precisely so that call answers
+  // discriminably and never hangs, which is the settled policy's own wording. 409 is
+  // then the accurate one on the semantic axis: a conflict with the CURRENT STATE of
+  // the target (RFC 9110 §15.5.10), which is exactly what an expired connection is —
+  // the same reason `already-exists` is 409, and unlike a 404's "the thing you named
+  // is not here", which would be a claim about the world rather than about the session.
+  "no-session": 409,
   internal: 500,
 };
 

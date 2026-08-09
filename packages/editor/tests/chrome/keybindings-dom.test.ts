@@ -102,11 +102,22 @@ test("isTextInputTarget: a control you OPERATE is not typed text", () => {
 /** Mount the one window listener, over a ctx the fixture supplies and a confirm slot the
  *  case controls. `createElement` rather than JSX so this file stays `.ts` beside the
  *  `isTextInputTarget` cases it shares a DOM with. */
-function Dispatcher({ confirm }: { confirm: ConfirmRequest | null }) {
-  const ctxRef = useRef<ActionCtx>(makeCtx());
+function Dispatcher({
+  confirm,
+  claimLost = false,
+  ctx,
+}: {
+  confirm: ConfirmRequest | null;
+  claimLost?: boolean;
+  /** The ctx the listener dispatches into, when a case wants to read its spies back. */
+  ctx?: ActionCtx;
+}) {
+  const ctxRef = useRef<ActionCtx>(ctx ?? makeCtx());
   const confirmRef = useRef<ConfirmRequest | null>(confirm);
   confirmRef.current = confirm;
-  useGlobalKeybindings(ctxRef, confirmRef);
+  const claimLostRef = useRef(claimLost);
+  claimLostRef.current = claimLost;
+  useGlobalKeybindings(ctxRef, confirmRef, claimLostRef);
   return null;
 }
 
@@ -156,4 +167,40 @@ test("a REFUSED action prevents NOTHING — the character the user is typing sur
   // …and a key nothing claims at all is untouched, so the case is not passing by refusing
   // everything.
   expect(press({ key: "w" }).defaultPrevented).toBe(false);
+});
+
+// --- the claim-lost cover suppresses the keyboard (T4b) -----------------------
+
+test("a tab that LOST its claim dispatches nothing — the cover is terminal, not decorative", () => {
+  // The cover (`ClaimLostOverlay`) stops a pointer by being a full-viewport layer and
+  // stops nothing else: this listener is on the WINDOW. Without the guard, ⌘S saves,
+  // ⌘Z undoes and ⌘K opens a palette ABOVE the cover, in a tab the daemon has already
+  // handed to somebody else — and true read-only mode is not built, so this line is the
+  // whole enforcement of that narrowing.
+  const ctx = makeCtx();
+  render(createElement(Dispatcher, { confirm: null, claimLost: true, ctx }));
+
+  // ⌘S and `v` — a chord and a bare key, because they enter the funnel by the same door
+  // but a guard written one branch too low could pass one and not the other. BOTH must be
+  // keys something actually binds: an earlier draft pressed `2`, which no descriptor
+  // claims, so `matchAction` returned null with or without the guard and the bare half of
+  // this case asserted nothing at all. `v` is `tool.pointer` → `ctx.run.setGesture`.
+  expect(press({ key: "s", metaKey: true }).defaultPrevented).toBe(false);
+  press({ key: "v" });
+  expect(ctx.run.world.save).not.toHaveBeenCalled();
+  expect(ctx.run.setGesture).not.toHaveBeenCalled();
+
+  // NOT prevented, deliberately: a refused key already leaves the press alone (the case
+  // above), and a dead tab is not a reason to start swallowing the browser's own chords.
+  // The assertion that matters is the verb, which is why the spy is read as well.
+});
+
+test("…and the very same press dispatches once the claim is held", () => {
+  // The control. Without it the case above passes on a fixture that dispatches nothing.
+  const ctx = makeCtx();
+  render(createElement(Dispatcher, { confirm: null, claimLost: false, ctx }));
+  expect(press({ key: "s", metaKey: true }).defaultPrevented).toBe(true);
+  expect(ctx.run.world.save).toHaveBeenCalled();
+  press({ key: "v" });
+  expect(ctx.run.setGesture).toHaveBeenCalled();
 });

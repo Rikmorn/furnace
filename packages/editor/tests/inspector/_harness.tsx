@@ -42,6 +42,8 @@ type EditorContextOverrides = {
 	openConfirm?: EditorContextValue["openConfirm"];
 	confirmRef?: EditorContextValue["confirmRef"];
 	bakeBusyRef?: EditorContextValue["bakeBusyRef"];
+	worldNameRef?: EditorContextValue["worldNameRef"];
+	claimLostRef?: EditorContextValue["claimLostRef"];
 	viewportFocusRef?: EditorContextValue["viewportFocusRef"];
 	store?: UiStore;
 };
@@ -75,6 +77,12 @@ export function makeEditorContext(
 		// No write in flight. A test that wants to assert the SSE reload guard passes its
 		// own ref and reads it after a save.
 		bakeBusyRef: overrides.bakeBusyRef ?? { current: false },
+		// Untitled, which is what a fresh session is: `WorldProvider` fills this from its
+		// own `name`, and the session claim reads it to claim under.
+		worldNameRef: overrides.worldNameRef ?? { current: null },
+		// The claim is held. A case that wants the claim-lost cover's keyboard suppression
+		// passes its own ref — see tests/chrome/keybindings-dom.test.ts.
+		claimLostRef: overrides.claimLostRef ?? { current: false },
 		// No viewport. `CanvasHost` fills this on mount, so a case that renders the Shell
 		// gets the real seam and one that renders a panel alone gets `null` — which every
 		// reader treats as "there is no canvas to hand focus back to".

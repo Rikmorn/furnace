@@ -105,7 +105,7 @@ export function ActionContextProvider({
 	openShortcuts: () => void;
 	children: ReactNode;
 }) {
-	const { openConfirm, confirmRef } = useEditor();
+	const { openConfirm, confirmRef, claimLostRef } = useEditor();
 	const { stats } = useFieldHostState();
 	const { tool, gesture, pendingStamp, setGesture, setTool } = useFieldTool();
 	const { stamp } = useFieldStamp();
@@ -271,7 +271,7 @@ export function ActionContextProvider({
 		ctxRef.current = ctx;
 	});
 
-	useGlobalKeybindings(ctxRef, confirmRef);
+	useGlobalKeybindings(ctxRef, confirmRef, claimLostRef);
 
 	return (
 		<ActionContext.Provider value={ctx}>{children}</ActionContext.Provider>

@@ -4,6 +4,20 @@
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
+/** How the chrome NAMES the world a session is authoring, in a sentence: a quoted name,
+ *  or `"this untitled session"` for the nameless scratch a fresh editor boots into.
+ *
+ *  One function because the two surfaces that say it — the steal prompt
+ *  (`useSessionClaim`) and the claim-lost cover (`ClaimLostOverlay`) — are a hook and a
+ *  component, so neither can own it for the other, and a user who meets both in one
+ *  minute must not be told about "this untitled session" and then about something else.
+ *
+ *  THE DAEMON SAYS IT DIFFERENTLY ON PURPOSE (`daemon/handlers.ts`'s `describeWorld`:
+ *  `the untitled session` / `world "x"`), and the divergence is a different AUDIENCE
+ *  rather than drift — that copy is argued at its own site. */
+export const worldPhrase = (world: string | null): string =>
+  world === null ? "this untitled session" : `"${world}"`;
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;

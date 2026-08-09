@@ -46,3 +46,22 @@ test("input the command's schema rejects carries invalid-input", async () => {
     dispatch(handlers, "project.get", { surprise: true }),
   ).rejects.toMatchObject({ code: "invalid-input" });
 });
+
+test("a registry built with NO session seam answers no-session, not a crash", async () => {
+  // `HandlerContext.session` is optional and its docblock argues that absence degrades
+  // honestly rather than needing a stub: a daemon with no event feed has no connections,
+  // so there IS no session for anyone to be. Four suites build such a registry (this one,
+  // `field-load`, `generation-bake`, `worlds`) and none of them issued a `session.*`
+  // command, so nothing held the claim until this case.
+  for (const [command, input] of [
+    ["session.claim", { name: "cavern", token: "anything" }],
+    ["session.steal", { name: null, token: "anything" }],
+    ["session.release", { token: "anything" }],
+  ] as const) {
+    // AWAITED. An un-awaited `.rejects` settles after the case has returned and asserts
+    // nothing — the failure mode this file's own `unknown-command` case avoids one line up.
+    await expect(dispatch(handlers, command, input)).rejects.toMatchObject({
+      code: "no-session",
+    });
+  }
+});

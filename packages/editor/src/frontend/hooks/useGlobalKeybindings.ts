@@ -42,13 +42,37 @@ import { isTextInputTarget } from "../lib/keybindings.ts";
  * The field canvas has a listener of its own. Where both bind one key (⌘Z, ⏎, Esc, R, F)
  * the canvas branch that acts calls `stopPropagation`, so this listener never sees it —
  * see the ownership rule at the top of `lib/actions.ts`.
+ *
+ * ONE STATE SHORT-CIRCUITS THE WHOLE LISTENER, and it is the only one (foundations T4b):
+ * a claim-lost cover. See the guard for the argument — it is a different KIND of thing
+ * from the modal check below it, which is why it is a different ref and a different
+ * mechanism.
  */
 export function useGlobalKeybindings(
   ctxRef: RefObject<ActionCtx>,
   confirmRef: RefObject<ConfirmRequest | null>,
+  claimLostRef: RefObject<boolean>,
 ): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // ANOTHER SESSION TOOK THIS TAB. The cover over it (`ClaimLostOverlay`) stops a
+      // pointer by existing and stops nothing else, and true read-only mode is not built
+      // — so this line is the entire reason a tab that lost its claim cannot author on.
+      //
+      // BEFORE the funnel rather than through the gate, and both halves of that are
+      // deliberate. A refusal would need a `RefusalClass` naming this state, and it would
+      // SPEAK through the toast stack, which renders inside the canvas cell — behind the
+      // cover, where nobody can read it. Silence is the honest answer when the only
+      // surface that could answer is covered.
+      //
+      // Nothing is prevented, which matches what a modal-refused key already does today
+      // (`onClaim` fires only once the gate ALLOWS, so a refusal leaves the press alone).
+      // A dead tab is not a good reason to start swallowing the browser's own chords.
+      //
+      // A ref of its own, NOT `confirmRef`: that one also feeds `ctx.isConfirmOpen()`
+      // into the gate env, so setting it here would make every refusal in the app answer
+      // `because: "modal"` while a cover is up — false in the vocabulary T4a built.
+      if (claimLostRef.current) return;
       const def = matchAction(e);
       if (def === null) return;
       const ctx = ctxRef.current;
@@ -68,5 +92,5 @@ export function useGlobalKeybindings(
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [ctxRef, confirmRef]);
+  }, [ctxRef, confirmRef, claimLostRef]);
 }
