@@ -19,8 +19,14 @@
 // imports this file and no guard would see it. The schema TYPES are re-exported below
 // because a type is erased; the schema VALUES are the daemon's and are reached at
 // `./schemas.ts` directly, which is a declared sibling surface rather than a deep import of
-// an undeclared name (api-posture §R8). It gains its own export-map entry the day the
-// daemon needs one — T3b2 built the schemas, not the projection that reads them.
+// an undeclared name (api-posture §R8). This line used to promise it "gains its own
+// export-map entry the day the daemon needs one"; T4b weighed that day and it has not come.
+// The daemon's MCP door landed (`daemon/mcp.ts`) reading this directory not at all, and the
+// promise was aimed slightly wrong besides: an `exports` entry is the CONSUMER-ROOT door
+// (`daemon/bundle.ts:37-42` resolves its generated entry from someone else's project, which
+// is what the two entries above are for), while the daemon's own source reaches in-package
+// modules relatively. So the trigger is an outside-the-package consumer, not a daemon-side
+// one — the same verdict `shared/tool-registry.ts:33-35` reached for the floor.
 export {
   ACTION_DESCRIPTORS,
   type ActionDescriptor,

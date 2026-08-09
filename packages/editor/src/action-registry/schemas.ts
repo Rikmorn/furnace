@@ -18,7 +18,12 @@
 // THE `z` INSTANCE. Built from `@furnace/core/registry`'s re-export and no other zod
 // install: schema objects cross registry boundaries and mixing instances breaks the
 // `instanceof` introspection every projection depends on. JSON Schema for the wire comes
-// from `toJsonSchema` at the projection edge and is never hand-authored here.
+// from `toJsonSchema` at the projection edge and is never hand-authored here — and since T4b
+// that reflection is PINNED rather than assumed: `tests/action-registry/
+// projection-round-trip.test.ts` reads the advertised document the way a client would and
+// requires its verdict on 90 sample/row pairs to equal `safeParse`'s. Two representations of
+// one contract, and only one of them decides; the pin is what stops them drifting while
+// nothing is projected yet.
 //
 // SIX ROWS, NOT TWELVE. The measured worklist counts twelve actions as needing input and
 // SIX of those are the axis views — which do not appear here, deliberately. Their axis and

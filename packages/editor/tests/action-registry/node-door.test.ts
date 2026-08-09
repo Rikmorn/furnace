@@ -95,8 +95,27 @@ test("the input schemas open too — the zod half of the layer is Node-portable"
   // not load at all. It is also the only one whose graph reaches outside the package, which
   // is the thing most likely to break in a bare runtime.
   //
-  // No bare-specifier half: there is no export-map entry for it yet, and there should not be
-  // one until the projection that reads it exists (T4). This door is by path.
+  // NO BARE-SPECIFIER HALF, AND T4b TESTED THAT TRIGGER RATHER THAN DEFERRING IT AGAIN. This
+  // note used to read "until the projection that reads it exists (T4)". T4b's projection
+  // landed — `daemon/mcp.ts`, three tools over the MCP transport — and it reads this module
+  // not at all: `grep -rn "action-registry" src/daemon/` is empty at T4b Task 6, because those
+  // three tools carry hand-written argument documents and the ACTION projection is T4c's.
+  //
+  // The trigger is also narrower than "the day the daemon needs one", and that is the part
+  // worth writing down. The export map is the CONSUMER-ROOT door: `daemon/bundle.ts:37` writes
+  // `@furnace/editor/field-host` into a generated entry that esbuild resolves with
+  // `resolveDir: root` (`:42`) — someone else's project — which is why THAT specifier must be
+  // bare. The daemon's own source reaches in-package modules by relative path, so even T4c's
+  // projection can import `../action-registry/schemas.ts` and still need no entry.
+  // `shared/tool-registry.ts:33-35` reached the same verdict for the floor, before MCP
+  // existed to test it.
+  //
+  // So adding an entry to give this case a bare-specifier half would make the case a check on
+  // its own commit: the path door below already proves the graph LOADS in a bare runtime, and
+  // the bare half would prove only that the entry someone just wrote exists. What the schemas
+  // needed instead was a check on their CONTENT, and that is
+  // `projection-round-trip.test.ts` — the advertised JSON Schema and the enforced zod schema
+  // held to the same verdict. This door is by path.
   const r = await rowsSeenByABareRuntime(
     join(PKG, "src", "action-registry", "schemas.ts"),
     "Object.keys(m.ACTION_INPUT_SCHEMAS).length",
