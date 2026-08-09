@@ -580,19 +580,9 @@ test("the untitled session claims under `null`, and collides with no world name"
 });
 
 test("`session.answer` reaches the running daemon's correlation table", async () => {
-  // THE PRODUCTION WIRING for the backchannel, and it is the only half of it a live server
-  // can be asked about in this tranche: nothing over HTTP starts an ask yet (T4b Task 4's
-  // `session.state` is the first caller), so what is reachable from out here is the RETURN
-  // path. What the table DOES lives in `tests/backchannel.test.ts`.
-  //
-  // THE RESIDUE, named rather than implied, because Task 2's sabotage lesson is that an
-  // unpinned wire reads exactly like a pinned one — and this one is unpinned. Measured: a
-  // seam handed a DIFFERENT backchannel instance reddens nothing here, since an id naming
-  // no pending ask is indistinguishable across tables, and nothing over HTTP starts an ask
-  // in this tranche to tell them apart. The realistic version of that bug — forgetting the
-  // field — is a compile error, `SessionSeam.backchannel` being required. T4b Task 4's
-  // `session.state` is the first command that starts an ask over HTTP: ONE round trip
-  // through it pins the instance for free, and should.
+  // The RETURN path of the backchannel, reached from out here on its own: an answer that
+  // names no pending ask. What the table DOES lives in `tests/backchannel.test.ts`, and
+  // the round trip that pins the two halves to ONE table is the case below.
   //
   // No token, deliberately: the requestId is the whole credential, and this asserts the
   // command accepts a body without one.
@@ -604,6 +594,116 @@ test("`session.answer` reaches the running daemon's correlation table", async ()
   expect(res.status).toBe(200);
   // An id naming no pending ask is reported, not refused — the routine late-answer race.
   expect(await res.json()).toEqual({ delivered: false });
+});
+
+const REQUEST_ID_IN_FRAME = /"requestId":"([^"]+)"/;
+
+test("`session.state` starts an ask that the answer POST settles — ONE table, end to end", async () => {
+  // THE RESIDUE TASK 3 LEFT HERE, and what closing it actually found. Its sabotage
+  // reported that handing the session seam a DIFFERENT `createBackchannel` instance
+  // reddened nothing, and named this round trip as the fix. Re-measured at Task 4: THAT
+  // EXACT CUT STILL REDDENS NOTHING, and now the reason is known rather than suspected —
+  // it is not a reachable state. `SessionSeam` has ONE `backchannel` field and both legs
+  // read it (`session.state` asks through `session.backchannel`, `session.answer` settles
+  // through the same), so "the ask and the answer met different tables" cannot be spelled.
+  // The residue was a hazard that does not exist.
+  //
+  // What WAS unpinned, and is not now, is the wiring one level up: that the table both
+  // legs share is the one bound to the hub the frames go out on and to the claim table
+  // that says who to address. Both of those ARE expressible and both were silent —
+  // measured this session: `createBackchannel(createEventHub(), claims)` and
+  // `createBackchannel(hub, createClaims())` each red THIS case and nothing else in the
+  // daemon suite. With either, the ask goes out where nobody is listening and the request
+  // below comes back `session-timeout` eight seconds later instead of carrying the payload.
+  //
+  // The daemon plays RELAY and this test plays the chrome, which is the honest division:
+  // there is no browser here, and the daemon cannot compute one field of what it relays.
+  const feed = await openFeed();
+  try {
+    expect(
+      (await post("session.claim", { name: "cavern", token: feed.token }))
+        .status,
+    ).toBe(200);
+
+    // Deliberately NOT awaited yet: the response cannot arrive until the answer does.
+    const asked = post("session.state", {});
+    const frame = await feed.until("event: session-request");
+    const requestId = REQUEST_ID_IN_FRAME.exec(frame)?.[1];
+    expect(requestId).toBeDefined();
+    // The frame carries the METHOD too, so a relay that asked something else would red
+    // here rather than by a silence downstream.
+    expect(frame).toContain('"method":"session.state"');
+
+    const delivered = await post("session.answer", {
+      requestId,
+      ok: true,
+      payload: { ready: false },
+    });
+    expect(await delivered.json()).toEqual({ delivered: true });
+
+    const res = await asked;
+    expect(res.status).toBe(200);
+    // The chrome's payload, relayed unchanged — the daemon neither validated nor reshaped
+    // it, which is what `shared/wire.ts` owning `SessionState` is for.
+    expect(await res.json()).toEqual({ ready: false });
+  } finally {
+    feed.hangUp();
+  }
+}, 20_000);
+
+test("a chrome that answers NOTHING still produces a body a client can parse", async () => {
+  // THE ZERO-BYTE 200, closed at `sendJson`. `session.state` is the first command whose
+  // return value is caller-controlled, and `session.answer`'s schema deliberately accepts a
+  // body with `payload` ABSENT — the canonical serialization of a handler that answered
+  // `undefined`. That resolves the ask with `undefined`, `JSON.stringify(undefined)` is the
+  // VALUE undefined, and `res.end(undefined)` sends a 200 with `content-type:
+  // application/json` and no bytes at all. T4b Task 5's MCP door is a client of this.
+  //
+  // The POST below is the shape the wire really emits: the key is dropped by
+  // `JSON.stringify`, not by a decision in this test.
+  const feed = await openFeed();
+  try {
+    await post("session.claim", { name: "cavern", token: feed.token });
+    const asked = post("session.state", {});
+    const frame = await feed.until("event: session-request");
+    const requestId = REQUEST_ID_IN_FRAME.exec(frame)?.[1];
+
+    const body = JSON.stringify({ requestId, ok: true, payload: undefined });
+    expect(body).toBe(`{"requestId":"${requestId}","ok":true}`);
+    await fetch(url("/api/session.answer"), { method: "POST", body });
+
+    const res = await asked;
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/json");
+    // ASSERTED ON THE BYTES, and that is not fussiness — it is the only assertion that
+    // discriminates. `await res.json()` answers `null` for an EMPTY body under Bun's client
+    // (measured this session), so the obvious pin passes with the coalesce in `sendJson`
+    // removed and proves nothing. `JSON.parse` is the strict reader every other client has,
+    // and it throws on "".
+    const raw = await res.text();
+    expect(raw).toBe("null");
+    expect(JSON.parse(raw)).toBeNull();
+  } finally {
+    feed.hangUp();
+  }
+}, 20_000);
+
+test("`session.state` takes NO parameters — an invented one is refused", async () => {
+  // Every command's schema is a `strictObject`, and this one's is empty on purpose: the
+  // command addresses whoever is CLAIMED rather than a connection a caller names, so there
+  // is nothing to pass. A caller that invented a token deserves to be told rather than to
+  // have it silently dropped and read a tab it did not choose.
+  const res = await post("session.state", { token: "invented" });
+  expect(res.status).toBe(400);
+  expect((await errorBody(res)).code).toBe("invalid-input");
+});
+
+test("with no session claimed, `session.state` says so rather than hanging", async () => {
+  // The ask's own refusal, over HTTP: `soleTarget` finds nobody, so this rejects in
+  // milliseconds with a sentence a caller can act on instead of waiting out the budget.
+  const res = await post("session.state", {});
+  expect(res.status).toBe(409);
+  expect((await errorBody(res)).code).toBe("no-session");
 });
 
 test("a hang-up frees the world for the NEXT connection, with no steal", async () => {

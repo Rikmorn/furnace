@@ -65,7 +65,7 @@ import {
 	waitFor,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStats, makeStubHost } from "./_stub-host.ts";
+import { makeStats, makeStubHost, NO_HISTORY } from "./_stub-host.ts";
 
 afterEach(cleanup);
 // The notification store is a module singleton (one editor, one message log), so a
@@ -240,8 +240,6 @@ const NO_FLAGS: FlagsSummary = {
 	visible: [],
 	selected: null,
 };
-
-const NO_HISTORY = { undo: [], redo: [], undoDepth: 0, redoDepth: 0 };
 
 const seamsOf = (stub: ReturnType<typeof makeStubHost>) =>
 	[

@@ -51,6 +51,7 @@ import type { FieldHost, FieldTool } from "../../field-host/index.ts"; // type-o
 import { brushArming } from "../../shared/field-brush.ts";
 import { useEditor } from "../components/editor-context.ts";
 import type { ActionCtx } from "../lib/actions.ts";
+import { sessionState } from "../lib/session-answerers.ts";
 import { useCatalog } from "./useCatalogs.tsx";
 import {
 	useFieldEntities,
@@ -105,7 +106,8 @@ export function ActionContextProvider({
 	openShortcuts: () => void;
 	children: ReactNode;
 }) {
-	const { openConfirm, confirmRef, claimLostRef } = useEditor();
+	const { openConfirm, confirmRef, claimLostRef, sessionStateRef } =
+		useEditor();
 	const { stats } = useFieldHostState();
 	const { tool, gesture, pendingStamp, setGesture, setTool } = useFieldTool();
 	const { stamp } = useFieldStamp();
@@ -270,6 +272,40 @@ export function ActionContextProvider({
 	useEffect(() => {
 		ctxRef.current = ctx;
 	});
+
+	// The backchannel's reader (T4b), filled here because this is where the ctx is BUILT.
+	// The alternative was a null-rendering component under the provider calling
+	// `useActionContext()` — a seventh always-mounted consumer, re-rendering on every stats
+	// push to write one ref.
+	//
+	// WHAT THIS COSTS, stated rather than waved at: the effect's deps include `ctx`, whose
+	// memo takes `stats`, which the host publishes per rAF — so on a watched host this is a
+	// cleanup, a setup and two closure allocations per frame. That is real, and it is
+	// strictly less than the alternative, which pays all of that PLUS a React render of an
+	// extra component. (An earlier version of this comment said "costs nothing", which is
+	// the class of runtime claim that should not be made without a measurement.)
+	//
+	// It CAPTURES `ctx` and `history` rather than reading through `ctxRef`, and the dep list
+	// is what makes that safe: the closure is replaced whenever either moves. `ctxRef` exists
+	// for the window listener, which binds ONCE and therefore cannot capture anything; this
+	// effect is free to, and a captured value is one fewer indirection to keep honest.
+	//
+	// THE CAMERA IS NOT CAPTURED: it is polled off the host at answer time, and the argument
+	// for that lives at `FieldHost.cameraPose` rather than being re-derived here. What
+	// belongs HERE is only the consequence for this file — the ctx did not grow a member and
+	// this provider took no subscription, so nothing in this subtree re-renders for a pose.
+	//
+	// The cleanup nulls the reader, which is what makes an unmounted shell answer
+	// `{ ready: false }` rather than project a ctx nothing is rendering from. It also runs
+	// between every pair of commits, and that is unobservable: React flushes a cleanup and
+	// its replacement in one synchronous pass, and the only reader is an event handler that
+	// cannot interleave with it.
+	useEffect(() => {
+		sessionStateRef.current = () => sessionState({ ctx, history });
+		return () => {
+			sessionStateRef.current = null;
+		};
+	}, [ctx, history, sessionStateRef]);
 
 	useGlobalKeybindings(ctxRef, confirmRef, claimLostRef);
 

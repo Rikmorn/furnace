@@ -197,6 +197,25 @@ const lastPose = (poses: CameraPose[]): CameraPose => {
   return p;
 };
 
+// --- the pose POLL (foundations T4b) ----------------------------------------
+
+test("`cameraPose()` answers what the seam last published — one orbit, two readers", () => {
+  // The poll beside the subscription, for the caller that is not a surface: `session.state`
+  // is answered at a moment nothing here chose, and a mirrored copy would report the orbit
+  // as of the last render. What has to be true is that the two READ THE SAME STATE — a poll
+  // that had grown its own copy would be a camera the triad and the agent disagree about,
+  // which is exactly the class of bug a second spelling produces.
+  const { host, poses } = poseProbe();
+  expect(host.cameraPose()).toEqual(lastPose(poses));
+
+  // …and after a move, still. `snapView` is the cheapest headless path that applies an
+  // orbit; every camera path ends at the same publish.
+  host.snapView("x", 1);
+  expect(host.cameraPose()).toEqual(lastPose(poses));
+  // A real move, so the agreement above is not two readings of an untouched default.
+  expect(host.cameraPose()).not.toEqual(poses[0]);
+});
+
 // --- frameSelection ---------------------------------------------------------
 
 test("frameSelection with nothing selected moves no camera, pushes no pose, and SAYS so", () => {

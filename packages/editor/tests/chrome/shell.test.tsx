@@ -69,7 +69,7 @@ import {
 	waitFor,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStats, makeStubHost } from "./_stub-host.ts";
+import { makeHistory, makeStats, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 // The notification store is a module singleton (one editor, one message log), so a
@@ -1595,12 +1595,7 @@ const pushHistory = (
 	redo: readonly string[] = [],
 ): void => {
 	act(() => {
-		stub.fire.history({
-			undo,
-			redo,
-			undoDepth: undo.length,
-			redoDepth: redo.length,
-		});
+		stub.fire.history(makeHistory(undo, redo));
 	});
 };
 

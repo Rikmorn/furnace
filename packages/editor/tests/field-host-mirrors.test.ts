@@ -325,6 +325,9 @@ test("the mirror opens on the host's own defaults", () => {
     redo: [],
     undoDepth: 0,
     redoDepth: 0,
+    // The empty token, which is what a chrome with no host behind it has to say — see the
+    // literal's own docblock for why it cannot be mistaken for a real one.
+    revision: "",
   });
 });
 

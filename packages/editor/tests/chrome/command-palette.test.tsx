@@ -33,7 +33,7 @@ import {
 	screen,
 	within,
 } from "../inspector/_harness.tsx";
-import { makeStubHost } from "./_stub-host.ts";
+import { makeHistory, makeStubHost } from "./_stub-host.ts";
 
 afterEach(cleanup);
 afterEach(() => notify.clear());
@@ -322,12 +322,7 @@ test("labels are CONTEXTUAL — the registry's own label function, not a static 
 	const stub = stubWithGenerators();
 	await renderShell(stub);
 	act(() => {
-		stub.fire.history({
-			undo: ["dig"],
-			redo: [],
-			undoDepth: 1,
-			redoDepth: 0,
-		});
+		stub.fire.history(makeHistory(["dig"]));
 	});
 	pressCommandK();
 	// "Undo dig", never "Undo": the label comes from the top of the op log.
@@ -409,7 +404,7 @@ test("the visible LABEL is searchable, not only the id", async () => {
 	const stub = stubWithGenerators();
 	await renderShell(stub);
 	act(() => {
-		stub.fire.history({ undo: ["dig"], redo: [], undoDepth: 1, redoDepth: 0 });
+		stub.fire.history(makeHistory(["dig"]));
 	});
 	pressCommandK();
 	// "dig" appears in no action id — only in the contextual label of `edit.undo`.

@@ -1,4 +1,11 @@
 // packages/editor/src/frontend/lib/session-answerers.ts
+import type { RefObject } from "react";
+// TYPE-ONLY, so both are erased and this module stays a plain record with no runtime
+// edge on the host — the rule `tests/frontend-no-engine-leakage.test.ts` machine-enforces
+// for everything the chrome bundle pulls in.
+import type { FieldHistory } from "../../field-host/index.ts";
+import type { SessionState } from "../../shared/wire.ts";
+import type { ActionCtx } from "./actions.ts";
 
 /**
  * What this editor session can be ASKED — method name → the function that answers it.
@@ -43,12 +50,185 @@ export type SessionAnswerers = Readonly<
  * that correlated back to its own ask. Every richer method rides that same path, so the
  * one thing worth pinning end to end before any of them exist is the path.
  *
- * It is a MODULE CONSTANT because it closes over nothing. Task 4's `session.state` will
- * not be able to be — it reads the chrome's latched mirrors — and that is why
- * `useSessionAnswer` takes the registry as an argument rather than importing this: the
- * mount point can move to wherever the facts are without the wire changing shape. Keeping
- * the base row here means the moving version still has one honest thing to spread.
+ * It is a MODULE CONSTANT because it closes over nothing, and T4b Task 3 predicted that
+ * `session.state` would not be able to be. It is not: {@link createSessionAnswerers} closes
+ * over the reader the shell fills, which is why `useSessionAnswer` takes the registry as an
+ * argument rather than importing this — the mount point can move to wherever the facts are
+ * without the wire changing shape. Keeping the base row here means the moving version still
+ * has one honest thing to spread, which is exactly what it does.
  */
 export const BASE_ANSWERERS: SessionAnswerers = {
   "session.ping": (params) => ({ echo: params }),
 };
+
+/**
+ * Everything `session.state` reads, as ONE argument.
+ *
+ * `ctx` IS THE WHOLE OF IT, and taking it whole rather than destructured is the point:
+ * {@link ActionCtx} is already this chrome's one assembled answer to "what can be seen from
+ * here", built once per render by the provider that reads every state context the actions
+ * name. Re-reading those contexts here would be a SECOND assembly of it — two records that
+ * must agree about what is selected, drifting the first time one grows a field. The
+ * projection below picks from it and derives nothing.
+ *
+ * `history` IS THE FULL PAYLOAD because the ctx carries only the two LABELS — it needs
+ * exactly the top of each stack and says so. The tail is what the History palette shows,
+ * and it comes from the seam's own payload rather than from a second derivation here.
+ *
+ * THE CAMERA IS NOT HERE, and its absence is the one thing about this record worth saying:
+ * the pose is the single fact the payload needs that the ctx deliberately does not carry, so
+ * it is polled off `ctx.host` at answer time. The argument for that lives in ONE place —
+ * `FieldHost.cameraPose`'s docblock — and every other site that needs it points there.
+ */
+export type SessionStateInput = {
+  ctx: ActionCtx;
+  history: FieldHistory;
+};
+
+/**
+ * Project the chrome's mirrors into the wire's {@link SessionState} — **React-free, and
+ * testable without a component**, which is the same split `lib/actions.ts` keeps from
+ * `hooks/useActionContext.tsx`: what an answer IS lives here, what it can SEE is assembled
+ * up there.
+ *
+ * NOT PURE, and the word is avoided deliberately rather than by omission: `camera` is a live
+ * poll off the host (see below), so two calls with identical arguments can differ. That is
+ * the intended behaviour for that member and it is argued where it happens — but a docblock
+ * calling this function pure would contradict the one three lines down that argues why one
+ * member must not be a snapshot.
+ *
+ * `ctx.host === null` IS THE READINESS TEST, and there is deliberately no second one. The
+ * ctx's own docblock states that App assigns the host ref once, synchronously, immediately
+ * before the dispatch that makes the editor ready — so `host !== null` and "the engine is
+ * up" are the same fact, and asking `EditorState.status` beside it would be a second
+ * spelling of one thing that could disagree.
+ *
+ * Every other member is a PICK. Nothing here computes, sorts, formats or falls back, and
+ * that is the property worth keeping: a projection that derived anything would be a place
+ * where the agent's picture and the human's screen could differ. The two `=== true` reads
+ * on the entity are the only conversions, and they turn the host's absent-means-false
+ * spelling into the booleans `shared/wire.ts` states it relays.
+ */
+export function sessionState({
+  ctx,
+  history,
+}: SessionStateInput): SessionState {
+  const host = ctx.host;
+  if (host === null) return { ready: false };
+  const session = ctx.session;
+  const selection = ctx.selection;
+  const entity = ctx.selectedEntity;
+  const stats = ctx.stats;
+  return {
+    ready: true,
+    // OFF THE HISTORY MIRROR, and the inversion is the point. The first cut of this line
+    // polled the host, on the reasoning that a token must answer for the instant of the
+    // question — and that is exactly backwards for a token whose job is to certify a
+    // PAYLOAD. Everything below is latched at the last commit; a polled token would run
+    // AHEAD of it, so an ask landing between a log mutation and React's next commit would
+    // answer with a post-edit cursor over a pre-edit picture, and every later ask would
+    // return that same cursor and confirm the staleness for ever. The token now rides the
+    // history payload itself (`field-history.ts`'s `FieldHistory.revision`), so it and the
+    // `history` member below cannot describe different moments. What that does NOT certify
+    // is stated at `SessionState.cursor`.
+    cursor: history.revision,
+    // COPIED, not handed over — and it is THREE members, not two: `world` and `tool.mask`
+    // here, and `history.tail` below. Those are exactly the members whose wire shape
+    // matches a record the chrome is already holding, so they are the only ones that could
+    // travel by reference, and a caller mutating what it was given would be reaching into
+    // live chrome state. `tail` has the wire's `readonly string[]` in front of it, which is
+    // a compile-time guard and not a runtime one; the other two have nothing. Nothing
+    // mutates a payload today (it is serialized immediately), which is exactly why the
+    // reason is written here rather than re-derived by whoever adds the second caller.
+    // Pinned by identity in `tests/chrome/session-state.test.tsx`.
+    world: { ...ctx.world },
+    tool: {
+      effect: ctx.tool.effect,
+      materialId: ctx.tool.materialId,
+      mask: { ...ctx.tool.mask },
+    },
+    gesture: ctx.gesture,
+    session:
+      session === null
+        ? null
+        : {
+            generator: session.generator,
+            phase: session.phase,
+            mode: session.mode,
+            entityId: session.entityId,
+          },
+    selection:
+      selection === null
+        ? null
+        : { count: selection.count, truncated: selection.truncated },
+    selectedEntity:
+      entity === null
+        ? null
+        : {
+            entityId: entity.entityId,
+            generator: entity.generator,
+            frozen: entity.frozen === true,
+            baked: entity.baked === true,
+          },
+    // POLLED — the only member that is, and the reason is `FieldHost.cameraPose`'s to
+    // state. It is therefore FRESHER than everything around it, which is safe precisely
+    // because the cursor certifies nothing about it (`SessionState.cursor`).
+    camera: host.cameraPose(),
+    stats:
+      stats === null
+        ? null
+        : {
+            totalOps: stats.totalOps,
+            undoDepth: stats.undoDepth,
+            redoDepth: stats.redoDepth,
+          },
+    history: {
+      // The two labels off the CTX rather than off `history` here, so the sentence an
+      // agent reads and the sentence the Undo menu shows come from one derivation.
+      undoLabel: ctx.history.undoLabel,
+      redoLabel: ctx.history.redoLabel,
+      tail: [...history.undo],
+    },
+  };
+}
+
+/** The chrome's live {@link SessionState} reader — `null` until the shell has committed a
+ *  render, which is the only window in which nobody can answer. */
+export type SessionStateReader = () => SessionState;
+
+/**
+ * The full registry: the base rows plus `session.state`, over a reader the shell fills.
+ *
+ * A FACTORY OVER A REF, which is the shape T4b Task 3 predicted when it said the moving
+ * version would still have one honest thing to spread. The wire mounts at `App`
+ * (`useSessionAnswer`'s header argues where and why) and the mirrors live far below it, so
+ * the reader travels the route this chrome already uses for exactly this — a ref created in
+ * `App` and filled from below. THREE precedents, named precisely because an earlier version
+ * of this sentence named the wrong set: `bakeBusyRef` (filled by the shell's world verbs),
+ * `worldNameRef` (filled by `WorldProvider`) and `viewportFocusRef` (created in `App`,
+ * installed by `CanvasHost`). NOT `claimLostRef`, which is created AND written inside
+ * `useSessionClaim` — a hook `App` itself calls — so only its READER is below and it is a
+ * different shape. Nothing about the wire moved to make this reachable.
+ *
+ * **AN UNFILLED REF ANSWERS `{ ready: false }` rather than throwing or refusing**, and the
+ * distinction matters to whoever asked. A refusal would say "this tab cannot serve that
+ * method", which is false — it serves it, and the honest content of the answer is that
+ * there is no session state yet. The window is the one render before the shell's first
+ * effect runs, and it is the same state a mounted chrome with no engine reports, which is
+ * why they share an arm.
+ *
+ * The result is a NEW OBJECT per call, so the caller must memoize it — `useSessionAnswer`
+ * states that rule and why the feed's dep list imposes it.
+ */
+export function createSessionAnswerers(
+  reader: RefObject<SessionStateReader | null>,
+): SessionAnswerers {
+  return {
+    ...BASE_ANSWERERS,
+    "session.state": (): SessionState => {
+      const read = reader.current;
+      if (read === null) return { ready: false };
+      return read();
+    },
+  };
+}

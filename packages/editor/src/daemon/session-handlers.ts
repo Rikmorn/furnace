@@ -118,19 +118,20 @@ function describeWorld(world: ClaimKey): string {
  * modules already split this way (`worlds.ts`, `claims.ts`, `bundle.ts`, `origin.ts`), and
  * this family is the one whose answer depends on WHICH caller is asking rather than only
  * on what it asked. `handlers.ts` is the filesystem verbs; nothing here touches a file, and
- * nothing there touches connection identity. That split earned itself in one task:
- * `session.answer` landed here rather than on top of the filesystem verbs, and T4b Task 4's
- * `session.state` lands here too.
+ * nothing there touches connection identity. That split earned itself in one task and again
+ * in the next: `session.answer` landed here rather than on top of the filesystem verbs, and
+ * `session.state` — the first command that ASKS rather than answers — landed beside it.
  *
  * Returned as its own `Handlers` map rather than mutating a passed-in one: a builder that
  * answers with what it built is a query, and `createHandlers` merges it in one line.
  *
  * @param session - undefined when the registry was built with no event feed. Every command
  * here then answers `no-session` — the three token-taking ones because they resolve no
- * token, and `session.answer` because there is no correlation table for it to settle
- * against. That is the true answer rather than a stub: a daemon with no feed has no
- * connections, so there is no session for anyone to be, and nothing here can have asked
- * one anything. `HandlerContext.session` argues why that seam is optional at all.
+ * token, `session.answer` because there is no correlation table for it to settle against,
+ * and `session.state` because there is no connection to ask. That is the true answer rather
+ * than a stub: a daemon with no feed has no connections, so there is no session for anyone
+ * to be, nothing here can have asked one anything, and there is nothing to read.
+ * `HandlerContext.session` argues why that seam is optional at all.
  */
 export function createSessionHandlers(
   session: SessionSeam | undefined,
@@ -191,6 +192,42 @@ export function createSessionHandlers(
       const { claims, connection } = resolveSession(token);
       claims.release(connection);
       return Promise.resolve({});
+    },
+  });
+
+  // THE FIRST ASK, and the first command in this daemon whose answer it does not know
+  // (foundations T4b). Everything else here decides from tables this process owns; this
+  // one relays a question to the claimed tab and hands back what the tab said.
+  //
+  // NO TOKEN AND NO INPUT AT ALL. The other three name a connection because they say
+  // something ABOUT one; this addresses whichever session is CLAIMED, which is the
+  // backchannel's own resolution (`soleTarget` — zero and many both refuse, and the
+  // message says which). A token here would let a caller ask a tab that is not the one
+  // the human is in, which is the failure this tranche exists to prevent. `z.strictObject({})`
+  // rather than a permissive schema, so a caller that invented a parameter is told so
+  // rather than having it silently dropped.
+  //
+  // THE PAYLOAD IS RELAYED UNTYPED, deliberately: `shared/wire.ts` declares `SessionState`
+  // and BOTH ENDS THAT CARE import it — the chrome to build it, the MCP door (T4b Task 5)
+  // to read it — while this module is the relay in between and validating here would put a
+  // third author on a shape neither of them would learn about from the other. The daemon
+  // cannot compute one field of it, which is the whole reason the backchannel exists; it
+  // has no standing to police it either.
+  //
+  // The `ask` rejects rather than hangs — no session, many sessions, a departed tab, a
+  // silent one, an unserved method — and each of those is already an `EditorError` with a
+  // code, so this body adds no error handling of its own. That is the seam keeping its
+  // promise rather than every caller re-keeping it.
+  handlers.set("session.state", {
+    input: z.strictObject({}),
+    run: () => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to read",
+        );
+      }
+      return session.backchannel.ask("session.state", {});
     },
   });
 

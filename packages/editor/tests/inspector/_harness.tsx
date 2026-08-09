@@ -44,6 +44,7 @@ type EditorContextOverrides = {
 	bakeBusyRef?: EditorContextValue["bakeBusyRef"];
 	worldNameRef?: EditorContextValue["worldNameRef"];
 	claimLostRef?: EditorContextValue["claimLostRef"];
+	sessionStateRef?: EditorContextValue["sessionStateRef"];
 	viewportFocusRef?: EditorContextValue["viewportFocusRef"];
 	store?: UiStore;
 };
@@ -83,6 +84,10 @@ export function makeEditorContext(
 		// The claim is held. A case that wants the claim-lost cover's keyboard suppression
 		// passes its own ref — see tests/chrome/keybindings-dom.test.ts.
 		claimLostRef: overrides.claimLostRef ?? { current: false },
+		// Nobody reads the session yet. `ActionContextProvider` fills this on its first
+		// commit, so a case that renders the Shell gets the real reader and one that renders
+		// a panel alone gets `null` — which the answerer reports as `{ ready: false }`.
+		sessionStateRef: overrides.sessionStateRef ?? { current: null },
 		// No viewport. `CanvasHost` fills this on mount, so a case that renders the Shell
 		// gets the real seam and one that renders a panel alone gets `null` — which every
 		// reader treats as "there is no canvas to hand focus back to".

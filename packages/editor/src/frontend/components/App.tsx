@@ -7,7 +7,10 @@ import { useSessionClaim } from "../hooks/useSessionClaim.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
-import { BASE_ANSWERERS } from "../lib/session-answerers.ts";
+import {
+	createSessionAnswerers,
+	type SessionStateReader,
+} from "../lib/session-answerers.ts";
 import { initialState, reduce } from "../lib/state.ts";
 import { ClaimLostOverlay } from "./ClaimLostOverlay.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -55,12 +58,31 @@ export function App() {
 	// calls into, `lost` is the terminal state the cover renders from.
 	const claim = useSessionClaim({ worldNameRef, openConfirm });
 
+	// How the backchannel READS this session (T4b): a thunk that projects the chrome's
+	// mirrors into the wire's SessionState. Created HERE and filled by
+	// `ActionContextProvider` for the `worldNameRef` reason — the mirrors live far below
+	// this component and the reader sits beside the feed that asks for them.
+	const sessionStateRef = useRef<SessionStateReader | null>(null);
+
 	// The other half of that conversation (T4b): the daemon relays a question to whichever
 	// tab holds the claim, and this answers it. Nothing renders — see the hook's header for
-	// why it mounts here rather than beside the chrome's latched mirrors. `BASE_ANSWERERS`
-	// is a module constant, which is what satisfies the stability rule the feed's dep list
-	// imposes on this callback.
-	const onSessionRequest = useSessionAnswer(BASE_ANSWERERS);
+	// why it mounts here rather than beside the chrome's latched mirrors.
+	//
+	// MEMOIZED, because the registry is no longer a module constant: `session.state` closes
+	// over the ref above, so the record is built here. The memo is what satisfies the
+	// stability rule the feed's dep list imposes on this callback — a fresh identity per
+	// render would open and close one EventSource per render. `[]`, and it is the honest
+	// list rather than a silenced one: the only thing captured is a ref OBJECT, which React
+	// guarantees never changes, and the reader inside it is read at ask time.
+	//
+	// The empty list is MACHINE-CHECKED, which is worth naming because a reader has no other
+	// way to know: `lint/correctness/useExhaustiveDependencies` is live in this package and
+	// enforces BOTH directions — measured with the repo's own biome (2.4.15) on this file,
+	// naming `sessionStateRef` here earns *"specifies more dependencies than necessary"* and
+	// dropping a real dep from the effect in `useActionContext.tsx` earns *"does not specify
+	// its dependency on ctx"*. So this list is not a judgement call anyone has to trust.
+	const answerers = useMemo(() => createSessionAnswerers(sessionStateRef), []);
+	const onSessionRequest = useSessionAnswer(answerers);
 
 	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders
 	// the world list — the world drawer is the first consumer.
@@ -140,6 +162,7 @@ export function App() {
 		bakeBusyRef,
 		worldNameRef,
 		claimLostRef: claim.claimLostRef,
+		sessionStateRef,
 		viewportFocusRef,
 		store,
 	};

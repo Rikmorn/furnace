@@ -92,3 +92,166 @@ export type SessionRequest = {
 export type SessionAnswer =
   | { requestId: string; ok: true; payload: unknown }
   | { requestId: string; ok: false; error: string };
+
+/**
+ * What `session.state` answers — **the first method with a payload worth naming**, and the
+ * shape an agent forms its picture of a live editing session from (foundations T4b).
+ *
+ * A DISCRIMINATED UNION on `ready`, for {@link SessionAnswer}'s reason one door over: the
+ * engine bundle loads asynchronously and a tab is claimable before its field host exists,
+ * so "there is no world here yet" is a real state that must not be spelled as a world.
+ * Every field below would otherwise have an innocent-looking default — no selection, no
+ * session, zero ops — and an agent reading that would conclude the human is sitting in an
+ * empty world when the truth is that the editor is still starting. **A false claim of
+ * emptiness is the one answer this method must never give**, and one boolean is what makes
+ * it unspellable.
+ *
+ * The not-ready arm carries NOTHING BESIDE THE DISCRIMINANT, and what makes that honest is a
+ * structural invariant rather than a claim about how many causes exist: **only a CLAIMED tab
+ * can be asked, and only a READY tab claims.** The chrome opens its SSE feed under
+ * `state.status === "ready"` (`frontend/components/App.tsx`'s `useDaemonFeed` gate), so a tab
+ * that failed to boot — `engine-error` from a build that will not compile, `no-webgpu` from a
+ * browser that cannot run it, both live states in `frontend/lib/state.ts` today — never opens
+ * a feed, never receives a token, never claims, and is therefore never relayed a question at
+ * all. `session.state` answers `no-session` about that tab instead, which is the honest
+ * sentence and the one with a different remedy.
+ *
+ * **WHICH MAKES THIS ARM CURRENTLY UNREACHABLE THROUGH THE DAEMON, and saying so is more
+ * useful than naming causes that are not.** Follow the same gate one step further: a tab is
+ * asked only if it is claimed, it claims only after a token arrives, and the token arrives on
+ * a feed it opened only once `ready` — by which point `App` has already assigned the field
+ * host (it does so synchronously, immediately before the dispatch that makes the editor
+ * ready) and the shell has long since committed. Two network round trips stand between the
+ * commit that fills the chrome's reader and the earliest ask. So the chrome CAN spell this
+ * answer and no relayed question can currently receive it.
+ *
+ * It is kept for two reasons. It is what the chrome must answer if it is asked anyway —
+ * `tests/chrome/session-state.test.tsx` asks the registry row directly, which is the only
+ * caller that can reach it — and it is the shape that stays honest when the gate moves,
+ * which is the next paragraph.
+ *
+ * **THE TRIGGER IS THE GATE, NOT A NEW CAUSE.** A change that opened the feed before
+ * `ready` — reconnect hardening, a claim that survives a reload, an agent that wants to see a
+ * tab whose engine failed — would put a permanently-not-ready tab behind this arm, where
+ * `{ ready: false }` reads as "still starting" to a caller that will retry for ever. Nothing
+ * here would catch it, because nothing here can see the gate. Whoever moves that gate owes
+ * this arm a reason field in the same change.
+ *
+ * **CONCISE, AND A PROJECTION RATHER THAN A PASS-THROUGH.** The chrome holds richer records
+ * than these — a whole `FieldTool`, a `StampSession`, a `SelectionInfo` — and none of them
+ * can be named here even if we wanted them: `SelectionInfo.spec` and `FieldEntityInfo` are
+ * built on `@furnace/core` types, and this file is held ENGINE-FREE by
+ * `tests/frontend-no-engine-leakage.test.ts` (and sits below `field-host/` in the layer
+ * arrow besides). So the projection is forced at the boundary and welcome anyway: what an
+ * agent needs is what is armed, what is selected and how big the log is, not the ten fields
+ * a form needs to render a param sheet. There is no `response_format` flag and no verbose
+ * arm — one caller, and a second shape is worth building when a second caller wants one.
+ *
+ * THE STRING-TYPED MEMBERS (`tool.effect`, `gesture`, `session.phase`, `mask.kind`) ARE
+ * `string` RATHER THAN RESTATED UNIONS, and that is the anti-drift choice rather than a lazy
+ * one. Each has a closed union on the host side that this file cannot import; a hand-copy
+ * would be a second declaration the host can widen without this one noticing, and a reader
+ * that switched on the copy would silently lose an arm. `string` cannot go stale. The
+ * hand-mirror filing this module's header names (`wire-contracts-are-hand-mirrored.md`) is
+ * about types that SHOULD be shared; these are types that should not be copied at all.
+ */
+export type SessionState =
+  | {
+      /** The chrome is mounted but has no field host yet — see this type's header for why
+       *  this arm carries nothing else. */
+      ready: false;
+    }
+  | {
+      ready: true;
+      /**
+       * The change cursor: **hold it and compare it, never parse it.**
+       *
+       * OPAQUE BY CONTRACT rather than by encoding — it is readable on purpose, because a
+       * token nobody can read is a token nobody can debug, and nothing in this payload
+       * depends on its shape. What it is composed of, what it can miss and why it is not
+       * polled are argued where it is made (`field-host/field-history-feed.ts`'s
+       * `revisionOf`). What belongs HERE is what it certifies, which is a smaller claim
+       * than a reader would assume and is the only one this wire can keep.
+       *
+       * **IT CERTIFIES `history`, EXACTLY.** The cursor is composed into the same payload
+       * the labels and the tail come from (`FieldHistory.revision`), by the code that
+       * decides to publish it, so those two cannot describe different moments. That is why
+       * it rides the payload instead of being read off the host at answer time: a polled
+       * token runs AHEAD of a latched payload, and a reader handed a post-edit cursor over
+       * a pre-edit picture caches both and is told "unchanged" for ever after.
+       *
+       * **IT CERTIFIES NOTHING ELSE IN THIS RECORD, and the reason is structural.** The
+       * chrome holds one latch per seam: `stats`, `selectedEntity`, `selection`, `tool`,
+       * `session` and `world` each arrive on their own, and `camera` is polled live. So an
+       * unchanged cursor does NOT mean this payload is unchanged — most obviously for the
+       * things it was never about (a selection, an armed tool, a camera fly move none of
+       * them), and least obviously for `stats`, which is published per animation frame and
+       * can therefore trail the cursor by up to a frame after an edit lands.
+       *
+       * So the honest sentence is: an unchanged cursor means **"no edit landed and no world
+       * was swapped, and the `history` you are holding is current"**. Everything else in
+       * here is a reading taken at the moment of the answer, with no promise that it agrees
+       * with the cursor beside it. **It is a hint that saves a read, never a proof that
+       * skips one** — a caller that must be certain about a member other than `history`
+       * re-reads regardless of what the cursor did.
+       */
+      cursor: string;
+      /** Which world, whether it has unsaved edits, and whether a world verb (save, bake,
+       *  load) is running. `name` is `null` for the untitled scratch — the same null the
+       *  claim table keys on. */
+      world: { name: string | null; dirty: boolean; busy: boolean };
+      /** What the brush is armed to do. `mask` carries its `classId` only for the
+       *  class-filtered kind, exactly as the host's own union does. */
+      tool: {
+        effect: string;
+        materialId: number;
+        mask: { kind: string; classId?: number };
+      };
+      /** What LMB is armed for, or `null` when it strokes the brush. */
+      gesture: string | null;
+      /** The live stamp / reconfigure / move session, or `null` between sessions. `params`
+       *  are deliberately absent: they are a generator-shaped bag whose schema only the
+       *  stamp form knows, and an agent that wants them is asking a different question. */
+      session: {
+        generator: string;
+        phase: string;
+        mode: string;
+        entityId: number | null;
+      } | null;
+      /** The CELL selection — `truncated` says the host stopped counting, so `count` is a
+       *  floor rather than a total. Independent of `selectedEntity`: either can stand
+       *  alone. */
+      selection: { count: number; truncated: boolean } | null;
+      /** The selected committed entity. `frozen`/`baked` are BOOLEANS here where the host's
+       *  record spells absence as false — a wire the daemon relays should not make a reader
+       *  reason about a missing key. */
+      selectedEntity: {
+        entityId: number;
+        generator: string;
+        frozen: boolean;
+        baked: boolean;
+      } | null;
+      /** The orbit camera's orientation in radians. Orientation only, which is what the
+       *  host's own pose seam carries. */
+      camera: { yaw: number; pitch: number };
+      /** The three log-derived numbers, or `null` in the sub-frame window before the host's
+       *  first readout arrives — the stats seam publishes per frame and pushes nothing on
+       *  subscribe, so `ready: true` genuinely can precede it. `null` rather than zeros, for
+       *  the same reason the `ready` discriminant exists at all.
+       *
+       *  THESE THREE AND NOT THE OTHER EIGHT: they are the fields `field-stats.ts` proves
+       *  correct-by-construction under a matched cache signature (they ARE the signature),
+       *  while `liveGenerators` and `compactableOps` are content-derived and can be stale
+       *  by that module's own documented gap. A readout that could lie is not one to relay
+       *  to a reader who cannot see the caveat. */
+      stats: { totalOps: number; undoDepth: number; redoDepth: number } | null;
+      /** What ⌘Z and ⇧⌘Z would do, in words, plus the recent undo tail newest-LAST. The
+       *  tail is BOUNDED by the host (its own constant), so it is what the History palette
+       *  shows rather than the whole stack; `stats.undoDepth` is the true depth, and the
+       *  difference between them is how much is not listed. */
+      history: {
+        undoLabel: string | null;
+        redoLabel: string | null;
+        tail: readonly string[];
+      };
+    };

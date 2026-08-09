@@ -211,9 +211,9 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 Every client — the chrome, a curl, a future AI binding — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected).
 
-There are **12 commands in five families**, and the chrome speaks **11** of them (`frontend/lib/api.ts`); the twelfth, `session.release`, has no client method on purpose — see the table. It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+There are **13 commands in five families**, and the chrome speaks **11** of them (`frontend/lib/api.ts`); the two it does not are `session.release` and `session.state` — neither has a client method on purpose, see the table. It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
-`session.*` is the first family whose answer depends on **which caller is asking** rather than only on what it asked, which is why three of the four carry a connection `token` (§5.1). The fourth, `session.answer`, is the **only command the daemon is the logical originator of** — it is the return leg of a question the daemon asked, and it names a pending ask rather than a connection, so it carries a `requestId` and no token.
+`session.*` is the first family whose answer depends on **which caller is asking** rather than only on what it asked, which is why three of the five carry a connection `token` (§5.1). The other two are the two halves of the backchannel and neither takes one. `session.answer` is the **only command the daemon is the logical originator of** — it is the return leg of a question the daemon asked, and it names a pending ask rather than a connection, so it carries a `requestId` instead. `session.state` is the **only command the daemon cannot answer**: it relays the question to whichever session is CLAIMED and hands back what that session said, so naming a connection would let a caller read a tab the human is not in — the failure the claim exists to prevent.
 
 | Command | Input schema | Returns |
 | --- | --- | --- |
@@ -228,6 +228,7 @@ There are **12 commands in five families**, and the chrome speaks **11** of them
 | `session.claim` | `{ name: string \| null, token }` | `{}` — this connection is now the editing session for `name` (`null` = the untitled scratch). Refused `already-exists` (409) when a DIFFERENT live connection holds it; `no-session` (409) when the token names no live connection. Re-claiming a world this connection already holds succeeds. §5.1. |
 | `session.steal` | `{ name: string \| null, token }` | `{}` — takes the world whatever anyone else thinks, and sends the displaced connection a `claim-lost` frame. Never refuses on held-ness (an unheld world is simply claimed); `no-session` on a dead token. |
 | `session.release` | `{ token }` | `{}` — drops whatever this connection holds. **No chrome method**: a tab that stops authoring is a tab that closed, and the SSE departure hook has already released it. The command exists because the claim's lifetime is only statable with both of its ends. |
+| `session.state` | `{}` | The claimed session's `SessionState` (`src/shared/wire.ts`), RELAYED — the first command that asks rather than answers. A discriminated union on `ready`: the not-ready arm carries nothing but the discriminant (the engine bundle is async and a tab is claimable before its field host exists, so an empty-looking world would be a false claim of emptiness), and the ready arm carries `cursor`, `world`, `tool`, `gesture`, `session`, `selection`, `selectedEntity`, `camera`, `stats` and `history`. **No token and no input** — it addresses whoever is claimed (§5.1), so zero and many both refuse with `no-session`, a silent tab earns `session-timeout` (§6), and the daemon validates nothing on the way past: it cannot compute one field of this, which is the whole reason the backchannel exists. `cursor` is an opaque compare-only change token that rides the history payload (§17.6). |
 | `session.answer` | `{ requestId, ok: true, payload }` \| `{ requestId, ok: false, error }` | `{ delivered }` — hands one answer to the backchannel ask it names (`daemon/backchannel.ts`). **No token**: the `requestId` was minted into exactly one connection's stream, so holding it means holding that stream — the same structural argument the token itself rests on. `delivered: false` is the honest report for an id naming no pending ask (an answer that lost the race with its own ask's timeout, a duplicate, a forged one), not an error — refusing would manufacture a client-side failure for a designed race. A discriminated union so a refusal cannot pose as a success with a missing payload. |
 
 `field.load` and every `world.*` verb share ONE name schema — `z.string().regex(WORLD_NAME_RE)` — and `worlds.ts`'s top comment tracks the other copies of that regex.
@@ -1607,7 +1608,15 @@ invariant), and it is pushed at engine-ready so the two agree from the first fra
 
 **The camera-pose seam.** `FieldHost.subscribeCameraPose` pushes `{ yaw, pitch }` in
 radians; `shell/AxisTriadMount.tsx` reads it through `useFieldHostState` and renders the
-corner triad. Since **F4.5b Task 6 the triad is also a CONTROL**: its six axis ends are
+corner triad. Foundations T4b added a **poll beside it**, `FieldHost.cameraPose()`, on
+`isLooking`'s split: the pose moves between renders (pointer rate through a look drag, per
+frame through a fly), so a surface that DRAWS it takes the subscription and a caller that
+answers a question asked at an arbitrary moment takes the poll. Its one caller is
+`session.state` (§4), and it exists because both mirror-shaped routes cost renders nobody
+asked for — a member on `ActionCtx` would re-render that context's six consumers at pointer
+rate, a second `useCameraPose` latch would re-render the provider that builds it — and
+because both would break the seam's ONE-subscriber rule, which `tests/chrome/shell.test.tsx`
+pins and the poll keeps. Since **F4.5b Task 6 the triad is also a CONTROL**: its six axis ends are
 real `<button>`s over the SVG (an `<svg>` cannot contain one, and `role="button"` on a
 shape would mean hand-rolling focus and Enter/Space), each calling
 `FieldHost.snapView(axis, sign)` where `sign: 1` puts the eye on the POSITIVE side of
@@ -2219,6 +2228,39 @@ empty history means "nothing has been done yet", which is exactly true outside a
 `useActionContext` reads the top of each stack for `Undo ${label}` / `Redo ${label}`, off the
 LABELS rather than off `stats.undoDepth`: the depth says whether there is a step, the label says
 what it is.
+
+**The feed also mints the change token, and it rides the PAYLOAD rather than a seam of its
+own** (foundations T4b). `FieldHistory` carries a `revision`: an opaque compare-only string
+over `worldEpoch / ops.length / undoLen / redoLen / nextId` — the same five terms
+`field-entities.ts`' footprint memo signs on, spelled the same way on purpose — composed by
+`field-history-feed.ts`'s `revisionOf` from the very signature the publish was decided by.
+It is in the payload because the alternative was measured and rejected: a `FieldHost`
+poll (which this briefly shipped) runs one-directionally AHEAD of the chrome's latched
+mirrors, so an ask landing between a log mutation and React's next commit answers with a
+post-edit cursor over a pre-edit picture — which a reader caches, and which every later ask
+then confirms as unchanged for ever. Riding the payload makes *"this token and these labels
+describe one moment"* structural. **The cursor therefore certifies `history` and nothing
+else**: `stats`, `selection`, `selectedEntity`, `tool`, `session` and `world` ride their own
+latches (`stats` is published per rAF, so it can trail the cursor by a frame after an edit)
+and `camera` is polled live.
+
+The token is STATELESS in the sense that separates it from the log-signature cache in
+`field-stats.ts`: it can alias but it cannot latch, because there is no tracker to fall
+behind. `HistorySignature` stays module-private — the token is a string, so nothing outside
+can still ask what a signature IS. **The change guard grew three terms to match**: it
+compared the two stacks alone, which meant a world swap that left the history empty
+published nothing — measured, a fresh host's `newWorld()` plus a whole `loadWorld` left the
+subscriber on its single arrival push — so a payload-carried token would have missed a world
+load entirely. It now compares the epoch, `ops.length` and `nextId` beside the two lengths
+and the two top-entry identities, at the cost of one extra publish per world swap over an
+empty history. Three terms are load-bearing in ways a pin holds: the world term, and
+`nextId` + `ops.length` as a PAIR standing in for the top-entry identities, which cannot
+serialize — `nextId` catches undo-then-a-new-OP, `ops.length` catches undo-then-a-freeze/bake,
+which mints no op while the undo has already peeled the log. The one alias it carries is
+documented and pinned: two `entity-update` entries (freeze/bake) create no op, so
+freeze → ⌘Z → bake composes the same five numbers over a world where a different thing is
+true. It is a change HINT — the caller re-reads state and never diffs cursors — and it
+answers about the FIELD only: selection, camera, tool and gesture all move without touching it.
 
 **`shell/HistoryPalette.tsx` is a STEPPER, not a seeker**, and that is a contract rather than a
 simplification. Core's undo/redo are strictly LIFO — each entry's chunk images assume the state

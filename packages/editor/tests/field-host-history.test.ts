@@ -101,6 +101,15 @@ function loadHallWorld(host: ReturnType<typeof createFieldHost>): number {
   return entityId;
 }
 
+/** The payload WITHOUT its change token — what a case about labels and depths means by
+ *  "the history". The token is opaque and moves with the log rather than with the words,
+ *  so a whole-payload `toEqual` would make every label case restate a string it is not
+ *  about; the cases that ARE about it read `.revision` directly. */
+const labelled = (h: FieldHistory): Omit<FieldHistory, "revision"> => {
+  const { revision: _revision, ...rest } = h;
+  return rest;
+};
+
 /** Subscribes and records every push. Returns the recorder plus the unsubscribe. */
 function watch(host: ReturnType<typeof createFieldHost>) {
   const pushes: FieldHistory[] = [];
@@ -114,7 +123,12 @@ test("subscribe pushes the CURRENT history immediately", () => {
   // The remount rationale every other seam here carries: a surface mounting after the
   // world loaded must not render an empty list beside a live undo stack.
   expect(w.pushes.length).toBe(1);
-  expect(w.last()).toEqual({ undo: [], redo: [], undoDepth: 0, redoDepth: 0 });
+  expect(labelled(w.last())).toEqual({
+    undo: [],
+    redo: [],
+    undoDepth: 0,
+    redoDepth: 0,
+  });
 });
 
 test("the seam is MULTICAST, and each release frees only its own subscriber", () => {
@@ -201,14 +215,14 @@ test("undo moves the entry to the REDO side and republishes both", () => {
   const w = watch(host);
   host.deleteEntity(id);
   host.undo();
-  expect(w.last()).toEqual({
+  expect(labelled(w.last())).toEqual({
     undo: [],
     redo: [`delete ${HALL}`],
     undoDepth: 0,
     redoDepth: 1,
   });
   host.redo();
-  expect(w.last()).toEqual({
+  expect(labelled(w.last())).toEqual({
     undo: [`delete ${HALL}`],
     redo: [],
     undoDepth: 1,
@@ -223,7 +237,12 @@ test("a world reset empties the history", () => {
   host.setEntityFrozen(id, true);
   expect(w.last().undoDepth).toBe(1);
   host.newWorld();
-  expect(w.last()).toEqual({ undo: [], redo: [], undoDepth: 0, redoDepth: 0 });
+  expect(labelled(w.last())).toEqual({
+    undo: [],
+    redo: [],
+    undoDepth: 0,
+    redoDepth: 0,
+  });
 });
 
 test("loading a world replaces the previous world's history", () => {
@@ -233,7 +252,12 @@ test("loading a world replaces the previous world's history", () => {
   host.setEntityFrozen(id, true);
   expect(w.last().undo).toEqual([`freeze ${HALL}`]);
   loadHallWorld(host);
-  expect(w.last()).toEqual({ undo: [], redo: [], undoDepth: 0, redoDepth: 0 });
+  expect(labelled(w.last())).toEqual({
+    undo: [],
+    redo: [],
+    undoDepth: 0,
+    redoDepth: 0,
+  });
 });
 
 // --- the change guard -------------------------------------------------------
@@ -286,3 +310,124 @@ test("undo, redo, undo, then a NEW op — the top is renamed at every step", () 
 // offer "Undo delete Hall" over a log whose last act was a freeze, until something else
 // happened. With the identity terms the seam self-heals on the very next notify. Two
 // reference compares, and the reason they are here is written down rather than assumed.
+
+// --- the revision token (foundations T4b) -----------------------------------
+//
+// `session.state`'s cursor: an opaque string an agent holds and compares to ask "has
+// anything happened since I looked". It rides the PUBLISHED payload rather than a poll,
+// so every case here reads it off `w.last().revision` — which is exactly what the wire
+// carries, and what makes "the token and the labels beside it describe one moment" a
+// thing a test can even ask about. HERE rather than in
+// `tests/field-host/field-history-feed.test.ts` because what these cases are about is
+// whether the HOST's verbs move it; the composition itself is pinned over a hand-set log
+// next door, and neither file proves the other's half.
+
+test("the token moves on a mutation, and an undo/redo round trip returns it", () => {
+  const host = createFieldHost();
+  const id = loadHallWorld(host);
+  const w = watch(host);
+  const loaded = w.last().revision;
+
+  host.setEntityFrozen(id, true);
+  const frozen = w.last().revision;
+  expect(frozen).not.toBe(loaded);
+
+  host.undo();
+  expect(w.last().revision).not.toBe(frozen);
+
+  // Back to the state the token was taken over, so back to the token. A value that
+  // changed here would make every ⌘Z/⇧⌘Z pair read as an edit.
+  host.redo();
+  expect(w.last().revision).toBe(frozen);
+});
+
+test("a NEW WORLD over an empty one still moves the token — and PUBLISHES", () => {
+  // THE CASE THE WORLD TERM EXISTS FOR, at the host, and since the token joined the
+  // payload it is two claims rather than one. `resetWorld` clears `log.ops`, both stacks
+  // and `nextId`, so over an already-empty world every log-derived term is identical on
+  // both sides of the swap and the epoch is the only thing that moved.
+  //
+  // THE PUBLISH is the half the payload-carried token added, and it is why the change
+  // guard grew the epoch. Measured before that change: this swap published NOTHING,
+  // because the guard compared the two stacks alone and both were empty either side. A
+  // token riding a payload that is never pushed is a token that never moves — an agent
+  // would have read one world, watched the human open another, and been told nothing had
+  // happened.
+  const host = createFieldHost();
+  const w = watch(host);
+  const empty = w.last().revision;
+  expect(w.pushes.length).toBe(1);
+
+  host.newWorld();
+
+  expect(w.pushes.length).toBe(2);
+  expect(w.last().revision).not.toBe(empty);
+  // …and the labels did NOT change, which is the cost this publish buys the token: the
+  // palette re-renders an identical empty list once, on a rare user-initiated act.
+  expect(labelled(w.last())).toEqual(labelled(w.pushes[0] as FieldHistory));
+});
+
+test("THE ONE ALIAS IT CARRIES, pinned so the gap cannot be forgotten", () => {
+  // Freeze, undo, then BAKE. Both are `entity-update` entries: they swap one entity op's
+  // record in place, so neither creates an op — `log.ops.length` and `log.nextId` are
+  // untouched — and the two stack lengths land back on (1, 0). Five identical terms over
+  // a world where a different thing is now true.
+  //
+  // This is the gap `field-history-feed.ts`'s `revision` documents, reproduced rather than
+  // described: an agent treating the token as a CORRECTNESS signal would carry "that
+  // entity is frozen" past the point where it became "that entity is baked". It is why
+  // the contract is "re-read the state, never diff the cursors" — and why a change to the
+  // composition should come here first.
+  const host = createFieldHost();
+  const id = loadHallWorld(host);
+  const w = watch(host);
+  host.setEntityFrozen(id, true);
+  const frozen = w.last().revision;
+  expect(host.listEntities()[0]?.frozen).toBe(true);
+
+  host.undo();
+  host.bakeEntity(id);
+  expect(w.last().revision).toBe(frozen);
+  // …and the world is demonstrably NOT the one that token was taken over.
+  expect(host.listEntities()[0]?.frozen).toBeUndefined();
+  expect(host.listEntities()[0]?.baked).toBe(true);
+});
+
+test("`ops.length` is LOAD-BEARING — undo, then a mutation that mints no op", () => {
+  // THE OTHER HALF of the pair that stands in for the change guard's top-entry identity,
+  // and the case that reversed this term's own docblock: it claimed `ops.length` was
+  // redundant and unpinnable, and this is the ordinary editing sequence that disproves it.
+  //
+  // `nextId` covers undo-then-a-new-OP. It does NOT cover undo-then-a-new-ENTITY-UPDATE,
+  // because freeze and bake mint no op: the undo PEELS `log.ops` (an `ops` entry undoes by
+  // `log.ops.length -= entry.ops.length`) and the entity-update refills the undo STACK
+  // without putting anything back in the log. So the epoch, both stack lengths and
+  // `nextId` all land identically across two worlds that differ by a whole entity, and
+  // `log.ops.length` is the only term left holding them apart.
+  const host = createFieldHost();
+  const id = loadHallWorld(host);
+  const w = watch(host);
+
+  host.duplicateEntity(id);
+  const duplicated = w.last().revision;
+  expect(host.listEntities().length).toBe(2);
+
+  host.undo();
+  host.setEntityFrozen(id, true);
+  const frozen = w.last().revision;
+
+  // Two genuinely different worlds — one with a second hall in it, one with a single
+  // frozen hall — and the token says so.
+  expect(host.listEntities().length).toBe(1);
+  expect(frozen).not.toBe(duplicated);
+
+  // …and it says so ONLY through this term. Every other term is equal across the two,
+  // which is what makes the claim "load-bearing" rather than "one of five that happened
+  // to differ". Asserted by composing the token WITHOUT `ops.length` — the same drop the
+  // sabotage cut makes — and finding the two indistinguishable.
+  const withoutOpsLength = (rev: string): string => {
+    const [epoch, , ...rest] = rev.split("/");
+    return [epoch, ...rest].join("/");
+  };
+  expect(withoutOpsLength(frozen)).toBe(withoutOpsLength(duplicated));
+});

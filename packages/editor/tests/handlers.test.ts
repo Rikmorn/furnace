@@ -57,6 +57,9 @@ test("a registry built with NO session seam answers no-session, not a crash", as
     ["session.claim", { name: "cavern", token: "anything" }],
     ["session.steal", { name: null, token: "anything" }],
     ["session.release", { token: "anything" }],
+    // `session.state` for a fourth reason of its own: there is no connection to ASK, so
+    // the refusal comes before the backchannel rather than out of it.
+    ["session.state", {}],
   ] as const) {
     // AWAITED. An un-awaited `.rejects` settles after the case has returned and asserts
     // nothing — the failure mode this file's own `unknown-command` case avoids one line up.

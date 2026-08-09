@@ -1340,6 +1340,23 @@ export type FieldHost = {
    *  overlay. Single subscriber (that provider, which publishes it at
    *  `useCameraPose`); returns an unsubscribe. */
   subscribeCameraPose(cb: (pose: CameraPose) => void): () => void;
+  /** The orbit camera's orientation RIGHT NOW ({@link CameraPose}).
+   *
+   *  A POLL beside the subscription, and the split is {@link isLooking}'s exactly: the
+   *  pose moves BETWEEN renders — at pointer rate through a look drag, per frame through
+   *  a fly — so a mirrored copy answers for a frame that has already gone. A surface that
+   *  DRAWS the pose wants the subscription (it has to re-render anyway); a caller that
+   *  answers a question ASKED at some arbitrary moment wants this.
+   *
+   *  Its one caller is the agent backchannel's `session.state`
+   *  (`frontend/lib/session-answerers.ts`), and it exists because the alternatives both
+   *  cost renders nobody asked for: a member on `ActionCtx` would re-render that context's
+   *  six consumers at pointer rate, and a second `useCameraPose` latch would re-render the
+   *  provider that builds it. It also keeps the pose seam's one-subscriber rule
+   *  (`tests/chrome/shell.test.tsx`) true, which two of the three routes would have broken.
+   *
+   *  Orientation only, like the seam — distance and target are not part of {@link CameraPose}. */
+  cameraPose(): CameraPose;
   /** Subscribes to the PENDING segment ({@link SegmentHud}) — `null` whenever no
    *  point is down (D-25). Pushed on both anchor edges, throttled to the stroke
    *  cadence while the cursor moves between them, and once immediately on
@@ -2264,9 +2281,17 @@ export function createFieldHost(deps?: {
   // in that module's deps record ~180 lines up rather than from a closure
   // function. Safe for the reason spelled out at the `createVoidCast` assembly
   // below — nothing between this closure's brace and its `return {` ever RUNS.
-  // No hoist was needed: the one dep is `substrate`, assembled ~520 lines
-  // above.
-  const historyFeed = createHistoryFeed({ substrate });
+  // No hoist was needed: `substrate` is assembled ~520 lines above, and the
+  // SECOND dep — T4b's `worldEpoch`, which only the revision token reads — reaches
+  // FORWARD as an arrow exactly like the identical dep on `createEntities` twenty
+  // lines below.
+  const historyFeed = createHistoryFeed({
+    substrate,
+    // The same counter, the same thunk and the same reason as `createEntities`':
+    // `createWorld` is assembled far BELOW this line, so a value would be a TDZ
+    // read here and a frozen number ever after.
+    worldEpoch: () => world.epoch(),
+  });
 
   // --- the entity selection (`field-entities.ts`) --------------------------
   //
@@ -3992,6 +4017,7 @@ export function createFieldHost(deps?: {
     subscribeCameraPose(cb) {
       return cameraRig.subscribePose(cb);
     },
+    cameraPose: cameraRig.pose,
     subscribeSegmentHud(cb) {
       return segment.subscribeHud(cb);
     },

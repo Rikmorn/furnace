@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type { FieldHost } from "../../field-host/index.ts";
 import type { UiStore } from "../lib/persist.ts";
+import type { SessionStateReader } from "../lib/session-answerers.ts";
 import type { EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";
 
@@ -116,6 +117,21 @@ export type EditorContextValue = {
    *  would then answer `because: "modal"`, which is false. Read by
    *  `useGlobalKeybindings`, and by nothing else. */
   claimLostRef: RefObject<boolean>;
+  /** How the agent backchannel reads this session (foundations T4b): a thunk that
+   *  projects the chrome's mirrors into the wire's `SessionState`, or `null` before the
+   *  shell has committed a render.
+   *
+   *  The `worldNameRef` shape exactly, and for the same reason at a larger scale: the
+   *  READER sits above the owner. `useSessionAnswer` mounts at App, beside the one
+   *  subscription that feeds the daemon's frames; the mirrors it must project — selection,
+   *  tool, gesture, session, history — are latched by providers deep inside the shell. A
+   *  ref rather than state because nothing renders from it: it is read by an event handler
+   *  (a `session-request` frame arriving), which must see the CURRENT value without the
+   *  feed re-subscribing, and because a re-render per camera frame to serve a question
+   *  asked once in a while would be the cost this whole design avoids.
+   *
+   *  `ActionContextProvider` is the only writer — it is where the ctx is built. */
+  sessionStateRef: RefObject<SessionStateReader | null>;
   /** The viewport focus seam ({@link ViewportFocus}), as a ref: App creates it,
    *  `CanvasHost` fills it, and every dismissible overlay reads it through
    *  `useViewportFocusReturn`. A ref rather than state because it is filled in an effect

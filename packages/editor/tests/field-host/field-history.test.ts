@@ -366,7 +366,7 @@ test("fieldHistory orders newest LAST on both sides", () => {
   const { store, log } = world();
   logApply(store, log, sphere("dig"), TABLE);
   logApply(store, log, sphere("paint", { material: 1 }), TABLE);
-  const h = fieldHistory(log.undoStack, log.redoStack);
+  const h = fieldHistory(log.undoStack, log.redoStack, "rev");
   // The ordering contract the ActionCtx reads with `.at(-1)`: the top of the stack —
   // what ⌘Z would step — is the LAST element.
   expect(h.undo).toEqual(["dig", "paint"]);
@@ -380,7 +380,7 @@ test("the tail is bounded per side, and the DEPTHS still tell the whole truth", 
   const { store, log } = world();
   const total = OVERFLOW;
   applyCycle(store, log, total);
-  const h = fieldHistory(log.undoStack, log.redoStack);
+  const h = fieldHistory(log.undoStack, log.redoStack, "rev");
   expect(log.undoStack.length).toBe(total);
   expect(h.undo.length).toBe(HISTORY_TAIL);
   // The bound drops the OLDEST end. Asserted as the WHOLE window rather than as its
@@ -414,7 +414,7 @@ test("the REDO side is bounded from the same end, and its depth is true too", ()
   expect(log.undoStack.length).toBe(0);
   expect(log.redoStack.length).toBe(OVERFLOW);
 
-  const h = fieldHistory(log.undoStack, log.redoStack);
+  const h = fieldHistory(log.undoStack, log.redoStack, "rev");
   expect(h.redo.length).toBe(HISTORY_TAIL);
   expect(h.redoDepth).toBe(OVERFLOW);
   expect(h.redoDepth).toBeGreaterThan(h.redo.length);

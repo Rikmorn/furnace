@@ -307,11 +307,18 @@ export const NO_FLAGS: FlagsSummary = Object.freeze({
 
 /** Nothing done yet. Also what `useFieldHistory` reads outside a provider —
  *  see there for why an empty history is a truthful reading outside the provider rather
- *  than a wiring hole. */
+ *  than a wiring hole.
+ *
+ *  Its `revision` is the EMPTY STRING, and that is the honest value rather than a made-up
+ *  token: this literal describes a chrome with no host behind it, so there is no log for a
+ *  token to be about. Nothing can mistake it for one either — the host's own tokens always
+ *  carry four separators, and the only reader (`session.state`) never reaches this literal,
+ *  because a chrome with no host answers `{ ready: false }` before it looks at a history. */
 // Boundary cast: `NO_FLAGS`' reason, verbatim.
 export const NO_HISTORY: FieldHistory = Object.freeze({
   undo: Object.freeze([]),
   redo: Object.freeze([]),
   undoDepth: 0,
   redoDepth: 0,
+  revision: "",
 }) as unknown as FieldHistory;

@@ -112,6 +112,11 @@ export const NO_HISTORY: FieldHistory = {
   redo: [],
   undoDepth: 0,
   redoDepth: 0,
+  // The opaque change token a real host composes from its log (T4b). A literal here
+  // rather than the host's five-number spelling, for `makeHistory`'s reason: the chrome
+  // may only COMPARE it, so what a fixture owes is a value that differs when the history
+  // does — which is what `fire.history` supplies per push.
+  revision: "rev-0",
 };
 
 /** A {@link FieldHistory} from its two label lists, newest-LAST, with the depths
@@ -122,12 +127,18 @@ export function makeHistory(
   undo: readonly string[],
   redo: readonly string[] = [],
   depths?: { undoDepth?: number; redoDepth?: number },
+  revision?: string,
 ): FieldHistory {
   return {
     undo,
     redo,
     undoDepth: depths?.undoDepth ?? undo.length,
     redoDepth: depths?.redoDepth ?? redo.length,
+    // DERIVED from the labels by default, so two different histories built by this
+    // helper get different tokens without every caller inventing one — which is the
+    // property the chrome actually depends on. A caller that is ABOUT the token passes
+    // its own.
+    revision: revision ?? `rev-${undo.join(",")}|${redo.join(",")}`,
   };
 }
 
@@ -269,6 +280,10 @@ export function makeStubHost(
    *  branch of the chrome Open's automatic frame (`hooks/useWorld.tsx` — NOT
    *  `loadWorld`, which frames nothing). */
   let cameraAimed = false;
+  /** What `cameraPose()` answers — the pose the seam last published, so the poll and
+   *  the subscription cannot disagree about where the camera is (the real host reads
+   *  one orbit for both). */
+  let lastPose: CameraPose = START_POSE;
   const calls = {
     init: mock(),
     dispose: mock(),
@@ -512,6 +527,11 @@ export function makeStubHost(
       calls.subscribeCameraPose(cb);
       return seams.cameraPose.subscribe(cb);
     },
+    // The POLL beside the seam, and it reads the same value the seam last published —
+    // which is what makes `fire.cameraPose` move both, as one camera move does on the real
+    // host. A stub whose poll answered a frozen literal would let a consumer that polls go
+    // green over a camera that has been flown across the world.
+    cameraPose: () => lastPose,
     subscribeSegmentHud: (cb) => {
       calls.subscribeSegmentHud(cb);
       return seams.segmentHud.subscribe(cb);
@@ -569,8 +589,10 @@ export function makeStubHost(
         seams.selection.publish(i);
         return seams.selection.size();
       },
-      /** A camera move, as the host publishes one from `applyOrbit`. */
+      /** A camera move, as the host publishes one from `applyOrbit` — which moves the
+       *  ORBIT as well as the wire, so the poll answers the new pose too. */
       cameraPose: (p: CameraPose): number => {
+        lastPose = p;
         seams.cameraPose.publish(p);
         return seams.cameraPose.size();
       },

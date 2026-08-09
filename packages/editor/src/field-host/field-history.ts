@@ -54,12 +54,29 @@ export const HISTORY_TAIL = 50;
  *  `FieldStats` is pushed every animation frame: subscribing a list to a per-frame seam
  *  to read two integers is the render cost this provider's cadence split exists to
  *  avoid. Both are computed in the same pass as the arrays beside them, so they cannot
- *  describe a different moment. */
+ *  describe a different moment.
+ *
+ *  `revision` RIDES HERE FOR THAT SAME SENTENCE, and it is the reason the field exists at
+ *  all rather than being polled off the host (foundations T4b). It is the opaque
+ *  compare-only change token an agent reading this session carries between reads
+ *  (`shared/wire.ts`'s `SessionState.cursor`), and a POLL beside a latched payload is a
+ *  one-directional skew in the dangerous direction: the token would be minted from the log
+ *  as it is NOW while the labels beside it describe the last commit, so a reader could be
+ *  handed a post-edit token with a pre-edit history and never learn of it — every later
+ *  read returns the same token, so "nothing changed" stays true for ever over a picture
+ *  that is one edit old. Travelling IN the payload makes *"this token and these labels
+ *  describe one moment"* a property of the record rather than a race. It is a
+ *  PASS-THROUGH here — this module derives labels and composes no token — supplied by
+ *  `field-history-feed.ts`, which owns the signature it is made of. */
 export type FieldHistory = {
   undo: readonly string[];
   redo: readonly string[];
   undoDepth: number;
   redoDepth: number;
+  /** The change token as of THIS payload. Opaque and compare-only — see
+   *  `field-history-feed.ts`'s `revisionOf` for what it is composed of, what it can miss,
+   *  and what it says nothing about. */
+  revision: string;
 };
 
 /** A generator's display name, falling back to its raw id. See the header for why this
@@ -211,16 +228,25 @@ export function entryLabel(entry: LogEntry): string {
 }
 
 /** The named history for a pair of log stacks — the {@link FieldHistory} payload the
- *  host publishes. Reads the stacks and nothing else, which is what makes the host's
- *  change-signature (see `field-history-feed.ts`) able to be a fact about them alone. */
+ *  host publishes.
+ *
+ *  It DERIVES from the stacks and nothing else, which is what keeps this module pure and
+ *  what lets the feed's change signature be a fact about them alone. `revision` is the one
+ *  thing it does not derive: the token is composed from the world generation and two
+ *  log-wide numbers that this module has no business reading, so it arrives as a parameter
+ *  and is copied through unchanged. Taking it here rather than letting the caller spread it
+ *  on afterwards is what makes it impossible to publish a payload without one — the type
+ *  requires the field, and the only builder demands it. */
 export function fieldHistory(
   undoStack: readonly LogEntry[],
   redoStack: readonly LogEntry[],
+  revision: string,
 ): FieldHistory {
   return {
     undo: undoStack.slice(-HISTORY_TAIL).map(entryLabel),
     redo: redoStack.slice(-HISTORY_TAIL).map(entryLabel),
     undoDepth: undoStack.length,
     redoDepth: redoStack.length,
+    revision,
   };
 }

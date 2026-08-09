@@ -158,8 +158,36 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * Write one JSON response — and **never a body that says `application/json` and is not.**
+ *
+ * The `?? "null"` is the whole of that promise and it is not defensive. `JSON.stringify`
+ * returns the VALUE `undefined` (not the string) for `undefined`, so `res.end(undefined)`
+ * ends the response with nothing: a 200, a JSON content-type, and zero bytes, which every
+ * client's `res.json()` throws on. Measured against a real `startServer` — it is the actual
+ * outcome, not a hazard on paper.
+ *
+ * It became reachable at T4b: `session.state` is the FIRST command whose return value is
+ * caller-controlled (every other handler returns a literal it wrote itself), and it relays
+ * whatever the claimed chrome answered. `session.answer`'s schema deliberately accepts a
+ * body with `payload` ABSENT — `session-handlers.ts` argues at length that this is the
+ * canonical serialization of a handler that answered `undefined`, which any answerer in any
+ * language produces — so the ask resolves `undefined` and it arrives here.
+ *
+ * FIXED AT THIS EDGE RATHER THAN AT THE RELAY, deliberately. A `?? null` inside
+ * `session.state` would put the rule in one command, and the next command that relays a
+ * caller's value would have to reproduce it to be understood — the same argument that makes
+ * `dispatch` a single funnel for input. This function is where the content-type is DECIDED,
+ * so it is where "the body matches the header" belongs. It changes nothing for the twelve
+ * commands that return literals: none of them can produce `undefined`, so the coalesce is
+ * unreachable for every one of them and the blast radius is exactly the new surface.
+ *
+ * `null` rather than `{}`: the ask really did resolve nothing, and JSON's spelling of
+ * nothing is `null`. `{}` would invent an empty answer, which is the class of lie this
+ * tranche exists to remove.
+ */
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const text = JSON.stringify(body);
+  const text = JSON.stringify(body) ?? "null";
   res.writeHead(status, { "content-type": "application/json" });
   res.end(text);
 }
