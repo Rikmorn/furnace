@@ -58,6 +58,7 @@ Dates marked `*` below are extraction-filed, not real seal dates.
 | 2026-08-07 | [Foundations program · T1a→T3c — consolidated backfill](2026-08-07-foundations-t1a-t3c-backfill.md) — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d* | core, editor, dungeon |
 | 2026-08-08 | [Foundations T3d — the facade, finished · T3 CLOSES](2026-08-08-foundations-t3d-facade-finish.md) — *carries the objectives-audit rulings* | editor |
 | 2026-08-09 | [Foundations T4a — the honest substrate](2026-08-09-foundations-t4a-honest-substrate.md) — *user visual gate deferred to T4 close by ruling* | editor, core |
+| 2026-08-09 | [Foundations T4b — claim, backchannel, mount](2026-08-09-foundations-t4b-claim-backchannel-mount.md) — *the agent door opens, reads only; clause 5 walked live; MSAA-removal ruling* | editor |
 
 **On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
 frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
