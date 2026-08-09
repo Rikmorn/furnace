@@ -35,12 +35,16 @@ world; Task 4's `session.state` reads through it. So the cost of the narrowing t
 one thing: a second tab is a normal editor that the agent cannot see. It is not a correctness
 gap, and no pin depends on it.
 
-**A related narrowing rides the same decision, recorded here rather than in a second file:** the
-chrome claims at CONNECT with the world it is authoring at that moment and does **not** re-claim
-when the user switches worlds (`useSessionClaim`, `editor-context.ts`'s `worldNameRef`). The
-claim's world is a label in T4b, never a routing key, so a stale label costs nothing — but a
-read-only mode would make it load-bearing (a tab would be read-only *for a world*), and the two
-should be designed together.
+**A related narrowing rides the same decision — now with its own entry:** the chrome claims at
+CONNECT with the world it is authoring at that moment and does **not** re-claim when the user
+switches worlds (`useSessionClaim`, `editor-context.ts`'s `worldNameRef`). The claim's world is
+a label in T4b, never a routing key — but "a stale label costs nothing" undersold it: the
+whole-branch review found the label composes with the load-bearing claim COUNT into a silent
+two-claims state (a tab holding stale `null` lets a second tab claim `null` conflict-free;
+every later agent read is the two-claims refusal with no chrome warning —
+`editor-architecture.md` §26.1's worked scenario). The fix is filed at
+[[re-claim-on-world-switch]]; a read-only mode would additionally make the label load-bearing
+(read-only *for a world*), so the two entries should be designed together.
 
 ## Trigger to revisit
 
