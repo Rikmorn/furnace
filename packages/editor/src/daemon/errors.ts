@@ -11,6 +11,7 @@ export type EditorErrorCode =
   | "not-found"
   | "outside-root"
   | "already-exists"
+  | "forbidden-origin"
   | "internal";
 
 const HTTP_STATUS: Record<EditorErrorCode, number> = {
@@ -22,6 +23,14 @@ const HTTP_STATUS: Record<EditorErrorCode, number> = {
   // outside the project root.
   "outside-root": 404,
   "already-exists": 409,
+  // A declared browser origin that is not this machine's loopback. 403, not
+  // 404: unlike `outside-root` there is nothing to hide — the page already
+  // knows the port answered, and the response is unreadable to it anyway
+  // (no CORS headers). The code names the ORIGIN rather than the refusal so
+  // it cannot be mistaken for a general "forbidden" a future auth check
+  // would want. `origin.ts` throws it; see `assertLoopbackOrigin` for the
+  // threat model and for why an ABSENT origin passes.
+  "forbidden-origin": 403,
   internal: 500,
 };
 

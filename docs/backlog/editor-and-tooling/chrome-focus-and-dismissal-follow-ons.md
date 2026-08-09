@@ -210,7 +210,8 @@ Either of:
 
 ## `session.confirm` claims ⏎ at the window, so a focused plain `<button>` never activates
 
-`useGlobalKeybindings` (`hooks/useGlobalKeybindings.ts:50`) calls `e.preventDefault()` as
+`useGlobalKeybindings` (the `onClaim` callback it passes `runAction` in
+`hooks/useGlobalKeybindings.ts`) calls `e.preventDefault()` as
 soon as the gate ALLOWS an action — **before** `def.enabled(ctx)` is consulted. For every
 action except one that is exactly right. For `session.confirm`, whose `match` is a bare
 Enter and whose `enabled` is `ctx.session !== null`, it means the editor eats ⏎ on every

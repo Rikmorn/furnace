@@ -21,6 +21,7 @@ test("httpStatus maps every code to its spec'd status", () => {
     "not-found": 404,
     "outside-root": 404,
     "already-exists": 409,
+    "forbidden-origin": 403,
     internal: 500,
   };
   for (const [code, status] of Object.entries(expected)) {

@@ -239,15 +239,20 @@ fail is worse than the flake. What the reading DID settle:
   `chokidarWatchFile` (`daemon/watch.ts`) starts its watch with `ignoreInitial: true` and
   nothing awaits chokidar's `ready`, so a `writeFileSync` landing before the watch is armed
   is silently missed. What happens next is the part worth writing down, because the number
-  it produces is not the one the code reads as: `readSse` (`server.test.ts:159-172`)
+  it produces is not the one the code reads as: `readSse` (`server.test.ts`)
   consults its deadline only at the TOP of the loop, and `await reader.read()` carries no
   timeout of its own — so on a silent stream the read simply blocks past the 8 s deadline.
   The next byte to arrive is the hub's own heartbeat (`HEARTBEAT_MS = 15_000`,
-  `events.ts:4`, armed by `createEventHub()` at `server.ts:166` — i.e. at server start,
+  `events.ts`, armed by `createEventHub()` in `startServer` — i.e. at server start,
   which in this test is milliseconds after the test begins). That wakes the read at
   ≈15.0 s, the predicate fails, the loop condition is now false, and the deadline throw
-  lands. **A missed watcher event therefore fails `server.test.ts:189` at ≈15,00x ms** —
-  exactly the reported figure, on exactly the originally-named test.
+  lands. **A missed watcher event therefore fails the "structured error bodies carry code +
+  message" test at ≈15,00x ms** — exactly the reported figure, on exactly the
+  originally-named test.
+  *(Line citations dropped for symbol ones at T4a, 2026-08-09 — all three had already
+  drifted, and that commit's `server.ts` / `server.test.ts` additions moved them again. The
+  `chokidarWatchFile` this bullet analyses was itself deleted in foundations T2; the entry is
+  kept for the `readSse` deadline mechanism, which stands.)*
 - **An earlier revision of this entry argued the 15 s figure could not come from this test.
   That was wrong, and worth keeping as the correction it is.** The argument rested on
   "15005 ms" implying a 15 s test BUDGET (this test declares 20 s), and on
@@ -260,15 +265,16 @@ fail is worse than the flake. What the reading DID settle:
   note for whoever picks this up: the "15005 ms" figure comes from a session message, not
   from a durable artifact — no log survives.
 
-**Reference:** `packages/editor/tests/server.test.ts:189` (the test),
-`packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` + `src/daemon/session.ts` (the
-file watcher, SSE feed, and session store it exercises),
+**Reference:** `packages/editor/tests/server.test.ts`, the "structured error bodies carry
+code + message" test; `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` (the file
+watcher and SSE feed it exercises — `src/daemon/session.ts` was cited here too and does not
+exist: this entry's own text records the session store as deleted in foundations T2),
 `docs/reference/editor-architecture.md` (SSE change feed + file watching).
 
 ## `readSse`'s `timeoutMs` is not honoured on a silent stream
 
 **Context.** Surfaced 2026-07-30 while diagnosing the flake above. `readSse`
-(`packages/editor/tests/server.test.ts:160-173`) takes a `timeoutMs` (default 8 s) and
+(`readSse` in `packages/editor/tests/server.test.ts`) takes a `timeoutMs` (default 8 s) and
 reads as though it bounds the wait. It does not: the deadline is consulted only at the top
 of the `while`, and `await state.reader.read()` has no timeout of its own. On a stream that
 goes quiet the helper blocks INSIDE the read, indefinitely as far as its own logic is
@@ -293,8 +299,10 @@ instrument that would measure it, and a lying instrument is the wrong place to s
 any change to the heartbeat. Not urgent on its own — no test is currently WRONG because of
 it, they are only slower and vaguer than they claim.
 
-**Reference:** `packages/editor/tests/server.test.ts:160-173` (the helper),
-`packages/editor/src/daemon/events.ts:4` (the heartbeat that masks it).
+**Reference:** `readSse` in `packages/editor/tests/server.test.ts` (the helper),
+`HEARTBEAT_MS` in `packages/editor/src/daemon/events.ts` (the heartbeat that masks it).
+*(All line citations in this entry dropped for symbol ones at T4a, 2026-08-09: every one had
+already drifted, and that tranche's additions to both files moved them again.)*
 
 ## FieldHost's worker seam exists now — what host coverage still cannot reach is a stamp session
 

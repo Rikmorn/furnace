@@ -10,12 +10,15 @@ running system.
 **Read it in two halves.** §1–§8 are the DAEMON and the serving contract — the parts that
 have been stable since M3/M4 and that no chrome rewrite touches. §9–§18 are the FIELD
 authoring tool: the inspector module, the field host and its workers, and the three F4.5
-slices that made the chrome what it is. §19 lists what is deferred, and **§20–§23 are the
+slices that made the chrome what it is. §19 lists what is deferred, and **§20–§24 are the
 foundations T3 tranches** — T3a's framework primitives (§20), T3b1's five cluster extractions
-and the layer chain (§21), T3b2's single-source tool and action tables (§22), and T3c's
-session/gesture machine and tool registry (§23) — the field host's decomposition, slice by
-slice. They sit after Deferred rather than before it because section numbers here are
-append-only.
+and the layer chain (§21), T3b2's single-source tool and action tables (§22), T3c's
+session/gesture machine and tool registry (§23), and T3d's finished facade plus the T3 exit
+table and the objectives audit's rulings (§24) — the field host's decomposition, slice by
+slice. **§25 is foundations T4a**, which decomposes nothing: it hardens the substrate an agent
+is about to be pointed at. They sit after Deferred rather than before it because section
+numbers here are append-only. *(T3d was missing from this paragraph until T4a — the tranche
+appended §24 and did not amend the sentence that indexes its neighbours.)*
 
 **What was cut, and where it went.** The editor once had a dockview chrome, a
 scene-document surface (entities panel / inspector panel / GPU-id picking / translate gizmo
@@ -64,7 +67,76 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 
 **Binding & lifecycle.** `startServer(opts)` (`src/daemon/server.ts`) creates a `node:http` server and listens on **`127.0.0.1`** only — one local single-user session. Port defaults to `4500` (`main.ts`), overridable with `--port`; tests pass `port: 0` to let the OS pick. `close()` tears down the server, the SSE hub, the extensions-directory watch, and the esbuild bundler context.
 
-**Routes** (matched in this order in `server.ts`'s `route`):
+**One check runs ahead of every route — the `Origin` refusal** (foundations T4a, 2026-08-09).
+`route`'s first statement is `assertLoopbackOrigin(req.headers.origin)` (`src/daemon/origin.ts`):
+a request that DECLARES a browser origin which is not this machine's loopback is refused
+`403 forbidden-origin` (§6) before any branch runs — and before the request target is even
+parsed, so the claim in this heading is literal rather than approximate.
+It is **DNS-rebinding defence, and nothing else** — the loopback bind
+stops a remote host reaching the port, but it does not stop a page the user merely visited:
+`evil.example` can answer its own DNS with `127.0.0.1`, and the browser then issues requests
+here believing them same-origin. The `Origin` header it attaches is the one thing that page's
+JavaScript cannot forge. The MCP specification makes exactly this pair — validate `Origin`,
+keep the loopback bind — a MUST for local HTTP servers (`docs/research/2026-08-08-t4-agent-editor-mcp-precedent.md`,
+ruling 9), which is why it lands before T4 mounts an agent binding rather than with one.
+
+It lives in its own module (`src/daemon/origin.ts`, ~100 lines) rather than in `server.ts`,
+and the decisive reason is testing cost: extracted, the spelling table is a **pure unit test**
+(`tests/origin.test.ts`, the way `errors.ts` is tested) instead of one live HTTP server per
+row. `server.ts` keeps the WIRING question and answers it end-to-end, one case per route
+branch. Three clauses decide the admission, each argued at `assertLoopbackOrigin` /
+`isLoopbackOrigin`:
+
+- **ABSENT passes.** curl, the CLI and a future MCP client over `node:http` send no `Origin`
+  at all. **This is therefore not client authentication and must never be read as any** —
+  anything that can omit a header could also have omitted a wrong one. It closes one class
+  (a browser tricked into speaking for a stranger) and no other.
+- **PRESENT-but-opaque refuses.** `Origin: null` — a sandboxed iframe, a `data:` or `file://`
+  page — carries no provenance, and a `sandbox` attribute is one keystroke on the attacker's
+  own page, so reading it as "absent" would hand back the bypass. Anything that fails to parse
+  refuses on the same fail-closed rule.
+- **Loopback is decided by PARSING, never substring-matching.** `http://127.0.0.1.evil.com`
+  and `http://localhost.evil.com` are ordinary public hostnames that merely start with a
+  loopback spelling. Parsing also buys canonicalization a table could not enumerate:
+  `new URL(...)` case-folds the host, collapses IPv6 (`http://[0:0:0:0:0:0:0:1]` → `[::1]`),
+  and normalizes the integer spellings of an IPv4 address, so `http://2130706433`,
+  `http://0177.0.0.1` and `http://0x7f.0.0.1` all arrive as `127.0.0.1` and are admitted —
+  correctly, since they ARE loopback.
+
+**ONE AXIS DECIDES THE ADMITTED SET, and both of its clauses must hold: could a real local
+caller PRESENT this spelling, and is it unmintable by the attack?** The second clause is the
+security floor and it is absolute — an `Origin` derives from the NAME a page was loaded from,
+never from the address that name resolved to, so a rebinding attacker (who controls DNS and
+nothing else) can never mint *any* loopback name; holding one requires already running code on
+this machine, which is strictly more than the attack being defended. Clause 2 therefore admits
+every loopback spelling, and **clause 1 alone decides which are written down**: `localhost` and
+`127.0.0.1` are the daemon's own two, `[::1]` is what a v6-bound local dev server presents, and
+`https:` is what a TLS one presents. The rest of `127.0.0.0/8` fails clause 1 — servers bind
+`127.0.0.1`, `localhost`, `::1` or `0.0.0.0`, not `127.0.0.2` — and so does a non-web scheme
+that parses (`chrome-extension:`, `file:`), being an origin no local server serves. (An earlier
+draft of this paragraph admitted `[::1]`/`https:` on a trust-class argument and declined
+`127.0.0.2` on a no-caller one; each was defensible and together they were ad hoc. One axis,
+stated once, is the correction.)
+
+Nothing a human sees moved: the chrome is served BY this daemon, so it was reached over
+loopback by construction and its `fetch` POSTs carry a loopback origin, while its
+`<script>`/`EventSource` GETs carry none. Coverage splits by question: `tests/origin.test.ts`
+holds the spelling table (12 admitted rows, 14 refused, each carrying why), and
+`tests/server.test.ts` holds the wiring — the refusal on **all five** route branches, plus the
+loopback and absent cases.
+
+**Then the request target is parsed, and that can fail** (foundations T4a, 2026-08-09).
+`new URL(target, "http://localhost")` THROWS on targets the HTTP parser accepts — `//`,
+`///////`, `/\` are each a protocol-relative reference with an empty host. Until T4a that
+parse sat OUTSIDE `route`'s try, where the throw escaped an `async` function nobody awaits:
+**measured, Bun left the socket open with no response and Node 22 took the unhandled rejection
+as fatal and KILLED THE PROCESS** — a remote, unauthenticated daemon kill, one `fetch("//")`
+from the very rebinding page the check above models. `requestUrl` now parses inside the try and
+answers `400 invalid-input`; the pin asserts the server is still serving afterwards, which is
+the half that matters. Node's behaviour is the one that governs, since the daemon must run on
+plain Node ≥20.
+
+**Routes** (matched in this order in `server.ts`'s `route`, all of them behind that check):
 
 | Method + path | Behaviour |
 | --- | --- |
@@ -74,7 +146,27 @@ A **Node-portable** HTTP server. No `Bun.*` or `bun:*` anywhere in `src/` — en
 | `GET <anything else>` | Chrome first: serves a static file from the prebuilt chrome dir (§7), with a path-traversal guard. On a chrome miss, falls back to **project asset serving**: the path is mapped onto the project root (root-contained; dotfile segments and `node_modules` refused) so a project's root-absolute asset URLs resolve exactly as on the consumer's own dev server. This is how the chrome reaches the three project→editor catalogs (`/catalog/materials.json`, `/catalog/entities.json`, `/catalog/agent.json` — §11, §14, §15) and the archetype `/catalog/*.fmesh` meshes. Neither hit: missing chrome dir → `503` with a "run build:frontend" hint; otherwise `404`. |
 | any other method | `404 not-found`. |
 
-**Error handling.** The `route` body is wrapped in a try/catch: a thrown `EditorError` becomes `{ error: { code, message } }` at the code's HTTP status (`httpStatus`, §6); any other thrown value becomes `500 internal` with the error's message. There is **no request body-size cap** — by design, since the daemon binds localhost and serves a single user (`readBody` documents this; revisit if it ever accepts non-localhost connections).
+**Error handling.** The `route` body is wrapped in a try/catch: a thrown `EditorError` becomes `{ error: { code, message } }` at the code's HTTP status (`httpStatus`, §6); any other thrown value becomes `500 internal` with the error's message. The `Origin` check sits INSIDE that try for exactly this reason — the catch is the daemon's one typed-envelope edge, and a second emitter beside it would be a parallel path to keep in step. There is **no request body-size cap** — by design, since the daemon binds localhost and serves a single user (`readBody` documents this; revisit if it ever accepts non-localhost connections). **Authentication is out of scope** and stays so: `forbidden-origin` is a rebinding refusal, not a credential check.
+
+**What the daemon trusts, and where the untrusted bytes are actually checked.** Three things
+are enforced HERE, and they are the whole list: the `Origin` (above), each command's zod input
+schema at the one `dispatch()` choke point (§4), and root containment on every path a command
+resolves (§4, `outside-root` in §6). Everything else the daemon touches, it does not
+interpret — **it reads and writes bytes.** `field.load` base64s a world's chunks, `.mat`
+siblings and `oplog.json` off disk and hands them to the browser without parsing any of it;
+the daemon holds no schema, no document and no generator (§3), so it has no predicate to
+apply. That makes the daemon the **untrusted edge** and puts the real validation boundary one
+layer on: **`parseOps` in `@furnace/core/field` is where an oplog stops being bytes and
+becomes typed engine objects, and nothing downstream re-examines them** — loaded ops go
+straight into `log.ops` and never pass through `logApply`, whose appliers trust their input by
+contract. Foundations T4a is the tranche that made that boundary true rather than nominal:
+`parseOps` had checked every closed string union and no numbers at all, which was defensible
+while an oplog was only ever something this machine wrote, and stops being defensible the
+moment a shared world or an agent-authored log arrives (`core-modules.md` § *the oplog wire
+format* carries the checked/unchecked list and the measured failure modes). The editor's own
+authoring path is validated separately and more strictly, at commit time
+(`assertOpValid`) — `parseOps` runs `assertOpStructure`, defined as that predicate's
+table-independent half, so **an op the editor could commit can never fail to load**.
 
 ## 3. Project-first bundling — one target
 
@@ -165,15 +257,24 @@ The SSE wire frame is `event: <type>\ndata: <json>\n\n` — every event rides it
 
 | `EditorErrorCode` | HTTP status | Meaning |
 | --- | --- | --- |
-| `invalid-input` | 400 | zod validation of a command's input failed. |
+| `invalid-input` | 400 | zod validation of a command's input failed — or (T4a) the request target does not parse as a URL (`server.ts`'s `requestUrl`, §2). One code, because both mean "the client sent something this daemon will not accept"; a malformed target earns no new contract surface. |
 | `invalid-json` | 400 | the request body is not valid JSON (`server.ts`, at the route boundary). |
 | `unknown-command` | 404 | no handler for the command name. |
 | `not-found` | 404 | the named world does not exist or has no manifest; also `server.ts`'s no-route fallback for an unsupported method/path. |
 | `outside-root` | 404 | a resolved path escapes the project root. *(404, not 400 — don't reveal what exists outside root.)* |
 | `already-exists` | 409 | the write would clobber something that is already there (`world.duplicate` / `world.rename` onto a taken name). |
+| `forbidden-origin` | 403 | the request declared an `Origin` that is not this machine's loopback (`daemon/origin.ts`, called ahead of every route — §2). *(403, not 404 — unlike `outside-root` there is nothing to hide: the page already knows the port answered, and no CORS headers are sent, so the body is unreadable to it anyway.)* |
 | `internal` | 500 | any other uncaught error at the route boundary. |
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
+
+**The union gained its eighth member in foundations T4a** — `forbidden-origin`, the first code
+whose thrower is neither a handler nor `dispatch()` but the route boundary itself, and the
+first 403. Its NAME is the contract half that matters: it says which fact was refused (the
+origin) rather than which status HTTP chose, so a future MCP binding maps it without inheriting
+`403`, and a general `forbidden` stays free for a genuinely different refusal class. `HTTP_STATUS`
+is an exhaustive `Record<EditorErrorCode, number>`, so adding a member is a compile error until
+its status is stated; `tests/errors.test.ts` restates the whole table independently.
 
 **Seven codes went with the scene half in foundations T2** — `validation-failed`, `no-session`, `unsaved-changes`, `nothing-to-undo`, `nothing-to-redo` and `unreadable` (all thrown only by the session, the mutations or the scene reader), plus `extension-build-failed`, whose only throwers were in the deleted registry bundle (§3). `invalid-json` survives on its own merit: `server.ts` still throws it for an unparseable request body. Deleting a code is a wire-contract change, which is why they went in the same commit as their throwers rather than being left as unreachable rows.
 
@@ -3455,8 +3556,11 @@ export type ActionResult =
   | { ok: false; kind: "failed"; message: string };
 ```
 
-**Three provenances, one funnel, never a doubled toast.** This is the reconciliation the
-type's own module header carries, and it is why there are two non-ok kinds rather than one:
+**Three provenances, never a doubled toast.** This is the reconciliation the
+type's own module header carries, and it is why there are two non-ok kinds rather than one.
+(The heading above says *the one dispatch funnel* because that is what T3b2 built; since T4a
+it is a PAIR sharing one sequence — clause 3 below, and the section number stays as seals and
+backlog entries cite it.)
 
 1. **The host's** — `reportToolError` → `subscribeToolError` → a toast. Not actions, and they
    did not move. A verb that hands off to the host returns `{ ok: true }` on the hand-off —
@@ -4392,3 +4496,65 @@ and the dropped-records batch it triggered) is a session artifact; its durable o
 are the eleven backlog filings of 2026-08-08, `engine-architecture.md` §16 (the
 huge-world handoff, promoted to a tracked home), the T4 donor entry's re-anchor, and
 this section.
+
+## 25. Foundations T4a — the honest substrate (2026-08-08 → 2026-08-09)
+
+The first tranche of foundations T4, and **it contains no MCP work at all** — no SDK, no
+transport, no tools, no claim state. T4's direction session settled that an agent would drive
+the editor over MCP; this tranche is what runs BEFORE one is connected. Its whole thesis is
+that four things the substrate said about itself were not true, and each was tolerable only
+while every caller was a human at a keyboard:
+
+- a funnel that called itself the one funnel and had a second door beside it;
+- a gate that answered a caller who cannot see the screen as though it could, and refused
+  without stating why;
+- a shape validator that checked a capsule's numbers and let a sphere's and a box's through;
+- a load path that checked every string on the wire and no number.
+
+None of the four is reachable by the chrome's clamped gestures. All four are reachable by an
+op stream written by hand or by an agent, which is why they close here rather than inside the
+slice that first hands one over.
+
+**Where the work landed.** Six tasks — **three in the editor** (T1 the second funnel, T2 the
+gate envs, T6 the daemon) and **three in core** (T3 `assertShapeValid`, T4 `parseOps`, T5 the
+group-apply locators) — and this section is an index rather than a second copy: **the second
+funnel** (`runMember`) and its source-scan pin are §22.6; **the two named gate envs**
+(`namedDispatch` computed, `NAMED_RENDER` modal-blind by decision) and the widened
+`GateVerdict` are §22.6 as well; **the daemon's `Origin` refusal** is §2 with its code in §6;
+**the validation boundary posture** — the daemon as the untrusted edge, `parseOps` as the
+boundary — is §2. The three core-side halves
+(`assertShapeValid` over all three brush shapes, `parseOps`' numeric interiors and the
+`assertOpValid` = `assertOpStructure` + table-legs split, and the rejection locators on all
+three committing paths) are in `core-modules.md`, under the field module and the § *oplog wire
+format*.
+
+### 25.1 The T4a exit — all six clauses
+
+Verdicts re-derived at the tranche's head, each from the artifact rather than from the commit
+that claimed it.
+
+| Clause | Verdict |
+| --- | --- |
+| **1. One funnel — no bare `member.arm` outside it** | **HOLDS.** `grep -rn "member\.arm" packages/editor/src` returns **one** call site, `frontend/lib/actions.ts` inside `runMember`; the other three hits in that directory are `member.armed`, a rendering field. Held by machine rather than by review: `tests/actions.test.ts` walks `src/` for `\bmember\.arm\(` and asserts the caller list is exactly `["frontend/lib/actions.ts"]` — the file, deliberately, not `[]`, which would pass just as happily with the funnel deleted. A second scan holds the asymmetry's other half (`clickGate` has one caller, the display seam). **The instrument's limits are stated where it lives**: a source scan is a proxy, blind to a caller spelling the receiver differently and — since definition and caller share a file — to a second caller added inside `actions.ts`. |
+| **2. Every refusal carries a machine-readable reason; no label fallback** | **HOLDS.** `GateVerdict`'s refusal arm is `{ ok: false; hint: string; spoken: boolean }` — `hint` is a non-nullable `string`, so the type makes a reasonless refusal unwriteable rather than discouraged, and `spoken` carries the display policy that the old `hint: string \| null` had been overloading. `refuseOrClaim` returns `refused(verdict.hint)` with no `?? def.label(ctx)` behind it; the grep finds the fallback only in the comment recording its removal. **One label survives and is not the fallback**: the INERT case (`!def.enabled(ctx)`) answers `refused(def.label(ctx))`, where the verb's own name IS the honest reason and no gate was consulted. |
+| **3. `confirmOpen` is computed truth for named callers** | **HOLDS FOR DISPATCH; one declared display exception.** Stated as PARTIAL rather than PASS on purpose: the clause says *named callers*, and `NAMED_RENDER` is literally a named caller carrying a hard-coded `false`. `namedDispatch(ctx)` builds `{ caller: "named", confirmOpen: ctx.isConfirmOpen() }` per call, and both dispatch funnels take it — `runNamed` and `runMember`. The constant `false` survives at exactly one env, `NAMED_RENDER`, which is not a dispatch env: `clickGate` → `controlVerdict` is the DISPLAY projection, and its modal-blindness is a decision with three arguments at source (a modal is an enforcement fact, `ToolRail`'s memo has no dep for a poll, and "display behaviour did not move" becomes a property rather than a coincidence). **One consequence is worth naming, and it is by design**: a control can render runnable while a dispatch of the same verb at that instant refuses. Invisible to a human (the modal's overlay) and correct for an agent (which is on the dispatch side). |
+| **4. sphere / box / capsule numerically validated at `assertOpValid` AND `parseOps`** | **HOLDS.** `assertShapeValid` (`core/src/field/ops.ts`) covers all three members — finite centres and endpoints, finite POSITIVE radii and half-extents, zero rejected with the negatives — behind an exhaustiveness guard, so a fourth shape fails to compile rather than silently validating as a box. Both paths reach it through ONE definition rather than two agreeing copies: `assertOpStructure` calls it, `assertOpValid` is `assertOpStructure` + the table legs, and `parseOps` runs `assertOpStructure` on **both** of its brush decode paths (the native `decodeBrushOp` and `upgradeLegacyDig`, so an F1-era bake gets the same pass). That relation is what makes the load predicate a SUBSET of the commit predicate, so an op the editor could commit can never fail to load. |
+| **5. An invalid op in a group means nothing applies** | **HOLDS as stated — and read the boundary of what it states.** All three committing paths run validate-the-whole-list-then-apply: `logApplyGroup`, `commitGenerator` and the reconfigure span builder. Pass 1 reads no store state, so a mid-list rejection leaves store, `log.ops`, both stacks and `nextId` untouched — and since T4a it NAMES the rejection: `field op group: ops[N] — <predicate message>` where the caller wrote the list, `commitGenerator: generator "<id>" — …` / `reconfigureGenerator: generator "<id>" — …` where nobody did and an index would address nothing openable, each with the original on `cause`. **What it does not cover, on any of the three:** an op that VALIDATES and then throws out of the applier strands earlier ops' writes with no entry describing them. That is a store-rollback design decision, not a validation gap; it is the residue the group-apply backlog entry was narrowed to and it stands open. |
+| **6. Cross-origin requests get 403** | **HOLDS.** `assertLoopbackOrigin` (`daemon/origin.ts`) is `route`'s first statement, ahead of every branch AND ahead of parsing the target (§2), throwing `forbidden-origin` → 403 through the daemon's existing typed-envelope catch. Coverage splits by question: **`tests/origin.test.ts`** is the pure spelling table (**12** admitted rows, **14** refused, each carrying its reason, plus a row asserting the predicate and the assert agree), and **`tests/server.test.ts`** is the wiring — the refusal on **all five** route branches, because a check that had drifted into the POST branch would satisfy a POST-only suite, and the SSE case additionally asserts JSON since that branch hijacks the response and a late check would leak an open feed. Plus the loopback pass, the absent pass, and the order pin (a malformed cross-origin target answers 403, not 400). **Scope, restated because the code cannot enforce its own reading:** this is DNS-rebinding defence, not client authentication. |
+
+**Backlog dispositions, re-derived from `git diff --name-status d134fd8b..HEAD -- docs/backlog/`
+rather than from memory.** Two DELETED — `family-member-picks-bypass-the-dispatch-funnel.md`
+(Task 1) and `field-brush-shape-numeric-validation.md` (Task 3). Two NARROWED rather than
+closed, each retitled to its residue and re-measured at head:
+`oplog-parse-numeric-interior-validation.md` is now "`parseOps` cannot resolve a class id —
+it has no `MaterialTable`" (the half the seam genuinely cannot answer without a table it does
+not take), and `oplog-group-apply-is-not-a-transaction.md` is now "Pass 2 of a group apply
+does not roll the store back" (clause 5's stated boundary). **THREE FILED**, all surfaced
+mid-tranche and left as findings rather than absorbed:
+`field-artifact-four-codecs-one-file.md` (four serialization formats in one file, found while
+working in `artifact.ts`), `locator-rethrow-primitive-respelled-six-ways.md` (the
+catch-and-relocate convention Task 5 generalised exists as six hand-written copies, already
+diverging) and `reconfigure-empty-evaluation-leg-unheld.md` (Task 5 pinned one of the two
+failure classes `reconfigureGenerator`'s `@throws` names, not both). AGENTS.md asks that
+end-of-tranche surfaced findings be summarised so the user can decide follow-ups; this is that
+list, and it stood at one until the count was taken from the diff.

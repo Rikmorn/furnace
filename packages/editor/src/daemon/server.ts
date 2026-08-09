@@ -12,6 +12,7 @@ import { loadConfig } from "./config.ts";
 import { EditorError, httpStatus } from "./errors.ts";
 import { createEventHub } from "./events.ts";
 import { createHandlers, dispatch, type Handlers } from "./handlers.ts";
+import { assertLoopbackOrigin } from "./origin.ts";
 import { chokidarWatchDir, type WatchDir } from "./watch.ts";
 
 export type ServerOptions = {
@@ -109,10 +110,42 @@ function serveProjectAsset(
   return true;
 }
 
+/** The request target as a URL, or a typed 400 when it does not parse.
+ *
+ *  `new URL(target, base)` THROWS on a request target the HTTP parser accepts — `//`,
+ *  `///////`, `/\` are each a protocol-relative reference with an empty host, which is
+ *  not a URL. That is not theoretical reach: it is one `fetch("//")` from the same
+ *  rebinding page the origin check models, and it needs no header the attacker cannot
+ *  set. Until T4a the parse sat OUTSIDE `route`'s try, where the throw escaped an
+ *  `async` function nobody awaits — **measured 2026-08-09: Bun leaves the socket open
+ *  with no response; Node 22 takes the unhandled rejection as fatal and KILLS THE
+ *  PROCESS.** Node's is the behaviour that governs, since the daemon must run on plain
+ *  Node ≥20.
+ *
+ *  `invalid-input` rather than a code of its own: the existing one already means "the
+ *  client sent something this daemon will not accept", `invalid-json` is its exact
+ *  sibling one layer in, and a malformed request target earns no new contract surface.
+ *
+ *  @throws {@link EditorError} `invalid-input` (400) when the target does not parse. */
+function requestUrl(req: IncomingMessage): URL {
+  const target = req.url ?? "/";
+  try {
+    return new URL(target, "http://localhost");
+  } catch {
+    throw new EditorError(
+      "invalid-input",
+      `request target is not a URL: ${JSON.stringify(target)}`,
+    );
+  }
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   // No body-size cap by design: the daemon binds 127.0.0.1 and serves one local
-  // single-user editor session (§9 out-of-scope: auth/non-localhost). Revisit if
-  // it ever accepts non-localhost connections.
+  // single-user editor session — authentication and non-localhost access are
+  // both out of scope (`editor-architecture.md` §2). Revisit if it ever accepts
+  // non-localhost connections. (The "§9" this cited from the daemon's first
+  // commit until T4a was a section of a gitignored spec — `editor-architecture.md`
+  // did not exist yet — so it had always resolved against the wrong document.)
   return new Promise((resolvePromise, reject) => {
     let data = "";
     req.on("data", (chunk: Buffer) => {
@@ -189,8 +222,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const url = new URL(req.url ?? "/", "http://localhost");
     try {
+      // Both of these are INSIDE the try on purpose: the catch below is the daemon's
+      // one typed-envelope edge, and a second emitter beside it would be a parallel
+      // path to keep in step. The origin check is FIRST — ahead of every branch AND
+      // ahead of parsing the target, so "one check runs before every route" is
+      // literally true — which also covers the SSE subscribe (it hijacks the response)
+      // and the static/asset GETs, neither of which would notice a check that only
+      // guarded `POST /api/*`.
+      assertLoopbackOrigin(req.headers.origin);
+      const url = requestUrl(req);
       if (req.method === "GET" && url.pathname === "/engine.js") {
         const result = await bundler.build();
         if (!result.ok) {

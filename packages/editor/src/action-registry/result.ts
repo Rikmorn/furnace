@@ -30,8 +30,9 @@
 // itself reached and NOBODY has said yet, so the funnel says it. `failed` is an error a
 // layer below already surfaced on its own channel — the Result carries it to a caller who is
 // not looking at the screen (an MCP tool call gets the Result; a human already got the
-// toast), and the funnel stays quiet rather than saying it twice. One funnel, three
-// provenances, never a doubled toast.
+// toast), and the funnel stays quiet rather than saying it twice. Three provenances, never a
+// doubled toast — and the funnel of clause 3 is the pair above, which is one rule and two
+// doors, not two rules.
 //
 // Here rather than in the chrome because the daemon is the consumer that makes the type
 // worth having: an agent calling a verb needs the verdict, and it runs on Node.

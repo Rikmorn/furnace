@@ -33,7 +33,10 @@ Each section keeps its own trigger. Delete a section when it is taken.
 
 ## The action GATE could leave `lib/actions.ts`
 
-`frontend/lib/actions.ts` is 1,299 lines and holds two things that only meet at the bottom
+`frontend/lib/actions.ts` is 1,586 lines (re-measured at head 2026-08-09; it was 1,299 when
+this entry was written and 1,304 at the T4a branch point — Tasks 1 and 2 added the second
+funnel and the two gate envs, so the tranche that grew it is the one re-measuring) and holds
+two things that only meet at the bottom
 of the file: the **action TABLE** (39 actions — since T3b2 their DATA rows live in
 `src/action-registry/descriptors.ts` and this file holds the four closures `label`,
 `enabled`, `checked` and `run`, joined by id) and the **GATE** (the rules deciding whether a

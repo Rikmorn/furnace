@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunningServer, startServer } from "../src/daemon/server.ts";
@@ -35,6 +36,33 @@ beforeAll(async () => {
 afterAll(() => server.close());
 
 const url = (p: string) => `http://127.0.0.1:${server.port}${p}`;
+
+/** Send a request line + headers over a raw socket and return the whole response text.
+ *  `fetch` cannot express what these tests need: it normalizes a request target like
+ *  `//` away before the wire, and it refuses to set `Origin` on some shapes. The socket
+ *  sends exactly the bytes given. */
+function rawRequest(
+  requestLine: string,
+  ...headers: string[]
+): Promise<string> {
+  return new Promise((done, fail) => {
+    const socket = connect(server.port, "127.0.0.1", () => {
+      socket.write(
+        `${[requestLine, "Host: 127.0.0.1", ...headers, "Connection: close"].join("\r\n")}\r\n\r\n`,
+      );
+    });
+    let text = "";
+    socket.setTimeout(5000, () => {
+      socket.destroy();
+      fail(new Error(`no response to ${requestLine} within 5s`));
+    });
+    socket.on("data", (chunk: Buffer) => {
+      text += chunk.toString("utf8");
+    });
+    socket.on("close", () => done(text));
+    socket.on("error", fail);
+  });
+}
 
 test("GET / serves the built chrome's index.html", async () => {
   const res = await fetch(url("/"));
@@ -156,6 +184,112 @@ test("GET /engine.js with a broken extensions entry → 500 with diagnostics", a
     broken?.close();
     rmSync(brokenRoot, { recursive: true, force: true });
   }
+});
+
+// --- Origin: the DNS-rebinding refusal, WIRED (foundations T4a) --------------
+//
+// WHICH ORIGINS ARE LOOPBACK is a pure question and its table lives in
+// `origin.test.ts`, where a row costs nothing. What is asked HERE is the other
+// question — does every route branch actually go through the check — and that one
+// needs a live server, so it gets exactly one case per branch and no spellings.
+// `route`'s ladder has five, and a suite that only posted would not notice a check
+// that had drifted into the POST branch.
+
+const origin = (p: string, value: string, init: RequestInit = {}) =>
+  fetch(url(p), { ...init, headers: { ...init.headers, origin: value } });
+
+async function expectForbiddenOrigin(res: Response): Promise<void> {
+  expect(res.status).toBe(403);
+  expect(res.headers.get("content-type")).toContain("application/json");
+  const body = (await res.json()) as {
+    error: { code: string; message: string };
+  };
+  expect(body.error.code).toBe("forbidden-origin");
+}
+
+const EVIL = "http://evil.example";
+
+test("every route branch refuses a cross-origin request — all five", async () => {
+  // 1. POST /api/* — the branch a check is most likely to be written into.
+  await expectForbiddenOrigin(
+    await origin("/api/project.get", EVIL, { method: "POST", body: "{}" }),
+  );
+  // 2. GET /api/events — this branch HIJACKS the response (`hub.subscribe(res)`
+  //    writes its own headers and never ends), so a check placed after it would
+  //    leak an open feed to the attacking page. The JSON content-type inside
+  //    `expectForbiddenOrigin` is the half that proves no stream opened.
+  await expectForbiddenOrigin(await origin("/api/events", EVIL));
+  // 3. GET /engine.js — refused BEFORE the bundler runs, which is also why this
+  //    case is fast where the engine.js success test is not.
+  await expectForbiddenOrigin(await origin("/engine.js", EVIL));
+  // 4. GET <anything else> — the static + project-asset branch.
+  await expectForbiddenOrigin(await origin("/", EVIL));
+  // 5. The no-route fallback, reached by method rather than by path.
+  await expectForbiddenOrigin(
+    await origin("/api/project.get", EVIL, { method: "DELETE" }),
+  );
+});
+
+test("a loopback origin is served normally — the chrome's own case", async () => {
+  const res = await origin(
+    `/api/project.get`,
+    `http://127.0.0.1:${server.port}`,
+    {
+      method: "POST",
+      body: "{}",
+    },
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ root: FIXTURE });
+});
+
+test("an ABSENT origin passes — curl, the CLI, a future MCP client send none", async () => {
+  // Stated as its own pin because it is the clause that makes this a rebinding
+  // defence rather than client auth. Every other test in this file relies on it,
+  // so it asserts the BODY too: "not 403" would also be true of a 500.
+  const res = await fetch(url("/api/project.get"), {
+    method: "POST",
+    body: "{}",
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ root: FIXTURE });
+});
+
+// --- A request target that is not a URL --------------------------------------
+
+test("a malformed request target answers 400 instead of killing the daemon", async () => {
+  // `new URL("//", "http://localhost")` THROWS — `//` is a protocol-relative
+  // reference with an empty host. The parse used to sit outside `route`'s try,
+  // where the throw escaped an async function nobody awaits: Bun left the socket
+  // open, and NODE 22 TOOK THE UNHANDLED REJECTION AS FATAL AND EXITED. Node's is
+  // the behaviour that governs (the daemon must run on plain Node ≥20), so this
+  // pins a remote unauthenticated process-kill closed.
+  //
+  // `fetch` normalizes these away, so the targets go over a raw socket verbatim.
+  for (const target of ["//", "///////", "/\\"]) {
+    const raw = await rawRequest(`GET ${target} HTTP/1.1`);
+    expect(raw, `target ${JSON.stringify(target)}`).toContain("400");
+    expect(raw).toContain("invalid-input");
+  }
+  // …and the server is still up afterwards, which is the whole point.
+  const after = await fetch(url("/api/project.get"), {
+    method: "POST",
+    body: "{}",
+  });
+  expect(after.status).toBe(200);
+});
+
+test("the origin check runs BEFORE the target is parsed", async () => {
+  // Both refusals are typed and both are correct, so the ORDER is the only thing
+  // that decides which one a malformed cross-origin request gets. It must be the
+  // security one: "one check runs ahead of every route" is a claim `editor-
+  // architecture.md` §2 makes, and a 400 here would falsify it.
+  const raw = await rawRequest(
+    `GET // HTTP/1.1`,
+    `Origin: http://evil.example`,
+  );
+  expect(raw).toContain("403");
+  expect(raw).toContain("forbidden-origin");
 });
 
 type SseReader = {

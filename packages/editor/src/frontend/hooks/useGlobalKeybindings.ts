@@ -23,8 +23,16 @@ import { isTextInputTarget } from "../lib/keybindings.ts";
  *
  * It is `runAction` and not a sequence of its own since foundations T3b2 Task 4: the gate,
  * the claim, the enabled check, the run and the sentence that answers for it are ONE funnel
- * shared with every control in the chrome, so a key and a button cannot refuse a verb in
- * different words — or run it and report differently.
+ * for a REGISTERED action — one with a row of its own in `ACTION_DESCRIPTORS` — shared with
+ * every control in the chrome, so a key and a button cannot refuse a verb in different words,
+ * or run it and report differently. (Deliberately not the word "named" here: `GateEnv` is
+ * discriminated by `caller`, and this hook is the `"key"` half of that union. `runNamed` and
+ * `namedDispatch` are the OTHER caller class, which is exactly what this hook is not.)
+ * Foundations T4a gave the funnel a sibling for the one dispatch it never covered, `runMember`
+ * (a pick out of a tool family), and the two share the gate-claim-check sequence itself
+ * (`refuseOrClaim`) rather than agreeing by review. No key reaches a member, so nothing here
+ * changed: the ⇧ chords step families through `tool.brushCycle` and its two siblings, which
+ * are ordinary rows.
  *
  * NO INPUT IS PASSED, and there is nowhere for one to come from: a keypress carries a
  * keycap and nothing else, so every keyed verb falls back to what the ctx has selected.
