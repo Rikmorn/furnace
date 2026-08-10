@@ -837,8 +837,16 @@ export type FieldHost = {
    *  standing F2b finding that a viewport binding dies the moment the user
    *  touches a panel ({@link undo}'s rationale). Both entry points cancel off the
    *  same stack, so they cannot disagree about what is most recent, and the canvas
-   *  branch stops the event when it acts so one press cancels one thing. */
-  escape(): void;
+   *  branch stops the event when it acts so one press cancels one thing.
+   *
+   *  IT ANSWERS WHETHER IT CANCELLED ANYTHING, which the canvas branch has always
+   *  needed (the boolean IS its "did I claim this event") and which since
+   *  foundations T4c has a second reader: `session.interrupt` refuses when nothing
+   *  was standing, and a `void` here would have made that refusal unwriteable —
+   *  the verb would either claim success over a no-op or re-derive liveness from
+   *  mirrors that cannot see the stack. Every OTHER caller ignores it, and a
+   *  discarded boolean is the honest cost of the one that cannot. */
+  escape(): boolean;
   /** Steps the field's own undo/redo history — the ⌘Z / ⇧⌘Z twins, and the
    *  seam any panel affordance for them must call.
    *
@@ -4068,7 +4076,7 @@ export function createFieldHost(deps?: {
       machine.cancelSession();
     },
     escape() {
-      router.escape();
+      return router.escape();
     },
     undo() {
       stepHistory(false);

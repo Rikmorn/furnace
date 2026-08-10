@@ -52,6 +52,16 @@ export const MCP_PATH = "/mcp";
  * exactly where incompleteness of that kind gets pre-empted. Added at spec review.
  * The tool descriptions carry everything else, where they are read next to the call.
  */
+// MIGRATION (until T4c Task 6): TWO SENTENCES BELOW ARE ALREADY FALSE, and one of them is
+// false in the way the tranche exists to fix. (1) "THIS SERVER READS. Nothing here edits a
+// world" — untrue since Task 3 gave the daemon `edit.apply`, `generate` and `action.run`;
+// they are unadvertised, which is not the same as absent. (2) "which tool and gesture are
+// armed" (here and in the `session_state` row) names two payload members that Task 5
+// replaced with `armed` + `brush`, and the RULE that replaced them has to reach this prose or
+// the misreading it fixed comes straight back — `shared/wire.ts`'s `SessionState` carries the
+// sentence to lift, and `daemon/session-handlers.ts`'s `session.interrupt` carries its own.
+// This file's rows and instructions are Task 6's to rewrite; the marker is here so the grep
+// that finds the other two finds the file holding the wrong words as well.
 export const MCP_INSTRUCTIONS = `The furnace editor daemon — a READ surface onto a live world-editing session.
 
 Furnace is a WebGPU engine. Its editor is a browser tab where a human digs, fills, paints

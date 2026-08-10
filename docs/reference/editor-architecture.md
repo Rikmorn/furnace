@@ -220,7 +220,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects three commands as tools and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP.
 
-There are **18 commands** — eight dotted families plus one bare verb (`generate`) — and the chrome speaks **12** of them (`frontend/lib/api.ts`). The **six** it does not are `session.state`, `viewport.capture`, `session.query`, `edit.apply`, `generate` and `action.run`, and none of them has a client method on purpose: every one is a question or an instruction the daemon relays INTO a tab, so a chrome method would be a tab addressing itself. See the table. (The chrome's twelve was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, 8 until foundations T4b added `session.*`, and 13 until T4c added the five relayed verbs above. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+There are **19 commands** — eight dotted families plus one bare verb (`generate`) — and the chrome speaks **12** of them (`frontend/lib/api.ts`). The **seven** it does not are `session.state`, `viewport.capture`, `session.query`, `edit.apply`, `generate`, `action.run` and `session.interrupt`, and none of them has a client method on purpose: every one is a question or an instruction the daemon relays INTO a tab, so a chrome method would be a tab addressing itself. See the table. (The chrome's twelve was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, 8 until foundations T4b added `session.*`, and 13 until T4c added the six relayed verbs above. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
 *(Counts re-derived at T4c Task 4 rather than incremented: `grep -rhn 'handlers\.set("' src/daemon/` lists eighteen names, and each was tested against `frontend/lib/api.ts` for a client method. The paragraph had said "14 in six families, the TWO it does not" — accurate through Task 2 and left behind by Task 3's three verbs, which is exactly the rot a count nobody re-measures acquires.)*
 
@@ -239,12 +239,13 @@ There are **18 commands** — eight dotted families plus one bare verb (`generat
 | `session.claim` | `{ name: string \| null, token }` | `{}` — this connection is now the editing session for `name` (`null` = the untitled scratch). Refused `already-exists` (409) when a DIFFERENT live connection holds it; `no-session` (409) when the token names no live connection. Re-claiming a world this connection already holds succeeds. §5.1. |
 | `session.steal` | `{ name: string \| null, token }` | `{}` — takes the world whatever anyone else thinks, and sends the displaced connection a `claim-lost` frame. Never refuses on held-ness (an unheld world is simply claimed); `no-session` on a dead token. |
 | `session.release` | `{ token }` | `{}` — drops whatever this connection holds. It had **no chrome method** through T4b, on the argument that a tab which stops authoring is a tab that closed and the SSE departure hook has already released it. T4c found the exception and gave it one: a claim that RE-KEYS on a world switch can be REFUSED, and the daemon drops the old key only when a new claim succeeds — so without a release the tab would go on holding the world it just left (§26.1). Reached only on that refusal, and never with a `name`: the connection is what holds, so the connection is what is dropped. |
-| `session.state` | `{}` | The claimed session's `SessionState` (`src/shared/wire.ts`), RELAYED — the first command that asks rather than answers. A discriminated union on `ready`: the not-ready arm carries nothing but the discriminant (the engine bundle is async and a tab is claimable before its field host exists, so an empty-looking world would be a false claim of emptiness), and the ready arm carries `cursor`, `world`, `tool`, `gesture`, `session`, `selection`, `selectedEntity`, `camera`, `stats` and `history`. **No token and no input** — it addresses whoever is claimed (§5.1), so zero and many both refuse with `no-session`, a silent tab earns `session-timeout` (§6), and the daemon validates nothing on the way past: it cannot compute one field of this, which is the whole reason the backchannel exists. `cursor` is an opaque compare-only change token that rides the history payload (§17.6). |
+| `session.state` | `{}` | The claimed session's `SessionState` (`src/shared/wire.ts`), RELAYED — the first command that asks rather than answers. A discriminated union on `ready`: the not-ready arm carries nothing but the discriminant (the engine bundle is async and a tab is claimable before its field host exists, so an empty-looking world would be a false claim of emptiness), and the ready arm carries `cursor`, `world`, `armed`, `brush`, `session`, `selection`, `selectedEntity`, `camera`, `stats` and `history`. `armed`/`brush` were `gesture`/`tool` through T4b and were renamed WITH a shape change at T4c (§27.3): the pair could only be read correctly by joining them, and an agent got the join wrong at the T4b gate. **No token and no input** — it addresses whoever is claimed (§5.1), so zero and many both refuse with `no-session`, a silent tab earns `session-timeout` (§6), and the daemon validates nothing on the way past: it cannot compute one field of this, which is the whole reason the backchannel exists. `cursor` is an opaque compare-only change token that rides the history payload (§17.6). |
 | `viewport.capture` | `{ view?, size?, overlays? }` | `ViewportCaptureResult` (`src/shared/wire.ts`) — a base64 PNG of the live viewport plus the `width`/`height`/`view` it actually produced, RELAYED. The **second** command the daemon cannot answer and the first with a **budget of its own**: 30 s rather than the default 10, because this ask makes the tab render, read back off the GPU and encode, where every other method reads a record it is already holding (§26.1). `view` is validated against the host's own `CAPTURE_VIEWS` (`src/shared/capture.ts`) and `size` against the same bounds the host clamps to — the daemon REFUSES out of range where the host clamps, because a schema is also what the MCP door advertises. |
 | `session.query` | `{ about: "entities" }` \| `{ about: "ray", origin, dir, maxDist? }` \| `{ about: "selection" }` | `QueryAnswer` (`src/field-host/field-query.ts`), RELAYED — the spatial read, and the tranche's answer to *ask this, do not squint* (§27.2). `entities` returns every committed entity with its footprint plus the placed-prop LINT (floating props with their measured gap, interpenetrating pairs with their penetration extents, and a `truncated` flag so an empty list cannot read as a clean world); `ray` returns one `raycastField` hit with its distance; `selection` returns the replayable `SelectionSpec`, count and box — **never the cells**. A `z.discriminatedUnion` per arm, so a bad request reports against the arm it MEANT. **No budget of its own** (store and log arithmetic, with a measured cap on the only quadratic part). `maxDist` is bounded at `MAX_PROBE_M` where `raycastField`'s own step ceiling would otherwise make a `null` ambiguous (and CLAMPED again in the host, so the module's contract does not depend on this door); `dir` is refused as the zero vector, which `z.number()` alone admits and core would silently turn into a walk along +X. |
 | `edit.apply` | `{ ops: BrushOpInput[] }` (`.min(1)`, full op vocabulary — `daemon/op-schema.ts`) | `ActionResult`, RELAYED — a batch landing as ONE undo entry for the human (§27.1). The daemon validates the op SHAPE in full because a write arriving malformed and relayed anyway asks a tab to mutate a world nobody checked; core decides whether the shape is BUILDABLE. No budget of its own: the cost is bounded by the list the caller sent. |
 | `generate` | `{ generatorId, params?, seed?, region? }` | `GenerateOutcome` (`src/field-host/field-mutation.ts`), RELAYED — one generator committed atomically, opening no stamp session and leaving none (§27.1). `params` is `z.record(z.unknown())` and that is the honest ceiling: per-generator schemas live in core's registry, which this Node-portable daemon may not import, so core validates them at commit. Carries a **30 s budget** — a generator's `evaluate` runs on the tab's main thread. |
 | `action.run` | `{ id, input? }` | `ActionResult`, RELAYED — the named-verb door onto the editor's own 39 verbs (§27.1). Builds **no allow-list** (which ids exist is `runNamedById`'s answer) and holds one **deny-list**: `edit.undo` and `edit.redo` are fenced at the daemon until op attribution ships. The six ids with an input schema have it applied here, from `action-registry/schemas.ts`. |
+| `session.interrupt` | `{}` | `ActionResult`, RELAYED — the Esc key as a verb (§27.3). Drains **one** rung of the host's Esc capture stack (the most recent standing thing: a session, a stamp arm, a half-drawn anchor, the entity or cell selection) and refuses `inert` when nothing is standing, so a caller can tell a cancel from a no-op. **It cannot stop a bake, a save or an analyzer pass** — nothing in this editor is abortable, and the honest answer for a long job is the ask budget. `z.strictObject({})`: the stack is ordered by recency and addresses nothing by name, so there is no parameter to take. |
 | `session.answer` | `{ requestId, ok: true, payload }` \| `{ requestId, ok: false, error }` | `{ delivered }` — hands one answer to the backchannel ask it names (`daemon/backchannel.ts`). **No token**: the `requestId` was minted into exactly one connection's stream, so holding it means holding that stream — the same structural argument the token itself rests on. `delivered: false` is the honest report for an id naming no pending ask (an answer that lost the race with its own ask's timeout, a duplicate, a forged one), not an error — refusing would manufacture a client-side failure for a designed race. A discriminated union so a refusal cannot pose as a success with a missing payload. |
 
 `field.load` and every `world.*` verb share ONE name schema — `z.string().regex(WORLD_NAME_RE)` — and `worlds.ts`'s top comment tracks the other copies of that regex.
@@ -5448,3 +5449,127 @@ than the editor's one cell size. **The entity list is still unbounded** where th
 capped twice — a payload-size risk rather than a frame-budget one, whose fix is a shape
 decision rather than a slice; filed with its trigger at
 `docs/backlog/editor-and-tooling/session-query-entities-list-is-unbounded.md`.
+
+### 27.3 What is armed, who is here, and one Esc (Task 5)
+
+**The armedness fix is what this task is FOR, and the defect was found by an agent, live.** At
+the T4b gate walk the payload read `tool: {effect: "dig", …}` beside `gesture: "pointer"`; the
+reviewing agent reported "dig armed" and the human was looking at a screen with nothing armed
+but the Select button. Both fields were truthful. The whole answer was the JOIN — `gesture` is
+the arming fact and `tool` is the dormant brush CONFIGURATION — and the rule for joining them
+lived in a chrome hook's docblock the agent cannot see. It was filed as
+`session-state-armedness-is-two-fields.md` with three candidate shapes and the instruction to
+decide at T4c; the entry is deleted in this commit.
+
+**The shape: one `armed` member, and `tool` renamed to `brush`.** `ArmedState`
+(`src/shared/wire.ts`) is a discriminated union on `does` — `session`, `stampRegion`
+(+`generator`), `selectEntity`, `selectCells` (+`mode`), `segment`, `brush` — and the wire
+carries **no `gesture` slot at all**. That is the load-bearing half: keeping both would have
+left the misreading available and added a third field to disagree over, and "two ways to spell
+one thing" is the smell the repo's own design rule names. The dormant configuration keeps its
+own member and is named for its dormancy: `brush` is a SETTING, true whether or not the brush
+is what LMB strokes. The rejected candidate is the third one the entry listed — `tool: null`
+while the pointer is armed — which answers "is it armed" by destroying the setting the agent's
+own verbs manipulate.
+
+**Three facts, not two, and the backlog entry named only two.** The chrome's own arming
+predicate joins the STAGED GRAMMAR as well as the gesture slot (`lib/actions.ts`'s `idle`:
+*"Either one owns the interaction, so no gesture family reads as armed while one stands"*). A
+live session and a pending stamp arm each SHADOW the slot — LMB routes to them first while
+they stand, and the slot goes on naming what the button does underneath. A member that
+re-spelled `gesture` alone would have reproduced the identical misreading in exactly the states
+an agent's own verbs create. The two shadows are mutually exclusive by construction
+(`field-machine.ts`'s `startStamp` cancels a session before arming and clears an arm before
+opening one), so their order in the join is a reading order rather than a priority. **The shadow rule has THREE sites, and the ORDER is now single-sourced across two of them.**
+`shared/action-table.ts`'s `STATUS_PRECEDENCE` (`session` ▸ `pendingStamp` ▸ `gesture` ▸
+`effect`) was already load-bearing — `deriveArmedKeymap` walks it for the status bar's keymap
+line — so `armedFrom` walks the SAME tuple through an `ARMED_STATE` resolver table rather than
+spelling a third cascade: the keymap the human reads and the payload the agent reads take their
+order from one declaration, and a fifth member of the tuple is a compile error in both tables.
+The third site is `actions.ts`'s `idle`, and it stays hand-kept with the full instruction on
+it: it is a BOOLEAN (it cannot express an order), it feeds the tool rail's pressed state, and
+deriving it from the wire's table would make a gate's refusal depend on the wire's vocabulary.
+
+**The vocabulary cannot drift, and that is a compile-time property rather than a promise.**
+`armedFrom` maps the slot through `Record<ViewportGesture, ArmedState>` written as an object
+literal, so a seventh host gesture fails to build here rather than falling through to a default
+arm. The two payload strings that are host vocabulary (`selectCells.mode`,
+`stampRegion.generator`) stay `string`, which is the wire's standing anti-copy rule; `does` is
+the wire's own closed union and is the one exception, argued at the declaration.
+
+**`armed` is the ONE derived member in a projection whose stated property is that it derives
+nothing** — and the exception is the rule read from the other side. Picking three fields and
+leaving the far end to combine them is not "not deriving"; it is deriving in the one place
+where the rule is invisible to whoever performs it.
+
+**`session.interrupt` is the Esc key as a verb, and its limit is the whole of its contract.**
+It calls `FieldHost.escape`, which drains exactly ONE rung of the recency-ordered capture stack
+(§20.2) — a session, a stamp arm, a half-drawn box or segment anchor, the selected entity, the
+cell selection. `FieldHost.escape` now RETURNS whether it cancelled anything (the canvas branch
+always had the boolean; the facade discarded it), which is what makes the refusal writeable:
+nothing standing is `refused` with `because: "inert"`, so an agent can tell a cancel from a
+no-op. It **cannot** stop a bake, a save or an analyzer pass — there is no `AbortController`
+anywhere in this editor, and a verb that accepted the call and did nothing would be worse than
+one that does not exist; the honest answer for a long job is the ask budget's `session-timeout`.
+Drain-one-rung was the planned scope and it is the shipped scope: a verb that emptied the stack
+would take away states the HUMAN put there with nothing in the payload warning the agent it was
+about to.
+
+**Presence-lite: the chrome says an agent is here, and nothing else.** T4b's ruling was that
+the backchannel is invisible; the half that stands is about REFUSALS and questions — an agent's
+business must not interrupt the person in the tab, so no toast, either way. What changed is
+that a T4c agent digs, generates and runs verbs, and a world changing under someone with no
+sign that anyone else is working in it is a worse silence than the one that rule was written
+against. So `lib/agent-presence.ts` records **that a verb ran and which one** — a framework-free
+store on the `notify-store.ts` pattern — and `StatusBar`'s `AgentChip` shows `agent <verb> <n>`,
+first in the right-anchored cluster (its text moves oftenest, and an element's width change
+displaces only what is to its LEFT).
+
+**The store is App's, not the module's**, and that is the one ownership decision in this
+task that was made twice. A module singleton on `notify`'s pattern was written first; the full
+suite failed within the task, because every chrome test file is a second shell in one process
+and a case asserting "no agent has been here" read the verb an earlier FILE had recorded. The
+chrome already has that rule written down — `useFieldHostState.tsx`'s cells are per provider,
+*"never module-level: two shells in one process, which every chrome test file is, must not
+share"* — and `notify` gets away with being a singleton only because its `clear()` has a
+production caller for the suites to lean on. So `App` holds it in `useState` and it rides
+`EditorContext` (the route `sessionStateRef` and `bakeBusyRef` already take), which makes
+every test isolated by construction and the absence pin an ABSOLUTE rather than a delta.
+
+Four things it deliberately is not, each a fence rather than an omission: it is **not a chat
+surface**; it is **not an outcome channel** — `ran` takes no result, so a refused `edit.apply`
+and an applied one are identical here, which is the quiet-refusals ruling built into the shape
+rather than remembered at a call site; it is **not attribution** (that needs a `LogEntry` field
+and is fenced to post-T4 with the agent undo verb); and it carries **no timestamp**, because a
+fading indicator would have to answer "has the agent left?", which this substrate cannot —
+an agent that stops asking is indistinguishable from one that is thinking, and the claim is
+what actually knows. It is recorded AFTER the registry lookup, so a method the tab does not
+serve (version skew) never reaches the bar: that is a refusal, not a verb.
+
+**Two spellings of interrupt, and which one the door advertises.**
+`action.run {id: "session.escape"}` reaches the same `FieldHost.escape`: it is a registry row
+(the human's Cancel), never disabled, and not on `FENCED_ACTIONS`. The overlap is structural
+rather than a slip — `action.run` is a door onto the whole 39-verb table by design, so every
+registry verb has a second spelling through it — but the two are NOT equivalent, and the
+difference is the reason the new verb exists: `session.escape` hands off and answers `ok`
+whether or not anything was cancelled (`handOffToHost`'s contract is that the host answers for
+itself on its own channel), while `session.interrupt` reads the boolean and refuses.
+**`session_interrupt` is the advertised spelling; `session.escape` should not be named in the
+`action_run` row's prose.** Neither is "fixed" into the other, and both directions were
+considered: making the registry verb refuse would speak a PERSISTENT error toast at the human
+every time they press Esc with nothing standing (`sayResult` speaks a refusal and errors hold
+the screen until dismissed) — which is what that row's `enabled: () => true` and its *"an Esc
+with nothing to cancel is a no-op rather than a refusal"* comment exist to protect; and fencing
+it would spend `FENCED_ACTIONS` — which means *"an agent must not do this at all"*, undo
+pending attribution — on a vocabulary preference, making the list mean two things.
+
+**What Task 6 owes this task.** The `session_state` row and `MCP_INSTRUCTIONS` still say *"which
+tool and gesture are armed"* — two members that no longer exist — and the agent-facing prose is
+precisely where the last misreading came from. The row must carry the RULE and not just the
+field list: **`armed` is what LMB does right now; `brush` is a dormant setting and is not a
+claim that anything is armed.** The `session_interrupt` row owes its limit in one sentence: one
+rung, and no long job can be stopped. Both are stated at the declarations
+(`shared/wire.ts`'s `SessionState`, `daemon/session-handlers.ts`'s `session.interrupt`, which
+also carries the escape disposition above), and all three — plus `daemon/mcp.ts` itself, the
+file holding the wrong words — wear `AGENTS.md`'s marker convention, so
+`grep -rn "MIGRATION (until T4c Task 6)" packages/` is the one command that finds the set.

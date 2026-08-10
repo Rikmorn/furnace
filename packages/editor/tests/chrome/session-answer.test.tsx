@@ -17,6 +17,10 @@ import { useRef } from "react";
 import { useDaemonFeed } from "../../src/frontend/hooks/useDaemonFeed.ts";
 import { useSessionAnswer } from "../../src/frontend/hooks/useSessionAnswer.ts";
 import type { SessionFeed } from "../../src/frontend/hooks/useSessionClaim.ts";
+import {
+	type AgentPresenceStore,
+	createAgentPresence,
+} from "../../src/frontend/lib/agent-presence.ts";
 import type { ServerEvent } from "../../src/frontend/lib/events.ts";
 import { notify } from "../../src/frontend/lib/notify-store.ts";
 import {
@@ -104,17 +108,31 @@ function stubDaemon(): { calls: Call[] } {
 
 /** App's share of the chain, mirrored: the answerer hook and the feed it rides. Nothing
  *  renders, which is the subject's whole posture — the backchannel is invisible. */
-function Answerer({ answerers }: { answerers: SessionAnswerers }) {
+function Answerer({
+	answerers,
+	presence,
+}: {
+	answerers: SessionAnswerers;
+	presence: AgentPresenceStore;
+}) {
 	const bakeBusyRef = useRef(false);
-	const onRequest = useSessionAnswer(answerers);
+	const onRequest = useSessionAnswer(answerers, presence);
 	useDaemonFeed(true, bakeBusyRef, inertSession, onRequest);
 	return null;
 }
 
-function renderAnswerer(answerers: SessionAnswerers = BASE_ANSWERERS): void {
+/** Mount the chain over a FRESH presence store, and hand it back. Fresh per render for the
+ *  reason `lib/agent-presence.ts` gives: the store is App's, not the module's, so a case can
+ *  assert "no agent has been here" as an ABSOLUTE rather than as a delta against whatever
+ *  another test file did earlier in this process. */
+function renderAnswerer(
+	answerers: SessionAnswerers = BASE_ANSWERERS,
+): AgentPresenceStore {
 	// Boundary cast: the fake implements the three members `subscribeEvents` uses.
 	globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
-	render(<Answerer answerers={answerers} />);
+	const presence = createAgentPresence();
+	render(<Answerer answerers={answerers} presence={presence} />);
+	return presence;
 }
 
 /** Push one daemon frame into the live feed and let the POST it starts settle.
@@ -352,6 +370,54 @@ test("a handler that THROWS becomes a refusal, not a silence", async () => {
 });
 
 // --- the posture --------------------------------------------------------------
+
+test("a SERVED method is recorded as presence; an unserved one is not", async () => {
+	// PRESENCE-LITE (T4c), and the ordering is the claim. The record happens after the registry
+	// lookup, so what reaches the human's status bar is a verb this tab really ran — a method
+	// it does not serve is a REFUSAL (version skew between a restarted daemon and an older tab),
+	// and naming it would put a verb on screen that nothing in this editor performed.
+	stubDaemon();
+	const presence = renderAnswerer();
+	expect(presence.getSnapshot()).toEqual({ verb: null, count: 0 });
+
+	await emit({
+		type: "session-request",
+		requestId: "req-1",
+		method: "session.ping",
+		params: null,
+	});
+	expect(presence.getSnapshot()).toEqual({ verb: "session.ping", count: 1 });
+
+	await emit({
+		type: "session-request",
+		requestId: "req-2",
+		method: "session.nothingHere",
+		params: null,
+	});
+	expect(presence.getSnapshot()).toEqual({ verb: "session.ping", count: 1 });
+});
+
+test("presence records that a verb RAN, never how it went", async () => {
+	// The quiet-refusals ruling, from the presence side. A handler that refuses — every write
+	// row can, and `session.interrupt` does whenever nothing is standing — is still a verb that
+	// ran, and the indicator says so and stops there. It cannot say more: `ran` takes no outcome,
+	// so this is a property of the seam's SHAPE rather than of care at the call site.
+	stubDaemon();
+	const presence = renderAnswerer({
+		"session.ping": () => ({ ok: false, kind: "refused", because: "inert" }),
+	});
+
+	await emit({
+		type: "session-request",
+		requestId: "req-1",
+		method: "session.ping",
+		params: null,
+	});
+
+	expect(presence.getSnapshot()).toEqual({ verb: "session.ping", count: 1 });
+	// …and still not a word on screen.
+	expect(notify.getSnapshot().log).toEqual([]);
+});
 
 test("answering says NOTHING to the human — no toast, either way", async () => {
 	// This tranche's human-visible surface was fixed by the claim (a steal prompt, a cover,

@@ -1,6 +1,10 @@
 // packages/editor/src/frontend/lib/session-answerers.ts
 import type { RefObject } from "react";
-import { type ActionResult, refused } from "../../action-registry/result.ts";
+import {
+  ACTION_OK,
+  type ActionResult,
+  refused,
+} from "../../action-registry/result.ts";
 // TYPE-ONLY, so both are erased and this module stays a plain record with no runtime
 // edge on the host — the rule `tests/frontend-no-engine-leakage.test.ts` machine-enforces
 // for everything the chrome bundle pulls in.
@@ -8,9 +12,12 @@ import type {
   FieldHistory,
   FieldHost,
   QueryAnswer,
+  ViewportGesture,
 } from "../../field-host/index.ts";
+import { STATUS_PRECEDENCE } from "../../shared/action-table.ts";
 import type {
   ActionRunRequest,
+  ArmedState,
   EditApplyRequest,
   GenerateRequest,
   SessionQueryRequest,
@@ -101,6 +108,93 @@ export type SessionStateInput = {
 };
 
 /**
+ * One gesture-slot value → what LMB does under it, **EXHAUSTIVE over the host's own union**.
+ *
+ * That exhaustiveness is the anti-drift mechanism `shared/wire.ts` promises for
+ * {@link ArmedState}: a `Record<ViewportGesture, …>` written as an object literal must name
+ * every member, so a seventh gesture on the host side is a COMPILE ERROR here rather than a
+ * silent fall-through to a default arm. It is the reason this is a table and not a `switch`
+ * with a trailing case — a switch would satisfy the compiler by returning something.
+ *
+ * `null` — the brush — is not a key, because it is not a member of {@link ViewportGesture};
+ * it is the slot being EMPTY, and {@link armedFrom} answers it before it gets here.
+ */
+const ARMED_BY_GESTURE: Record<ViewportGesture, ArmedState> = {
+  pointer: { does: "selectEntity" },
+  box: { does: "selectCells", mode: "box" },
+  material: { does: "selectCells", mode: "material" },
+  void: { does: "selectCells", mode: "void" },
+  segment: { does: "segment" },
+};
+
+/**
+ * One resolver per state in {@link STATUS_PRECEDENCE}: that state's arm, or `null` when the
+ * editor is not in it. **`STATUS_STATE`'s twin one payload over**, deliberately the same
+ * shape, because it answers the same question for the other reader.
+ *
+ * A FRESH OBJECT per call, never a shared literal: nothing this projection hands out may be a
+ * record a caller could mutate, and here it would be a MODULE constant — one mutation would
+ * corrupt every later answer in the tab rather than just the next one
+ * (`tests/chrome/session-state.test.tsx` pins the same rule for `world` and `mask`).
+ */
+const ARMED_STATE: Record<
+  (typeof STATUS_PRECEDENCE)[number],
+  (ctx: ActionCtx) => ArmedState | null
+> = {
+  session: (ctx) => (ctx.session === null ? null : { does: "session" }),
+  pendingStamp: (ctx) => {
+    const pending = ctx.pendingStamp;
+    return pending === null
+      ? null
+      : { does: "stampRegion", generator: pending.id };
+  },
+  gesture: (ctx) =>
+    ctx.gesture === null ? null : { ...ARMED_BY_GESTURE[ctx.gesture] },
+  // THE FLOOR, which is what makes the walk total — `STATUS_PRECEDENCE`'s own docblock says
+  // the effect is what everything else shadows, and a brush with no gesture over it is
+  // exactly the state nothing else claims.
+  effect: () => ({ does: "brush" }),
+};
+
+/**
+ * **The join the agent used to be asked to perform** — three chrome facts, one answer
+ * (foundations T4c, Task 5). {@link ArmedState} carries what it is for and why it replaced a
+ * pair of fields; what belongs here is the ORDER and its authority.
+ *
+ * **THE ORDER IS IMPORTED, NOT RESTATED.** {@link STATUS_PRECEDENCE} on the neutral floor
+ * already declares it — *"a session shadows a pending stamp, which shadows the gesture, which
+ * shadows the armed effect"* — and it is already LOAD-BEARING there: `deriveArmedKeymap` walks
+ * it to produce the status bar's keymap line, which is the other surface the human reads. A
+ * hand-written cascade here would have been a third parallel spelling of one fact, which the
+ * project's single-source rule names as the smell it is. Walking the same tuple also converts
+ * the maintenance instruction below into a COMPILE ERROR for two of its three sites: a fifth
+ * member added to that tuple leaves {@link ARMED_STATE} missing a key.
+ *
+ * **A THIRD SHADOW LANDS IN THREE PLACES, and only two of them can be made to fail the
+ * build.** The tuple + this table are the pair the compiler binds. The third is
+ * `lib/actions.ts`'s `idle` — `session === null && pendingStamp === null`, which the tool
+ * rail renders its pressed state from — and it stays hand-kept on purpose: it answers a
+ * BOOLEAN ("is the staged grammar idle"), so it cannot express an order at all, and rewriting
+ * it in terms of this table would make a gate's refusal depend on the wire's vocabulary. Its
+ * docblock names this site and the tuple; this one names it back.
+ *
+ * BETWEEN THE TWO SHADOWS the order is a reading order and not a priority: they are mutually
+ * exclusive by construction — `field-machine.ts`'s `startStamp` cancels any live session
+ * before arming region-draw, and clears any arm before opening a session, *"which is what
+ * lets each surface pick one to name"*.
+ */
+function armedFrom(ctx: ActionCtx): ArmedState {
+  for (const state of STATUS_PRECEDENCE) {
+    const armed = ARMED_STATE[state](ctx);
+    if (armed !== null) return armed;
+  }
+  // Unreachable: `effect` is the floor and never answers null. A throw rather than a cast,
+  // so a reordering that drops it off the end fails loudly instead of answering a lie —
+  // `deriveArmedKeymap`'s own ending, for its reason.
+  throw new Error("session-answerers: no arm for the armed state");
+}
+
+/**
  * Project the chrome's mirrors into the wire's {@link SessionState} — **React-free, and
  * testable without a component**, which is the same split `lib/actions.ts` keeps from
  * `hooks/useActionContext.tsx`: what an answer IS lives here, what it can SEE is assembled
@@ -118,11 +212,17 @@ export type SessionStateInput = {
  * up" are the same fact, and asking `EditorState.status` beside it would be a second
  * spelling of one thing that could disagree.
  *
- * Every other member is a PICK. Nothing here computes, sorts, formats or falls back, and
- * that is the property worth keeping: a projection that derived anything would be a place
- * where the agent's picture and the human's screen could differ. The two `=== true` reads
- * on the entity are the only conversions, and they turn the host's absent-means-false
- * spelling into the booleans `shared/wire.ts` states it relays.
+ * Every other member is a PICK, with ONE deliberate exception. Nothing here sorts, formats or
+ * falls back, and that is the property worth keeping: a projection that derived things freely
+ * would be a place where the agent's picture and the human's screen could differ. The two
+ * `=== true` reads on the entity are the only conversions, and they turn the host's
+ * absent-means-false spelling into the booleans `shared/wire.ts` states it relays.
+ *
+ * **THE EXCEPTION IS `armed`, AND IT IS THE ONE MEMBER THAT MUST BE DERIVED** ({@link
+ * armedFrom}). The argument is the inverse of the rule above, which is why it does not weaken
+ * it: leaving that join to the reader is exactly how the agent's picture and the human's
+ * screen came to differ at the T4b gate. Picking three fields and letting the far end combine
+ * them is not "not deriving" — it is deriving in the one place where the rule is invisible.
  */
 export function sessionState({
   ctx,
@@ -157,12 +257,15 @@ export function sessionState({
     // reason is written here rather than re-derived by whoever adds the second caller.
     // Pinned by identity in `tests/chrome/session-state.test.tsx`.
     world: { ...ctx.world },
-    tool: {
+    // THE ONE DERIVED MEMBER, and the reason is in this function's docblock and in
+    // `ArmedState`'s. The two beneath it are the PICKS it is built from — a `brush` that says
+    // what a stroke would do, and an `armed` that says whether a stroke is what LMB does.
+    armed: armedFrom(ctx),
+    brush: {
       effect: ctx.tool.effect,
       materialId: ctx.tool.materialId,
       mask: { ...ctx.tool.mask },
     },
-    gesture: ctx.gesture,
     session:
       session === null
         ? null
@@ -233,7 +336,10 @@ export type ActionDispatch = (
 ) => Promise<ActionResult>;
 
 /**
- * The full registry: the base rows plus `session.state`, over a reader the shell fills.
+ * The full registry: the base rows plus everything a claimed tab can be asked — the reads
+ * (`session.state`, `viewport.capture`, `session.query`), the writes (`edit.apply`,
+ * `generate`, `action.run`) and the one verb that is neither (`session.interrupt`) — over
+ * three refs the shell fills.
  *
  * A FACTORY OVER A REF, which is the shape T4b Task 3 predicted when it said the moving
  * version would still have one honest thing to spread. The wire mounts at `App`
@@ -459,6 +565,50 @@ export function createSessionAnswerers(
       // `view` does one row up. If they ever diverge the compiler says so here, which is
       // the whole value of not casting.
       return engine.generate(req);
+    },
+    // THE ESCAPE KEY, AS A VERB (foundations T4c, Task 5) — and the only row here whose
+    // subject is the human's own interaction rather than the world.
+    //
+    // IT DRAINS ONE RUNG AND SAYS SO. `FieldHost.escape` cancels the most recent standing
+    // thing and exactly one: a half-drawn box or segment anchor, a pending stamp arm, the
+    // live session, the selected entity, the cell selection. An agent that has left two of
+    // those standing calls this twice, which is the same bargain the human's Esc key makes
+    // and is why this is not `session.cancelEverything` — a verb that drained the stack
+    // would take away states the HUMAN put there, and nothing in the payload would have told
+    // the agent it was about to.
+    //
+    // WHAT IT CANNOT INTERRUPT is worth stating at the door, because the name invites the
+    // question: not a bake, not a save, not an analyzer pass. None of those is expressible
+    // at head — there is no `AbortController` anywhere in this editor — and a verb that
+    // accepted the call and did nothing would be worse than one that does not exist. What
+    // stands between an agent and a stuck bake is the ask budget, which answers
+    // `session-timeout` and says so.
+    //
+    // THE REFUSAL IS `inert` AND ITS SENTENCE IS THE WHOLE ANSWER. Nothing standing is not a
+    // failure and not a bad request: it is the verb finding nothing to act on, which is that
+    // class's own definition ("changing the state changes the answer, but the caller must
+    // change SOMETHING"). It refuses rather than answering `ok` because an agent driving a
+    // sequence needs to know whether the state it was clearing was ever there — a silent
+    // no-op reads as "the session is closed" to a caller that never saw one open.
+    //
+    // NO PAYLOAD ON SUCCESS, deliberately: what was drained is `session.state`'s answer, one
+    // read away, and inventing a second vocabulary for it here (the stack's entry LABELS are
+    // debug strings — `input-router.ts` says nothing routes on them) would be a contract
+    // built out of something explicitly declared not to be one.
+    "session.interrupt": (): ActionResult => {
+      const engine = host.current;
+      if (engine === undefined) return noEngine();
+      // NAMED rather than tested inline: `escape` is a command that also answers, so a
+      // `if (!engine.escape())` would hide the mutation inside a negated condition — the
+      // command/query split the house rules ask to be spelled out where a verb has to be
+      // both.
+      const cancelled = engine.escape();
+      if (!cancelled)
+        return refused(
+          "nothing to interrupt — no session, stamp arm, half-drawn gesture or selection is standing",
+          "inert",
+        );
+      return ACTION_OK;
     },
     // THE NAMED-VERB DOOR, and the only row that goes through the dispatcher — because it
     // is the only one whose subject is the ACTION TABLE rather than the engine. An agent

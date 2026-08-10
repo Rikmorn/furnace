@@ -451,3 +451,37 @@ test.skipIf(!bunWebGpuAvailable())(
     }
   },
 );
+
+test.skipIf(!bunWebGpuAvailable())(
+  "the FACADE verb answers whether it cancelled anything — `session.interrupt`'s whole branch",
+  async () => {
+    // The agent's Esc (foundations T4c). Every case above drives the CANVAS keydown, which is
+    // the human's route; the answerer row reaches `FieldHost.escape` directly, and the
+    // boolean it returns is the entire difference between "I closed your session" and
+    // "nothing was standing" in the answer an agent reads
+    // (`frontend/lib/session-answerers.ts`'s `session.interrupt`).
+    //
+    // PINNED AGAINST A REAL HOST because nothing else can: the answerer's own suite stubs
+    // `escape` with a canned boolean, so it pins the branch and not the fact. Here the
+    // session is genuinely live, genuinely cancelled, and the second call genuinely finds an
+    // empty stack.
+    const f = await escapeFixture();
+    try {
+      f.host.selectEntity(HALL_ENTITY_ID);
+      f.host.openEntity(HALL_ENTITY_ID);
+      expect(f.sessions.at(-1)).not.toBeNull();
+
+      expect(f.host.escape()).toBe(true);
+      expect(f.sessions.at(-1)).toBeNull();
+
+      // ONE RUNG, and this is where that limit is visible: the entity the session was opened
+      // on is still selected, so a second call has something to cancel and says so — and a
+      // third, with the stack finally empty, is the `false` the verb refuses on.
+      expect(f.entitySelections.at(-1)).toBe(HALL_ENTITY_ID);
+      expect(f.host.escape()).toBe(true);
+      expect(f.host.escape()).toBe(false);
+    } finally {
+      f.teardown();
+    }
+  },
+);

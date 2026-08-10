@@ -50,6 +50,7 @@ import {
 	capOf,
 	groupTitle,
 } from "../../src/frontend/lib/actions.ts";
+import { createAgentPresence } from "../../src/frontend/lib/agent-presence.ts";
 import { SESSION_VERBS } from "../../src/frontend/lib/field-session.ts";
 import { notify, TOAST_TTL_MS } from "../../src/frontend/lib/notify-store.ts";
 import {
@@ -909,6 +910,64 @@ test("the status chips render what the host pushes, and idle quiet", async () =>
 		);
 	});
 	expect(screen.queryByText(/analyzer/)).toBeNull();
+});
+
+test("the agent chip appears only once an agent has run a verb, and never announces", async () => {
+	// PRESENCE-LITE (T4c). ABSENT is the state a solo human is in for their whole session, and
+	// a chip that were always there for it would be a permanent affordance for nothing — the
+	// same rule the ⚠ and analyzer chips are built on. Asserting that as an ABSOLUTE is only
+	// honest because the store is the CONTEXT's — a module singleton would carry whatever an
+	// earlier test file's agent did into this case, which is exactly how the first cut of this
+	// shipped and was caught (`lib/agent-presence.ts`).
+	fetch404();
+	const stub = makeStubHost();
+	const presence = createAgentPresence();
+	render(
+		<EditorContext.Provider
+			value={makeEditorContext({
+				fieldHostRef: { current: stub.host },
+				agentPresence: presence,
+			})}
+		>
+			<Shell />
+		</EditorContext.Provider>,
+	);
+	await flushCatalog();
+	// `/^agent/` WITHOUT the trailing space, and the space is not a typo I removed — it made
+	// this assertion vacuous against the very guard it protects. With `verb === null` the chip
+	// renders `"agent "`, which the default normalizer TRIMS to `"agent"`, so `/^agent /` misses
+	// it: deleting `if (verb === null) return null;` from `AgentChip` left this whole suite
+	// green while a solo human got a permanent `agent 0` chip. Measured, not reasoned.
+	expect(screen.queryByText(/^agent/)).toBeNull();
+
+	// This stands in for the frame that would have arrived — the seam that records it is
+	// pinned end to end in `tests/chrome/session-answer.test.tsx`. `act` because the chip is
+	// a `useSyncExternalStore` subscriber.
+	act(() => {
+		presence.ran("edit.apply");
+	});
+	// The chip's own text carries the CONTEXT ("agent"), the verb and the count — a `title`
+	// cannot (D-25: an authored one may name, never document), so the sentence is the visible
+	// text or it is nowhere.
+	expect(screen.getByText(/^agent edit\.apply/)).toBeTruthy();
+
+	// NO LIVE REGION, deliberately, and this is where that decision is held: an agent polling
+	// `session_state` would otherwise announce itself to a screen-reader user several times a
+	// minute.
+	//
+	// WATCHED AT THE CHIP AND AT THE FOOTER, because either alone is a hole. The footer query
+	// is `[aria-live]` on ANY element and not `div[aria-live='polite']`: the chip is a
+	// `<span>`, so the div-scoped version passed with `aria-live="polite"` added straight to
+	// it — the decision this comment claims to hold was not being held by anything. The
+	// element assertion is the direct one; the footer count is what catches a region added
+	// somewhere else in the bar ON the agent's behalf.
+	const chip = screen.getByText(/^agent edit\.apply/);
+	expect(chip.closest("[aria-live]")).toBeNull();
+	const bar = screen.getByRole("contentinfo");
+	const announced = [...bar.querySelectorAll("[aria-live]")].map(
+		(el) => el.textContent,
+	);
+	expect(announced).toEqual(["", ""]);
 });
 
 test("the status bar keeps the engine label and its live region", async () => {

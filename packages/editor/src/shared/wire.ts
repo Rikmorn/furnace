@@ -136,8 +136,8 @@ export type SessionAnswer =
  * **`view` IS THE REAL UNION, WHICH IS THE ONE EXCEPTION TO THIS FILE'S `string` RULE** —
  * and the exception proves the rule rather than bending it. {@link SessionState}'s
  * string-typed members are `string` because their closed unions live BEHIND the engine
- * (`tool.effect` is core's, `gesture` is the host's), so a declaration here could only ever
- * be a hand-copy that drifts. {@link CaptureView} lives on this same neutral floor
+ * (`brush.effect` is core's, `armed`'s `selectCells` mode is the host's), so a declaration
+ * here could only ever be a hand-copy that drifts. {@link CaptureView} lives on this same neutral floor
  * precisely so it does not have to be copied: the host, this wire and the daemon's zod enum
  * all read `shared/capture.ts` today, and the MCP door's JSON Schema joins them at Task 6. The rule was never
  * "don't type unions" — it is "don't copy a union you cannot import".
@@ -310,6 +310,78 @@ export type SessionQueryRequest =
     };
 
 /**
+ * **WHAT LMB DOES RIGHT NOW — the ONE member that answers "what is armed"** (foundations
+ * T4c, Task 5).
+ *
+ * IT EXISTS BECAUSE THE COMPOSITE WAS MISREAD LIVE, by an agent, at the T4b gate walk. The
+ * payload then carried `tool: {effect: "dig", …}` beside `gesture: "pointer"`; the agent
+ * reported "dig armed" and the human was looking at a screen with nothing armed but the
+ * Select button. **Both fields were truthful and the JOIN was the whole answer** — `gesture`
+ * was the arming fact and `tool` was the DORMANT brush configuration — and the rule for
+ * joining them lived in a chrome hook's docblock the agent cannot see
+ * (`frontend/hooks/useFieldHostState.tsx`, `FieldToolState.gesture`). A payload that requires
+ * a rule its reader has no access to is a payload that will be read wrong; this member is
+ * that join, performed once, by the side that holds the rule.
+ *
+ * **IT REPLACES `gesture` RATHER THAN JOINING IT**, and that is the half that makes it work.
+ * Keeping both would leave the misreading available and add a third field to disagree over —
+ * two ways to spell one thing, which is the smell this repo's own design rule names. So the
+ * projection derives this and the wire carries no gesture slot at all. The dormant
+ * configuration keeps its own member and is NAMED for its dormancy
+ * ({@link SessionState.brush}).
+ *
+ * **THREE FACTS, NOT TWO, and the backlog entry that asked for this member named only two.**
+ * The chrome's own arming predicate joins the STAGED GRAMMAR as well as the gesture slot
+ * (`frontend/lib/actions.ts`'s `idle`: *"Either one owns the interaction, so no gesture
+ * family reads as armed while one stands"*). A live session and a pending stamp arm each
+ * SHADOW the gesture slot — LMB routes to them first while they stand, and the slot goes on
+ * naming what the button does underneath (`field-host.ts`'s `PendingStamp` states exactly
+ * that, and it is why the arm is not a gesture member). A member that re-spelled `gesture`
+ * alone would have reproduced
+ * the identical misreading in exactly the states an agent's own verbs create. The two shadows
+ * are mutually exclusive by construction — `startStamp` cancels any session before arming and
+ * clears any arm before opening one (`field-machine.ts`) — so their order here is a reading
+ * order, not a priority.
+ *
+ * A DISCRIMINATED UNION rather than a flat string, for one reason: two arms carry a fact of
+ * their own, and folding those into the discriminant would put a host union's members INTO
+ * this wire's vocabulary — the copy this file's own `string` rule refuses. `mode` and
+ * `generator` stay `string` for that rule; `does` is this file's own closed vocabulary and
+ * cannot go stale, because the projection builds it from an EXHAUSTIVE map over the host's
+ * gesture union (`frontend/lib/session-answerers.ts` — a new host gesture stops the build).
+ */
+export type ArmedState =
+  /** A stamp/reconfigure/move session owns the staged grammar, and **the brush is SUSPENDED
+   *  under it** — a stroke would carve the very rock the ghost is being fitted to, so the
+   *  press is refused out loud instead. The verbs are the session's own: ⏎ applies, Esc
+   *  discards. {@link SessionState.session} carries which session it is.
+   *
+   *  **IT DOES NOT MEAN LMB IS STEERING THE GHOST**, and that clause was in this docblock
+   *  until it was checked: only a MOVE session is steered by the pointer. What is suspended
+   *  is the brush and the segment commit (`field-machine.ts`'s `suspendedByStamp`, whose own
+   *  comment says selection gestures are deliberately NOT), and opening a session never
+   *  clears the gesture slot — so after the ordinary flow *box-select a region, then pick a
+   *  generator*, an LMB press still starts a new cell box.
+   *
+   *  **The slot underneath is deliberately NOT reported while this arm stands.** It is what
+   *  LMB goes back to, not what it does now, and re-exposing it here would rebuild the very
+   *  composite this member exists to remove. Ending the session makes it the answer again. */
+  | { does: "session" }
+  /** A stamp is armed and LMB is drawing the REGION it will fill — two clicks span it. */
+  | { does: "stampRegion"; generator: string }
+  /** Click selects the committed ENTITY under the cursor. The default a fresh editor opens
+   *  on, and the state the T4b gate misread as "dig armed". */
+  | { does: "selectEntity" }
+  /** Click drags a CELL selection — `mode` is the host's own selection kind (`box` and the
+   *  two floods). */
+  | { does: "selectCells"; mode: string }
+  /** The two-click swept capsule: anchor, then commit ONE segment op with the brush's own
+   *  effect and material. A BRUSH gesture — {@link SessionState.brush} is live under it. */
+  | { does: "segment" }
+  /** LMB strokes the brush, with {@link SessionState.brush} exactly as it reads. */
+  | { does: "brush" };
+
+/**
  * What `session.state` answers — **the first method with a payload worth naming**, and the
  * shape an agent forms its picture of a live editing session from (foundations T4b).
  *
@@ -363,13 +435,29 @@ export type SessionQueryRequest =
  * a form needs to render a param sheet. There is no `response_format` flag and no verbose
  * arm — one caller, and a second shape is worth building when a second caller wants one.
  *
- * THE STRING-TYPED MEMBERS (`tool.effect`, `gesture`, `session.phase`, `mask.kind`) ARE
+ * THE STRING-TYPED MEMBERS (`brush.effect`, `armed`'s `mode` and `generator`,
+ * `session.phase`, `mask.kind`) ARE
  * `string` RATHER THAN RESTATED UNIONS, and that is the anti-drift choice rather than a lazy
  * one. Each has a closed union on the host side that this file cannot import; a hand-copy
  * would be a second declaration the host can widen without this one noticing, and a reader
  * that switched on the copy would silently lose an arm. `string` cannot go stale. The
  * hand-mirror filing this module's header names (`wire-contracts-are-hand-mirrored.md`) is
  * about types that SHOULD be shared; these are types that should not be copied at all.
+ *
+ * {@link ArmedState.does} IS THE ONE CLOSED UNION IN THIS PAYLOAD, and it is not a
+ * counter-example: it is this file's OWN vocabulary rather than a copy of anybody's, and the
+ * projection that produces it is exhaustive over the host union it derives from, so the
+ * drift this rule guards against is a compile error rather than a silent widening.
+ *
+ * MIGRATION (until T4c Task 6): **THIS PAYLOAD OWES ITS READER ONE SENTENCE THE DOOR DOES NOT
+ * YET CARRY.** The `session_state` tool description and `MCP_INSTRUCTIONS` (`daemon/mcp.ts`)
+ * still say *"which tool and gesture are armed"* — two members that no longer exist — and the
+ * agent-facing prose is precisely where the T4b misreading came from. What that row must carry
+ * is the RULE, not the member list: **`armed` is what LMB does right now; `brush` is a dormant
+ * setting and is not a claim that anything is armed.** A door that lists the fields without
+ * that sentence hands the next agent the same join to get wrong. The marker is the convention
+ * `AGENTS.md` names for exactly this — `grep -rn "MIGRATION (until T4c Task 6)" packages/`
+ * surfaces this and the interrupt row's twin, and both delete when the door is rewritten.
  */
 export type SessionState =
   | {
@@ -416,15 +504,22 @@ export type SessionState =
        *  load) is running. `name` is `null` for the untitled scratch — the same null the
        *  claim table keys on. */
       world: { name: string | null; dirty: boolean; busy: boolean };
-      /** What the brush is armed to do. `mask` carries its `classId` only for the
-       *  class-filtered kind, exactly as the host's own union does. */
-      tool: {
+      /** **WHAT LMB DOES RIGHT NOW.** Read this before reading {@link SessionState.brush} —
+       *  see {@link ArmedState} for the misreading it exists to end. */
+      armed: ArmedState;
+      /** **THE STANDING BRUSH CONFIGURATION — what a stroke WOULD do, armed or not.** It is
+       *  a SETTING and not a state of the interaction: it reads the same whether the brush
+       *  is what LMB strokes (`armed.does === "brush"`), what a segment sweeps
+       *  (`"segment"`), or nothing at present (every other arm). It was called `tool` until
+       *  T4c, which is the name that got read as "the tool in hand".
+       *
+       *  `mask` carries its `classId` only for the class-filtered kind, exactly as the
+       *  host's own union does. */
+      brush: {
         effect: string;
         materialId: number;
         mask: { kind: string; classId?: number };
       };
-      /** What LMB is armed for, or `null` when it strokes the brush. */
-      gesture: string | null;
       /** The live stamp / reconfigure / move session, or `null` between sessions. `params`
        *  are deliberately absent: they are a generator-shaped bag whose schema only the
        *  stamp form knows, and an agent that wants them is asking a different question. */

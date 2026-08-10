@@ -582,7 +582,13 @@ const TRANSIENT_STATUS = {
  *
  *  A table-level constant rather than a row fact, because it is a statement about the rows
  *  rather than about any one of them — and it is LOAD-BEARING rather than documentary:
- *  {@link deriveArmedKeymap} walks it. The tone leaves with the text for the same reason a
+ *  {@link deriveArmedKeymap} walks it. **TWO readers since foundations T4c**, which is the
+ *  reason to add a state HERE rather than in either of them: `frontend/lib/session-answerers.ts`'s
+ *  `ARMED_STATE` walks this same tuple to answer `SessionState.armed` for an agent, so the
+ *  keymap line the human reads and the payload the agent reads take their order from one
+ *  declaration and a new member is a compile error in both tables. (A third site obeys the
+ *  same rule and cannot be bound to it: `frontend/lib/actions.ts`'s `idle` is a boolean and
+ *  carries the full instruction.) The tone leaves with the text for the same reason a
  *  renderer that re-derived "is this over the cap?" from the measurement alone toned lines
  *  the segment was not even the subject of — a session opening over a pending point painted
  *  "⏎ commit · Esc discard" as a refusal. One order, one answer, one tone. */

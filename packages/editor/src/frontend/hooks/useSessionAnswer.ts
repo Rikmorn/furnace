@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { SessionRequest } from "../../shared/wire.ts";
+import type { AgentPresenceStore } from "../lib/agent-presence.ts";
 import { api } from "../lib/api.ts";
 import { errorMessage } from "../lib/humanize.ts";
 import type { SessionAnswerers } from "../lib/session-answerers.ts";
@@ -9,12 +10,23 @@ import type { SessionAnswerers } from "../lib/session-answerers.ts";
  * arrives on this tab's feed, a handler answers it, and the answer goes back as a POST
  * correlated by the request's own id.
  *
- * **INVISIBLE BY CONSTRUCTION.** Nothing here renders, notifies or mutates chrome state,
- * and that is a requirement rather than an accident: this tranche's human-visible surface
- * was fixed by the claim (a steal prompt, a claim-lost cover, three toasts), and a question
- * an agent asks about the session must not announce itself to the person sitting in it. A
- * failure to answer is likewise silent HERE and loud at the other end — the ask rejects
- * with a typed error the caller reads, which is who the failure is about.
+ * **NOTHING HERE INTERRUPTS THE HUMAN, and since T4c that is narrower than "invisible".**
+ * The rule this seam was built on stands unchanged and is the important half: an agent's
+ * question — and any refusal it earns — must not announce itself to the person sitting in the
+ * tab. A refusal is about the ASKER, is answered to the asker, and is something a human who
+ * did not ask cannot act on. So no toast, no dialog, no error line, either way.
+ *
+ * What changed is that T4b's agent could only READ, and T4c's can dig, generate, run verbs
+ * and interrupt. A world changing under someone with no indication that anyone else is
+ * working in it is a worse silence than the one this rule was written against — so the seam
+ * records **presence-lite**: that a verb ran, and which one (`lib/agent-presence.ts`, which
+ * carries the whole argument and the list of things it deliberately is not). It records no
+ * outcome, so the quiet-refusals rule is kept by the SHAPE of the seam rather than by care
+ * here — there is nothing to pass.
+ *
+ * **RECORDED AFTER THE LOOKUP, NEVER BEFORE**, which is the one ordering fact in this
+ * function: a method the registry does not serve is refused below and never runs, and putting
+ * it on the status bar would name a verb this editor did not perform.
  *
  * WHY IT MOUNTS AT `App` rather than beside `useActionContext`, which is where the facts
  * a richer method would need are already latched. Two reasons, and the second is the one
@@ -39,10 +51,16 @@ import type { SessionAnswerers } from "../lib/session-answerers.ts";
  * same rule, and the same cost, that `SessionFeed` states for itself. A module constant
  * (today's `BASE_ANSWERERS`) or a `useMemo` satisfies it; an object literal at the call
  * site does not.
+ * @param presence - where a served method is recorded (`lib/agent-presence.ts`). STABLE for
+ * `answerers`' reason exactly — it lands in the same dep list — which `App` satisfies by
+ * holding it in `useState`. Passed rather than imported, because a module singleton would be
+ * one store shared by every shell in the process; that module's header carries the argument
+ * and the bug that made it.
  * @returns the feed's `session-request` handler.
  */
 export function useSessionAnswer(
   answerers: SessionAnswerers,
+  presence: AgentPresenceStore,
 ): (request: SessionRequest) => void {
   return useCallback(
     (request: SessionRequest) => {
@@ -93,6 +111,13 @@ export function useSessionAnswer(
         );
         return;
       }
+      // PRESENCE-LITE (T4c): a verb this tab really serves is about to run. Here rather than
+      // at the top of the callback for the reason the header states — the refusal above is
+      // not a verb — and before the call rather than after it because an answer may be a
+      // promise: recording on settle would leave the indicator silent for the whole of a
+      // capture or a generate, which are exactly the two the human most wants to know about
+      // while they are happening.
+      presence.ran(request.method);
       // A handler that fails is the same failure as a method that is missing, from the
       // asker's side: no answer is coming. Converting it here is what keeps "never a hang" a
       // property of the SEAM rather than a promise each future handler has to keep for
@@ -127,6 +152,6 @@ export function useSessionAnswer(
         refuse(failed(err));
       }
     },
-    [answerers],
+    [answerers, presence],
   );
 }

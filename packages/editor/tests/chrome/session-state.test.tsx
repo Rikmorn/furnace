@@ -165,15 +165,18 @@ test("a mounted chrome answers what its mirrors actually hold", async () => {
 		ready: true,
 		cursor: "rev-0",
 		world: { name: null, dirty: false, busy: false },
-		tool: {
+		// THE T4b MISREADING, AS THE BASELINE ANSWER (T4c Task 5). A fresh session arms
+		// select-by-click — the chrome's own default, `"pointer"` and not `null` — while the
+		// brush is configured to DIG and is armed to do nothing at all. Those two facts used to
+		// arrive as `gesture` and `tool`, and an agent joined them wrong, live, at the T4b gate
+		// walk. `armed` IS the join now, and this pair is the whole of what it had to fix:
+		// select-by-click, beside a dig nobody may read as armed.
+		armed: { does: "selectEntity" },
+		brush: {
 			effect: DEFAULT_TOOL.effect,
 			materialId: DEFAULT_TOOL.materialId,
 			mask: DEFAULT_TOOL.mask,
 		},
-		// `"pointer"`, not `null`: a fresh session arms select-by-click, and the chrome owns
-		// that state. Asserting the chrome's real default rather than the type's quietest
-		// value is the whole point of reading the mirrors.
-		gesture: "pointer",
 		session: null,
 		selection: null,
 		selectedEntity: null,
@@ -204,7 +207,7 @@ test("every mirror the payload names moves the answer", async () => {
 	});
 
 	const state = ready(ask());
-	expect(state.tool).toEqual({
+	expect(state.brush).toEqual({
 		effect: "fill",
 		materialId: 2,
 		mask: DEFAULT_TOOL.mask,
@@ -270,6 +273,12 @@ test("the live SESSION and the selected ENTITY are projected, not passed through
 		mode: "reconfigure",
 		entityId: 3,
 	});
+	// AND THE SESSION SHADOWS THE GESTURE SLOT, through the real seam. The chrome's gesture
+	// cell still says `"pointer"` here — nothing cleared it, and nothing should: it names what
+	// LMB will do again once the session ends. What LMB does NOW is steer the ghost, which is
+	// what `armed` has to say, and the slot underneath it is exactly the fact an agent must not
+	// be handed to interpret (`shared/wire.ts`'s `ArmedState`).
+	expect(state.armed).toEqual({ does: "session" });
 	// `frozen` is FALSE rather than absent: the host spells "not frozen" by leaving the key
 	// off, and a relayed wire should not make a reader reason about a missing key.
 	expect(state.selectedEntity).toEqual({
@@ -277,6 +286,29 @@ test("the live SESSION and the selected ENTITY are projected, not passed through
 		generator: "hall",
 		frozen: false,
 		baked: true,
+	});
+});
+
+test("a PENDING STAMP ARM shadows the gesture slot, and names its generator", async () => {
+	// The second shadow, and the one the backlog entry that asked for `armed` did not name:
+	// a stamp picked with nothing selected arms REGION-DRAW, LMB routes there first, and the
+	// gesture slot goes on saying `"pointer"` underneath it (`field-host.ts`'s `PendingStamp`:
+	// "the arm is modal ON TOP of the gesture"). Driven through the real `subscribePendingStamp`
+	// seam, so what is pinned is the whole wiring — host seam → latch → `ActionCtx.pendingStamp`
+	// → the payload — and not just the join's arithmetic.
+	const stub = makeStubHost();
+	const { ask } = await mountSession(stub);
+	expect(ready(ask()).armed).toEqual({ does: "selectEntity" });
+
+	act(() => {
+		stub.fire.pendingStamp({ id: "hall", name: "Hall" });
+	});
+
+	// The ID rather than the display name: it is what `generate` and `tool.stamp` take, so it
+	// is the half a caller can act on.
+	expect(ready(ask()).armed).toEqual({
+		does: "stampRegion",
+		generator: "hall",
 	});
 });
 
@@ -299,7 +331,12 @@ test("the payload is a COPY — no member aliases live chrome state", async () =
 	// Two answers, two records, all the way down — so a caller that mutates what it was
 	// given cannot reach the chrome's state or the next reader's answer.
 	expect(a.world).not.toBe(b.world);
-	expect(a.tool.mask).not.toBe(b.tool.mask);
+	expect(a.brush.mask).not.toBe(b.brush.mask);
+	// …and the DERIVED member is a fresh record too, which is the one this rule did not
+	// previously have to cover: `armed` is spread off a module constant, so an alias here
+	// would let a caller mutating its answer corrupt every later answer in the tab rather
+	// than just the next one.
+	expect(a.armed).not.toBe(b.armed);
 	expect(a.history.tail).not.toBe(b.history.tail);
 	// …and the tail is not the array the host published either.
 	expect(a.history.tail).not.toBe(pushed.undo);

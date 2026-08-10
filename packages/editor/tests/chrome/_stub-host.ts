@@ -275,6 +275,11 @@ export function makeStubHost(
   // without a GPU: the seed decision is chrome-side arithmetic over this one number,
   // and a stub that could only ever say `null` would make the seeded branch unreachable.
   let occupiedTop: number | null = null;
+  /** What `escape()` answers — whether the Esc stack had anything to cancel. `true` by
+   *  default: the real host opens with the entity-selection rung standing, and a stub whose
+   *  Esc always reported "nothing there" would make the interrupt verb's SUCCESS path
+   *  unreachable. `setEscapeCancels(false)` is how a case reaches the other branch. */
+  let escapeCancels = true;
   /** What `cameraAimedByHand()` answers. `false` is the honest default for a stub
    *  nobody has dragged; `setCameraAimed` below is for the cases that need the other
    *  branch of the chrome Open's automatic frame (`hooks/useWorld.tsx` — NOT
@@ -304,7 +309,7 @@ export function makeStubHost(
     commitStamp: mock(),
     confirmSession: mock(),
     cancelStamp: mock(),
-    escape: mock(),
+    escape: mock(() => escapeCancels),
     undo: mock(),
     redo: mock(),
     clearSelection: mock(),
@@ -605,6 +610,11 @@ export function makeStubHost(
     /** Set what `host.occupiedTopY()` will answer. `null` = nothing authored. */
     setOccupiedTopY: (y: number | null): void => {
       occupiedTop = y;
+    },
+    /** Set what `host.escape()` will answer — i.e. whether the Esc capture stack has
+     *  anything standing. */
+    setEscapeCancels: (cancels: boolean): void => {
+      escapeCancels = cancels;
     },
     /** Set what `host.cameraAimedByHand()` will answer — the guard on the chrome
      *  Open's automatic frame, so this is how a case reaches the "the user has arranged

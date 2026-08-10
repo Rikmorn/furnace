@@ -627,6 +627,56 @@ export function createSessionHandlers(
     },
   });
 
+  // THE ESCAPE KEY, AS A COMMAND (foundations T4c, Task 5) — and the only relayed verb whose
+  // subject is the human's INTERACTION rather than their world.
+  //
+  // NO INPUT, and `z.strictObject({})` rather than a permissive schema for `session.state`'s
+  // reason: there is exactly one thing this can cancel (the most recent), so a parameter
+  // naming WHAT to interrupt would be a promise the substrate cannot keep — the Esc stack is
+  // ordered by recency and addresses nothing by name. A caller that invented one is told so.
+  //
+  // NO BUDGET OF ITS OWN. The chrome's answer is a stack pop and a canonical setter; the
+  // default ask budget is more than that needs, and a shorter one would only make a busy tab
+  // look broken.
+  //
+  // MIGRATION (until T4c Task 6): **THIS VERB'S ROW OWES IT A LIMIT AND A DISPOSITION.**
+  //
+  // THE LIMIT, in one sentence: it drains ONE rung — the most recent standing thing — and it
+  // CANNOT stop a bake, a save or an analyzer pass, because nothing in this editor is
+  // abortable (there is no `AbortController` in the tree). A tool called `session_interrupt`
+  // that does not say that will be reached for by an agent trying to stop a long job, and the
+  // honest answer to that is the ask timeout, not this.
+  //
+  // THE DISPOSITION, because there are TWO spellings of this verb and the door must name one.
+  // `action.run {id: "session.escape"}` reaches the same `FieldHost.escape` — it is a registry
+  // row (the human's Cancel), it is never disabled, and it is not fenced. That overlap is
+  // structural rather than a slip: `action.run` is a door onto the whole 39-verb table by
+  // design, so every registry verb has a second spelling through it. The two are NOT
+  // equivalent, and the difference is the whole reason this command exists — `session.escape`
+  // hands off and answers `ok` whether or not anything was cancelled, because
+  // `handOffToHost`'s contract is that the host answers for itself on its own channel. This
+  // one reads the boolean and refuses. **So the row to advertise is this one, and
+  // `session.escape` should not be named in the `action_run` row's prose.** Neither may be
+  // "fixed" into the other: making the registry verb refuse would toast a persistent error at
+  // the HUMAN every time they press Esc with nothing standing (`sayResult` speaks a refusal,
+  // and errors hold the screen), which is exactly what that action's `enabled: () => true`
+  // and its "an Esc with nothing to cancel is a no-op rather than a refusal" comment protect.
+  // Fencing it would be worse — `FENCED_ACTIONS` means "an agent must not do this at all"
+  // (undo, pending attribution), and spending it on vocabulary would make the list mean two
+  // things. Recorded in `docs/reference/editor-architecture.md` §27.3.
+  handlers.set("session.interrupt", {
+    input: z.strictObject({}),
+    run: () => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to interrupt",
+        );
+      }
+      return session.backchannel.ask("session.interrupt", {});
+    },
+  });
+
   // The return path of the backchannel (`daemon/backchannel.ts`): a POST, through the same
   // `dispatch` validator every other command uses. It is not a second channel and could not
   // usefully be one — the request rides the SSE feed because that is the only pipe the

@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type { FieldHost } from "../../field-host/index.ts";
+import type { AgentPresenceStore } from "../lib/agent-presence.ts";
 import type { UiStore } from "../lib/persist.ts";
 import type {
   ActionDispatch,
@@ -161,6 +162,22 @@ export type EditorContextValue = {
    *  and because its readers are event handlers that must see the current value without
    *  re-binding. */
   viewportFocusRef: RefObject<ViewportFocus | null>;
+  /** PRESENCE-LITE (foundations T4c): what an agent has run in this tab, for the status
+   *  bar's chip. `lib/agent-presence.ts` carries what it records, what it deliberately does
+   *  not, and why the chrome says anything at all after T4b decided the backchannel would be
+   *  invisible.
+   *
+   *  A STORE AND NOT A REF, which is what separates it from the REFS above it (`state` is a
+   *  value and re-renders everything by itself; the refs carry something an event handler
+   *  reads at the moment it is asked and nothing re-renders for). This one has to make ONE
+   *  surface re-render when it moves and leave the rest alone, so it is
+   *  `useSyncExternalStore`'s shape — the same reason `notify` is a store — and it rides the
+   *  context for the reason `notify` does not:
+   *  it has exactly one writer (`useSessionAnswer`, at App) and one reader (`StatusBar`),
+   *  both inside one App, so a module singleton would be shared state with no owner. That is
+   *  not hypothetical — the first cut was one, and two chrome test files in one process read
+   *  each other's agent. */
+  agentPresence: AgentPresenceStore;
   /** Per-project UI persistence store. Undefined when the project root couldn't be
    *  resolved (persistence best-effort). */
   store: UiStore | undefined;

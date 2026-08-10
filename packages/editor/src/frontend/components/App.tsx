@@ -4,6 +4,7 @@ import { useConfirmDialog } from "../hooks/useConfirmDialog.ts";
 import { useDaemonFeed } from "../hooks/useDaemonFeed.ts";
 import { useSessionAnswer } from "../hooks/useSessionAnswer.ts";
 import { useSessionClaim } from "../hooks/useSessionClaim.ts";
+import { createAgentPresence } from "../lib/agent-presence.ts";
 import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
@@ -93,7 +94,14 @@ export function App() {
 		() => createSessionAnswerers(sessionStateRef, fieldHostRef, dispatchRef),
 		[],
 	);
-	const onSessionRequest = useSessionAnswer(answerers);
+	// PRESENCE-LITE (T4c): the one store this tab has. Created HERE — the seam that writes
+	// it is one line down and the chip that reads it is a leaf of the status bar, so App is
+	// the nearest owner of both. `useState` with the factory, never a module constant: the
+	// cells in `useFieldHostState.tsx` state the rule ("two shells in one process, which every
+	// chrome test file is, must not share"), and the first cut of this ignored it and had two
+	// test files reading each other's agent.
+	const [agentPresence] = useState(createAgentPresence);
+	const onSessionRequest = useSessionAnswer(answerers, agentPresence);
 
 	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders
 	// the world list — the world drawer is the first consumer.
@@ -176,6 +184,7 @@ export function App() {
 		sessionStateRef,
 		dispatchRef,
 		viewportFocusRef,
+		agentPresence,
 		store,
 	};
 

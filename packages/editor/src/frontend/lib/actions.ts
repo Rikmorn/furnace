@@ -1306,7 +1306,23 @@ export type ToolFamily = {
  *
  *  The pending arm and the session are deliberately ONE question here: a stamp picked
  *  with nothing selected is the same act as one picked with a selection, a click
- *  earlier in its life. */
+ *  earlier in its life.
+ *
+ *  **THE SHADOW RULE HAS THREE SITES AND THIS IS ONE OF THEM.** A third shadow — anything
+ *  that comes to own the interaction the way a session and a pending arm do — has to land in
+ *  all three, and only two of them can be made to fail the build:
+ *
+ *  1. `shared/action-table.ts`'s `STATUS_PRECEDENCE`, the ORDER itself, walked by
+ *     `deriveArmedKeymap` for the status bar's keymap line.
+ *  2. `frontend/lib/session-answerers.ts`'s `ARMED_STATE`, which walks that same tuple to
+ *     answer `SessionState.armed` — so a new member of (1) is a compile error in (2).
+ *  3. HERE, and this one the compiler cannot help with: `idle` is a BOOLEAN, so it cannot
+ *     express an order, and it is read by the tool rail's pressed state and by every
+ *     family's `armed`. Left behind, the rail would show a gesture family pressed under a
+ *     shadow the payload and the status line had both already learnt about.
+ *
+ *  It stays a hand-kept clause rather than being derived from (2): a gate's refusal must not
+ *  depend on the wire's vocabulary. `armedFrom`'s docblock names this site back. */
 const idle = (ctx: ActionCtx): boolean =>
   ctx.session === null && ctx.pendingStamp === null;
 

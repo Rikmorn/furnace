@@ -986,10 +986,38 @@ test("action.run builds NO allow-list — an unknown id is the CHROME's refusal,
   expect(relayed.method).toBe("action.run");
 });
 
-test("all three write commands answer `no-session` on a daemon with no feed", async () => {
+// --- session.interrupt: the Esc key, relayed --------------------------------
+
+test("session.interrupt RELAYS an empty ask, and refuses an invented parameter", async () => {
+  // NO INPUT AT ALL, and the schema is what says so out loud. There is exactly one thing the
+  // verb can cancel — the most recent — so a parameter naming WHAT to interrupt would be a
+  // promise the Esc stack cannot keep: it is ordered by recency and addresses nothing by
+  // name. `z.strictObject({})` is what turns an agent's guess into a sentence instead of a
+  // silently dropped field.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "session.interrupt", {});
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("session.interrupt");
+  expect(req.params).toEqual({});
+  // The chrome's answer travels back untouched, refusal and all — this one is the ordinary
+  // "nothing was standing", which is a REFUSAL rather than an error and must reach the caller
+  // as the value it is.
+  const payload = { ok: false, kind: "refused", because: "inert" };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+
+  expect(
+    await codeOf(dispatch(handlers, "session.interrupt", { what: "session" })),
+  ).toBe("invalid-input");
+});
+
+test("all four write commands answer `no-session` on a daemon with no feed", async () => {
   // The `session.state` rule, extended to the writes: a daemon with no event feed has no
-  // connections, so there is no session to edit, generate into or drive. That is the true
-  // answer rather than a stub.
+  // connections, so there is no session to edit, generate into, drive or interrupt. That is
+  // the true answer rather than a stub.
   const handlers = createSessionHandlers(undefined);
   expect(
     await codeOf(
@@ -1010,4 +1038,7 @@ test("all three write commands answer `no-session` on a daemon with no feed", as
   expect(
     await codeOf(dispatch(handlers, "action.run", { id: "edit.undo" })),
   ).toBe("no-session");
+  expect(await codeOf(dispatch(handlers, "session.interrupt", {}))).toBe(
+    "no-session",
+  );
 });

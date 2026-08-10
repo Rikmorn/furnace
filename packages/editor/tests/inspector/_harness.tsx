@@ -21,6 +21,7 @@ import {
 	EditorContext,
 	type EditorContextValue,
 } from "../../src/frontend/components/editor-context.ts";
+import { createAgentPresence } from "../../src/frontend/lib/agent-presence.ts";
 import type { UiStore } from "../../src/frontend/lib/persist.ts";
 import {
 	type EditorState,
@@ -46,6 +47,7 @@ type EditorContextOverrides = {
 	claimLostRef?: EditorContextValue["claimLostRef"];
 	sessionStateRef?: EditorContextValue["sessionStateRef"];
 	viewportFocusRef?: EditorContextValue["viewportFocusRef"];
+	agentPresence?: EditorContextValue["agentPresence"];
 	store?: UiStore;
 };
 
@@ -98,6 +100,11 @@ export function makeEditorContext(
 		// gets the real seam and one that renders a panel alone gets `null` — which every
 		// reader treats as "there is no canvas to hand focus back to".
 		viewportFocusRef: overrides.viewportFocusRef ?? { current: null },
+		// A FRESH presence store per context, and the default is the point: no agent has run
+		// anything in a tab a case just built, and the store is per-App precisely so one test
+		// file cannot read another's (`lib/agent-presence.ts` carries the bug that proved it).
+		// A case that wants to see the chip move passes its own and records into it.
+		agentPresence: overrides.agentPresence ?? createAgentPresence(),
 		store: overrides.store,
 	};
 }

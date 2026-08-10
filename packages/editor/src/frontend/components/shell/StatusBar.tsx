@@ -1,8 +1,9 @@
 // The shell's status bar: 28 px, opaque, fixed height — the other half of the canvas
 // cell's inset budget (see TopBar).
 //
-// It carries five things: the viewport keymap (left), the engine/error report, the ⚠
-// chip that summons the message log, the long-job readout, and the live host chips
+// It carries six things: the viewport keymap (left), the engine/error report, the ⚠
+// chip that summons the message log, the agent-presence chip (T4c), the long-job readout,
+// and the live host chips
 // (right). The chips come from `useFieldHostState`, which IS this file's subscription to
 // `subscribeStats` since T3b1 Task 7 — a per-consumer latch, carrying the value-equality
 // guard that keeps an idle field from re-rendering the chrome 60×/s. What must not appear
@@ -510,6 +511,59 @@ function longJobs(job: WorldJob | null, castPending: boolean): string[] {
 	return live;
 }
 
+/** PRESENCE-LITE (T4c): that an agent is working in this tab, and what it last ran.
+ *
+ *  WHY THE BAR SAYS IT AT ALL. T4b decided the backchannel would be invisible, and the half
+ *  of that decision which stands is about REFUSALS and questions — an agent's business must
+ *  not interrupt the person in the tab. What changed is that a T4c agent digs, generates and
+ *  runs verbs, and a world changing under someone with no sign that anyone else is here is a
+ *  worse silence than the one that rule was written against. `lib/agent-presence.ts` carries
+ *  the full argument and the list of what this deliberately is not.
+ *
+ *  WHAT IT SHOWS AND WHAT IT CANNOT. The last method's own wire name, and how many have run.
+ *  It cannot show an OUTCOME: the store takes none, so a refused `edit.apply` and an applied
+ *  one look identical here — which is the quiet-refusals ruling built into the shape rather
+ *  than remembered at the call site. No timestamp either, for the reason the store gives (an
+ *  agent that stops asking is indistinguishable from one that is thinking).
+ *
+ *  A `<span>`, like `JobChips` and for its reason: there is nothing to click, so none of
+ *  `INTERACTIVE_CHIP_CLASS`'s hover tint or focus ring — those are promises. NO ICON either,
+ *  and that is this bar's own convention rather than restraint for its own sake: the two
+ *  glyphs on it (⚠, the analyzer dot) are both on chips you can press, so an icon here would
+ *  read as a control. And NO live region, deliberately — an agent polling `session_state`
+ *  would announce itself to a screen-reader user several times a minute, which is the
+ *  definition of a notification nobody can use.
+ *
+ *  THE WORD "agent" IS IN THE VISIBLE TEXT, which is `SelectionChip`'s shape (`sel 42 cells`)
+ *  and is doing the job a tooltip would otherwise be asked to do. It cannot be asked: D-25's
+ *  machine-enforced clause is that an authored `title` may carry a NAME and never
+ *  documentation (`tests/frontend-no-doc-titles.test.ts` fails the build over one), and the
+ *  sentence this chip wanted — "an agent is working in this tab, N verbs run" — is
+ *  documentation by any reading. So the context goes where every reader gets it, including
+ *  the keyboard one a `title` never reaches.
+ *
+ *  FIRST in the right-anchored cluster, which is that group's own rule applied to the chip
+ *  whose text moves most often: an element's arrival — or its width changing — displaces only
+ *  what is to its LEFT, and to the left of this is the flex spacer. Every agent verb would
+ *  otherwise shove the job chips sideways for the whole of a bake. */
+function AgentChip() {
+	// OFF THE CONTEXT rather than off a module singleton, which is this store's own header's
+	// argument and the one thing about the wiring worth reading here: two shells in one
+	// process (every chrome test file) must not share one agent.
+	const { agentPresence } = useEditor();
+	const { verb, count } = useSyncExternalStore(
+		agentPresence.subscribe,
+		agentPresence.getSnapshot,
+	);
+	if (verb === null) return null;
+	return (
+		<span className={cn(CHIP_SHAPE, "text-foreground")}>
+			agent {verb}
+			<span className="text-muted-foreground">{count}</span>
+		</span>
+	);
+}
+
 /** The long-job readout (D-19), and the one chip on this bar with NOTHING to click.
  *
  *  D-F4.5-19 wants "progress + cooperative cancel (the job polls; no cancel theater)", and
@@ -524,10 +578,14 @@ function longJobs(job: WorldJob | null, castPending: boolean): string[] {
  *  does something. What it does claim is the one thing a user needs during a main-thread
  *  freeze — a verb is running and the editor has not hung.
  *
- *  FIRST in the right-anchored cluster, which is the ordering argument `AnalyzerChip`'s
- *  own mount below spells out in full: an arrival displaces only what is to its LEFT, and
- *  this is the chip that comes and goes most often. Being first means nothing on this bar
- *  moves for it — not even the analyzer chip, which is merely first among the STATS. */
+ *  SECOND in the right-anchored cluster since T4c, and the RULE is unchanged — only the
+ *  count is: an arrival displaces only what is to its LEFT (the argument `AnalyzerChip`'s
+ *  own mount below spells out in full), so nothing to the right of this moves when a job
+ *  starts, not even the analyzer chip, which is merely first among the STATS. What is now to
+ *  its left is `AgentChip`, whose TEXT changes on every agent verb — far oftener than this
+ *  chip comes and goes, which is why that one took the first slot and this one yields it.
+ *  Both are non-interactive, so the shift a job start now costs the agent chip moves no
+ *  click target. */
 function JobChips({ labels }: { labels: string[] }) {
 	if (labels.length === 0) return null;
 	return (
@@ -565,6 +623,7 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
 				</span>
 			)}
 			<div className="flex-1" />
+			<AgentChip />
 			<JobChips labels={jobs} />
 			<SelectionChip />
 			<ErrorChip />
@@ -578,8 +637,11 @@ export function StatusBar({ viewportError }: { viewportError: string | null }) {
               target sideways under a cursor already on its way there.
               This one is first among the STATS: it carries a border and padding the
               bare span it replaced did not, and `ops` sits immediately right of it.
-              `JobChips` is first in the whole cluster, for the same reason one level
-              up. Neither can change the bar's HEIGHT — `h-7` is fixed. */}
+              `AgentChip` is first in the whole cluster and `JobChips` second, for the
+              same reason one level up — the agent chip's TEXT moves oftenest, so it
+              takes the slot where only the spacer is to its left (T4c; this line said
+              `JobChips` was first until then). None can change the bar's HEIGHT —
+              `h-7` is fixed. */}
 					<AnalyzerChip pending={stats.analyzerPending} />
 					{/* The op count is the HANDLE on the op-cost meter (D-19): the number on
               the bar is the one everybody reads, and the five fields that explain it

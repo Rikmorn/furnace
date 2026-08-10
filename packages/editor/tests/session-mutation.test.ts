@@ -1,8 +1,9 @@
-// The CHROME's half of the three WRITE verbs — the answerer rows, on their own.
+// The CHROME's half of the three WRITE verbs and the INTERRUPT — the answerer rows, on
+// their own.
 //
 // HERE AND NOT IN `tests/chrome/`, for `session-capture.test.ts`'s reason exactly: none of
-// these rows needs a shell or a DOM. Two read a ref and call one host verb; the third reads
-// a ref and calls one function. `tests/chrome/session-state.test.tsx` mounts a real shell
+// these rows needs a shell or a DOM. Three read a ref and call one host verb; the fourth
+// reads a ref and calls one function. `tests/chrome/session-state.test.tsx` mounts a real shell
 // because what is under test there is which MIRRORS a projection reads — there are no
 // mirrors here.
 //
@@ -21,13 +22,15 @@ import { createSessionAnswerers } from "../src/frontend/lib/session-answerers.ts
  *
  *  Boundary cast: these rows reach exactly two members of the facade, and a whole
  *  `FieldHost` here would be seventy stubs proving nothing about a relay. */
-function stubHost(): {
+function stubHost(cancels = true): {
   host: FieldHost;
   applied: unknown[];
   generated: unknown[];
+  escapes: number;
 } {
   const applied: unknown[] = [];
   const generated: unknown[] = [];
+  let escapes = 0;
   const host = {
     applyOps: (ops: unknown) => {
       applied.push(ops);
@@ -37,8 +40,21 @@ function stubHost(): {
       generated.push(req);
       return { ok: true as const, entityId: 11, generator: "hall" };
     },
+    // The Esc stack's own boolean, which is what `session.interrupt` branches on: `true`
+    // = the top rung was cancelled, `false` = nothing was standing.
+    escape: () => {
+      escapes++;
+      return cancels;
+    },
   } as unknown as FieldHost;
-  return { host, applied, generated };
+  return {
+    host,
+    applied,
+    generated,
+    get escapes() {
+      return escapes;
+    },
+  };
 }
 
 /** The three refs the factory takes, with only the ones a case cares about filled. */
@@ -179,12 +195,47 @@ test("action.run before the shell has rendered REFUSES, and says which absence i
   expect(r.message).not.toBe(engine.message);
 });
 
+// --- session.interrupt ------------------------------------------------------
+
+test("session.interrupt drains ONE rung and answers ok", () => {
+  const stub = stubHost();
+  expect(row(rows({ host: stub.host }), "session.interrupt")({})).toEqual({
+    ok: true,
+  });
+  // ONE call per verb, and the count is the assertion rather than a formality: the whole
+  // scope of this verb is that it is the Esc KEY, and a row that drained the stack in a
+  // loop would take away states the human put there with nothing in the payload warning
+  // them. An agent with two things standing calls it twice.
+  expect(stub.escapes).toBe(1);
+});
+
+test("session.interrupt with NOTHING standing refuses rather than claiming ok", () => {
+  // The distinction an agent driving a sequence needs: a silent `ok` over a no-op reads as
+  // "the session you asked me to close is closed" to a caller that never saw one open.
+  // `inert` is the class by its own definition — the verb cannot act on what it has, and an
+  // immediate retry gets the same word back.
+  const r = refusal(
+    row(rows({ host: stubHost(false).host }), "session.interrupt")({}),
+  );
+  expect(r.because).toBe("inert");
+  expect(r.message).toContain("nothing to interrupt");
+});
+
+test("session.interrupt with no engine refuses in the write rows' own words", () => {
+  // It is a WRITE for this purpose — it changes what the editor is doing — so it shares
+  // `noEngine` with `edit.apply` and `generate` rather than throwing the way the reads do.
+  const a = refusal(row(rows({}), "edit.apply")({ ops: [] }));
+  const i = refusal(row(rows({}), "session.interrupt")({}));
+  expect(i.because).toBe("inert");
+  expect(i.message).toBe(a.message);
+});
+
 // --- the wire, cut ----------------------------------------------------------
 
-test("SABOTAGE: with both seams unfilled, every brokered write refuses and none throws", async () => {
+test("SABOTAGE: with both seams unfilled, every brokered verb refuses and none throws", async () => {
   // THE NAMED SABOTAGE FOR THIS TASK, kept as a standing case rather than performed once by
-  // hand. The two refs ARE the wire — `fieldHostRef` for the two host rows, `dispatchRef`
-  // for the door — and this is what an agent meets if either is never filled: three typed
+  // hand. The two refs ARE the wire — `fieldHostRef` for the three host rows, `dispatchRef`
+  // for the door — and this is what an agent meets if either is never filled: four typed
   // refusals and not one throw, so the failure lands as an answer rather than as a
   // `session-timeout` that says the tab was silent.
   //
@@ -196,6 +247,7 @@ test("SABOTAGE: with both seams unfilled, every brokered write refuses and none 
     row(bare, "edit.apply")({ ops: [] }),
     row(bare, "generate")({ generatorId: "hall" }),
     await row(bare, "action.run")({ id: "edit.undo" }),
+    row(bare, "session.interrupt")({}),
   ];
   for (const answer of answers) expect(refusal(answer).because).toBe("inert");
 });
