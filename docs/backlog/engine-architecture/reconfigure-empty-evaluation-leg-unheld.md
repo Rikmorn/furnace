@@ -1,5 +1,29 @@
 # `reconfigureGenerator`'s empty-evaluation leg is documented but unheld
 
+> **Checked at foundations T4c Task 7 (2026-08-10). The trigger did NOT fire in the form it
+> predicted, and the entry is NARROWED rather than closed.** The clause read *"a third
+> generator-committing path arriving (T4c's MCP verbs would drive both existing ones)"*. **No
+> third CORE path arrived** — T4c's `generate` verb
+> (`packages/editor/src/field-host/field-mutation.ts`) is a new CALLER of `commitGenerator`,
+> which is one of the two paths that already existed, and it is deliberately the one whose
+> empty-result guard IS pinned. Nor does it drive both: `generate` reaches `commitGenerator`
+> only, and no MCP tool opens a reconfigure session.
+>
+> **What DID change is reachability, in two unequal steps.** (1) `commitGenerator`'s empty
+> leg — the pinned one — is now reachable by an agent, and reached deliberately:
+> `generate` does NOT pre-check for an empty result the way the interactive path does
+> (`reportEmptyPreview` reads a settled preview, which a session-free verb does not have), so
+> core's own rejection is what a caller gets. (2) `reconfigureGenerator`'s UNHELD leg is
+> reachable by exactly one narrow route — `action_run {id: "session.confirm"}` over a
+> reconfigure session a HUMAN opened, since `session.confirm` is one of the 39 registry rows
+> the named-verb door exposes and `confirmSession` routes to `applyReconfigureSession` in
+> reconfigure mode. That is a real path and a strange one; it raises no new hazard (the throw
+> is caught and reported on the host's own channel) but it does mean the asymmetry this entry
+> describes is no longer only a developer-facing one.
+>
+> Unchanged: the fixture is still the one-line `evaluate` swap under `try/finally`, and the
+> pin directly above it in `reconfigure.test.ts` is still the template.
+
 **Context.** `reconfigureGenerator`'s public `@throws`
 (`packages/core/src/field/reconfigure.ts`) names two failure classes that live side by side
 in `evaluateSpan`: the evaluation being EMPTY, and an evaluated op or placement failing

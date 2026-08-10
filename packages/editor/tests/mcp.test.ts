@@ -115,6 +115,19 @@ test("initialize delivers the instructions, and they fit the discovery budget", 
   // a door with hands that tells an agent "nothing here edits a world" is worse than one
   // that says nothing, because the sentence is acted on.
   expect(MCP_INSTRUCTIONS).not.toContain("THIS SERVER READS");
+  // **THE VISIBILITY CLAUSE, pinned in BOTH directions, because it went stale inside the
+  // same tranche that made it stale and nothing caught it.** T4c Task 5 built the presence
+  // chip — `useSessionAnswer` records EVERY relayed method and `StatusBar` renders
+  // `agent <verb> <n>` — while this blurb still said *"neither your verbs nor your refusals
+  // are shown to them"*. Half true is the worst state for a sentence an agent uses to decide
+  // how much to explain itself to the human. The positive half is what the chip really does;
+  // the negative half is the T4b ruling that outcomes stay quiet, which `agent-presence.ts`
+  // holds BY TYPE (`ran` takes no result). Both are asserted, so restoring either error reds
+  // here rather than at a gate walk.
+  expect(MCP_INSTRUCTIONS.replace(/\s+/g, " ")).toContain(
+    "their status bar names the verb you just ran",
+  );
+  expect(MCP_INSTRUCTIONS).not.toContain("neither your verbs");
 });
 
 test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSchema", () => {
@@ -148,11 +161,13 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   expect(advertised().length).toBeLessThanOrEqual(10);
   // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
   // ceiling-of-ten exists because "every row a model must consider is paid for on every
-  // turn"; the descriptions are 6,004 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // turn"; the descriptions are 7,082 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
   // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
   // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
-  // and these rows are full of em-dashes. 8,192 is 1.36× head: it admits a tenth row even at
-  // `session_query`'s length (1,266) and reds well before a doubling. A TOTAL rather than a
+  // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6 and is 1.157× now:
+  // the T4c review spent 1,078 bytes correcting four rows that described the door wrongly, so
+  // the ceiling admits a tenth row at the median length (870) and reds before one at
+  // `session_query`'s (1,266). That is the budget working, not slack running out. A TOTAL rather than a
   // per-row cap, because `session_query`'s wall is the one length this door had to buy.
   const proseBytes = advertised().reduce(
     (sum, tool) => sum + Buffer.byteLength(tool.description ?? "", "utf8"),
@@ -376,9 +391,21 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     entitiesNotProbed: row("session_query").includes(
       "Entities are deliberately NOT contact-probed",
     ),
-    // (3) `session_interrupt`'s limit: one rung, and no long job can be stopped. Without it
+    // (3) `session_interrupt`'s limit: one thing, and no long job can be stopped. Without it
     // an agent reaches for this to cancel a bake and is silently disappointed.
-    interruptOneRung: row("session_interrupt").includes("ONE rung"),
+    //
+    // ASSERTED AS THE PROPERTY, NOT AS THE WORD "rung", which this pin matched until T4c
+    // Task 7. "Rung" is `input-router.ts`'s vocabulary for a capture-stack entry — precise
+    // for us and undecodable for the reader this row is written for, who has never seen the
+    // stack. The row says "exactly ONE thing" now and the pin follows the meaning.
+    interruptOneThing: row("session_interrupt").includes("exactly ONE thing"),
+    // AND THE ORDER, which is the half that was WRONG rather than merely jargon. The row
+    // used to advertise a fixed ladder ("a session, then an armed stamp, then…"); the
+    // mechanism is `stack.pop()` — RECENCY — and §20.2 records three reachable cases where
+    // the two disagree. An agent that trusted the ladder would predict the wrong cancel.
+    interruptRecency: row("session_interrupt").includes(
+      "The order is RECENCY, not that list",
+    ),
     interruptCannotAbort:
       row("session_interrupt").includes("cannot stop a bake"),
     // (4) The undo fence, said where an agent would otherwise discover it by being refused.
@@ -390,7 +417,8 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     contactProbe: true,
     contactTolerance: true,
     entitiesNotProbed: true,
-    interruptOneRung: true,
+    interruptOneThing: true,
+    interruptRecency: true,
     interruptCannotAbort: true,
     undoFenced: true,
   });

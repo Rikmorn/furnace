@@ -218,7 +218,7 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 2. `handler.input.safeParse(input)` fails → `EditorError("invalid-input", …)` naming the first failing path;
 3. otherwise runs the handler with the parsed input.
 
-Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects three commands as tools and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP.
+Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects **nine** commands as tools (three at T4b, six more at T4c) and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP. Since T4c the advertisement is not merely consistent with the validator but **derived from it**: each row's document is `z.toJSONSchema` over the command's own zod, resolved once at door construction (§27.4).
 
 There are **19 commands** — eight dotted families plus one bare verb (`generate`) — and the chrome speaks **12** of them (`frontend/lib/api.ts`). The **seven** it does not are `session.state`, `viewport.capture`, `session.query`, `edit.apply`, `generate`, `action.run` and `session.interrupt`, and none of them has a client method on purpose: every one is a question or an instruction the daemon relays INTO a tab, so a chrome method would be a tab addressing itself. See the table. (The chrome's twelve was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, 8 until foundations T4b added `session.*`, and 13 until T4c added the six relayed verbs above. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
 
@@ -412,7 +412,9 @@ channels.** Two things make it so, and neither is free:
 
 Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message": "<human text>" } }`.
 
-**The second edge arrived in foundations T4b, and it is what "each transport edge owns its own mapping" was written for.** `src/daemon/mcp.ts`'s `AGENT_REMEDY` is `httpStatus`'s sibling: an exhaustive `Record<EditorErrorCode, string>`, so an eleventh code is a compile error until this edge has said what to do about it too. A throw out of `dispatch()` becomes an `isError: true` tool result whose text is `<code>: <the daemon's message>` followed by **what the AGENT should do** — whether retrying is sensible, and whether a human has to move first. That second half is the part no daemon-side message is written for: the messages are addressed to a human reading an error envelope, and an agent needs to know that `no-session` will not change until someone opens a tab (so do not poll), that `session-timeout` is worth one retry, and that `internal` is not worth any. `isError` rather than a JSON-RPC error, deliberately — "no editor is open" is an answer and must reach the agent's model, not its error handler; a name that was never advertised (`session_claim`, `field_load`) is the opposite case and is refused as a protocol error. Three codes are reachable through three no-argument reads (`no-session`, `session-timeout`, `internal`) plus `invalid-input` from the forwarded arguments (§4); the rest are stated because the union is closed and T4c will project verbs that reach four more.
+**The second edge arrived in foundations T4b, and it is what "each transport edge owns its own mapping" was written for.** `src/daemon/mcp.ts`'s `AGENT_REMEDY` is `httpStatus`'s sibling: an exhaustive `Record<EditorErrorCode, string>`, so an eleventh code is a compile error until this edge has said what to do about it too. A throw out of `dispatch()` becomes an `isError: true` tool result whose text is `<code>: <the daemon's message>` followed by **what the AGENT should do** — whether retrying is sensible, and whether a human has to move first. That second half is the part no daemon-side message is written for: the messages are addressed to a human reading an error envelope, and an agent needs to know that `no-session` will not change until someone opens a tab (so do not poll), that `session-timeout` is worth one retry, and that `internal` is not worth any. `isError` rather than a JSON-RPC error, deliberately — "no editor is open" is an answer and must reach the agent's model, not its error handler; a name that was never advertised (`session_claim`, `field_load`) is the opposite case and is refused as a protocol error.
+
+**Which codes actually reach that edge, re-derived at T4c Task 6 — and the prediction this paragraph used to carry was WRONG.** It read *"T4c will project verbs that reach four more"*. T4c tripled the door (three no-argument reads → nine rows, five taking arguments, four writing) and **the reachable set did not move**: it is still exactly four — `no-session` and `session-timeout` (the backchannel's own refusals, and the reason `AGENT_REMEDY` exists), `internal` (a chrome that could not serve the method, and a genuine daemon fault alike) and `invalid-input` (every schema refusal, plus `action.run`'s fence). The other six are stated because the union is CLOSED, not because they are merely unlikely, and each is unreachable for its own reason: `not-found` / `outside-root` / `already-exists` are thrown by world, bake and claim commands, none of which is projected — the near miss is `action_run` reaching `world.makeDefault`, but through the CHROME's own HTTP client, so the code is thrown one bundle away and arrives here as a relayed `ActionResult` rather than as this edge's throw; `invalid-json` is thrown parsing an HTTP body, which the MCP transport reads for itself; `forbidden-origin` is refused ahead of the route branch, so no tool call is running when it is thrown; and **`unknown-command` became structurally unreachable at T4c**, because `createMcpDoor` resolves every row's command against the registry when the door is BUILT — a table naming a command the registry lacks fails at startup, so no tool call can be in flight to discover it. `AGENT_REMEDY` carries this derivation at source, where the next person to add a row will read it.
 
 **The union gained its ninth and tenth members in foundations T4b** — `no-session` and
 `session-timeout`, argued in the rows above and at `errors.ts`. The tenth is also the table's
@@ -2871,28 +2873,29 @@ allowed to stand:
 
 ## 19. Deferred
 
-- **AI bindings — the MCP mount is no longer deferred; its READ half shipped in foundations
-  T4b** (§26). `/mcp` is a live route, `src/daemon/mcp.ts` projects `session_state`,
-  `world_list` and `project_get`, and the daemon↔chrome backchannel the milestone named as
-  `viewport.capture`'s prerequisite is built and carrying `session.state`. **`viewport.capture`
-  itself shipped at T4c** — as an ENGINE-SIDE capture that borrows the live viewport's own
-  composition (`src/field-host/field-capture.ts`, whose header carries the argument), not the canvas readback this bullet used to say was never spiked: that
-  route was researched and RULED OUT (`docs/research/2026-08-09-viewport-capture-technique.md`
-  — Safari's open capture-correctness bug, WebKit#316538). **What stays deferred is the rest
-  of that milestone** — every MUTATING tool, the embedded agent, and outbound editor→LLM. `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` is still
-  the register and carries a dated note of what T4b consumed; the transport-agnostic substrate
-  the rest mounts over is unchanged — one zod-validated `dispatch()` choke point (§4, which the
-  agent door funnels through rather than beside) and a closed error-code union (§6, which now
-  has its second transport edge). The *verb set* an agent would be handed is the command
-  registry (**18** at T4c Task 4 — §4 carries the count and how it is re-derived), and
-  the "disk edits beat mutation tools" rationale points at the field artifact rather than at a
-  scene JSON.
-
-  *(Two clauses of this bullet went stale INSIDE T4c and are left standing for Task 7, which
-  owns this entry's disposition: "every MUTATING tool" stopped being deferred at Task 3
-  — `edit.apply`, `generate` and `action.run` shipped — and the milestone entry is scheduled
-  for DELETION at the tranche's close. Only the count is corrected here, because Task 4 is
-  what moved it.)*
+- **AI bindings are NOT deferred any more, and the register that tracked them is GONE.**
+  `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` — the entry this
+  bullet pointed at from M4 (2026-06-11) to T4c — was **deleted at foundations T4c Task 7**,
+  its four shapes dispositioned one by one. Two shipped: **inbound MCP** (`/mcp` is a live
+  route, `src/daemon/mcp.ts` advertises **nine** tools, five reads and four writes — §26.2
+  for the door, §27.4 for its final shape) and **`viewport.capture`** (T4c Task 2, an
+  ENGINE-SIDE capture that borrows the live viewport's own composition —
+  `src/field-host/field-capture.ts` carries the argument; the canvas-readback route this
+  bullet once called un-spiked was researched and RULED OUT,
+  `docs/research/2026-08-09-viewport-capture-technique.md`, Safari's open
+  capture-correctness bug WebKit#316538). One was **DROPPED**: the *embedded agent* — the
+  daemon spawning an in-process AI and handing it the registry as tools, the Cursor model —
+  superseded by the collaboration model T4a→T4c actually built, in which an OUTSIDE agent
+  drives the editor through a claimed session it can never hold (§27.5). One was **re-filed
+  with its own trigger**: outbound editor→LLM, at
+  `docs/backlog/editor-and-tooling/outbound-llm-editor-features.md`. The substrate all four
+  were to mount over is unchanged and is now load-bearing rather than prospective — one
+  zod-validated `dispatch()` choke point (§4, which the agent door funnels *through* rather
+  than beside) and a closed error-code union (§6, with its second transport edge). The verb
+  set an agent is handed is the command registry, **19** commands at T4c (§4 carries the
+  count and how it is re-derived), and the milestone's old "disk edits beat mutation tools"
+  premise is settled the other way for worlds: an agent writes through `edit_apply` and
+  `generate`, because the field artifact is not a text file an editor can patch (§27.1).
 - **A scene-authoring surface is NOT deferred — it is gone.** The chrome half went at F4.5a,
   the daemon half and `@furnace/core/scene` at foundations T2, and the backlog entry that
   parked the capability was resolved by that deletion rather than by building it. There is no
@@ -3390,44 +3393,58 @@ shape the bug would have taken.
 
 **Owed since T3d Task 1 and written at Task 6.** §21.1's five-row table is the T3b1
 measurement and is kept as the record of the law those five settled; this is the CURRENT
-roster. Re-derived from the artifact at Task 6 (line counts by `wc -l`, deps and seam widths
-by counting top-level members of each file's exported `*Deps` and public record types).
+roster. Re-derived from the artifact at T3d Task 6 and **again at foundations T4c Task 7**,
+which added three rows and moved four (line counts by `wc -l`, deps and seam widths by
+counting top-level members of each file's exported `*Deps` and public record types). Rows
+unchanged since T3d carry T3d's figures; the four that moved and the three that are new say so
+in their Notes.
 
 | Module | Lines | Deps | Seam | Notes |
 | --- | ---: | ---: | ---: | --- |
 | `field-history-feed.ts` | 396 | 2 | 2 | 220 lines / 1 dep at T3d, where `{ substrate }` alone was the directory's narrowest record — T4b's revision token added `worldEpoch` (§26) and it now ties `field-drift.ts` at 2 |
 | `field-drift.ts` | 164 | 2 | 4 | substrate + one module ref |
 | `field-materials.ts` | 587 | 2 | 14 | seam ≫ deps: the surplus is inbound READS (§2.8's third mechanism) |
-| `field-view.ts` | 225 | 3 | 5 | both non-substrate deps are another module's VERBS |
+| `field-view.ts` | 233 | 3 | 5 | both non-substrate deps are another module's VERBS |
+| `field-capture.ts` | 601 | 3 | 1 | **T4c Task 2.** The narrowest deps record of any module that draws — it borrows `field-render.ts`'s `compose` rather than composing, so the whole scene it photographs arrives as one call |
 | `field-props.ts` | 254 | 4 | 3 |  |
+| `field-query.ts` | 670 | 4 | 1 | **T4c Task 4.** `field-picking.ts`'s shape with a third of the fan-in: reads the live store and log, answers one parameterized question, writes nothing |
 | `field-stats.ts` | 292 | 5 | 3 | two deps changed OWNER at Task 6 without changing shape |
 | `field-voidcast.ts` | 322 | 5 | 4 | the first cluster out (T3b1) and the substrate's first consumer |
 | `field-targeting.ts` | 366 | 6 | 7 |  |
 | `field-analyzer.ts` | 987 | 8 | 18 | seam ≫ functions: 14 inbound MUTATION edges arrive as 5 named verbs |
+| `field-mutation.ts` | 422 | 8 | 2 | **T4c Task 3.** The write half of the agent seam; its two verbs are the only mutation path into the field that no pointer drives |
 | `field-tool.ts` | 755 | 8 | 15 | **7** of its 8 deps are forward arrows |
-| `field-camera-rig.ts` | 612 | 9 | 22 | **no substrate**, a first for an extracted cluster: it asks for a box and a ceiling, not a store |
+| `field-camera-rig.ts` | 654 | 9 | 22 | **no substrate**, a first for an extracted cluster: it asks for a box and a ceiling, not a store |
 | `field-segment.ts` | 375 | 9 | 8 | **no substrate** — predates it (2026-08-03) |
-| `field-selection.ts` | 732 | 10 | 20 | 12 of its 20 functions private |
+| `field-selection.ts` | 754 | 10 | 20 → **21** | 12 private at T3d; T4c Task 4 added `info()`, a synchronous pull beside the channel's push |
 | `field-picking.ts` | 361 | 12 | 1 | the inverse shape: 12 deps in, ONE verb out |
 | `field-entities.ts` | 791 | 14 | 19 | 9 → 14 deps at Task 6, when the five facade entity verbs arrived |
 | `field-world.ts` | 902 | 23 | 18 | the last cluster out; **no forward arrow in the record** |
-| `field-render.ts` | 693 | 29 | 1 | widest record but ONE verb out — every entry a READ, which is what makes 29 safe (§5.6) |
+| `field-render.ts` | 783 | 29 | 1 → **2** | widest record but the narrowest seam — every entry a READ, which is what makes 29 safe (§5.6). T4c Task 2 split `scene` into `compose` + `scene` when `field-capture.ts` became a SECOND caller of the same draw lists; the 29-member record and its zero mutations are unchanged by that |
 | `field-machine.ts` | 1970 | 39 | 28 | three clusters in one module (`stamp` + `move` + `gesture`), the only merge in the programme — **the widest record and the widest seam in the directory** |
 
-**Sixteen of the eighteen take `HostSubstrate`**; the two that do not are `field-segment.ts`
+**Nineteen of the twenty-one take `HostSubstrate`**; the two that do not are `field-segment.ts`
 (extracted before the record existed) and `field-camera-rig.ts` (which deliberately asks for
-answers rather than state).
+answers rather than state). **All three T4c modules take it**, which is the T3a record
+answering a fourth question it was not designed for: the substrate was declared for clusters
+being *lifted out* of the closure, and three modules written from scratch for a caller with no
+pointer took it unchanged and **widened it by nothing** — the same result the five T3b1
+extractions produced, now from the opposite direction.
 
-**The directory holds 43 files and this table names 18 of them.** The other 25, accounted for
+**The directory holds 46 files and this table names 21 of them.** The other 25, accounted for
 so the roster cannot read as the whole directory: `field-host.ts` itself; three seam
 primitives that are not clusters (`substrate.ts`, `input-router.ts`, `view-channel.ts`);
 `index.ts`; two worker-protocol pairs (`field-protocol.ts`, `field-client.ts`,
-`analyzer-protocol.ts`, `analyzer-client.ts`); and seventeen PURE modules with no state and
+`analyzer-protocol.ts`, `analyzer-client.ts`); and **sixteen** PURE modules with no state and
 no deps record (`box-edges`, `camera-control`, `field-camera`, `field-flags`, `field-ghost`,
 `field-history`, `field-move`, `field-pick`, `field-placements`, `field-selection-cells`,
-`field-size`, `field-stamp`, `gizmo`, `input-map`, `reference-grid`, `viewport-cursor` —
-sixteen, plus `field-history.ts`'s sibling relationship §21.1 describes). §1 of the cluster
-map lists the pure set as it stood at each tranche.
+`field-size`, `field-stamp`, `gizmo`, `input-map`, `reference-grid`, `viewport-cursor`).
+*(This read "seventeen" over a list of sixteen, hedged with "plus `field-history.ts`'s sibling
+relationship" — but that sibling is `field-history-feed.ts`, which has a row in the table
+above and is not a seventeenth pure module. Corrected at T4c Task 7; the hedge is what made a
+plain miscount look deliberate.)* The accounting now closes exactly: **1 + 3 + 1 + 4 + 16 = 25**,
+and 21 rows + 25 = **46**, the file count. §1 of the cluster map lists the pure set as it stood
+at each tranche.
 
 **Two rules the column widths make visible, both already stated elsewhere and worth reading
 off the table.** (1) **Deps width is fan-IN and seam width is fan-OUT, and neither predicts
@@ -4740,7 +4757,11 @@ put three findings to the user; the rulings are decisions of record:
   as a scene orphan, never re-typed — a silent regression against the schema-boundary
   design. Ruling: re-filed for T4, where the JSON-Schema projection gives the type its
   first consumer with teeth
-  (`docs/backlog/engine-architecture/furnace-vendor-keys-untyped.md`).
+  (`docs/backlog/engine-architecture/furnace-vendor-keys-untyped.md`). *(The ruling was
+  carried out and that entry is DELETED: `FurnaceMeta` lives in `core/registry` beside the
+  `z` its writers build with, its six defining sites `satisfies` it, and the door's
+  `paramSchema` reader is the consumer-with-teeth this predicted — foundations T4c Task 6,
+  §27.4. The path above is kept as the record of what the audit ruled, not as a live one.)*
 
 The audit's full record (every §9 criterion, every design commitment, the MISSING list
 and the dropped-records batch it triggered) is a session artifact; its durable outputs
@@ -4814,8 +4835,10 @@ list, and it stood at one until the count was taken from the diff.
 
 The tranche where an agent first reads a furnace editing session **truthfully**. T4a made the
 substrate honest with no agent connected (§25); this one connects one — and connects it to the
-**READ half only**. Nothing an MCP client can call here edits a world, writes a file or moves the
-human's camera.
+**READ half only**. Nothing an MCP client could call *at the close of this tranche* edited a
+world, wrote a file or moved the human's camera — **T4c is where that stopped being true, one
+section down**, and the sentence is kept in the past tense rather than deleted because the READ
+half's design is what the rest of §26 argues.
 
 Four things had to become true, in order, and each is a task's worth of work:
 
@@ -4843,15 +4866,17 @@ guard that pays for it are §17.6; `shared/wire.ts` arriving as the first contra
 the chrome both *import* rather than mirror is §7's layer note. What lands **here** is the relay
 itself (§26.1), the agent door (§26.2), and the exit table (§26.3).
 
-**Measured at head, each from the artifact rather than from a commit message.** The registry is
+**Measured at T4b's head, each from the artifact rather than from a commit message — and
+every count below moved at T4c, which is one section down (§27's own measured block carries
+the current figures).** The registry was
 **13 commands** across five families (`grep -rn 'handlers\.set(' src/daemon/` returns fourteen
 lines: eight named verbs in `handlers.ts`, five in `session-handlers.ts`, and the loop that
 merges the second map into the first), and the chrome speaks **11** of them. `DaemonEvent`
 has **6 arms** and `EVENT_TYPES` mirrors all six. `EditorErrorCode` went **8 → 10**
 (`no-session` 409, `session-timeout` 504) and `HTTP_STATUS` covers all ten. The agent door
-advertises **3 tools**. `FieldHost` went **65 → 66 members** — `cameraPose()` — which is the
+advertised **3 tools**. `FieldHost` went **65 → 66 members** — `cameraPose()` — which is the
 whole facade delta: `historyRevision()` was added and deleted inside the same task, once
-measurement showed a polled token answers ahead of the latched payload beside it. The suite is
+measurement showed a polled token answers ahead of the latched payload beside it. The suite was
 **3057 pass / 1 skip / 0 fail across 359 files**, with **7 new test files** and two new helpers
 (`tests/_helpers/mcp-probe.ts`, `tests/_helpers/daemon-feed.ts`).
 
@@ -4976,6 +5001,15 @@ order, which is what the table is for.
 
 ### 26.2 The agent door — three reads, guests only
 
+> **This subsection is T4b's record and keeps T4b's numbers. The door is NINE rows since
+> foundations T4c — five reads and four writes, each advertising a projection of the zod its
+> command validates with — and §27.4 is its current shape. What survives verbatim is
+> everything this subsection argues rather than counts: the one-branch route position, "every
+> tool is a `dispatch()` call and computes nothing", `field.load`'s deliberate absence, the
+> guest clause, the per-POST server-and-transport, and the SDK's measured per-process cost.
+> The GUEST half of the title is still literally true — no `session.*` verb is projected, and
+> a claim token remains unspellable through this door.**
+
 `src/daemon/mcp.ts` is **one branch on the route ladder and one module behind it**, and its
 whole mapping is a table of three rows: `session_state` → `session.state`, `world_list` →
 `world.list`, `project_get` → `project.get`. **Every tool is a `dispatch()` call and computes
@@ -5067,6 +5101,15 @@ eliminations is filed under
 Verdicts re-derived at the tranche's head from the artifact, not from the commit that claimed
 each one. **Clause 5 is the review session's to walk** and is the only one not closed here.
 
+> **Clause 5 WAS walked, and its script is now a historical record — do not run it as a
+> checklist.** The T4b review walked it against a real world and it found the defect T4c Task
+> 5 fixed: the payload's `tool` and `gesture` were each truthful and the JOIN between them was
+> not written down anywhere the agent could see, so the reviewing agent reported "dig armed"
+> over a screen with nothing armed (§27.3). Both member names are GONE from the wire — the
+> payload carries `armed` and `brush` — and step (b)'s *"lists exactly three tools … and no
+> fourth"* is false at nine. The wording below is left byte-identical because it is what T4b
+> asked for and what was actually walked; **the live walk is §27.5's, which supersedes it.**
+
 | Clause | Verdict |
 | --- | --- |
 | **1. An MCP call with no claimed session returns a typed error, never a hang — timeout path included** | **HOLDS.** Every exit from `ask()` is a rejection that arrives (§26.1), and each has its own case. At the agent door: `tests/mcp.test.ts` *"session_state with no editor open refuses in a sentence an agent can act on"*. At the relay: `tests/backchannel.test.ts` *"no claimed session → `no-session` at once, with nothing written to anyone"*, *"two claimed sessions have no single one to speak for — refused, not picked"*, *"silence becomes a typed `session-timeout`, never a hang"*, *"the session's departure rejects its pending asks AT ONCE, with `no-session`"*, *"a departure abandons only ITS OWN pending asks"*. At the HTTP edge: `tests/server.test.ts` *"with no session claimed, `session.state` says so rather than hanging"*. The budget is pinned as an **inequality** against the client floor it must sit under (*"the default budget sits inside the client timer that would otherwise expire first"*), not as the literal 10 s. **One residue, stated rather than claimed away:** a chrome that REFUSES a method answers `internal` — indistinguishable at the code level from a daemon fault, with only `AGENT_REMEDY`'s sentence carrying the difference. Filed. |
@@ -5079,8 +5122,10 @@ each one. **Clause 5 is the review session's to walk** and is the only one not c
 
 **Backlog dispositions, re-derived from `git diff --name-status 0e89327d~1..HEAD -- docs/backlog/`
 rather than from memory: seven added, five modified.** **NONE DELETED** — the donor entry
-(`editor-ai-integration-milestone.md`) deletes at **T4c** with the disposition of its items 3
-and 4, which are outside T4's scope; it carries a dated re-anchor instead, recording that its
+(`editor-ai-integration-milestone.md`) was to delete at **T4c** with the disposition of its items 3
+and 4, which are outside T4's scope, *and it did: the file is gone since T4c Task 7 and this
+is the last section that names it as live — §27.5 carries the disposition of all four of its
+items*; at T4b it carried a dated re-anchor instead, recording that its
 item 1's READ half is built, that the backchannel its `viewport.capture` needed now exists, and
 that the SDK zod probe ran (1.30.0 declares zod BOTH as a `dependencies` entry and as a
 NON-optional peer, read from the SDK's own manifest — so the workspace's single instance rests
@@ -5148,9 +5193,41 @@ gate is one script end to end — `world_list → generate → edit_apply → se
 world save+bake → viewport_capture` — and what it needs is a way to write that is neither a
 second engine API nor a puppet of the pointer.
 
-*(Tasks 0–2 recorded themselves in place, in the sections they changed: the claim re-key at
-§26.1, MSAA's exit at §1413 and §1861, the capture verb at §2871. This section starts at
-Task 3, which is the first that adds a seam rather than moving one.)*
+**Seven commits, and the shape of the tranche is that the first three buy the last four.**
+Task 0 took MSAA out of the editor, which sounds like housekeeping and is load-bearing: core's
+`frame.renderToTexture` refuses any context whose sample count is not 1, so a `sampleCount: 4`
+viewport could not be photographed with its OWN pipelines and a capture would have needed a
+second set — the thing the research verdict says no shipped tool does. Task 1 gave the
+off-screen pass lights and taught lines a second target, in core, because a capture that
+borrows the viewport's composition has to be able to draw what the viewport draws. Task 2 spent
+both: `field-capture.ts` composes the same frame at a chosen pose and reads it back. Then the
+hands — Task 3's mutation seam, Task 4's spatial read, Task 5's armedness fix and presence —
+and Task 6 advertised all of it truthfully.
+
+**Where each task's record lives.** Tasks 0–2 recorded themselves in place, in the sections
+they changed rather than here, because each moved an existing mechanism instead of adding one:
+the claim re-key at **§26.1**, MSAA's exit at **§16.1** (`init`'s options), **§16.5** (the View
+popover's departed switch) and **§17.1** (the CPU-pick argument that rested on it), the capture
+module in **§21.5**'s roster and in `field-host-clusters.md` §2.8 (the render seam's split into
+`compose` + `scene`), and the deleted AI-bindings register in **§19**. The subsections below
+start at Task 3 — the first that adds a seam rather than moving one — and **§27.5 is the exit
+table, the backlog walk and the gate handoff**.
+
+**Measured at T4c's head, each from the artifact rather than from a commit message.** The
+registry is **19 commands** (`grep -rn 'handlers\.set(' src/daemon/` returns twenty lines:
+eight named verbs in `handlers.ts`, eleven in `session-handlers.ts`, and the loop that merges
+the second map into the first), and the chrome speaks **12** of them — the seven it does not
+are the relayed set, and §4 says why a chrome method for any of them would be a tab addressing
+itself. `DaemonEvent` still has **6 arms** and `EditorErrorCode` still **10**: this tranche
+added no wire event and no error code, which is the honest measure of how much of it rode
+substrate that already existed. The agent door advertises **9 tools** (five reads, four
+writes), whose descriptions total **7,082 bytes** and whose projected schemas total **6,312**;
+`MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048. `FieldHost` went **66 → 70
+members** — `captureScene`, `applyOps`, `generate`, `query`, one per agent-facing capability
+and no more — and `field-host.ts` grew **3,999 → 4,230 lines** while the directory went 43
+files to **46**, all three new ones modules beside the facade rather than closure. `RefusalClass`
+went **7 → 8 arms** (`input`). The suite is **3,201 pass / 1 skip / 0 fail**, from 3,057 at the
+branch point.
 
 ### 27.1 The mutation seam — `applyOps`, `generate`, and the named-verb door (Task 3)
 
@@ -5568,16 +5645,20 @@ with nothing to cancel is a no-op rather than a refusal"* comment exist to prote
 it would spend `FENCED_ACTIONS` — which means *"an agent must not do this at all"*, undo
 pending attribution — on a vocabulary preference, making the list mean two things.
 
-**What Task 6 owes this task.** The `session_state` row and `MCP_INSTRUCTIONS` still say *"which
-tool and gesture are armed"* — two members that no longer exist — and the agent-facing prose is
-precisely where the last misreading came from. The row must carry the RULE and not just the
-field list: **`armed` is what LMB does right now; `brush` is a dormant setting and is not a
-claim that anything is armed.** The `session_interrupt` row owes its limit in one sentence: one
-rung, and no long job can be stopped. Both are stated at the declarations
-(`shared/wire.ts`'s `SessionState`, `daemon/session-handlers.ts`'s `session.interrupt`, which
-also carries the escape disposition above), and all three — plus `daemon/mcp.ts` itself, the
-file holding the wrong words — wear `AGENTS.md`'s marker convention, so
-`grep -rn "MIGRATION (until T4c Task 6)" packages/` is the one command that finds the set.
+**What Task 6 owed this task, and PAID.** At the close of Task 5 the `session_state` row and
+`MCP_INSTRUCTIONS` still said *"which tool and gesture are armed"* — two members that no longer
+existed — and the agent-facing prose is precisely where the last misreading came from. What was
+owed was the RULE and not just a corrected field list: **`armed` is what LMB does right now;
+`brush` is a standing SETTING and is NOT a claim that anything is armed.** Task 6 carried that
+sentence into both places (§27.4's four discharged hand-offs), and `session_interrupt`'s row
+gained its limit. The `MIGRATION (until T4c Task 6)` markers this paragraph used to point a
+`grep` at were the mechanism for finding the set, and they came out with the work they marked —
+`grep -rn "MIGRATION (until T4c Task 6)" packages/` returns **nothing**, which is the marker
+convention working rather than a citation gone stale. The declarations that carry the rule now
+are `shared/wire.ts`'s `SessionState`, `daemon/session-handlers.ts`'s `session.interrupt` (which
+also carries the escape disposition above) and `daemon/mcp.ts`'s two rows; `tests/mcp.test.ts`'s
+*"the four prose hand-offs the earlier tasks named are in the rows that owe them"* is what holds
+them there now that no marker does.
 
 ### 27.4 The door grows — nine tools, schemas projected, the cull stated (Task 6)
 
@@ -5609,12 +5690,17 @@ being papered over with a `type` it does not have.
 
 **The per-turn budget covers the prose as well as the row count.** The ceiling of ten exists
 because every row a model must consider is paid for on every turn — and the nine descriptions
-are 6,004 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB, riding the same `tools/list`. Pinning
-the discovery blurb and not the rows would have budgeted the cheaper surface and called it
-discipline, so the description total is pinned at 8,192: 1.36× head, which admits a tenth row
-even at `session_query`'s length (1,266) and reds well before a doubling. A TOTAL rather than a
-per-row cap, because `session_query`'s row genuinely is a wall and it is the one length this
-door had to buy. The projected schemas (6,312 bytes, over half of it `edit_apply`'s op
+are **7,082** bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB, riding the same `tools/list`.
+Pinning the discovery blurb and not the rows would have budgeted the cheaper surface and called
+it discipline, so the description total is pinned at 8,192. **That was 6,004 bytes and 1.36×
+head at Task 6; the T4c review spent 1,078 of the slack** correcting four rows that described
+the door wrongly — `edit_apply`'s unconditional *"a bad batch changes nothing"*, the
+live-session refusal neither write verb mentioned, `generate`'s *"a bad param is refused"* when
+it answers `failed`, and `session_interrupt` advertising a retired fixed ladder over a
+recency stack. Head is **1.157×**, which still admits a tenth row at the median length (870) and
+reds before one at `session_query`'s (1,266) — so the budget is now doing what a budget is for:
+the next row has to be argued rather than assumed. A TOTAL rather than a per-row cap, because
+`session_query`'s row genuinely is a wall and it is the one length this door had to buy. The projected schemas (6,312 bytes, over half of it `edit_apply`'s op
 vocabulary) ride the same response and are deliberately uncapped — they are
 derived rather than authored, so a ceiling there would be a ceiling on the engine's op
 vocabulary wearing a budget's clothes.
@@ -5717,3 +5803,170 @@ vocabulary — what the nine rows advertise and what they relay back — with th
 written as subtraction: everything core exports that this list does not name is a deletion
 candidate. The largest single block it hands T5 is that the door projects no renderer, camera,
 material, shader, binding, post-effect, physics or mesh vocabulary at all.
+
+### 27.5 The T4c exit — eight clauses, the backlog walk, and the gate handoff (Task 7)
+
+Verdicts re-derived at the tranche's head from the artifact, never from the commit that
+claimed each one. **Clause 1 is the review session's to walk and is NOT claimed here**; every
+other clause carries a command a reader can run to check it, and where a clause is only
+partly met the table says which part.
+
+| Clause | Verdict | Evidence |
+| --- | --- | --- |
+| **1. An agent session builds a small world end to end through MCP — generate, dig, bake, capture — with the measures recorded** | **PENDING THE REVIEW WALK.** No test can stand in for it: what it checks is that a model, holding only the nine advertised descriptions, can compose the calls in the right order and read its own results. The parts are each pinned in isolation and the composition is not. **Read the four caveats under the table before walking it** — one of them (generator params are not agent-readable) touches this clause directly. | The walker runs it: `bun run dungeon:editor`, then `claude mcp add --transport http furnace http://127.0.0.1:4500/mcp`, then one agent session doing `world_list → generate → edit_apply → session_query → action_run {id:"world.saveAs"} → action_run {id:"world.bake"} → viewport_capture`. **Record captures-per-task, tokens and wall time as first-class outcomes** — they are the measurement T5 plans against, not decoration. |
+| **2. Every mutation enters through validated batched ops = one undo entry each, refusals typed with `because` and locators** | **HOLDS.** `logApplyGroup` validates the whole list before any store write and pushes exactly ONE entry, so an agent's batch is one ⌘Z for the human — the named-stroke guardrail, which is what buys undo safety without op attribution (fenced to post-T4). Refusals are RETURNED, never toasted, and carry core's own indexed locator (`field op group: ops[2] — …`) unreworded, because the ops carry no ids until pass 2 and the list position is the only address a caller can act on. `RefusalClass` gained `input` with its first caller. **The declared residue, which is a real limit and not a formality:** pass-2 rollback does not exist — an op that clears validation and dies in the applier leaves earlier writes in the store, unrecorded and UNMESHED. That case answers `failed` (not `input`), and its message says so; the entry stays open. | `bun test packages/editor/tests/field-host/mutation.test.ts` — 16 cases, including *"an agent's batch is ONE undo step for the human"*, *"an invalid op is REFUSED naming ops[N], as `input`, with nothing written"* and *"a pass-1 rejection and a pass-2 failure are told apart STRUCTURALLY"*. Relay half: `bun test packages/editor/tests/session-mutation.test.ts`. |
+| **3. `generate` leaves no ghost** | **HOLDS.** It calls `field.commitGenerator` directly — what `commitStampSession` calls at the END of the interactive path — and touches session state at no point, so there is no state for it to leak. This is the clause with the most immediate consequence for clause 1: a session left standing refuses `world.bake` (whose `enabled` requires `ctx.session === null`) and every family key with it, so a ghost here would kill the gate script one step later. | `bun test packages/editor/tests/field-host/mutation.test.ts -t "leaves NO stamp session"`. |
+| **4. Capture matches the viewport (lights + overlays) at a chosen pose without touching the human's camera** | **HOLDS, and the pose half is the pin that mattered.** The capture composes through the same `field-render.ts` `compose` the live frame uses, with the same `sceneLights()` and the same line batches, into an off-screen texture — so "matches the viewport" is a shared code path rather than a resemblance. A named pose derives a camera and **mutates no input**: the rig is asserted byte-identical after a posed capture. Overlays default on and `overlays: false` removes exactly the line passes. | `bun test packages/editor/tests/field-capture.gpu.test.ts` — *"capturePixels: LIT — the ONLY variable is the light list"*, *"OVERLAYS — the line passes are there, and `overlays:false` removes exactly them"*, *"captureScene: THE COLLABORATION CONSTRAINT — a posed capture leaves the rig byte-identical"*. Pure half: `bun test packages/editor/tests/field-host/field-capture.test.ts`. |
+| **5. Contact/floating answered geometrically** | **HOLDS for props, and the asymmetry is a decision rather than a gap.** A prop is IN CONTACT when a ray cast straight down from the centre of its proxy box's BASE finds a solid sample within one cell size — a function of the prop's own box and nothing else, so no camera and no ordering enters the answer. **Entities are deliberately NOT contact-probed**: a carver's footprint is a volume of air it removed, so a downward probe from its base hits the rock under the floor it just made and reports contact for every hall ever dug. The rule is carried verbatim into the advertised tool description, which is where a caller reads it. Both lists are exceptions rather than rosters, both capped, and `truncated` is what keeps an empty list honest. | `bun test packages/editor/tests/field-host/query.test.ts` — *"PIN: a deliberately-overlapping pair reports its overlap"*, *"PIN: a floating prop reports no floor contact, and a resting one does not appear"*, *"the read WRITES NOTHING"*. Door half: `bun test packages/editor/tests/session-query.test.ts`. |
+| **6. The door advertises real schemas per row, ≤10 tools, instructions ≤2KB, no false `readOnlyHint`** | **HOLDS on all four, measured.** **Nine** rows against a ceiling of ten, the tenth deliberately unspent. Every row's document is `z.toJSONSchema` over the command's own zod, resolved at door CONSTRUCTION — so a row naming a command the registry lacks is a startup failure, which is what makes `unknown-command` structurally unreachable (§6). `MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048, and the row descriptions (**7,082 bytes**) are pinned too, at 8,192, because budgeting only the cheaper surface would have been discipline in name. `readOnlyHint: true` on the five reads; the four writes carry no `annotations` object at all, the specification's default for an absent hint already being "not read-only". **Three rules the document cannot state** (a zero direction vector, a fenced action id, a stray key on an action row's `input`) are enumerated in the probe so a fourth arriving unlisted shows up. | `bun test packages/editor/tests/mcp.test.ts` — 17 cases through a real SDK client in a spawned runtime, including *"tools/list advertises the nine, with readOnlyHint per ROW"*, *"the advertised documents say nothing this suite cannot read — and no tuple lies about its length"* and *"every bound the document states is a bound dispatch enforces"*. |
+| **7. The donor entry is GONE with items 3/4 dispositioned** | **HOLDS.** `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` is deleted. Item 1 (inbound MCP) shipped across T4b + T4c; item 2 (`viewport.capture`) shipped at T4c Task 2; **item 3 (the embedded agent) is DROPPED** with the supersession recorded below and in this commit's message; **item 4 (outbound editor→LLM) is re-filed** at `docs/backlog/editor-and-tooling/outbound-llm-editor-features.md` with a trigger that can fire. Every citation was re-pointed in the same commit — and the honest statement is that the NAME survives its file on purpose, never as a live path. | `test ! -f docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` proves the deletion. Then `grep -rn "editor-ai-integration-milestone" docs packages/*/README.md --exclude-dir=superpowers` — **11 hits, and it deliberately does NOT return nothing.** (The `--exclude-dir` is load-bearing rather than tidy: `docs/superpowers/` is gitignored plan scaffolding and adds 14 more hits that are nobody's to maintain.) Every one of the 11 is one of three kinds, and the counts are the check: **five in this document** (§19, §26.3, and §27.5 ×3 — recording what was deleted and where its contents went); **four former-home annotations** (`read-only-chrome-for-an-unclaimed-session.md` ×2, which quotes the claim policy the donor was the only home for, `editor-backend-architecture.md`, and `outbound-llm-editor-features.md`'s provenance line); and **two dated records keeping their original wording** (`docs/research/2026-07-06-editor-cockpit-audit.md`, `docs/learnings/seals/2026-07-06-pre-3.2-package-record.md`). A twelfth hit, or any hit presenting it as a live register, is the failure. |
+| **8. MSAA is gone from the editor and the claim re-keys on world switch** | **HOLDS, and the two halves are unrelated warm-ups that shared a commit.** The editor's context is `sampleCount: 1` at the single site that requests one; `init` takes the canvas and nothing else; the View popover's AA switch, `ViewState.sampleCount`, `setSampleCount` and the `FieldCanvas` wrapper that existed only to read it are all deleted. **`packages/core` is untouched** — the engine keeps MSAA and hello-world still uses it; only the editor gave it up. The claim now re-keys: `useSessionClaim` owns the authored world, releases and re-claims on every change, and a REFUSED re-key releases what the tab left rather than holding a stale key. | `grep -rn "sampleCount" packages/editor/src` returns **9** lines and exactly **one** of them is code — `field-host.ts`'s `requestContext(canvas, { sampleCount: 1 })`; the other eight are the comments that record why the switch went, which is the intended residue rather than leftovers. The same grep over `packages/core/src` returns **65** lines, which is clause 8's other half stated as a measurement: core kept MSAA and only the editor gave it up. Claim: `bun test packages/editor/tests/chrome/session-claim.test.tsx` — *"loading a world RE-KEYS the claim"*, *"a REFUSED re-claim releases the world this tab left, then offers the steal"*, *"a LOST tab does not claim its way back in by switching worlds"*. |
+
+**SIX THINGS THE GATE WALKER MUST KNOW BEFORE WALKING, stated here because clause 1 is the
+only one that can discover them and a walker who meets them cold will misread them as
+defects.** The whole-branch review surfaced five more of this shape; **four were fixed in the
+door's own prose instead of being listed here, on the rule that the AGENT reads the door and
+only the WALKER reads this document** — a caveat that protects the human walking the gate does
+nothing for the model making the call. Those four were: `edit_apply`'s *"a bad batch changes
+nothing"*, unconditionally true of validation and false of a pass-2 applier throw; both write
+verbs refusing under a live stamp session, which neither row mentioned at all; `generate`'s
+*"a bad param is refused"*, which actually reaches `failed` because the catch spans arbitrary
+generator code; and `session_interrupt` advertising the RETIRED fixed ladder (five rungs in a
+declared order) when the mechanism is `stack.pop()` over seven. All four are corrected in
+`daemon/mcp.ts`, and the recency correction and the presence sentence below are now pinned in
+`tests/mcp.test.ts`. The two that remain caveats are 5 and 6, and each says why it stayed one.
+
+1. **An agent can CALL `generate` but cannot DISCOVER a generator's parameters.** The row
+   advertises `params` as a free-form object, because that is exactly what `dispatch`
+   enforces; core's `paramSchema` documents exist and are structured-clone-safe, but reaching
+   them is a host seam plus a tenth tool rather than an advertisement. Mitigated in the same
+   commit — every param has a default, so a params-free call is complete, and `generatorById`
+   names the registered ids in its refusal — so the world an agent builds on defaults alone
+   is a real world. **This is the one place clause 1's "builds a world" story is thinner than
+   it reads.** Filed with the walk itself as the trigger:
+   `docs/backlog/editor-and-tooling/agent-cannot-read-generator-params.md`. If the driving
+   agent reached for a param it could not name, that entry becomes a slice; if it built on
+   defaults, the gap is theoretical.
+2. **Nobody has measured a daemon that has actually served MCP traffic.** The SDK's measured
+   per-process cost was removed from the TEST process by moving construction into a spawned
+   probe; the production daemon still constructs a `Server` and a transport **per POST**
+   (§26.2). Nothing predicts a problem and nothing has looked. The walk is the cheapest place
+   this can be found out, and the wall-clock numbers it records are the first data.
+3. **The viewport is `sampleCount: 1` now, and that has a visible cost.** Edges that were
+   4× multisampled are not. It was a user ruling ("it's pointless") and the capture path
+   depends on it, but the HOLISTIC USER VISUAL GATE deferred from T4a/T4b now also has to
+   eyeball this — it is the one change in the tranche a human sees without asking for it.
+4. **A refused agent write is deliberately silent on screen.** T4b's ruling carried forward:
+   an agent's business must not interrupt the person in the tab, so `applyOps` returns its
+   refusal and says nothing out loud. What the human DOES see is `StatusBar`'s `AgentChip` —
+   `agent <verb> <n>` — which records that a verb ran and which one, and deliberately not
+   whether it worked. So during the walk, a screen showing `agent edit.apply 7` is consistent
+   with seven applied batches and with seven refused ones. Read the tool results, not the bar.
+   **The door said the opposite until Task 7** — `MCP_INSTRUCTIONS` claimed *"neither your
+   verbs nor your refusals are shown to them"*, written by Task 6 over the chip Task 5 had
+   already built, and nobody reconciled the two. Half of it was always true and the half that
+   was false is the half an agent acts on. Corrected, and pinned in both directions.
+5. **`{ready:false}` is advertised, and is currently UNREACHABLE through the daemon.** The
+   instructions tell an agent to branch on `ready` first, and `wire.ts` states plainly that no
+   relayed question can receive that arm today: a tab is asked only if it is claimed, claims
+   only after a token arrives, and the token arrives on a feed opened only once the editor is
+   ready. A tab that never booted answers `no-session` instead — whose remedy says *do not
+   poll*, which is the right advice and a different one. **Kept as a caveat rather than fixed
+   in the door**, for two reasons that both cut the same way: the clause is deliberate
+   INSURANCE (§26.2 — it is the answer that stays honest the day someone opens the feed
+   earlier, and `wire.ts` names that as the trigger), and hedging it would spend ~73 of the
+   78 bytes left under the 2 KB instruction pin to tell an agent about a payload it will not
+   meet, changing no behaviour — "branch on `ready` first" is correct either way.
+6. **The advisor, the studio rig and the capture share one light setup, so near-camera rock
+   photographs white.** Not a defect and not new: the F4.5 gate accepted it as a tuning note
+   on a rig that works (`studio-key-light-blows-out-near-camera-geometry.md`). What IS new is
+   that the capture borrows that rig deliberately, so an agent now sees it too and may report
+   it as a world defect. The cheap mitigation costs nothing and is a caller-side choice:
+   capture from a named axis view rather than `user` when the subject is close.
+
+**THE DONOR'S DISPOSITION, IN FULL — because after this commit there is no file to read it
+in.** `editor-ai-integration-milestone.md` was filed 2026-06-11 when M4 was renamed from "MCP
+command layer" to "command layer", and it carried four binding shapes plus three dated
+re-anchors. Items 1 and 2 are built and their as-built is §26–§27. **Item 3, the embedded
+agent — the daemon spawning an agent session and handing it the command registry as in-process
+tools, the Cursor model — is DROPPED, superseded by the collaboration model this programme
+actually built.** The editor is driven *through* a claimed session by an agent that lives
+outside it: the claim belongs to a human's tab, the daemon relays into that tab, and an MCP
+client is structurally a guest that can never claim, steal or release (§26.2). An embedded
+agent inverts every one of those. It would make the daemon a process supervisor and an AI
+client — a second session concept beside the SSE claim, a key to hold, a lifecycle to own —
+to reach tools an outside agent already reaches over a documented protocol, with the human's
+own tab as the arbiter. The one thing it would buy that the shipped model does not is a chat
+surface inside the chrome; that is a UX feature that can be built against the same door if it
+is ever wanted, and it is not a reason to host a model. **Item 4 is re-filed** (above).
+**Three facts the donor was the only tracked home for, carried here so they do not die with
+it:** (a) `@modelcontextprotocol/sdk@1.30.0` declares zod BOTH as a `dependencies` entry and
+as a NON-optional peer (`^3.25 || ^4.0`, read from the SDK's own manifest, not the lockfile),
+so the door's "exactly one zod in the tree" premise rests on the workspace zod satisfying that
+range — **re-run the single-instance check on any zod bump**, because a workspace zod outside
+it gets the SDK a second copy plus a peer warning; (b) `ToolDefinition.build` was deferred
+WHOLE on the two-bundle constraint (§23.4), and with it the programme's own success criterion
+*"adding a tool touches the tool module + registration only"* — which is finally TESTABLE now
+that the real tool set exists, and is T5's to judge; (c) `ServiceDefinition` is `{ fn }` with
+no schema field, so the programme's "service schemas arrive via the session handshake" has
+nothing to carry them — and it is now moot rather than pending, because what shipped projects
+COMMAND schemas and there is no handshake.
+
+**The backlog walk — every entry the planning digest named, with a verdict. Twenty rows, and
+every component is derived from the artifact rather than counted by eye:** **nine** resolved
+and DELETED (eight mid-tranche by the task that did the work, plus the donor here), **five**
+narrowed or updated in place, **two** filed new, and **four** checked without firing. The
+deletions are `git diff --diff-filter=D --name-only 21f61d98..HEAD -- docs/backlog/`, which
+returns exactly nine paths; the other three components are the table's own verdict column.
+*(An earlier draft of this sentence read "eight … and six", summing to 21 against a 20-row
+table — this tranche's signature defect, in the paragraph that summarises the tranche. Both
+wrong components are corrected, and the arithmetic is stated so the next reader re-runs it
+instead of trusting it.)*
+
+| Entry | Verdict |
+| --- | --- |
+| `editor-ai-integration-milestone` | **RESOLVED — DELETED (Task 7).** Full disposition above. |
+| `re-claim-on-world-switch` | **RESOLVED — DELETED (Task 0).** `useSessionClaim` re-keys; the stale-label-plus-claim-count silent two-claims state it described is unreachable. §26.1. |
+| `named-run-bodies-claim-ok-with-no-host` | **RESOLVED — DELETED (Task 3).** All 14 `ctx.host?.` bodies went through `handOffToHost`/`okAfterHost`; the five deliberate always-live stances were kept with the argument re-read. §27.1. |
+| `member-id-is-a-display-label` | **RESOLVED — DELETED (Task 3).** `ToolFamilyMember.id` is `memberRefId(m.ref)`; two ids stopped echoing their labels, which is the point. |
+| `refusal-class-has-no-input-arm` | **RESOLVED — DELETED (Task 3).** The arm arrived with its first caller, exactly as its docblock said it would wait for; the two refusals miscarrying `inert` moved. |
+| `rendertotexture-lighting` | **RESOLVED — DELETED (Task 1).** `RenderToTextureOptions` takes `lights`/`ambient` through the same `_writeSceneBuffer` call `frame.render` makes. It was capture-BLOCKING, so this is the entry the tranche most depended on. |
+| `session-state-armedness-is-two-fields` | **RESOLVED — DELETED (Task 5).** One `armed` member, `tool` renamed to `brush`, `gesture` off the wire entirely. It named two facts and there were three; §27.3. |
+| `action-input-schemas-strip-what-commands-refuse` | **RESOLVED — DELETED (Task 6).** `z.object` → `z.strictObject` across the six action rows at the trigger the entry named — the moment those ids became agent-reachable. |
+| `furnace-vendor-keys-untyped` | **RESOLVED — DELETED (Task 6).** `FurnaceMeta` lives in `core/registry` beside the `z` its writers build with; six sites `satisfies` it. |
+| `oplog-group-apply-is-not-a-transaction` | **NARROWED, trigger FIRED, entry OPEN.** `applyOps` is `logApplyGroup`'s first editor consumer, so the surviving clause fired exactly as predicted. Pass-2 rollback was an explicit stop condition — a design decision, not a task's to make. What T4c owed was the DECLARATION at the new layer and it is paid, plus one correction the entry had wrong: the two failure cases CAN be told apart, structurally. |
+| `backchannel-refusals-blur-two-causes` | **NARROWED, and item 1's trigger did NOT fire the way it predicted.** It expected the mutation verbs to force the chrome-refusal/daemon-fault split. They did not, because a refused WRITE never reaches the failure path at all: it travels the `ok: true` leg as an `ActionResult` an agent branches on. So the verbs made the distinction more available rather than more urgent, and item 1 now waits on a client that retries differently for a stale tab than for a broken daemon. **Item 2 got its first live evidence** — see the harness entry. |
+| `read-only-chrome-for-an-unclaimed-session` | **NARROWED (Task 0), still open.** Its sibling shipped: the claim's world is TRUE now, so it is usable as a routing key for the first time and a read-only mode would be read-only *for a world*. The obstacle went, not the question. Its "seventh `RefusalClass` arm" arithmetic is corrected here — the union has eight arms, so the proposed one is the ninth. |
+| `core-zero-consumer-module-exports` | **UPDATED (Task 6), open by design.** It now carries the projected vocabulary — advertised and relayed — with T5's rule written as subtraction. The blocking half ("we cannot prune until T4 says what projects") is closed. |
+| `editor-test-harness-fragility` | **UPDATED (Task 7).** The digest predicted "T4c will hit this wall again" and it did NOT: every gate that recorded a wall clock landed in **54.2–68.2 s** against a ~64 s baseline and a ~90 s tripwire, because every SDK construction stayed in the spawn-child probe — the first real load test of that remedy, and it held. A DIFFERENT contamination class bit instead: an unsettled `ask()` promise outliving its file and rejecting 30 s later inside a stranger, with the failure MOVING between runs. Fixed per-site; the `EventHub.close()` gap behind it is `backchannel-refusals-blur-two-causes` item 2, which now has its first live evidence. |
+| `agent-cannot-read-generator-params` | **FILED NEW (Task 6).** The one place the projection is incomplete; the gate walk is its trigger. See caveat 1 above. |
+| `session-query-entities-list-is-unbounded` | **FILED NEW (Task 4).** The prop scan is capped twice and the entity list is not — a payload-size risk whose fix is a shape decision. |
+| `locator-rethrow-primitive-respelled-six-ways` | **CHECKED, DID NOT FIRE — still six sites, and the count is re-derived rather than assumed.** Its second trigger clause named T4c explicitly ("adding locators on the MCP verb boundary"). T4c added none: `applyOps` PASSES core's locator through as the refusal's message unreworded, and the two verbs' other failures answer `failed` with core's own sentence — a throw converted into a VALUE, never re-thrown under a new prefix. **The command is `grep -rn --exclude="*.test.ts" "instanceof Error ? e" packages/core/src`, which returns exactly the six** — `ops.ts:1124`, `generators.ts:1042`, `reconfigure.ts:264` and `artifact.ts:298 / :912 / :1091`, every one in `@furnace/core/field`. Two notes a reader needs, because an earlier draft of this row named a different command and mis-described it. **Do NOT grep `"cause: "`**: it returns 15 lines, not six — the two JSON sites deliberately do NOT pass `cause` (that divergence is the entry's founding observation, so the grep cannot return them), `maintenance.ts:289` chains a cause for an unrelated reason, and the string is a substring of `because: `, which the editor's refusal vocabulary uses about ten times. And the same message-extraction idiom appears **33** times under `packages/editor/src` without producing a site: those extract a sentence to REPORT (a toast, a log, an `ActionResult`), where a site extracts one to RE-THROW under a prefix. The idiom is not the convention; the throw is. Taking the extraction anyway was weighed and declined: it still reaches `artifact.ts`, which nothing in this tranche touched, and it still carries the `cause`-or-not decision — the two conditions the AGENTS.md inline-fix threshold fails on, unchanged since T4a. Noted in the entry. |
+| `reconfigure-empty-evaluation-leg-unheld` | **CHECKED, DID NOT FIRE as predicted — narrowed instead.** Its trigger named "a third generator-committing path arriving (T4c's MCP verbs would drive both existing ones)". No third CORE path arrived: `generate` is a new CALLER of `commitGenerator`, whose empty-result leg IS pinned. What did change is reachability — an agent can now reach that pinned leg directly, and can reach `reconfigureGenerator`'s UNHELD one by exactly one narrow route (`action_run {id: "session.confirm"}` over a reconfigure session a HUMAN opened). Recorded in the entry; the fixture is still a one-line `evaluate` swap. |
+| `render-pass-target-union` | **CHECKED, DID NOT FIRE — and the question it holds was answered at the code, once, in its favour.** Task 1 shipped `frame.drawLinesToTexture` as a SECOND command rather than a `{ target }` field on `drawLines`, decided on R9 grounds (the two forms carry different failure-policy stances — runtime-quiet on-screen, setup-loud off-screen — and R9 assigns a stance per export). `api-posture.md` R4 now points at this entry as the home for the general question rather than legislating a universal from one instance. The entry stands unchanged: its own rejection was about the MANAGED pair on R8 tier grounds and nothing here disturbs it. |
+| `studio-key-light-blows-out-near-camera-geometry` | **CHECKED, DID NOT FIRE — but its reasoning now cuts the other way and the entry says so.** It argued light tuning wants the user live in front of the viewport, because "a value picked by an agent against a headless capture is a value picked against the wrong instrument". The capture now borrows the SAME `sceneLights()` rig, so an agent inspecting near-camera geometry sees the same blowout a human does — which makes the note agent-visible without making it agent-fixable. Trigger unchanged (it bothers the user in real use). |
+
+**Two adjacent findings surfaced and deliberately not fixed, recorded rather than dropped.**
+Neither is a defect and both are tidy-ups that would have widened this tranche's diff into
+files it had no other reason to touch. (1) **Every host test declares its own kit-bearing
+material table.** Re-derived at head rather than carried from the plan:
+`grep -rln 'kind: "kit"' packages/editor/tests` returns **17** files, 16 excluding
+`catalog.test.ts` (whose subject IS the parser, so its tables are the test rather than a
+fixture), and **two of them arrived in this tranche** (`field-host/mutation.test.ts`,
+`field-host/query.test.ts`). One shared fixture would close it; the change touches every one
+of them and belongs in a hygiene pass, not here. (2) **Nothing renders `<App/>` in any test**,
+so the wiring between the store `App` puts on the context and the store it passes to
+`useSessionAnswer` would survive being broken. Narrowed at the review: both members are
+REQUIRED, so what actually survives untested is only "`App` hands two *different* stores to the
+seam and the chip" — and it is a pre-existing class covering every `ctxValue` member rather
+than anything T4c introduced. Filing a per-member entry for a gap the whole context shares
+would be noise; it is stated here so the next person to mount an App-level test knows what it
+would buy.
+
+**What this tranche did NOT do, on purpose, so the next planner does not re-derive it.** No op
+attribution and no `LogEntry` format change — user-ruled to post-T4 and designed together with
+the agent undo verb, which is why `edit.undo`/`edit.redo` are FENCED at the `action.run` door
+rather than merely unadvertised (§27.1). No abort plumbing: `session.interrupt` drains one Esc
+rung and cannot stop a bake, a save or an analyzer pass, because nothing in this editor is
+abortable. No read-only chrome mode. No canvas-snapshot tool. No `ToolDefinition.build`. No
+embedded agent and no outbound LLM (dispositioned above).

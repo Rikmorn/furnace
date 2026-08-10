@@ -1,7 +1,13 @@
 # A chrome that has not claimed the session is not read-only — it is a full editor nobody can reach
 
-The session-claim policy, settled at the foundations programme design (2026-08-04) and recorded
-in `editor-ai-integration-milestone.md`, reads:
+The session-claim policy, settled at the foundations programme design (2026-08-04), reads:
+
+*(It was recorded in `editor-ai-integration-milestone.md`, which had no other home for it at
+the time. That entry was DELETED at foundations T4c Task 7 with its four items dispositioned —
+`docs/reference/editor-architecture.md` §27.5 carries the disposition — so this quotation is now
+the policy's own provenance. The as-built it describes is §5.1 (the claim table and the
+connection token) and §26.1; nothing in the wording below is aspirational any more except the
+"read-only" clause this entry exists to track.)*
 
 > exactly one chrome session may claim a world for authoring; the daemon tracks the claim; **a
 > second tab gets read-only or an explicit steal**; an MCP call with no claimed session returns
@@ -19,8 +25,9 @@ a flag.
 ## Context
 
 **Read-only is a per-control decision across the whole shell.** Which verbs refuse; what a
-refused control SAYS (T4a's rule: every refusal names its class, and a seventh `RefusalClass`
-arm would be the honest home for "this tab is not the editing session"); whether the viewport
+refused control SAYS (T4a's rule: every refusal names its class, and a NINTH `RefusalClass`
+arm would be the honest home for "this tab is not the editing session" — this line said
+"seventh" until T4c Task 3 added `input` as the eighth; see the Reference section); whether the viewport
 still digs; what happens to a gesture already in progress when the claim is lost mid-stroke;
 whether ⌘S is refused or allowed (a read-only tab that cannot save is a tab that loses work).
 That is a design pass, not a prop.
@@ -72,8 +79,9 @@ about it.
 - `packages/editor/src/daemon/claims.ts` — the table, and the connection-scoped-ephemera
   reconciliation.
 - `docs/reference/editor-architecture.md` §5.1 — the as-built claim.
-- `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` — the settled policy this
-  entry narrows.
+- `docs/reference/editor-architecture.md` §27.5 — where the settled policy this entry narrows
+  ended up, after `editor-ai-integration-milestone.md` (its first home) was deleted at
+  foundations T4c Task 7. The policy text itself is quoted at the top of this file.
 - `packages/editor/src/action-registry/result.ts` — `RefusalClass`, where a "not the editing
   session" arm would go. (The sibling entry for the other missing arm, `input`, was RESOLVED at
   T4c Task 3 — the class exists now, so `RefusalClass` has eight arms and the precedent for

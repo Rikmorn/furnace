@@ -45,7 +45,16 @@ export const MCP_PATH = "/mcp";
  * a browser tab — without it, a `no-session` refusal reads as a broken server rather than as
  * "nobody is editing". (2) The claim model — without it, an agent asked to watch two tabs has
  * no idea why the answer is a refusal, and cannot tell the human what to do; and since the
- * door writes, the guest clause now also says whose world is being changed. (3) That the
+ * door writes, the guest clause now also says whose world is being changed — **and what the
+ * human can see of it, which this blurb got WRONG for the length of one tranche.** It said
+ * *"neither your verbs nor your refusals are shown to them"*; Task 5 had already built the
+ * presence chip (`frontend/lib/agent-presence.ts`, recorded from `useSessionAnswer` on every
+ * relayed method and rendered by `StatusBar`), so the verbs half was false the moment it was
+ * written. Only the REFUSALS half was ever true, and it is true by TYPE rather than by care —
+ * `presence.ran` takes no result, so an applied `edit_apply` and a refused one are the same
+ * record. Corrected at T4c Task 7 and pinned both ways in `tests/mcp.test.ts`, because a
+ * sentence about what the human sees is one an agent uses to decide how much to explain
+ * itself. (3) That the
  * cursor is compare-only — without it, an agent caches a payload against a token that
  * certifies one member of it. (4) That `{ready:false}` is a real answer — `shared/wire.ts`
  * declares the arm and this door really returns it, so an agent that read only the others
@@ -75,7 +84,7 @@ THE CLAIM MODEL. A tab claims the world it is authoring over its own live connec
 exactly one claimed tab can be spoken for. You are a GUEST of that claim — you never hold one
 and cannot take one — so with no tab claimed, or several, the relayed tools refuse instead of
 guessing which human you are watching. You work beside that person: your edits land in their
-world, and neither your verbs nor your refusals are shown to them.
+world, and their status bar names the verb you just ran — never its outcome, never a refusal.
 
 WRITING. edit_apply takes a BATCH of ops and lands the whole batch as ONE undo step, so send
 one intent per call, never one op per call — their ⌘Z has to stay usable. generate commits a
@@ -222,11 +231,16 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * it has to be worth more than the room it takes.
  *
  * **AND THE ROW COUNT IS THE SMALLER HALF OF THAT BUDGET, so the prose is capped too.** These
- * nine descriptions are 6,004 bytes on the wire — three times {@link MCP_INSTRUCTIONS}'s
- * pinned 2 KB, riding the same `tools/list` — so capping the discovery blurb and not the rows
- * would be budgeting the cheaper surface and calling it discipline. `tests/mcp.test.ts` pins
- * the total at 8,192: 1.36× head, which admits a tenth row even at `session_query`'s length
- * (1,266) and reds well before a doubling. A TOTAL rather than a per-row cap, because one row
+ * nine descriptions are 7,082 bytes on the wire — over three and a half times
+ * {@link MCP_INSTRUCTIONS}'s pinned 2 KB, riding the same `tools/list` — so capping the
+ * discovery blurb and not the rows would be budgeting the cheaper surface and calling it
+ * discipline. `tests/mcp.test.ts` pins the total at 8,192. It was 6,004 bytes and 1.36× head
+ * when this paragraph was written; the T4c review spent 1,078 of that slack on four rows that
+ * described this door WRONGLY (`edit_apply`'s unconditional "a bad batch changes nothing", the
+ * live-session refusal neither write verb mentioned, `generate`'s "a bad param is refused" when
+ * it answers `failed`, and the retired fixed ladder this file advertised over a recency stack).
+ * Head is 1.157×, which admits a tenth row at the median length (870) and reds before one at
+ * `session_query`'s (1,266) — the budget doing its job rather than sitting slack. A TOTAL rather than a per-row cap, because one row
  * genuinely is a wall — `session_query` restates the contact rule verbatim, which is the whole
  * reason that rule reaches an agent — and a per-row limit would forbid the one case that
  * earned its length.
@@ -302,14 +316,14 @@ const TOOLS: readonly ToolRow[] = [
     command: "edit.apply",
     reads: false,
     description:
-      "CARVE. Apply a batch of field brush ops — dig, fill, paint or smooth, over a sphere, an axis-aligned box or a swept capsule — to the live world. The whole batch lands as ONE undo entry, so the human's ⌘Z reverses your entire intent and not a third of it: send one intent per call, never one op per call, or you fill their history with steps nobody drew. Every op is validated before any of them lands, and a refusal names the index that failed, so a bad batch changes nothing. There is no agent undo verb; to reverse something you just did, apply the inverse ops explicitly.",
+      "CARVE. Apply a batch of field brush ops — dig, fill, paint or smooth, over a sphere, an axis-aligned box or a swept capsule — to the live world. The whole batch lands as ONE undo entry, so the human's ⌘Z reverses your entire intent and not a third of it: send one intent per call, never one op per call, or you fill their history with steps nobody drew. Every op is VALIDATED before any of them lands, and a rejected batch is refused naming the index that failed with nothing written. That covers validation only: an op that passes validation and then fails while being applied answers `failed`, not a refusal, and the ops before it ARE written — read that message, do not retry it. This is also refused outright while the human has a stamp session open, because their preview was computed against the cells you would change; wait, or call session_interrupt. There is no agent undo verb; to reverse something you just did, apply the inverse ops explicitly.",
   },
   {
     tool: "generate",
     command: "generate",
     reads: false,
     description:
-      "MAKE. Commit one registry generator (a hall, a maze, a cave, a scatter) into the live world in a single act — no stamp session is opened and none is left standing, so the step after this one is not blocked. `params` are overlaid onto the generator's OWN defaults, so naming one keeps the rest and omitting them entirely is a complete call; a wrong `generatorId` is refused with the list of real ones, and a bad param is refused naming the generator and the failing path. `region` is world metres and defaults to the human's current cell selection; with neither, it refuses rather than guessing where to build. Answers the new entity's id, the seed actually used and the region committed, so the result is reproducible by a caller that named no seed.",
+      "MAKE. Commit one registry generator (a hall, a maze, a cave, a scatter) into the live world in a single act — no stamp session is opened and none is left standing, so the step after this one is not blocked. `params` are overlaid onto the generator's OWN defaults, so naming one keeps the rest and omitting them entirely is a complete call — which is the recommended way to call this, because the defaults are not currently readable through any tool. A wrong `generatorId` IS refused, with the list of real ones. A bad param is NOT: the generator runs arbitrary code, so a param it rejects, a defect in the generator itself and an invalid op it emitted all arrive the same way and all answer `failed` with the generator's own sentence — read it rather than assuming your params were wrong. `region` is world metres and defaults to the human's current cell selection; with neither, it refuses rather than guessing where to build. Like edit_apply, it is refused while the human has a stamp session open. Answers the new entity's id, the seed actually used and the region committed, so the result is reproducible by a caller that named no seed.",
   },
   {
     tool: "action_run",
@@ -323,7 +337,7 @@ const TOOLS: readonly ToolRow[] = [
     command: "session.interrupt",
     reads: false,
     description:
-      "Press Escape once, on the human's behalf. It drains exactly ONE rung of the editor's standing-interaction stack, most recent first: a live stamp/reconfigure/move session, then an armed stamp, then a half-drawn box or segment anchor, then the selected entity, then the cell selection. With nothing standing it REFUSES rather than answering ok, so you can tell a cancel from a no-op. It cannot stop a bake, a save, a remesh or an analyzer pass — nothing in this editor is abortable, and the honest answer for a long job is this daemon's own timeout rather than this tool.",
+      "Press Escape once, on the human's behalf. It cancels exactly ONE thing: the MOST RECENTLY STARTED of the states standing right now — a live stamp/reconfigure session, a move being dragged, an armed stamp, a half-drawn box anchor, a half-drawn segment anchor, the selected entity, the cell selection. The order is RECENCY, not that list: the list is what can be standing, never what goes first, so a selection drawn after an entity was picked is cancelled before that entity. Read session_state's `armed` to see what is on top, and call this more than once to unwind more than one. With nothing standing it REFUSES rather than answering ok, so you can tell a cancel from a no-op. It cannot stop a bake, a save, a remesh or an analyzer pass — nothing in this editor is abortable, and the honest answer for a long job is this daemon's own timeout rather than this tool.",
   },
 ];
 

@@ -57,6 +57,29 @@ one (a different separator, a swallowed original, a locator that eats the predic
 message instead of prefixing it); or T4b/T4c adding locators on the MCP verb boundary,
 which would put the convention in front of an agent rather than a developer.
 
+**The MCP clause was CHECKED AGAIN at T4c Task 7, at its own named trigger, and did not fire
+— still six sites, count re-derived rather than assumed.** T4c projected the mutation verbs
+this entry predicted would be the tempting moment (*"whose failures name a target the agent
+chose"*). It stayed six, and the mechanism is worth recording because it is the shape a future
+verb should copy. `FieldHost.applyOps`
+(`packages/editor/src/field-host/field-mutation.ts`) **passes core's locator through
+unchanged** — `logApplyGroup` rejects with `field op group: ops[2] — <predicate's message>`
+and that sentence becomes the refusal's message verbatim, because the ops carry no ids until
+pass 2 and the list position is the only address a caller can act on. Rewording it under an
+editor-side locator would have LOST the one thing the caller can use. The applier-failure leg
+appends a note (`strandedNote`) rather than prefixing a locator, and both legs answer a VALUE
+(`refused` / `failed`) rather than throwing — so nothing on the editor side catches, wraps and
+re-throws. `generate` is the same: its two attributable causes are settled before the call and
+its unattributable ones return core's own sentence. Re-derivation at head, 2026-08-10:
+`grep -rn "cause: " packages/core/src packages/editor/src` returns the four chaining sites
+below plus `maintenance.ts`'s unrelated one, and `grep -rn "instanceof Error ? e" packages/core/src`
+returns the same six locator sites — no seventh in either package.
+
+**Extraction was weighed at T4c and declined, with the same two reasons as T4a.** It still
+reaches `artifact.ts`, which no task in this tranche touched, and it still carries the
+`cause`-or-not decision for the two JSON sites — a real design question. Both AGENTS.md
+inline-fix conditions still fail, so filing remains the right answer rather than the lazy one.
+
 **The MCP clause was CHECKED at T4b Task 5 and did not fire — still six sites.**
 `packages/editor/src/daemon/mcp.ts` mounts the agent door and its error edge
 (`toolFailure`, one `Record<EditorErrorCode, string>`) does neither of the two things this

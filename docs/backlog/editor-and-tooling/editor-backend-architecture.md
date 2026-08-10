@@ -92,9 +92,14 @@ layer" to **"command layer"** — MCP was descoped (below). What landed:
   repo), direct file editing beats mutation tools, so M4 instead made disk edits first-class
   (watch + reload + validate + introspect over plain HTTP) and shipped the transport-agnostic
   substrate the bindings will mount over. The MCP mount + `viewport.capture` + embedded/outbound
-  AI moved to a dedicated milestone: `editor-ai-integration-milestone.md` (slot after M5). The
+  AI moved to a dedicated milestone, `editor-ai-integration-milestone.md` (slot after M5). The
   decision-2 "three audiences for free" thesis still holds — it just becomes its own milestone
-  rather than falling out of M4.
+  rather than falling out of M4. **(2026-08-10: that milestone is DONE and its file is deleted.
+  The MCP mount and `viewport.capture` shipped in foundations T4b + T4c; the embedded agent was
+  dropped as superseded; outbound is re-filed at `outbound-llm-editor-features.md`. As-built:
+  `docs/reference/editor-architecture.md` §26–§27, with the full disposition at §27.5. The
+  "three audiences" thesis was borne out — the substrate M4 shipped is what T4 mounted over,
+  unchanged.)**
 - **Deferred from M4:** extension-file watching (known gap from M3); concurrent-open await races
   (resolved in Slice 3.1 — staleness guards after each await in `session.ts`, `tests/session-race.test.ts`);
   mutation UI → M5.

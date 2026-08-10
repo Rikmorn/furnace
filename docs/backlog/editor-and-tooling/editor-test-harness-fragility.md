@@ -405,11 +405,61 @@ shared process state), or making the core wall-clock budgets calibrate against a
 per-process baseline instead of an absolute ceiling. All three are program-level decisions
 about the gate.
 
-**Trigger to revisit:** T4c wanting MCP coverage the transcript shape cannot express (a
-streaming tool, an interleaving the probe cannot script); OR an SDK upgrade — re-measure
-the table first, since a v2 SDK may not have this at all; OR any move to change the repo's
-gate command, which should settle this at the same time.
+**Trigger to revisit:** an SDK upgrade — re-measure the table first, since a v2 SDK may not
+have this at all; OR any move to change the repo's gate command, which should settle this at
+the same time; OR MCP coverage the transcript shape cannot express (a streaming tool, an
+interleaving the probe cannot script). *(The T4c clause of this trigger is spent — see the
+next section.)*
 
 **Reference:** `packages/editor/tests/_helpers/mcp-probe.ts` (the measurement and the
 eliminations, at source); `packages/editor/tests/action-registry/node-door.test.ts` (the
 `Bun.spawn` precedent).
+
+### What foundations T4c actually hit — the prediction was right, the class was wrong
+
+**The prediction: "T4c will hit this wall again." It did NOT.** Whole-workspace `bun test` from
+the repo root, read off each commit's own gate line (2026-08-09 → 2026-08-10) — **Task 0
+64.9 s, Task 1 54.4 s, Task 2 64 s, Task 4 54.2 s, Task 5 67 s, Task 6 66.1 s, Task 7 68.2 s**.
+*(Task 3 recorded its pass/fail counts but not a wall clock, so there are seven gates and six
+figures plus this file's own; the gap is stated rather than interpolated.)* Baseline ~64 s, and
+the ~90 s tripwire that a 3× multiple would have blown through on its first appearance was never
+approached. The suite grew 3,057 → 3,201 cases and the wall clock did not move. **The containment held for exactly the
+reason it was designed to**: the tranche added six MCP tools, five argument schemas and 17
+door cases, and **every SDK object construction stayed inside `tests/_helpers/mcp-probe.ts`'s
+spawn child**. Nothing in `src/` was shaped around it and nothing needed to be. That is the
+first real load test of the remedy above, and it is worth recording as a positive: the fix is
+not fragile, it is structural — a fresh runtime cannot be polluted by the parent's SDK.
+
+**A DIFFERENT contamination class bit instead, and it belongs in this file because it is the
+same absence of per-file isolation arriving from a third direction: an unsettled PROMISE.**
+
+At T4c Task 3, three brokered-command cases opened a backchannel ask and never answered it.
+`EventHub.close()` deliberately does not fire its close handlers, so `abandonAsksOn` never runs
+at teardown and a pending ask **survives its own test file** on an `unref`'d timer. It then
+rejects up to its budget later — 30 s for `generate` — inside **whatever file bun happens to be
+running by then**, as an unhandled rejection attributed to a stranger. Measured while writing
+those cases: three unsettled asks reddened `tests/chrome/tool-rail.test.tsx` with
+`session-timeout: "generate"`, a file that names none of this, **and the failure MOVED between
+runs** as scheduling shifted.
+
+**Why it is worse than the SDK cost even though it is smaller.** The SDK multiple is loud,
+reproducible and points at itself. This one is silent until it isn't, blames an innocent file,
+and is non-deterministic — the three properties that make a suite untrustworthy rather than
+slow. A reader who bisects on the reddened file learns nothing.
+
+**How it was fixed, and what is left.** Per-site: every case that opens an ask now settles it,
+with the discipline stated at the top of `tests/session-mutation.test.ts` and the accepting
+half of `tests/session-query.test.ts`'s validation case deliberately NOT asserted for exactly
+this reason (a request the schema admits is relayed, so asserting it would open an ask nothing
+answers). **The underlying gap is filed, not fixed**, at
+`docs/backlog/editor-and-tooling/backchannel-refusals-blur-two-causes.md` item 2 — `hub.close()`
+firing no close handlers, which that entry had recorded as "unreachable today". **T4c is its
+first live evidence**, and it arrived from the test harness rather than from the daemon
+shutdown path the entry anticipated.
+
+**The general rule this suggests, stated rather than adopted:** a `bun test` process with no
+per-file isolation cannot contain an async leak any better than it contains a synchronous one,
+and the three remedies listed above (per-package runs, `--isolate`, calibrated budgets) address
+only the synchronous half. An unsettled promise crosses a file boundary that even `--isolate`
+would not close if the timer outlived the isolate. Nothing here proposes a fix; it is context
+for whoever settles the gate question.
