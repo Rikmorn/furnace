@@ -175,10 +175,12 @@ const sessionAnswer = z.discriminatedUnion("ok", [
  * believes, which is the property a safety fence has to have. The cost is that this module
  * now knows two action ids; that is the price of enforcement not depending on a client.
  *
- * **NOT relying on non-advertisement.** `mcp.ts` lists three tools today, so no MCP client
- * can name these ids yet — and that is exactly the reasoning this tranche keeps refusing
- * elsewhere. Advertisement is not enforcement; the cull is Task 6's and it is a different
- * mechanism from a rule.
+ * **NOT relying on non-advertisement — and since T4c Task 6 that is no longer hypothetical.**
+ * The door advertises `action_run`, whose id parameter is a free string, so an MCP client CAN
+ * name these two; what it meets is this set. The row's own prose says so out loud rather than
+ * staying quiet about a refusal an agent would otherwise discover by trying — but the prose is
+ * the courtesy and this is the enforcement, which is the distinction this tranche keeps
+ * making. Advertisement is a filter; a fence is a rule.
  */
 const FENCED_ACTIONS: ReadonlySet<string> = new Set(["edit.undo", "edit.redo"]);
 
@@ -187,11 +189,16 @@ const FENCED_ACTIONS: ReadonlySet<string> = new Set(["edit.undo", "edit.redo"]);
 const fenceMessage = (id: string): string =>
   `"${id}" is not available to an agent: undo has no op attribution yet, so stepping the log would discard whatever is on top of it — routinely the human's own work, not yours. This fence lifts when op attribution ships and undo is designed with it. To reverse something you just did, apply the inverse ops explicitly.`;
 
-/** A world-metre point. `op-schema.ts` declares the same three-tuple for the same
- *  advertisement reason (a client reads "exactly three numbers" off the projected JSON
- *  Schema); the copy is two lines and the alternative is an import between two schema
- *  modules that share no other vocabulary. */
-const point3 = z.tuple([z.number(), z.number(), z.number()]);
+/** A world-metre point. `op-schema.ts` declares the same three-tuple, carries the same
+ *  hand-restated length bounds, and argues at length WHY they are hand-restated — zod's
+ *  tuple reflection emits `prefixItems` and no length keyword, so the advertisement without
+ *  this `.meta()` admits `[1, 2]` where `dispatch` refuses it. The copy is four lines and the
+ *  alternative is an import between two schema modules that share no other vocabulary; the
+ *  pin that catches a THIRD site forgetting it lives in `tests/mcp.test.ts`, which walks
+ *  every advertised document rather than either declaration. */
+const point3 = z
+  .tuple([z.number(), z.number(), z.number()])
+  .meta({ minItems: 3, maxItems: 3 });
 
 /**
  * A ray DIRECTION — a `point3` that is not the zero vector.
@@ -207,11 +214,23 @@ const point3 = z.tuple([z.number(), z.number(), z.number()]);
  *
  * Refused rather than defaulted, for the door's standing reason: a schema is also the
  * ADVERTISEMENT, and substituting a direction would answer about a ray the caller never cast.
+ *
+ * **THE `.describe()` IS THIS FIELD'S HALF OF THE ADVERTISEMENT, and it is prose because it
+ * has to be.** JSON Schema has no way to say "not the zero vector", so this is the ONE bound
+ * in the whole projected tool table that a client cannot read as a keyword: the advertisement
+ * admits `[0,0,0]` and `dispatch` refuses it — advertisement looser than validation, with no
+ * schema-shaped fix available. What is available is telling the reader, in the document, at
+ * the field. `tests/mcp.test.ts` pins both halves (the description is advertised, and the
+ * value is really refused) so the gap stays a KNOWN one rather than a discovered one.
  */
-const direction3 = point3.refine(
-  ([x, y, z]) => x !== 0 || y !== 0 || z !== 0,
-  "dir must not be the zero vector — it names no direction to cast along",
-);
+const direction3 = point3
+  .refine(
+    ([x, y, z]) => x !== 0 || y !== 0 || z !== 0,
+    "dir must not be the zero vector — it names no direction to cast along",
+  )
+  .describe(
+    "Any length (the engine normalizes) but NOT the zero vector, which names no direction and is refused.",
+  );
 
 /**
  * What `session.query` accepts — `shared/wire.ts`'s {@link SessionQueryRequest} as a
@@ -422,9 +441,10 @@ export function createSessionHandlers(
   // the neutral floor for exactly this — the daemon may not touch anything that imports the
   // engine, and a hand-copied closed list is the drift `shared/wire.ts`'s header calls
   // invisible in both directions. `size` is bounded here as well as clamped in the host,
-  // which is not belt-and-braces: a schema that states its range is what the MCP door
-  // advertises to an agent (Task 6), and being TOLD the ceiling beats discovering it by
-  // having a request silently reshaped.
+  // which is not belt-and-braces: this schema IS what the MCP door advertises to an agent —
+  // literally, since T4c Task 6 projects it rather than restating it (`daemon/mcp.ts`'s
+  // `advertise`) — and being TOLD the ceiling beats discovering it by having a request
+  // silently reshaped.
   handlers.set("viewport.capture", {
     input: z.strictObject({
       view: z.enum(CAPTURE_VIEWS).optional(),
@@ -522,21 +542,46 @@ export function createSessionHandlers(
   // generator has its own param schema, projected from zod by core's own `defineGenerator`
   // — and it lives in the REGISTRY, which is behind the engine, which this Node-portable
   // daemon may not import. So the daemon cannot check them and does not pretend to: core
-  // validates them at commit and its rejection names the generator. What an agent needs in
-  // order to send the right ones is the schema itself, which `session.state`'s neighbours
-  // cannot carry either — it comes off `listGenerators`, and putting it in front of an
-  // agent is the advertisement half of Task 6 rather than a validation gap here.
+  // validates them at commit and its rejection names the generator and the failing path.
+  //
+  // AN EARLIER DRAFT OF THIS COMMENT PREDICTED THAT TASK 6 WOULD PUT THAT SCHEMA IN FRONT OF
+  // AN AGENT ("it comes off `listGenerators`"). **It did not, and the prediction was wrong
+  // about what was reachable rather than about what was worth doing.** `listGenerators` is a
+  // `FieldHost` method: reaching it needs a relayed READ that does not exist, i.e. a tenth
+  // tool and an answerer row, which is a seam and not an advertisement. What Task 6 shipped
+  // instead is the two things that make the gap survivable without one — core's
+  // `generatorById` now names the registered ids in its refusal, and EVERY param carries a
+  // default (`defineGenerator`'s `defaultsOf`), so `generate {generatorId, region}` with no
+  // params at all is a complete call. Filed with its trigger at
+  // `docs/backlog/editor-and-tooling/agent-cannot-read-generator-params.md`.
   handlers.set("generate", {
     input: z.strictObject({
-      generatorId: z.string().min(1),
-      params: z.record(z.string(), z.unknown()).optional(),
-      seed: z.number().int().optional(),
+      generatorId: z
+        .string()
+        .min(1)
+        .describe(
+          "A registry generator id. A wrong one is refused with the list of real ones.",
+        ),
+      params: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          "Overlaid onto the generator's own defaults, so naming one param keeps the rest. Omit it entirely and every default is used; core refuses an unknown or out-of-range param naming the generator and the path.",
+        ),
+      seed: z
+        .number()
+        .int()
+        .optional()
+        .describe("Omitted = a fresh roll. The seed used is reported back."),
+      // `point3`, not a third and fourth inline three-tuple: the two written here carried
+      // no length bounds, so this row advertised a region a client could spell with two
+      // numbers per corner. One declaration, one correction, three call sites.
       region: z
-        .strictObject({
-          min: z.tuple([z.number(), z.number(), z.number()]),
-          max: z.tuple([z.number(), z.number(), z.number()]),
-        })
-        .optional(),
+        .strictObject({ min: point3, max: point3 })
+        .optional()
+        .describe(
+          "World metres. Omitted = the human's current cell selection box; with neither, refused.",
+        ),
     }),
     run: (input) => {
       if (session === undefined) {
@@ -556,7 +601,9 @@ export function createSessionHandlers(
   // THE NAMED-VERB DOOR — the editor's own 39 verbs, reachable by id.
   //
   // IT BUILDS NO ALLOW-LIST, deliberately, and that is the whole shape of the decision.
-  // WHICH ids an agent is TOLD about is the MCP door's to choose (Task 6); which ids EXIST
+  // WHICH ids an agent is TOLD about is the MCP door's to choose — T4c Task 6 chose PROSE in
+  // the `action_run` row, naming the six that take an input and the two that are fenced, and
+  // left the parameter a free string. Which ids EXIST
   // is the action registry's, and `runNamedById` in the chrome is the one funnel that knows
   // the table and refuses an id that is not in it — with the list, so a caller learns what
   // it should have said. A second membership test here would be a second thing to keep in
@@ -639,15 +686,14 @@ export function createSessionHandlers(
   // default ask budget is more than that needs, and a shorter one would only make a busy tab
   // look broken.
   //
-  // MIGRATION (until T4c Task 6): **THIS VERB'S ROW OWES IT A LIMIT AND A DISPOSITION.**
-  //
-  // THE LIMIT, in one sentence: it drains ONE rung — the most recent standing thing — and it
+  // THE LIMIT, in one sentence, and **the door now carries it** (`daemon/mcp.ts`'s
+  // `session_interrupt` row): it drains ONE rung — the most recent standing thing — and it
   // CANNOT stop a bake, a save or an analyzer pass, because nothing in this editor is
   // abortable (there is no `AbortController` in the tree). A tool called `session_interrupt`
   // that does not say that will be reached for by an agent trying to stop a long job, and the
   // honest answer to that is the ask timeout, not this.
   //
-  // THE DISPOSITION, because there are TWO spellings of this verb and the door must name one.
+  // THE DISPOSITION, because there are TWO spellings of this verb and the door names one.
   // `action.run {id: "session.escape"}` reaches the same `FieldHost.escape` — it is a registry
   // row (the human's Cancel), it is never disabled, and it is not fenced. That overlap is
   // structural rather than a slip: `action.run` is a door onto the whole 39-verb table by

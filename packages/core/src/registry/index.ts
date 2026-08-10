@@ -8,6 +8,7 @@ export { z } from "zod";
 export {
   createRegistry,
   defineService,
+  type FurnaceMeta,
   getService,
   type JsonSchema,
   parseOrThrow,

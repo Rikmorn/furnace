@@ -771,7 +771,7 @@ Deterministic, seeded pseudo-random number generators — replay-safe randomness
 ## `@furnace/core/registry`
 
 `import { createRegistry, defineService, getService, toJsonSchema, parseOrThrow, z } from "@furnace/core/registry";`
-(types: `import type { Registry, RegistryOptions, ServiceDefinition, JsonSchema } from "@furnace/core/registry";`)
+(types: `import type { Registry, RegistryOptions, ServiceDefinition, JsonSchema, FurnaceMeta } from "@furnace/core/registry";`)
 
 The neutral definer machinery (foundations T1b) — a world-tier leaf module importing
 **zod + the shared `errors.ts` only**. A FACTORY, not a store: each vocabulary owner
@@ -780,7 +780,11 @@ instantiates its own registry and keeps its own error prefix. It was extracted f
 `scene`, leaving **`@furnace/core/field` as the sole external owner** — `field`'s generator
 registry is the only `createRegistry` instance outside this module, and `field` is the only
 caller of `toJsonSchema` and `parseOrThrow` (verified: `packages/core/src/field/registry.ts`
-is the sole call site of both). The module stays generic and stays its own leaf: it is what a
+is the sole call site of both **inside core**). Outside it, the editor calls `toJsonSchema`
+from two tests — `tests/action-registry/projection-round-trip.test.ts` and
+`tests/inspector-kind.test.ts` — while its MCP door reflects with zod's own `z.toJSONSchema`
+rather than this wrapper, because the wrapper's parameter is typed `ZodObject` and one door row
+projects a discriminated union. The module stays generic and stays its own leaf: it is what a
 second vocabulary owner would build on, and the tier test (`tests/architecture.test.ts`) pins
 it in `WORLD_TIER` alongside `field`. It also **eats its own dog food** — the validated
 consumer→editor service seam (`defineService`/`getService`, which replaced the analyzer
@@ -802,6 +806,7 @@ editor's analyzer worker looks up.
 | `ServiceDefinition` | `{ fn: (...args: never[]) => unknown }` | The registered shape — deliberately untyped beyond "a function". |
 | `resetServicesForTests` | `() => void` | Tests only. |
 | `JsonSchema` | `Record<string, unknown>` | A JSON Schema document (draft 2020-12), as produced by zod. |
+| `FurnaceMeta` | `{ kind?: string; unit?: string }` | The `furnace` VENDOR KEY a schema node may carry, written inside `.meta()` and hoisted to the node root by `toJsonSchema`. Added at foundations T4c so the key has one declaration instead of none: its writers are `field/generators.ts` (×4), `scatter.ts` and `cave.ts`, and its readers are the editor's inspector (control kind + unit suffix) and the MCP door shipping a generator's `paramSchema` to an agent. `.meta()` takes a wide record, so a misspelt member used to fail SILENTLY — spell every defining site `furnace: { … } satisfies FurnaceMeta`. Both members optional (`unit` annotates a node whose control its SHAPE already decides); `kind` is `string` rather than a union because the closed list of field kinds is the EDITOR's and this package cannot import it — the editor narrows from this type, not the reverse. |
 | `z` | re-export of zod | The zod instance the furnace registries validate with. Definition authors MUST build schemas from this re-export — schema objects cross registry boundaries, and mixing zod instances/versions breaks `instanceof`-based introspection. |
 
 ### Reference-only (no demo, by design)
@@ -934,7 +939,9 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   matches 0. The unbounded WRITE is the dangerous half. `min <= max` stays unchecked: an
   inverted region is a legible empty selection.
 - **Staged generators (F2b: the first entity ops; F3b: the evaluate widening + the cave + scatter)** —
-  `FIELD_GENERATORS` registry (`generatorById`, setup-loud): data-parameterized hall,
+  `FIELD_GENERATORS` registry (`generatorById`, setup-loud — its throw NAMES the registered
+  ids, since T4c its non-visual caller is an agent over the editor's MCP `generate`):
+  data-parameterized hall,
   maze, **cave**, and **scatter** (`GeneratorDef` — params authored as zod tables and
   emitted as plain-JSON `paramSchema`/`defaults` by `defineGenerator` (T1b); integer-only
   maze RNG, donor bit-parity). `evaluate` → a **`GeneratorResult`** = `{ ops, placements }` (D-F3-8): `ops`

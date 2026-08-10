@@ -113,6 +113,26 @@ describe("field generators — the hall", () => {
     expect(FIELD_GENERATORS.some((g) => g.id === "hall")).toBe(true);
     expect(generatorById("hall").name).toBe("Hall");
     expect(() => generatorById("nope")).toThrow(/unknown field generator/);
+    // …AND THE THROW NAMES WHAT DOES EXIST. Not decoration: since foundations T4c the
+    // editor's MCP `generate` verb relays this message to an AGENT, whose tool description
+    // promises *"a wrong generatorId is refused with the list of real ones"*. That promise is
+    // prose an agent acts on, and this is the only thing making it true. Derived from the
+    // registry rather than restated, so a fifth generator needs no edit here.
+    const refusal = ((): string => {
+      try {
+        generatorById("nope");
+        return "";
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    })();
+    const unnamed = FIELD_GENERATORS.filter((g) => !refusal.includes(g.id)).map(
+      (g) => g.id,
+    );
+    expect({ registered: FIELD_GENERATORS.length, unnamed }).toEqual({
+      registered: 4,
+      unnamed: [],
+    });
   });
 
   test("hall evaluates to a fill shell + air digs + a doorway, all lattice-valid", () => {

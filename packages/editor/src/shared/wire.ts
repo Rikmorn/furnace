@@ -139,8 +139,10 @@ export type SessionAnswer =
  * (`brush.effect` is core's, `armed`'s `selectCells` mode is the host's), so a declaration
  * here could only ever be a hand-copy that drifts. {@link CaptureView} lives on this same neutral floor
  * precisely so it does not have to be copied: the host, this wire and the daemon's zod enum
- * all read `shared/capture.ts` today, and the MCP door's JSON Schema joins them at Task 6. The rule was never
- * "don't type unions" — it is "don't copy a union you cannot import".
+ * all read `shared/capture.ts`, and since T4c Task 6 the MCP door's JSON Schema is a
+ * PROJECTION of that same zod enum rather than a fifth reader — one array, four sites, and the
+ * agent-facing document derived from one of them. The rule was never "don't type unions" —
+ * it is "don't copy a union you cannot import".
  */
 export type ViewportCaptureRequest = {
   /** Where to photograph from — `"user"` (the human's live camera, the default) or one of
@@ -163,7 +165,9 @@ export type ViewportCaptureRequest = {
  * bytes. Encoding at the wire and nowhere else is what keeps the conversion a single
  * documented step rather than a format that leaks into the host's own vocabulary — the
  * chrome's answerer encodes, the daemon relays the string untouched (it relays every payload
- * untouched), and Task 6's door decodes into its content block.
+ * untouched), and the door decodes into its content block — `daemon/mcp.ts`'s `captureContent`
+ * since T4c Task 6, which lifts `png` out into an `image` block and leaves the measurements
+ * beside it as text, so the base64 crosses the agent's context exactly once.
  *
  * NO MIME FIELD. PNG is the format, decided in `field-capture.ts` and not negotiable per
  * call — thin overlay lines ring under JPEG, which is the whole reason. A `mime` member
@@ -449,15 +453,14 @@ export type ArmedState =
  * projection that produces it is exhaustive over the host union it derives from, so the
  * drift this rule guards against is a compile error rather than a silent widening.
  *
- * MIGRATION (until T4c Task 6): **THIS PAYLOAD OWES ITS READER ONE SENTENCE THE DOOR DOES NOT
- * YET CARRY.** The `session_state` tool description and `MCP_INSTRUCTIONS` (`daemon/mcp.ts`)
- * still say *"which tool and gesture are armed"* — two members that no longer exist — and the
- * agent-facing prose is precisely where the T4b misreading came from. What that row must carry
- * is the RULE, not the member list: **`armed` is what LMB does right now; `brush` is a dormant
- * setting and is not a claim that anything is armed.** A door that lists the fields without
- * that sentence hands the next agent the same join to get wrong. The marker is the convention
- * `AGENTS.md` names for exactly this — `grep -rn "MIGRATION (until T4c Task 6)" packages/`
- * surfaces this and the interrupt row's twin, and both delete when the door is rewritten.
+ * **THE AGENT-FACING PROSE CARRIES THE RULE, NOT THE MEMBER LIST** (T4c Task 6, which is where
+ * the marker that used to stand here was discharged). The door's `session_state` row and
+ * `MCP_INSTRUCTIONS` both spell it: **`armed` is what LMB does right now; `brush` is a dormant
+ * setting and is NOT a claim that anything is armed.** That sentence is load-bearing rather
+ * than decorative — the T4b misreading came from a reader given the fields and not the join,
+ * and a door that lists the fields again without the rule hands the next agent the same
+ * mistake. `tests/mcp.test.ts` pins the sentence's presence in both places, so a description
+ * rewrite cannot quietly drop it.
  */
 export type SessionState =
   | {

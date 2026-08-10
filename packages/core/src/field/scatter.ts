@@ -14,7 +14,7 @@
 // quaternions are built from sqrt-only half-angle and shortest-arc formulae, and
 // the blend is nlerp (normalized lerp) — NEVER slerp/trig.
 
-import { z } from "../registry/index.ts";
+import { type FurnaceMeta, z } from "../registry/index.ts";
 import { getDensity, worldToVoxel } from "./chunks.ts";
 import { defineGenerator, MUST_BE_INTEGER } from "./registry.ts";
 import { fnv1a, makeIntRng, rand01, randInt } from "./rng.ts";
@@ -79,7 +79,7 @@ const SCATTER_PARAMS = {
     .number()
     .min(0.25)
     .max(8)
-    .meta({ default: 1.0, furnace: { unit: "m" } }),
+    .meta({ default: 1.0, furnace: { unit: "m" } satisfies FurnaceMeta }),
   scaleMin: z.number().min(0.05).max(8).meta({ default: 0.6 }),
   scaleMax: z.number().min(0.05).max(8).meta({ default: 1.6 }),
   randomYaw: z.boolean().meta({ default: true }),

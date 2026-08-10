@@ -21,9 +21,11 @@
 // from `toJsonSchema` at the projection edge and is never hand-authored here — and since T4b
 // that reflection is PINNED rather than assumed: `tests/action-registry/
 // projection-round-trip.test.ts` reads the advertised document the way a client would and
-// requires its verdict on 90 sample/row pairs to equal `safeParse`'s. Two representations of
-// one contract, and only one of them decides; the pin is what stops them drifting while
-// nothing is projected yet.
+// requires its verdict on every sample/row pair to equal `safeParse`'s. Two representations
+// of one contract, and only one of them decides; the pin landed BEFORE anything was
+// projected, so the projection could not be the thing that discovered they disagreed. Since
+// T4c Task 6 something is: `daemon/mcp.ts`'s `action_run` row names these ids and the daemon
+// applies these schemas, so the pin now guards a live wire rather than a future one.
 //
 // SIX ROWS, NOT TWELVE. The measured worklist counts twelve actions as needing input and
 // SIX of those are the axis views — which do not appear here, deliberately. Their axis and
@@ -39,6 +41,20 @@
 // not. That is the split the two callers actually want — the chrome dispatches with no
 // input and each run falls back to what the ctx has selected, while an agent that names a
 // verb must name its object too.
+//
+// AND EVERY ROW IS `z.strictObject`, WHICH IT WAS NOT UNTIL T4c TASK 6 — the moment these
+// rows became reachable from an agent. `z.object` STRIPS an undeclared key; every command
+// in the daemon (`handlers.ts`, `session-handlers.ts`) refuses one. Two doors into one
+// editor with two postures is invisible until an agent makes exactly one mistake at each:
+// an invented argument to `session_state` earns a typed `invalid-input` carrying the remedy
+// *"re-read its inputSchema"*, while the same mistake against `action_run {id:"tool.stamp"}`
+// was silently dropped — indistinguishable from success, and the agent learns nothing. The
+// stripping half is the worse half, so it is the half that changed. The projection grows
+// `additionalProperties: false` with it, which is the advertisement finally saying what the
+// validator was always going to do to the NEXT caller. Filed and resolved as
+// `action-input-schemas-strip-what-commands-refuse`; the chrome is unaffected because no
+// chrome surface parses through these (`runAction` hands a typed input straight to the run —
+// `daemon/session-handlers.ts` is the only `safeParse` caller in the tree).
 import { z } from "@furnace/core/registry";
 import type { ActionId } from "./descriptors.ts";
 
@@ -51,18 +67,18 @@ import type { ActionId } from "./descriptors.ts";
 export const ACTION_INPUT_SCHEMAS = {
   /** Name a copy. With no input the drawer opens to collect the name (what ⇧⌘S has always
    *  done); with one, the world is written under it. */
-  "world.saveAs": z.object({ name: z.string() }),
+  "world.saveAs": z.strictObject({ name: z.string() }),
   /** Point `worlds/index.json` at a world by name. The chrome always means the one that is
    *  open; an agent may mean another. */
-  "world.makeDefault": z.object({ name: z.string() }),
+  "world.makeDefault": z.strictObject({ name: z.string() }),
   /** THE EXEMPLAR of the entity trio — the id the host published for a committed entity,
    *  which is what `ctx.selectedEntity` carries and what a duplicate acts on. */
-  "edit.duplicate": z.object({ entityId: z.number().int() }),
-  "edit.delete": z.object({ entityId: z.number().int() }),
-  "edit.grab": z.object({ entityId: z.number().int() }),
+  "edit.duplicate": z.strictObject({ entityId: z.number().int() }),
+  "edit.delete": z.strictObject({ entityId: z.number().int() }),
+  "edit.grab": z.strictObject({ entityId: z.number().int() }),
   /** THE EXEMPLAR of the whole set: a registry generator id (`hall`, `maze`), which is what
    *  the `S` family's cursor points at and what opens a stamp session. */
-  "tool.stamp": z.object({ generatorId: z.string() }),
+  "tool.stamp": z.strictObject({ generatorId: z.string() }),
 } as const satisfies Partial<Record<ActionId, z.ZodObject<z.ZodRawShape>>>;
 
 /** Every action's input, by id — the parsed shape, not the schema. Derived so the two

@@ -15,7 +15,7 @@
 // edge cannot fail to connect. Verticality is EXPLICIT edge types with a
 // per-segment grade budget (D-F3-11 bias), never emergent worm pitch.
 
-import { z } from "../registry/index.ts";
+import { type FurnaceMeta, z } from "../registry/index.ts";
 import {
   CHUNK_DIM,
   chunkKey,
@@ -1253,7 +1253,10 @@ const CAVE_PARAMS = {
     .number()
     .min(RADIUS_RANGE.min)
     .max(RADIUS_RANGE.max)
-    .meta({ default: RADIUS_RANGE.def, furnace: { unit: "m" } }),
+    .meta({
+      default: RADIUS_RANGE.def,
+      furnace: { unit: "m" } satisfies FurnaceMeta,
+    }),
   verticality: z
     .number()
     .min(VERTICALITY_RANGE.min)

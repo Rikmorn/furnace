@@ -9,6 +9,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import { EditorError, type EditorErrorCode } from "./errors.ts";
 import { dispatch, type Handlers } from "./handlers.ts";
 
@@ -39,58 +40,57 @@ export const MCP_PATH = "/mcp";
  * `tests/mcp.test.ts` asserts the byte count so a later edit cannot quietly turn a
  * discovery blurb into a manual.
  *
- * FOUR THINGS AND NO MORE, each chosen because an agent that does not know it makes a
- * specific mistake. (1) That the live half is RELAYED to a browser tab — without it, a
- * `no-session` refusal reads as a broken server rather than as "nobody is editing". (2) The
- * claim model — without it, an agent asked to watch two tabs has no idea why the answer is
- * a refusal, and cannot tell the human what to do. (3) That the cursor is compare-only —
- * without it, an agent caches a payload against a token that certifies one member of it.
- * (4) That `{ready:false}` is a real answer — `shared/wire.ts` declares the arm and this door
- * really returns it, so an agent that read only the three above would meet a payload carrying
- * NONE of the fields promised one line up and have no reason to expect it. The payload is
- * self-describing, so that was incompleteness rather than falsehood; the discovery surface is
- * exactly where incompleteness of that kind gets pre-empted. Added at spec review.
+ * **SIX THINGS AND NO MORE** (four until T4c gave the door hands), each chosen because an
+ * agent that does not know it makes a specific mistake. (1) That the live half is RELAYED to
+ * a browser tab — without it, a `no-session` refusal reads as a broken server rather than as
+ * "nobody is editing". (2) The claim model — without it, an agent asked to watch two tabs has
+ * no idea why the answer is a refusal, and cannot tell the human what to do; and since the
+ * door writes, the guest clause now also says whose world is being changed. (3) That the
+ * cursor is compare-only — without it, an agent caches a payload against a token that
+ * certifies one member of it. (4) That `{ready:false}` is a real answer — `shared/wire.ts`
+ * declares the arm and this door really returns it, so an agent that read only the others
+ * would meet a payload carrying NONE of the fields promised one line up and have no reason to
+ * expect it. (5) **The armedness rule**, because the composite it replaces was misread LIVE by
+ * an agent at the T4b gate walk and the agent-facing prose is where that misreading came from
+ * (`shared/wire.ts`'s `ArmedState` carries the incident). (6) **That a batch is one undo
+ * step**, which is the human's ⌘Z: an agent that sends one op per call fills their history
+ * with steps nobody drew, and no refusal will ever tell it so.
+ *
+ * **THE READS-ONLY CLOSING LINE IS GONE, and its death is the point of the rewrite.** *"THIS
+ * SERVER READS. Nothing here edits a world"* stopped being true when Task 3 built
+ * `edit.apply`, `generate` and `action.run`; they were merely unadvertised, which is not the
+ * same as absent. A discovery blurb that tells an agent not to look for a write verb, on a
+ * door that has three, is the worst kind of stale — it is acted on rather than merely read.
+ *
  * The tool descriptions carry everything else, where they are read next to the call.
  */
-// MIGRATION (until T4c Task 6): TWO SENTENCES BELOW ARE ALREADY FALSE, and one of them is
-// false in the way the tranche exists to fix. (1) "THIS SERVER READS. Nothing here edits a
-// world" — untrue since Task 3 gave the daemon `edit.apply`, `generate` and `action.run`;
-// they are unadvertised, which is not the same as absent. (2) "which tool and gesture are
-// armed" (here and in the `session_state` row) names two payload members that Task 5
-// replaced with `armed` + `brush`, and the RULE that replaced them has to reach this prose or
-// the misreading it fixed comes straight back — `shared/wire.ts`'s `SessionState` carries the
-// sentence to lift, and `daemon/session-handlers.ts`'s `session.interrupt` carries its own.
-// This file's rows and instructions are Task 6's to rewrite; the marker is here so the grep
-// that finds the other two finds the file holding the wrong words as well.
-export const MCP_INSTRUCTIONS = `The furnace editor daemon — a READ surface onto a live world-editing session.
+export const MCP_INSTRUCTIONS = `The furnace editor daemon — READ AND WRITE access to one live world-editing session.
 
-Furnace is a WebGPU engine. Its editor is a browser tab where a human digs, fills, paints
-and smooths a 3-D density FIELD into a world, and stamps generated pieces into it. This
-daemon serves that tab and can read the project on disk itself — but everything about what the
-human is DOING lives in the browser. So session_state is a question this daemon relays to that
-tab and waits on; it is not a file it reads.
+Furnace is a WebGPU engine. Its editor is a browser tab where a human digs, fills, paints and
+smooths a 3-D density FIELD into a world, and stamps generated pieces into it. This daemon
+serves that tab; world_list and project_get it answers from disk with no editor open, and
+every other tool is a question or an instruction it relays to that tab and waits on.
 
-THE CLAIM MODEL, in two sentences. An editor tab claims the world it is authoring over its own
-live connection, and exactly one claimed tab can be spoken for. You are a GUEST of that claim —
-you never hold one and you cannot take one — so when no tab is claimed, or several are,
-session_state says so instead of guessing which human you are watching.
+THE CLAIM MODEL. A tab claims the world it is authoring over its own live connection, and
+exactly one claimed tab can be spoken for. You are a GUEST of that claim — you never hold one
+and cannot take one — so with no tab claimed, or several, the relayed tools refuse instead of
+guessing which human you are watching. You work beside that person: your edits land in their
+world, and neither your verbs nor your refusals are shown to them.
 
-WHICH TOOL WHEN:
-- session_state — the world that is open and whether it has unsaved edits, what is selected,
-  which tool and gesture are armed, where the camera points, and the undo history. The only
-  fresh view of the live session: call it before answering anything about what the human is
-  looking at or editing. A tab still starting up answers {ready:false} and NOTHING else, so
-  branch on ready first. With no editor open it fails fast, with a sentence you can act on.
-- world_list — the worlds saved on disk, and which is the default. Works with no editor
-  open, and does NOT say which one the human has loaded (that is session_state).
-- project_get — the absolute path of the project served. Works with no editor open; use it to
-  resolve what world_list reports against your own filesystem tools.
+WRITING. edit_apply takes a BATCH of ops and lands the whole batch as ONE undo step, so send
+one intent per call, never one op per call — their ⌘Z has to stay usable. generate commits a
+whole generator; action_run presses the editor's own buttons by id.
 
-session_state.cursor is an opaque change token: HOLD IT AND COMPARE IT, NEVER PARSE IT. An
-unchanged cursor means no edit landed and no world was swapped. It certifies the history
-member and nothing else — re-read rather than assume a selection, camera or stat is current.
+READING. Call session_state before answering anything about what the human is doing. A tab
+still loading answers {ready:false} and nothing else, so branch on ready first. Its \`armed\` is
+what LMB does RIGHT NOW; \`brush\` is a standing SETTING and is NOT a claim that anything is
+armed. Its \`cursor\` is an opaque change token: HOLD IT AND COMPARE IT, NEVER PARSE IT — an
+unchanged cursor means no edit landed, and it certifies the history and nothing else.
 
-THIS SERVER READS. Nothing here edits a world, writes a file, or moves the human's camera.`;
+MEASURE BEFORE YOU LOOK. session_query answers geometry exactly — where a ray hits, which
+placed props float or overlap, what is selected. viewport_capture photographs the viewport
+from the human's camera or one of six axis views, without moving theirs; it is for judging how
+something LOOKS, never for deciding where something IS.`;
 
 /**
  * Who is answering, in the protocol's own words.
@@ -106,11 +106,6 @@ THIS SERVER READS. Nothing here edits a world, writes a file, or moves the human
  */
 const SERVER_INFO = { name: "furnace-editor", version: "0.0.0" };
 
-/** The advertised argument shape for a tool that takes none. One object, shared by all
- *  three rows: three empty schemas would be three chances for one of them to grow a field
- *  nothing validates. */
-const NO_ARGUMENTS = { type: "object" as const, properties: {} };
-
 /** One projected tool: what an agent calls, what it dispatches to, and what it is for. */
 type ToolRow = {
   /** `snake_case`, prefix-free — see {@link SERVER_INFO}. */
@@ -118,52 +113,274 @@ type ToolRow = {
   /** The daemon command in `handlers.ts`' registry. */
   readonly command: string;
   readonly description: string;
+  /**
+   * `true` when calling this changes NOTHING — no world, no file, no interaction state.
+   *
+   * It becomes the protocol's `readOnlyHint`, which is a HINT by specification: a statement
+   * of intent to a client rather than a guarantee to lean on. What makes it honest here is
+   * that it is a property of the ROW rather than of the door — until T4c every row was a
+   * read and the annotation was hard-coded `true` for all of them, which is exactly the
+   * shape that would have gone on claiming read-only over the four writes this task
+   * advertises.
+   *
+   * A WRITING ROW CARRIES NO ANNOTATION AT ALL rather than `readOnlyHint: false`. The
+   * specification's default for an absent hint is already "not read-only", so the explicit
+   * `false` would add a second spelling of one fact, and `destructiveHint`'s own default
+   * (true, once a tool is not read-only) is the conservative reading we want a client to
+   * take.
+   */
+  readonly reads: boolean;
+  /**
+   * How this row's answer becomes MCP content, when JSON-as-text is the wrong container.
+   *
+   * ONE ROW HAS ONE, and it is the reason this member exists rather than a `switch`:
+   * `viewport_capture` answers a base64 PNG, which `shared/wire.ts` says in as many words is
+   * the encoding *"for the one hop in between"* — the chrome encodes because a
+   * `SessionAnswer` is JSON and JSON has no bytes, and **this door decodes into an
+   * image block**. Left as text it would be a megabyte of base64 in a model's context
+   * window: not merely inelegant, but the single most expensive mistake this door could
+   * make per call, and invisible in a test that only checks `isError`.
+   */
+  readonly present?: (answer: unknown) => CallToolResult["content"];
+};
+
+/** A JSON object, as a narrowing rather than a cast.
+ *
+ *  **THE SAME SHAPE AS, NOT SHARED WITH,** the copies in `tests/mcp.test.ts` and
+ *  `tests/action-registry/projection-round-trip.test.ts` — three of them, which is the repo's
+ *  own extraction threshold, and the extraction is declined on purpose. This is a two-line
+ *  DEFINITION of "JSON object", fixed by JSON itself: there is no version of it that can
+ *  drift, so a shared home would buy nothing a copy loses. What it would cost is the daemon's
+ *  first neutral-floor utility module — reachable from `src/daemon/` and two test directories
+ *  — and a magnet for the next one-liner. If a third KIND of reader ever needs it, or the
+ *  predicate ever grows a decision, that is the trigger to extract. */
+const isJsonObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Whatever a command answered, as pretty JSON in ONE text block — every row's default.
+ *
+ *  `?? "null"` because `JSON.stringify(undefined)` returns the VALUE `undefined`; see
+ *  {@link toolAnswer}, which owns that argument. */
+const textContent = (answer: unknown): CallToolResult["content"] => [
+  { type: "text", text: JSON.stringify(answer, null, 2) ?? "null" },
+];
+
+/**
+ * `viewport.capture`'s answer as an IMAGE block plus the numbers beside it.
+ *
+ * **THE DECODE `shared/wire.ts` PROMISED THIS DOOR WOULD DO.** `ViewportCaptureResult.png`
+ * is base64 *"for the one hop in between"* — the chrome encodes because a
+ * `SessionAnswer` is JSON and JSON has no bytes — and an agent's client wants an
+ * `image` content block, which carries base64 natively. Handed back as text instead, a
+ * 1024-px screenshot is roughly a megabyte of base64 dropped into a model's context for
+ * nothing, and no assertion about `isError` would ever notice.
+ *
+ * `png` IS DESTRUCTURED OUT AND EVERYTHING ELSE RIDES THE TEXT BLOCK, rather than the three
+ * known members being named: `width`, `height` and `view` are what the answer carries today
+ * and a later member should not have to be added here to be seen. The one thing this must
+ * guarantee is that the base64 does not appear twice, which a rest-spread guarantees by
+ * construction.
+ *
+ * A NON-CONFORMING ANSWER FALLS BACK TO TEXT rather than throwing. The daemon relays whatever
+ * the tab said and has no standing to police it (`daemon/session-handlers.ts` argues that for
+ * every relayed payload); a chrome of another vintage answering some other shape should reach
+ * the agent as itself, not as a broken tool.
+ *
+ * THE ONE THING IT CANNOT COVER, stated rather than left to be met: a `png` that is a string
+ * but not VALID base64 fails the SDK's own result validation (`-32602 Invalid Base64 string`,
+ * measured at 1.30.0), so the agent is told the tool is broken. Nothing here can tell the two
+ * apart short of decoding a megabyte per call, and the answerer encodes a `Uint8Array`, so
+ * the only way to reach it is a chrome that invented the field.
+ */
+const captureContent = (answer: unknown): CallToolResult["content"] => {
+  if (!isJsonObject(answer) || typeof answer["png"] !== "string")
+    return textContent(answer);
+  const { png, ...measured } = answer;
+  return [
+    { type: "image", data: png, mimeType: "image/png" },
+    { type: "text", text: JSON.stringify(measured, null, 2) },
+  ];
 };
 
 /**
- * The three reads, and **why exactly three** (foundations T4b).
+ * The nine tools, and **why exactly nine** (foundations T4c Task 6 — three until T4b).
  *
  * EVERY ROW IS A DAEMON COMMAND, dispatched through the same `dispatch()` every other client
  * funnels through. That is the whole of the mapping: this table adds a name an agent can
- * search for and a sentence saying when to call it, and no behaviour. A tool that computed
- * anything would be a second author on an answer the registry already owns, and the claim
- * "every client funnels through one validator" (`handlers.ts`) would stop being literal at
- * the exact edge where the caller is least trusted.
+ * search for, a sentence saying when to call it, and — since this task — nothing else at
+ * all, because the argument document is PROJECTED from the command's own schema rather than
+ * written here (see {@link advertise}). A tool that computed anything would be a second
+ * author on an answer the registry already owns, and the claim "every client funnels through
+ * one validator" (`handlers.ts`) would stop being literal at the exact edge where the caller
+ * is least trusted.
+ *
+ * **THE CEILING IS TEN AND THE SET IS NINE, which is a budget rather than a coincidence.** A
+ * model picks a tool by reading names and first sentences, and every row it must consider is
+ * paid for on every turn; the tranche sized the door at ten and spent nine, which is why
+ * `session.query` is ONE parameterized read rather than three (`shared/wire.ts` argues that
+ * trade at the type). The remaining slot is deliberately unspent — the next verb that wants
+ * it has to be worth more than the room it takes.
+ *
+ * **AND THE ROW COUNT IS THE SMALLER HALF OF THAT BUDGET, so the prose is capped too.** These
+ * nine descriptions are 6,004 bytes on the wire — three times {@link MCP_INSTRUCTIONS}'s
+ * pinned 2 KB, riding the same `tools/list` — so capping the discovery blurb and not the rows
+ * would be budgeting the cheaper surface and calling it discipline. `tests/mcp.test.ts` pins
+ * the total at 8,192: 1.36× head, which admits a tenth row even at `session_query`'s length
+ * (1,266) and reds well before a doubling. A TOTAL rather than a per-row cap, because one row
+ * genuinely is a wall — `session_query` restates the contact rule verbatim, which is the whole
+ * reason that rule reaches an agent — and a per-row limit would forbid the one case that
+ * earned its length.
+ *
+ * THE PROJECTED SCHEMAS (~6.3 KB, mostly `edit_apply`'s op vocabulary) ride the same response
+ * and are deliberately NOT capped: they are derived rather than authored, so their size is a
+ * function of the engine's op union, and a ceiling there would be a ceiling on the vocabulary
+ * wearing a budget's clothes. The cap belongs on the half a person writes.
  *
  * **`field.load` IS DELIBERATELY NOT PROJECTED.** It answers with a whole world — every
  * chunk and `.mat` sibling base64'd, plus the oplog — which is megabytes against a per-result
  * budget measured in tens of thousands of tokens. There is no honest way to hand that to an
  * agent as text, and a truncation would be a lie in the one direction this tranche exists to
- * close. What a trimmed world read looks like is T4c's question, and it is a design question
- * rather than a plumbing one.
+ * close. **T4c answered the question that left open** — what a trimmed world read looks like
+ * — with `session_query`: entity footprints, a prop lint and a ray, all bounded, none of them
+ * the field itself. The whole-world read stays unprojected, now on evidence rather than on
+ * a promise to think about it.
  *
- * **AND NEITHER IS ANY `session.*` VERB, which is the guest clause in one line.** `claim`,
- * `steal` and `release` are not absent because they would be dangerous — they are
+ * **AND NEITHER IS ANY `session.*` CLAIM VERB, which is the guest clause in one line.**
+ * `claim`, `steal` and `release` are not absent because they would be dangerous — they are
  * unspellable: all three take a connection token minted into an SSE stream, and this door
  * holds no stream (`events.ts`'s `subscribe` argues why that is structural rather than a
  * rule). `session.answer` is the chrome's return leg and names a pending ask, not a caller.
- * So an MCP client reads THROUGH whichever session is claimed and can never become one.
+ * So an MCP client reads and WRITES THROUGH whichever session is claimed and can never become
+ * one. (`session.interrupt` is projected and is not a counter-example: it takes no token and
+ * addresses the claimed tab, exactly as `session.state` does.)
+ *
+ * **`edit.undo` AND `edit.redo` ARE UNREACHABLE, AND NOT BY OMISSION.** They are registry
+ * action ids, so `action_run` would carry them; `session-handlers.ts`'s `FENCED_ACTIONS`
+ * refuses both daemon-side, and the `action_run` row below says so out loud. Non-advertisement
+ * is not enforcement — that is the distinction this tranche keeps making, and here it is made
+ * in both directions at once.
  */
 const TOOLS: readonly ToolRow[] = [
   {
     tool: "session_state",
     command: "session.state",
+    reads: true,
     description:
-      'Read the live editor session: which world is open and whether it has unsaved edits, what the human has selected, which tool and gesture are armed, where the camera points, and the undo/redo history with its labels. Relayed to the editor tab in the browser — the only fresh view of what the human is doing. A tab whose engine is still loading answers {"ready": false} and NO other field, so branch on `ready` before reading anything else. Returns an actionable refusal when no editor tab is claimed, when several are, or when the tab does not answer within 10 seconds.',
+      'Read the live editor session: which world is open and whether it has unsaved edits, what the human has selected, WHAT IS ARMED, where the camera points, and the undo/redo history with its labels. Relayed to the editor tab in the browser — the only fresh view of what the human is doing. Read `armed` for what the left mouse button does RIGHT NOW; `brush` beside it is the standing brush SETTING (effect, material, mask) and is NOT a claim that anything is armed — a tab reporting armed.does="selectEntity" with brush.effect="dig" has nothing armed to dig with. A tab whose engine is still loading answers {"ready": false} and NO other field, so branch on `ready` before reading anything else. `cursor` is an opaque change token: hold it and compare it, never parse it; unchanged means no edit landed, and it certifies the history and nothing else. Returns an actionable refusal when no editor tab is claimed, when several are, or when the tab does not answer within 10 seconds.',
   },
   {
     tool: "world_list",
     command: "world.list",
+    reads: true,
     description:
       "List the worlds saved under the project's worlds/ directory, with the default world and a per-row git-tracked flag. Reads the disk, so it works with no editor open — and it does NOT say which world the human currently has loaded (that is session_state).",
   },
   {
     tool: "project_get",
     command: "project.get",
+    reads: true,
     description:
       "The absolute filesystem path of the project this editor daemon is serving. Reads no world state and works with no editor open; use it to resolve the world names world_list reports against your own filesystem tools.",
   },
+  {
+    tool: "session_query",
+    command: "session.query",
+    reads: true,
+    description:
+      'MEASURE the world instead of looking at it. Three questions, picked with `about`. "entities": every committed generator entity with its region, seed and footprint box, plus the placed-prop lint — how many props there are, which are FLOATING and which OVERLAP. Both lists are EXCEPTIONS, so empty means nothing is wrong — unless `truncated` is true, which means the scan stopped early and empty means "I did not look at all of it". "ray": one ray cast into the density field, answering where it hit or null. "selection": the human\'s cell selection as a replayable spec, its size and its box. CONTACT IS DEFINED, not eyeballed: a prop is in contact when a ray cast straight down from the centre of its proxy box\'s BASE finds a solid sample within one cell size (0.25 m in this editor, and the answer states the gap in metres so you never have to assume it) — so a prop buried in the floor reports contact with gap 0, and a `gap` of null means nothing was found beneath it within the probe\'s reach at all. Entities are deliberately NOT contact-probed: a carver\'s footprint is the AIR it removed, so a downward probe from its base always hits the floor it just made and the question has no meaning for it. Prefer this over viewport_capture for anything positional.',
+  },
+  {
+    tool: "viewport_capture",
+    command: "viewport.capture",
+    reads: true,
+    present: captureContent,
+    description:
+      'Photograph the live viewport and hand it back as an image. `view` is the human\'s own camera ("user", the default) or one of six axis snaps ("+x" … "-z"), which reuse their pivot and view distance and move only the two angles — it NEVER moves the human\'s camera. `size` is the longest edge in pixels (default 1024; the answer reports the pixels actually produced, so a non-square viewport comes back shorter on one axis). `overlays` draws the grid, selection outlines, gizmo and brush ghost, and defaults to true. This is for judging how something LOOKS; use session_query for where anything IS.',
+  },
+  {
+    tool: "edit_apply",
+    command: "edit.apply",
+    reads: false,
+    description:
+      "CARVE. Apply a batch of field brush ops — dig, fill, paint or smooth, over a sphere, an axis-aligned box or a swept capsule — to the live world. The whole batch lands as ONE undo entry, so the human's ⌘Z reverses your entire intent and not a third of it: send one intent per call, never one op per call, or you fill their history with steps nobody drew. Every op is validated before any of them lands, and a refusal names the index that failed, so a bad batch changes nothing. There is no agent undo verb; to reverse something you just did, apply the inverse ops explicitly.",
+  },
+  {
+    tool: "generate",
+    command: "generate",
+    reads: false,
+    description:
+      "MAKE. Commit one registry generator (a hall, a maze, a cave, a scatter) into the live world in a single act — no stamp session is opened and none is left standing, so the step after this one is not blocked. `params` are overlaid onto the generator's OWN defaults, so naming one keeps the rest and omitting them entirely is a complete call; a wrong `generatorId` is refused with the list of real ones, and a bad param is refused naming the generator and the failing path. `region` is world metres and defaults to the human's current cell selection; with neither, it refuses rather than guessing where to build. Answers the new entity's id, the seed actually used and the region committed, so the result is reproducible by a caller that named no seed.",
+  },
+  {
+    tool: "action_run",
+    command: "action.run",
+    reads: false,
+    description:
+      "PRESS one of the editor's own buttons, by id — the same verbs the human's menus and keys dispatch: world.save, world.bake, view.frame, and around thirty more. Most take no `input`. The six that do are world.saveAs {name}, world.makeDefault {name}, edit.duplicate {entityId}, edit.delete {entityId}, edit.grab {entityId} and tool.stamp {generatorId}; each requires exactly its own fields, and an undeclared key is refused rather than ignored. Omitting `input` is always legal and means \"act on whatever the human has selected\". An id that does not exist is refused WITH the list of ids that do. edit.undo and edit.redo are refused for every agent: the log carries no per-op attribution yet, so stepping it would discard whatever is on top — routinely the human's own stroke, not yours.",
+  },
+  {
+    tool: "session_interrupt",
+    command: "session.interrupt",
+    reads: false,
+    description:
+      "Press Escape once, on the human's behalf. It drains exactly ONE rung of the editor's standing-interaction stack, most recent first: a live stamp/reconfigure/move session, then an armed stamp, then a half-drawn box or segment anchor, then the selected entity, then the cell selection. With nothing standing it REFUSES rather than answering ok, so you can tell a cancel from a no-op. It cannot stop a bake, a save, a remesh or an analyzer pass — nothing in this editor is abortable, and the honest answer for a long job is this daemon's own timeout rather than this tool.",
+  },
 ];
+
+/**
+ * One row's advertised `inputSchema`: **the command's OWN zod schema, projected.**
+ *
+ * **ADVERTISEMENT EQUALS VALIDATION, structurally rather than by agreement.** Until T4c every
+ * row advertised a hand-written empty document while `dispatch` enforced a real schema, which
+ * worked only because all three commands took nothing. Nine rows with five argument shapes
+ * cannot be kept in step that way: a hand-written document is a SECOND spelling of a contract,
+ * and `tests/action-registry/projection-round-trip.test.ts` exists because two spellings drift.
+ * So this reads the schema out of the registry `dispatch` will use and reflects it. There is
+ * one object; the agent reads one projection of it and the door enforces the other.
+ *
+ * **`z.toJSONSchema` DIRECTLY, NOT `@furnace/core/registry`'s `toJsonSchema`, and the reason
+ * is a signature rather than a preference.** Core's wrapper is these same two lines behind a
+ * `ZodObject`-typed parameter, and `session.query`'s input is a discriminated UNION — so it
+ * cannot be passed without either widening a core export or reaching into zod's arm list.
+ * Keeping the projection here also keeps this module free of a core value-import, which is
+ * `op-schema.ts`'s stance one door over and costs a two-line re-spelling of `delete
+ * out["$schema"]`.
+ *
+ * **THE ROOT MUST SAY `type: "object"`, and that is the protocol's rule rather than ours.**
+ * The SDK types `Tool.inputSchema` as `z.object({type: z.literal("object"), …}).catchall(…)`
+ * (checked at `@modelcontextprotocol/sdk@1.30.0`'s `types.js`), so a document zod reflects as
+ * a bare `oneOf` — which is what a discriminated union projects to — would be rejected by the
+ * SDK on both sides. Hoisting `type: "object"` over a `oneOf` whose every arm is itself an
+ * object is not a widening: it restates what all the arms already say, and the `catchall`
+ * carries the `oneOf` through untouched.
+ *
+ * @throws Error - SETUP-LOUD, at door construction, on a projection this door cannot honestly
+ * advertise: anything that is neither an object nor a union of objects. It is thrown rather
+ * than papered over because the alternative — advertising `{type: "object"}` over a schema
+ * that is not one — is precisely the lie the projection exists to make impossible.
+ */
+const advertise = (command: string, schema: z.ZodType): Tool["inputSchema"] => {
+  // Boundary cast: `z.toJSONSchema` returns a wide JSON-serialisable type, exactly as core's
+  // own `toJsonSchema` wrapper casts it. `$schema` is dialect metadata, not shape.
+  const doc = z.toJSONSchema(schema, { io: "input" }) as Record<
+    string,
+    unknown
+  >;
+  delete doc["$schema"];
+  const arms = doc["oneOf"];
+  const isUnionOfObjects =
+    Array.isArray(arms) &&
+    arms.length > 0 &&
+    arms.every((arm) => isJsonObject(arm) && arm["type"] === "object");
+  if (doc["type"] !== "object" && !isUnionOfObjects) {
+    throw new Error(
+      `mcp: "${command}" projects to a document this door cannot advertise (no object root, no union of objects): ${JSON.stringify(doc)}`,
+    );
+  }
+  // Boundary cast: the guard above proved the one property the SDK's type demands; every
+  // other keyword rides its `catchall(z.unknown())`.
+  return { ...doc, type: "object" } as Tool["inputSchema"];
+};
 
 /**
  * **The MCP edge's mapping of {@link EditorErrorCode}, in one place** — the binding
@@ -179,18 +396,35 @@ const TOOLS: readonly ToolRow[] = [
  * sensible, and whether a human has to move first — because that is the sentence an agent
  * acts on and the one no daemon-side message is written for.
  *
- * **FOUR ROWS ARE REACHABLE TODAY AND THE REST ARE STATED ANYWAY.** `no-session` and
- * `session-timeout` are the backchannel's own refusals and are the reason this table exists;
- * `internal` catches a chrome that answered "I could not do that" and a genuine daemon fault
- * alike; and `invalid-input` became reachable the moment this door chose to FORWARD the
- * caller's arguments (see {@link createMcpDoor}) rather than compose its own. The other six
- * cannot arrive through three no-argument reads — `not-found`, `outside-root` and
- * `already-exists` belong to commands not projected here, `invalid-json` is thrown at the
- * HTTP body boundary this door never crosses, `unknown-command` requires the registry and
- * this table to disagree, and `forbidden-origin` is refused ahead of the route branch
- * entirely, so a tool call cannot be running when it is thrown. They are written because the
- * union is closed and T4c will project verbs that reach four of them, and because a row that
- * says "this cannot happen" would be worthless the first time it did.
+ * **FOUR ROWS ARE REACHABLE, AND THE PREDICTION THAT T4c WOULD MAKE IT EIGHT WAS WRONG.**
+ * This paragraph used to end *"T4c will project verbs that reach four of them"*. The tranche
+ * tripled the table — nine rows, five of them taking arguments, four of them writing — and
+ * the reachable set did not move: it is still `no-session` and `session-timeout` (the
+ * backchannel's own refusals, and the reason this table exists), `internal` (a chrome that
+ * answered "I could not do that", and a genuine daemon fault alike) and `invalid-input`
+ * (every schema refusal, plus `action.run`'s fence). Re-derived at T4c Task 6 by reading what
+ * each of the nine commands can throw rather than by re-reasoning from the old sentence.
+ *
+ * WHY THE OTHER SIX STILL CANNOT ARRIVE, one clause each, because "we predicted wrong" is only
+ * useful with the corrected model beside it:
+ *
+ *  - `not-found`, `outside-root`, `already-exists` — thrown by the world/bake/claim commands,
+ *    none of which is projected. **The near-miss is `action_run`**, which really can reach
+ *    `world.makeDefault` — but through the CHROME, whose own HTTP client makes that call and
+ *    whose answer arrives here as a relayed `ActionResult` payload. A code thrown one bundle
+ *    away is not a throw at this edge.
+ *  - `invalid-json` — thrown parsing an HTTP request body, a boundary the MCP transport reads
+ *    for itself and this door never crosses.
+ *  - `unknown-command` — now structurally unreachable rather than merely unlikely:
+ *    {@link createMcpDoor} RESOLVES every row's command against the registry when the door is
+ *    built, so a table that named a command the registry lacks fails at startup. A tool call
+ *    cannot be in flight to discover it.
+ *  - `forbidden-origin` — refused ahead of the route branch entirely, so no tool call is
+ *    running when it is thrown.
+ *
+ * They are written anyway because the union is CLOSED — an eleventh code is a compile error
+ * until this edge says what to do about it — and because a row that says "this cannot happen"
+ * would be worthless the first time it did.
  *
  * NOT A LOCATOR RE-THROW, and the standing trigger was checked rather than assumed. The
  * `locator-rethrow-primitive-respelled-six-ways` entry fires on a seventh
@@ -254,14 +488,20 @@ function toolFailure(err: unknown): CallToolResult {
   };
 }
 
-/** The success half: whatever the command answered, as pretty JSON in ONE text block.
+/** The success half: whatever the command answered, in whatever container the ROW says.
  *
- *  TEXT-FIRST AND NO `outputSchema`, deliberately: a declared output schema has broken tool
- *  registration in the client this door is built for, and a `structuredContent` beside the
- *  text without one buys nothing an agent can use. Pretty-printed because these three
- *  payloads are small BY CONSTRUCTION — the read that is not (`field.load`) is the one
- *  {@link TOOLS} argues out — and because the human watching the transcript reads the same
- *  bytes the agent does.
+ *  TEXT UNLESS THE ROW OVERRIDES IT, which exactly one does ({@link ToolRow.present}), and
+ *  no `outputSchema` on any of them: a declared output schema has broken tool registration
+ *  in the client this door is built for, and a `structuredContent` beside the text without
+ *  one buys nothing an agent can use.
+ *
+ *  PRETTY-PRINTED, BECAUSE EVERY TEXT PAYLOAD IS BOUNDED — and that is a claim per row rather
+ *  than the "these three are small by construction" this said while three rows existed. Eight
+ *  answers are records of a handful of fields, a bounded `ActionResult`, or a query answer
+ *  whose only unbounded lists carry a measured cap and a `truncated` flag
+ *  (`field-host/field-query.ts`'s `MAX_QUERY_PROPS`). The NINTH is not bounded and is not text:
+ *  `viewport_capture` is a base64 PNG, which is why {@link captureContent} exists. The read
+ *  that is neither (`field.load`) is the one {@link TOOLS} argues out.
  *
  *  **`?? "null"` IS THE SAME FIX `sendJson` MADE, AT THE SECOND EDGE, and it is reachable
  *  here for the same reason.** `session.state` relays whatever the chrome answered, and
@@ -271,12 +511,8 @@ function toolFailure(err: unknown): CallToolResult {
  *  `CallToolResult` validation and the agent is told the TOOL is broken by a session that
  *  answered correctly. `null` rather than `{}` for `sendJson`'s reason: the ask really did
  *  resolve nothing, and JSON's spelling of nothing is `null`. */
-function toolAnswer(answer: unknown): CallToolResult {
-  return {
-    content: [
-      { type: "text", text: JSON.stringify(answer, null, 2) ?? "null" },
-    ],
-  };
+function toolAnswer(row: ToolRow, answer: unknown): CallToolResult {
+  return { content: (row.present ?? textContent)(answer) };
 }
 
 /** The agent door: one HTTP path, answered per request. */
@@ -365,18 +601,32 @@ export type McpDoor = {
  * this door validates nothing of its own — see {@link TOOLS}.
  */
 export function createMcpDoor(handlers: Handlers): McpDoor {
-  const listTools = (): { tools: Tool[] } => ({
-    tools: TOOLS.map((row) => ({
+  // **BUILT ONCE, AT DOOR CONSTRUCTION, AND THAT IS LOAD-BEARING TWICE OVER.** It is not a
+  // cache: `startServer` calls this exactly once, so resolving each row's command HERE makes
+  // a table/registry disagreement a STARTUP failure rather than a tool result — which is what
+  // {@link AGENT_REMEDY} leans on when it says `unknown-command` cannot arrive through this
+  // edge. And the projection is real work (nine documents, one of them the whole brush-op
+  // vocabulary) that would otherwise be redone on every `tools/list` of every POST.
+  const advertised: Tool[] = TOOLS.map((row) => {
+    const handler = handlers.get(row.command);
+    if (handler === undefined) {
+      throw new Error(
+        `mcp: tool "${row.tool}" names daemon command "${row.command}", which this registry does not carry`,
+      );
+    }
+    return {
       name: row.tool,
       description: row.description,
-      inputSchema: NO_ARGUMENTS,
-      // The protocol's own word for the decision this tranche already made: no tool here
-      // mutates anything. It is a HINT by specification, so it is a statement of intent to a
-      // client rather than a guarantee to lean on — which is exactly what it is: the
-      // guarantee is that no mutating command is projected at all.
-      annotations: { readOnlyHint: true },
-    })),
+      inputSchema: advertise(row.command, handler.input),
+      // The protocol's own word for the per-row fact {@link ToolRow.reads} carries. A writing
+      // row gets NO annotations object at all — the specification's default for an absent
+      // `readOnlyHint` is already "not read-only", and an explicit `false` would be a second
+      // spelling of one fact.
+      ...(row.reads ? { annotations: { readOnlyHint: true } } : {}),
+    };
   });
+
+  const listTools = (): { tools: Tool[] } => ({ tools: advertised });
 
   const callTool = async (
     name: string,
@@ -394,13 +644,13 @@ export function createMcpDoor(handlers: Handlers): McpDoor {
     }
     try {
       // THE CALLER'S ARGUMENTS ARE FORWARDED rather than replaced with `{}`, and that is the
-      // decision that keeps `dispatch` the single validator at this edge too. All three
-      // commands take `z.strictObject({})`, so an invented argument earns `invalid-input`
-      // here exactly as it does over HTTP — where dropping it silently would let the tool's
-      // advertised schema and the schema that actually decides drift apart with nothing to
-      // notice. `?? {}` because the protocol makes `arguments` optional and a missing bag
-      // is an empty one.
-      return toolAnswer(await dispatch(handlers, row.command, args ?? {}));
+      // decision that keeps `dispatch` the single validator at this edge too. Since T4c the
+      // point is sharper than "no row takes arguments so nothing is lost": five rows DO, and
+      // what each of them advertises is a projection of the very schema `dispatch` is about
+      // to run ({@link advertise}). Composing the arguments here would put a second author
+      // between the document an agent read and the check that decides. `?? {}` because the
+      // protocol makes `arguments` optional and a missing bag is an empty one.
+      return toolAnswer(row, await dispatch(handlers, row.command, args ?? {}));
     } catch (err) {
       return toolFailure(err);
     }

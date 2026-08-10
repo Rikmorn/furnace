@@ -4998,8 +4998,10 @@ an MCP client can never present one structurally rather than by a check. `sessio
 chrome's return leg and names a pending ask, not a caller. An agent therefore reads **through**
 whichever session is claimed and can never become one; a call to an unadvertised name is refused
 as a protocol error rather than an `isError` result, which is that same line. `readOnlyHint`
-states the posture in the protocol's own vocabulary, and it is a *hint* by specification — the
-guarantee is that no mutating command is projected at all.
+states the posture in the protocol's own vocabulary, and it is a *hint* by specification — at
+T4b the guarantee behind it was that no mutating command was projected at all, and it was
+hard-coded `true` for every row on exactly that reasoning. T4c Task 6 made it a property of the
+ROW instead, which is what the hard-coding could not survive: see §27.4.
 
 **A server and a transport per POST, closed in a `finally` through `allSettled`.** A stateless
 transport cannot be reused in SDK 1.30.0 — the second request throws inside the SDK's own hono
@@ -5285,7 +5287,9 @@ DAEMON-side rather than in the chrome's answerer because the `bun run edit` loop
 daemon on every source change while an open tab keeps the bundle it booted with: a chrome-side
 fence would hold only for tabs that did not need it. And it is a rule rather than a reliance
 on `mcp.ts` listing three tools — advertisement is not enforcement, which is the gap this
-tranche keeps closing elsewhere. The daemon validates the half it can: the six
+tranche keeps closing elsewhere. (Task 6 proved that the hard way round: `action_run` IS
+advertised, its `id` is a free string, so an agent really can name `edit.undo` — and meets
+this set. §27.4.) The daemon validates the half it can: the six
 verbs with an input schema have it applied from `action-registry/schemas.ts`, which makes the
 daemon the **first consumer of that directory** — by relative path, so the export-map entry
 still has no consumer and its trigger (an outside-the-package importer) has still not fired.
@@ -5322,16 +5326,17 @@ and its floating metric collapses from 0.711 to 0 without them. **Reads stay ahe
 writes** — Task 3 shipped the mutation verbs and this is what makes them checkable; the
 gate's `verify` step does not exist without it.
 
-**WHERE THE CONTACT DEFINITION LIVES TODAY, stated precisely because an earlier draft of this
-paragraph overstated it.** It said *"the sentence is in the tool's own contract, not only in
-this document"*, and there is no tool contract yet: `daemon/mcp.ts` still projects three tools
-with a hardcoded empty `inputSchema`, so `session_query` is not advertised at all and no
-`.describe()` exists anywhere in `src/daemon/`. The definition lives in
-`FieldHost.query`'s TSDoc, in `field-query.ts`'s `Query.answer`, and here. **Carrying it into
-`session_query`'s tool description is part of Task 6's row** and is named as such at the
-declaration — a tool that says "ask me about contact" without saying what contact MEANS hands
-an agent a boolean it cannot calibrate, which would leave "ask this, don't squint" worth
-nothing to the only reader it is addressed to.
+**WHERE THE CONTACT DEFINITION LIVES, stated precisely because an earlier draft of this
+paragraph overstated it.** At Task 4 it said *"the sentence is in the tool's own contract, not
+only in this document"*, and there was no tool contract: `daemon/mcp.ts` projected three tools
+with a hardcoded empty `inputSchema`, so `session_query` was not advertised at all and no
+`.describe()` existed anywhere in `src/daemon/`. The definition lived in `FieldHost.query`'s
+TSDoc, in `field-query.ts`'s `Query.answer`, and here — and **carrying it into
+`session_query`'s tool description was named as Task 6's row**, at the declaration, with the
+marker convention on it. Task 6 did it: the rule is restated in full in the advertised
+description (§27.4), because a tool that says "ask me about contact" without saying what
+contact MEANS hands an agent a boolean it cannot calibrate, which would leave "ask this, don't
+squint" worth nothing to the only reader it is addressed to.
 
 **ONE tool, parameterized on `about`** — `entities`, `ray`, `selection`. Three tools would
 have spent a third of the door's remaining room (a hard ceiling of ten, a planned set of
@@ -5421,8 +5426,8 @@ Nothing on any of the three paths touches the store, the log or the undo stacks,
 handed out is a copy — the footprint memo is live host state that the camera framing and the
 pick both read. The one hedge is exact: `deps.footprints()` fills `field-entities.ts`'s
 signature-keyed memo of a pure log derivation, which changes nothing observable and is why
-that dep is taken as a CALL. That is what will make Task 6's `readOnlyHint` true rather than
-aspirational — and the pin behind it compares chunk CONTENTS, not `chunks.size`, after the
+that dep is taken as a CALL. That is what makes the door's `readOnlyHint: true` on this row
+(§27.4) true rather than aspirational — and the pin behind it compares chunk CONTENTS, not `chunks.size`, after the
 review measured that a size check stays green over a write into an already-allocated chunk
 (which is every chunk a probe walks through).
 
@@ -5573,3 +5578,142 @@ rung, and no long job can be stopped. Both are stated at the declarations
 also carries the escape disposition above), and all three — plus `daemon/mcp.ts` itself, the
 file holding the wrong words — wear `AGENTS.md`'s marker convention, so
 `grep -rn "MIGRATION (until T4c Task 6)" packages/` is the one command that finds the set.
+
+### 27.4 The door grows — nine tools, schemas projected, the cull stated (Task 6)
+
+**The set is nine and the ceiling is ten.** `session_state`, `world_list`, `project_get`,
+`session_query`, `viewport_capture` (read) and `edit_apply`, `generate`, `action_run`,
+`session_interrupt` (write). A model pays for every row it must consider on every turn, which
+is why `session.query` is ONE parameterized read rather than three and why the tenth slot is
+deliberately unspent: the next verb has to be worth the room it takes.
+
+**Advertisement equals validation, structurally rather than by agreement.** Until this task
+every row advertised a hand-written empty document (`NO_ARGUMENTS`) while `dispatch` enforced
+a real schema — which worked only because all three commands took nothing. `createMcpDoor`
+now resolves each row's command in the registry and PROJECTS that command's own zod through
+`z.toJSONSchema(schema, {io: "input"})`. There is one object; the agent reads one projection
+of it and the door enforces the other, so a hand-written second spelling cannot exist to
+drift. Two consequences fall out of doing it at construction rather than per request: the
+projection (nine documents, ~6.3 KB, one of them the whole brush-op vocabulary) is not redone
+per POST, and a row naming a command the registry lacks is a STARTUP failure — which is what
+lets `AGENT_REMEDY` say `unknown-command` is unreachable through this edge rather than merely
+unlikely.
+
+**`type: "object"` is hoisted over the one union-rooted row.** The SDK types
+`Tool.inputSchema` as `z.object({type: z.literal("object"), …}).catchall(z.unknown())`
+(read at `@modelcontextprotocol/sdk@1.30.0`), so `session.query`'s discriminated union —
+which zod reflects as a bare `oneOf` — would be rejected on both sides without it. Hoisting
+restates what every arm already says; the `catchall` carries the `oneOf` through. Anything
+that is neither an object nor a union of objects throws at door construction rather than
+being papered over with a `type` it does not have.
+
+**The per-turn budget covers the prose as well as the row count.** The ceiling of ten exists
+because every row a model must consider is paid for on every turn — and the nine descriptions
+are 6,004 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB, riding the same `tools/list`. Pinning
+the discovery blurb and not the rows would have budgeted the cheaper surface and called it
+discipline, so the description total is pinned at 8,192: 1.36× head, which admits a tenth row
+even at `session_query`'s length (1,266) and reds well before a doubling. A TOTAL rather than a
+per-row cap, because `session_query`'s row genuinely is a wall and it is the one length this
+door had to buy. The projected schemas (6,312 bytes, over half of it `edit_apply`'s op
+vocabulary) ride the same response and are deliberately uncapped — they are
+derived rather than authored, so a ceiling there would be a ceiling on the engine's op
+vocabulary wearing a budget's clothes.
+
+**`readOnlyHint` became a property of the ROW.** It was hard-coded `true` for every tool,
+which is exactly the shape that would have gone on claiming read-only over four writes. The
+five reads carry it; the four writes carry no `annotations` object at all, because the
+specification's default for an absent hint is already "not read-only" and an explicit `false`
+would be a second spelling of one fact. `session_interrupt` counts as a WRITE: it changes the
+human's interaction state.
+
+**`viewport_capture` answers an IMAGE block.** `shared/wire.ts` had assigned the decode to
+this door — the chrome base64s the PNG because a `SessionAnswer` is JSON and JSON has no
+bytes — and `ToolRow.present` is where it landed. The `png` member is destructured OUT and
+everything else (`width`, `height`, `view`) rides a text block beside the image, so the base64
+is carried exactly once. Left as text it would have been roughly a megabyte in a model's
+context per call, with `isError: false` the whole time.
+
+**The tuple bug, which is the reason this task's pins are about REFLECTION rather than about
+editing.** `z.tuple([n,n,n])` projects to `prefixItems` and NO length keyword — measured on
+zod 4.4.3 — and `prefixItems` alone constrains nothing. So every vector on this wire was
+advertised as an array of any length while `dispatch` demanded exactly three: the
+advertisement LOOSER than the validator, which is the single defect the projection exists to
+make impossible. `op-schema.ts`'s `vec3` had even carried a docblock claiming the opposite
+("tuple … so the ADVERTISED JSON Schema says 'exactly three numbers'"). Both `vec3` and
+`session-handlers.ts`'s `point3` now restate the bounds through `.meta({minItems, maxItems})`,
+which zod hoists onto the same node and which does not touch parsing; switching to
+`z.array().length(3)` would have projected correctly on its own but infers `number[]` and so
+would have cost both daemon drift pins. `generate`'s region took `point3` in the same move
+(it had two more inline three-tuples). The pin is a KEYWORD INVENTORY over all nine documents
+plus a "no `prefixItems` without matching length" rule, so the next lossily-reflected
+construct reds before an agent reads it.
+
+**THREE RULES THIS DOOR ENFORCES THAT ITS DOCUMENT CANNOT STATE**, counted rather than
+mentioned, because "there is one" was the first draft of this paragraph and it was short by
+two. Each fails to project for a different reason, all three refuse at the wire, and the probe
+enumerates them so a fourth arriving unlisted is the thing that shows up.
+(1) **A zero direction vector** — JSON Schema has no "not this value", so `direction3`'s
+refinement rides `.describe()` and the suite pins the description as well as the refusal.
+(2) **A fenced action id** — `FENCED_ACTIONS` is a rule inside `action.run`'s handler over a
+free-string `id`; enumerating the fenced ids in the schema would make the deny-list a wire
+contract two places have to agree about. (3) **A stray key on an action row's `input`** —
+`action_run` advertises `input` as `unknown`, which is exactly what its own schema says and
+what is TRUE for the 33 bare verbs; the six that take an object are parsed one layer deeper
+against `ACTION_INPUT_SCHEMAS`, and a per-id `oneOf` in the document would be a lie for the
+other 33. All three are honest in the prose an agent reads, which is what a caller has instead
+of a keyword.
+
+**The four hand-offs the earlier tasks left, discharged.** (1) The READS-ONLY closing line is
+gone from `MCP_INSTRUCTIONS`, and its absence is now asserted — a door with hands that tells
+an agent "nothing here edits a world" is worse than one that says nothing, because that
+sentence is acted on. (2) The armedness RULE reaches the agent in both places: *"`armed` is
+what LMB does right now; `brush` is a standing SETTING and is NOT a claim that anything is
+armed"*. (3) `session_interrupt`'s row carries its limit — one rung, and no bake, save, remesh
+or analyzer pass can be stopped, because nothing in this editor is abortable. (4)
+`session_query`'s row carries the CONTACT rule verbatim from `field-query.ts`: a ray straight
+down from the centre of the prop's proxy-box base, solid within one cell size, entities
+deliberately not probed. `action_run`'s prose does NOT name `session.escape`, which is Task
+5's disposition made machine-checkable.
+
+**`z.object` → `z.strictObject` across the six action rows** (`action-input-schemas-strip-what-commands-refuse`,
+resolved), at the trigger that entry named: the moment those ids became agent-reachable. Two
+doors into one editor had two postures — every daemon command REFUSES an undeclared key, the
+action rows STRIPPED one — and the stripping half is the worse half because it is
+indistinguishable from success. The advertisement grew `additionalProperties: false` with
+them, which fired the door `projection-round-trip.test.ts` predicted in as many words; its
+reader learned the keyword and `PAIRS_ADMITTED` fell 13 → 6, to exactly one admission per row.
+No chrome caller is affected: `runAction` hands a typed input straight to the run, and
+`daemon/session-handlers.ts` is the only `safeParse` caller in the tree. The wire-level pin is
+in the door's own probe (`action_run {id:"world.saveAs", input:{name, nope}}` must be refused
+NAMING the key) rather than only in the isolated-schema round trip — the posture is the change
+in this commit most likely to be reverted later as a style nit, and the round trip never
+touches the door.
+
+**`FurnaceMeta` is core's, in `core/registry` beside the `z` its writers build with**
+(`furnace-vendor-keys-untyped`, resolved). The `furnace` vendor key had three writers
+(`generators.ts` ×4, `scatter.ts`, `cave.ts`) and two readers (the inspector, and now the
+door shipping a `paramSchema`) and NO declaration — so `{ unti: "m" }` type-checked, projected
+and silently rendered no suffix. Each site spells `satisfies FurnaceMeta`; the editor's
+`JsonSchemaNode.furnace` takes the same type by `import type` (which the leakage scan excludes
+by design) rather than re-declaring it.
+
+**`AGENT_REMEDY`'s reachability claim was wrong and is corrected.** It predicted T4c would make
+four more codes reachable. The tranche tripled the table and the reachable set did not move:
+still `no-session`, `session-timeout`, `internal`, `invalid-input`. The near-miss is
+`action_run` reaching `world.makeDefault` — but through the CHROME's own HTTP client, so the
+`not-found` is thrown one bundle away and arrives here as a relayed `ActionResult`, not as this
+edge's throw.
+
+**Two gaps recorded rather than closed.** `generate` advertises `params` as a free-form object
+because that is what `dispatch` enforces, and an agent has no route to a generator's
+`paramSchema` — `listGenerators` is a `FieldHost` method and reaching it is a seam plus a tenth
+tool, not an advertisement (`agent-cannot-read-generator-params`, with the gate walk as its
+trigger). Mitigated in the same commit: every param has a default, so a params-free call is
+complete, and `generatorById` now names the registered ids in its refusal. The second is the
+zero-direction gap above.
+
+**The cull is stated.** `core-zero-consumer-module-exports` now carries the projected
+vocabulary — what the nine rows advertise and what they relay back — with the rule for T5
+written as subtraction: everything core exports that this list does not name is a deletion
+candidate. The largest single block it hands T5 is that the door projects no renderer, camera,
+material, shader, binding, post-effect, physics or mesh vocabulary at all.

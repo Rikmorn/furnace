@@ -60,7 +60,7 @@
 // is taken as a CALL precisely to keep honest. Nothing observable changes: the same log
 // yields the same boxes, and the memo is the entity list's own regardless of who asked. What
 // is claimed without hedge is that no path here touches the STORE, the LOG or the undo
-// stacks, which is what `readOnlyHint` will actually rest on.
+// stacks, which is what the door's `readOnlyHint: true` actually rests on.
 // `raycastField` reads `store.cellSize` and calls `getDensity`, and writes nothing —
 // verified by READING its body, not by quoting it. (An earlier draft of this line credited
 // it with the docblock sentence *"Pure query — the store is never mutated"*, which belongs
@@ -70,8 +70,9 @@
 // The placement helpers build fresh arrays, and the entity list and footprints are the
 // seams' own reads. The one thing handed out by reference is core's `SelectionSpec`, and the
 // selection seam already clones it before it leaves (`field-selection.ts`'s
-// `cloneSelectionSpec`, on the `SelectionInfo` this module is given). Task 6 will advertise
-// `readOnlyHint` for the tool; this is the code that makes the hint true.
+// `cloneSelectionSpec`, on the `SelectionInfo` this module is given). `session_query` carries
+// `readOnlyHint: true` on the agent door since T4c Task 6; this is the code that makes the
+// hint true.
 import * as field from "@furnace/core/field";
 import type { EntityArchetype } from "../shared/catalog.ts";
 import { DEFAULT_PROBE_M, MAX_PROBE_M } from "../shared/field-limits.ts";
@@ -325,13 +326,15 @@ export type Query = {
    * every cave. The question has no meaning for a subtractive volume; it has meaning for a
    * thing PUT somewhere, which is a prop.
    *
-   * **WHERE THIS DEFINITION LIVES TODAY, said because an agent that cannot read it gets
-   * nothing from "ask this, don't squint".** It is HERE and in `editor-architecture.md`
-   * §27.2, and it is NOT yet on the agent door: `daemon/mcp.ts` projects three tools with a
-   * hardcoded empty `inputSchema`, so `session_query` has no tool contract at all. **T4c Task
-   * 6 owns that door, and carrying this rule into `session_query`'s tool description is part
-   * of the row** — a tool that says "ask me about contact" without saying what contact MEANS
-   * hands an agent a boolean it cannot calibrate.
+   * **THE DEFINITION LIVES IN THREE PLACES AND THE THIRD IS THE ONE THAT MATTERS**, said
+   * because an agent that cannot read it gets nothing from "ask this, don't squint". It is
+   * HERE, in `editor-architecture.md` §27.2, and — since T4c Task 6 — in `session_query`'s own
+   * MCP tool description, restated in full: the downward ray, the base centre, one cell of
+   * tolerance, buried-reports-contact, and why entities are not probed. A tool that said "ask
+   * me about contact" without saying what contact MEANS would hand an agent a boolean it
+   * cannot calibrate. The tool prose is a RESTATEMENT rather than a link, deliberately: an
+   * agent cannot follow a citation, and this is the one place the rule is worth spelling
+   * twice.
    *
    * @throws Error - only on a request naming an `about` this module has no arm for, which the
    *   daemon's schema makes unreachable through the door; see {@link Query.answer}'s

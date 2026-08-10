@@ -35,6 +35,29 @@ const FIXTURE = join(import.meta.dir, "..", "fixtures", "mini-project");
 /** What one `tools/call` produced, flattened to the two things a pin asks about. */
 export type ToolOutcome = { isError: boolean; text: string };
 
+/** One content block, described rather than carried: a capture's image block is a megabyte
+ *  of base64 and the transcript is a single line of JSON this probe prints on stdout. */
+export type BlockShape = {
+  type: string;
+  mimeType?: string;
+  /** Characters in the block's payload — the pin needs "the bytes are HERE and not there",
+   *  which a length answers and the payload itself would only make unreadable. */
+  length: number;
+};
+
+/** `viewport_capture`'s result, described one layer deeper than {@link ToolOutcome} can. */
+export type CaptureOutcome = {
+  isError: boolean;
+  blocks: BlockShape[];
+  /** The base64 the probe's fake chrome answered with, so the parent can assert the door
+   *  handed over THAT string rather than some re-encoding of it. */
+  posted: string;
+  /** The image block's `data`, if there is one — compared against `posted`. */
+  imageData: string | null;
+  /** The text block, parsed: what is left of the answer once the PNG is lifted out. */
+  measured: unknown;
+};
+
 /** Everything `tests/mcp.test.ts` asserts on, in one JSON-serializable record. */
 export type McpTranscript = {
   instructions: string | undefined;
@@ -43,7 +66,16 @@ export type McpTranscript = {
   disk: { project: ToolOutcome; worlds: ToolOutcome };
   inventedArgument: ToolOutcome;
   noSession: ToolOutcome;
+  /** One call per ADVERTISED BOUND, each sending a value the document forbids — the
+   *  advertisement-equals-validation pin, taken through the real protocol. Keyed by a label
+   *  the assertion prints, so a regression names the bound rather than a row number. */
+  boundRefusals: Record<string, ToolOutcome>;
+  /** The vacuity guard for the row above: a WELL-FORMED batch, refused only by the missing
+   *  session. Without it every `boundRefusals` case would pass over a door that refused
+   *  everything. */
+  wellFormedBatch: ToolOutcome;
   relay: { sent: unknown; outcome: ToolOutcome };
+  capture: CaptureOutcome;
   nullAnswer: { postedBody: string; outcome: ToolOutcome };
   sessionRefusedTheMethod: ToolOutcome;
   twoGuests: {
@@ -95,6 +127,39 @@ async function call(
       .map((b) => (b.type === "text" ? b.text : `[${String(b.type)}]`))
       .join(""),
   };
+}
+
+/** The same call, kept at BLOCK resolution — for the one row whose answer is not text.
+ *
+ *  It pulls the two payloads out HERE rather than handing the raw blocks back, because the
+ *  SDK types a content block as a union and every reader of it would otherwise re-narrow. */
+async function callBlocks(
+  client: Client,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{
+  isError: boolean;
+  blocks: BlockShape[];
+  imageData: string | null;
+  text: string | null;
+}> {
+  const result = await client.callTool({ name, arguments: args });
+  const raw = Array.isArray(result.content) ? result.content : [];
+  let imageData: string | null = null;
+  let text: string | null = null;
+  const blocks: BlockShape[] = raw.map((b) => {
+    const type = typeof b.type === "string" ? b.type : "?";
+    const payload = type === "image" ? b.data : b.text;
+    const carried = typeof payload === "string" ? payload : null;
+    if (type === "image" && imageData === null) imageData = carried;
+    if (type === "text" && text === null) text = carried;
+    return {
+      type,
+      ...(typeof b.mimeType === "string" ? { mimeType: b.mimeType } : {}),
+      length: carried === null ? -1 : carried.length,
+    };
+  });
+  return { isError: result.isError === true, blocks, imageData, text };
 }
 
 const post = (command: string, body: unknown): Promise<Response> =>
@@ -188,6 +253,152 @@ async function handshakeAndTools(): Promise<
   }
 }
 
+/**
+ * **ONE CALL PER ADVERTISED BOUND, and every one of them runs with NO EDITOR OPEN.**
+ *
+ * That is not a convenience, it is what makes the case about the SCHEMA. `dispatch` parses
+ * the arguments BEFORE it invokes the handler, so a value the advertised document forbids
+ * earns `invalid-input` whether or not a tab is claimed — while a value the document ALLOWS
+ * falls through to the handler and earns `no-session`. The two codes therefore read as "the
+ * advertisement refused this" versus "the advertisement admitted this", with no session
+ * machinery in the way of either.
+ *
+ * **THE LAST THREE ENTRIES ARE THE KNOWN GAPS rather than bounds** — every rule this door
+ * enforces that its projected document cannot state, pinned here so the set stays known and
+ * counted. There are exactly three, and each fails to project for a different reason:
+ *
+ *  1. **A zero direction vector.** JSON Schema has no "not this value", so `direction3`'s
+ *     refinement cannot become a keyword. It rides `.describe()` instead, and the suite pins
+ *     both the description and the refusal.
+ *  2. **A fenced action id.** `FENCED_ACTIONS` is a rule inside `action.run`'s handler over a
+ *     free-string `id`, not a shape — enumerating the fenced ids in the schema would make the
+ *     deny-list a wire contract two places have to agree about.
+ *  3. **A stray key on an action row's `input`.** `action_run` advertises `input` as
+ *     `unknown` (which is what its own schema says, and what is TRUE for the 33 bare verbs);
+ *     the six that take an object are parsed against `ACTION_INPUT_SCHEMAS` one layer deeper.
+ *     A per-id `oneOf` in the document would be a lie for the other 33.
+ *
+ * All three must still refuse, and the message is what an agent has instead of a keyword.
+ */
+async function boundScenarios(): Promise<
+  Pick<McpTranscript, "boundRefusals" | "wellFormedBatch">
+> {
+  const goodOp = {
+    kind: "brush",
+    effect: "dig",
+    shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+  };
+  const probes: [string, string, Record<string, unknown>][] = [
+    [
+      "capture size above the advertised maximum",
+      "viewport_capture",
+      { size: 4096 },
+    ],
+    [
+      "capture view outside the advertised enum",
+      "viewport_capture",
+      { view: "top" },
+    ],
+    [
+      "ray maxDist above the advertised maximum",
+      "session_query",
+      { about: "ray", origin: [0, 0, 0], dir: [0, -1, 0], maxDist: 9999 },
+    ],
+    [
+      "a two-number point where three are advertised",
+      "session_query",
+      { about: "ray", origin: [0, 0], dir: [0, -1, 0] },
+    ],
+    ["an about the union does not carry", "session_query", { about: "props" }],
+    ["an empty batch where minItems is 1", "edit_apply", { ops: [] }],
+    [
+      "hollow below the advertised minimum",
+      "edit_apply",
+      { ops: [{ ...goodOp, effect: "fill", hollow: 0.05 }] },
+    ],
+    [
+      "a misspelled op field, where additionalProperties is false",
+      "edit_apply",
+      { ops: [{ ...goodOp, radiuss: 2 }] },
+    ],
+    ["generate with no generatorId", "generate", {}],
+    [
+      "an invented argument on a no-argument row",
+      "session_interrupt",
+      { why: "stuck" },
+    ],
+    [
+      "a zero direction — the ONE bound no JSON Schema can state",
+      "session_query",
+      { about: "ray", origin: [0, 0, 0], dir: [0, 0, 0] },
+    ],
+    [
+      "a fenced action id — a handler rule, not a shape",
+      "action_run",
+      { id: "edit.undo" },
+    ],
+    // **THE STRIP→REFUSE CHANGE, AT THE WIRE.** `action_run`'s own schema admits any
+    // `input`, so this key is refused one layer deeper — by the per-id schema
+    // `ACTION_INPUT_SCHEMAS` holds, which went `z.strictObject` in the same commit that
+    // advertised these ids. Until then it was STRIPPED: the call answered ok for arguments
+    // it had silently discarded, which is the failure an agent cannot see. The isolated
+    // schemas are pinned by `tests/action-registry/projection-round-trip.test.ts`; this is
+    // the only thing that pins the behaviour an agent actually meets, and the posture is
+    // the likeliest in this commit to be reverted as a style nit.
+    [
+      "a stray key on an action row's input — stripped before T4c, refused now",
+      "action_run",
+      { id: "world.saveAs", input: { name: "moonlit", nope: 1 } },
+    ],
+  ];
+  const agent = await connectAgent("bounds");
+  try {
+    const boundRefusals: Record<string, ToolOutcome> = {};
+    for (const [label, tool, args] of probes)
+      boundRefusals[label] = await call(agent, tool, args);
+    return {
+      boundRefusals,
+      // The same row, the same shape, one legal value — and therefore a REFUSAL FROM THE
+      // SESSION rather than from the schema. It is what stops the twelve above passing over
+      // a door that refuses every argument it is handed.
+      wellFormedBatch: await call(agent, "edit_apply", { ops: [goodOp] }),
+    };
+  } finally {
+    await agent.close();
+  }
+}
+
+/** The image split: a fake chrome answers a base64 PNG and the door must hand it over as an
+ *  IMAGE block, with the measurements — and nothing else — beside it as text. */
+async function captureScenario(): Promise<CaptureOutcome> {
+  // Not a real PNG: this scenario is about the door's CONTAINER, and the daemon relays the
+  // string untouched, so a recognizable stand-in makes a mis-routed payload obvious in the
+  // failure message where 40 KB of real base64 would not. It must nonetheless be VALID
+  // base64 — measured here: the SDK validates an image block's `data` and answers
+  // `-32602 Invalid Base64 string` for anything else, which is the door reporting itself
+  // broken on a chrome's behalf. The real answerer encodes a `Uint8Array`, so it always is.
+  const posted = Buffer.from("furnace-capture-probe-payload").toString(
+    "base64",
+  );
+  return await withClaimedSession("cavern", "photographer", async (feed, a) => {
+    const called = callBlocks(a, "viewport_capture", { view: "+y", size: 256 });
+    const [requestId] = await requestIdsOn(feed, 1);
+    await post("session.answer", {
+      requestId,
+      ok: true,
+      payload: { png: posted, width: 256, height: 144, view: "+y" },
+    });
+    const { isError, blocks, imageData, text } = await called;
+    return {
+      isError,
+      blocks,
+      posted,
+      imageData,
+      measured: text === null ? null : JSON.parse(text),
+    };
+  });
+}
+
 async function relayScenarios(): Promise<
   Pick<McpTranscript, "relay" | "nullAnswer" | "sessionRefusedTheMethod">
 > {
@@ -201,8 +412,15 @@ async function relayScenarios(): Promise<
         ready: true,
         cursor: "3/56/1/0/57",
         world: { name: "cavern", dirty: true, busy: false },
-        tool: { effect: "dig", materialId: 2, mask: { kind: "any" } },
-        gesture: null,
+        // `armed` + `brush`, the shape T4c Task 5 landed — NOT the `tool`/`gesture` pair it
+        // retired. This scenario is about VERBATIM relay, so it passes over any object at
+        // all; that is exactly why the fixture has to be a payload a chrome can really
+        // produce. One that cannot is a worked example of the misreading this tranche spent a
+        // task removing, sitting in the harness for the door that removed it. The pairing is
+        // deliberate too: nothing is armed but entity-select while the brush stands
+        // configured to dig — the T4b gate walk's own state, read correctly this time.
+        armed: { does: "selectEntity" },
+        brush: { effect: "dig", materialId: 2, mask: { kind: "any" } },
         session: null,
         selection: { count: 12, truncated: false },
         selectedEntity: null,
@@ -409,6 +627,14 @@ try {
     )),
     ...unclaimed,
     ...(await scenario(
+      "the advertised bounds",
+      (d) => ({
+        boundRefusals: { "probe-failed": failedCall(d) },
+        wellFormedBatch: failedCall(d),
+      }),
+      boundScenarios,
+    )),
+    ...(await scenario(
       "the relayed read",
       (d) => ({
         relay: { sent: null, outcome: failedCall(d) },
@@ -417,6 +643,17 @@ try {
       }),
       relayScenarios,
     )),
+    capture: await scenario(
+      "the capture image split",
+      (d) => ({
+        isError: true,
+        blocks: [{ type: `PROBE SCENARIO FAILED — ${d}`, length: -1 }],
+        posted: "",
+        imageData: null,
+        measured: null,
+      }),
+      captureScenario,
+    ),
     twoGuests: await scenario(
       "two guests of one claim",
       (d) => ({

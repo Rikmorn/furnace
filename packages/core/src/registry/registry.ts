@@ -4,6 +4,37 @@ import { FurnaceError } from "../errors.ts";
 /** A JSON Schema document (draft 2020-12), as produced by zod. */
 export type JsonSchema = Record<string, unknown>;
 
+/**
+ * The `furnace` vendor key a schema node may carry — **the one shared type for a
+ * key that has three writers and two readers and, until now, no declaration at all.**
+ *
+ * A definition author writes it inside `.meta()`, which {@link toJsonSchema} hoists to the
+ * node root; the editor's inspector reads it from there to pick a control and to label a
+ * value, and the MCP door ships it to an agent inside a generator's advertised
+ * `paramSchema`. `.meta()` takes a wide record, so a misspelt member used to fail SILENTLY:
+ * `{ unti: "m" }` type-checks, projects, and simply renders no suffix. Spell every defining
+ * site `furnace: { … } satisfies FurnaceMeta` and the misspelling is a compile error at the
+ * line that wrote it.
+ *
+ * IT IS A VENDOR EXTENSION AND ITS MEMBERS ARE THEREFORE ALL OPTIONAL, `kind` included: a
+ * `unit` annotates a node whose control is already decided by its SHAPE (a bounded number is
+ * a slider whether or not it carries metres), so requiring a `kind` beside it would force
+ * every unit-bearing schema to invent one.
+ *
+ * `kind` IS `string` AND NOT A UNION, deliberately. The closed list of field kinds is the
+ * EDITOR's (`frontend/inspector/types.ts`'s `FieldKind`, plus the resolver's own
+ * shape-derived members), and this package cannot import it; a copy here would be a second
+ * declaration that goes stale the first time the editor grows a renderer. The editor narrows
+ * this type rather than the reverse.
+ */
+export type FurnaceMeta = {
+  /** A field-kind hint for the editor's control resolver, when SHAPE is not enough. */
+  kind?: string;
+  /** The physical unit of the value, rendered beside the control. A display suffix —
+   *  never parsed, never converted. */
+  unit?: string;
+};
+
 /** Naming for a registry's setup-loud errors: `${prefix}: ${noun} "x" is already registered`. */
 export type RegistryOptions = { prefix: string; noun: string };
 
@@ -46,7 +77,7 @@ export function createRegistry<R>(opts: RegistryOptions): Registry<R> {
  * what the field generators want, since a defaulted param is always present in
  * the params object the evaluator receives. `"input"` is the authoring view: a
  * defaulted field is omittable, so it leaves `required`. Either way `.meta({
- * furnace })` is hoisted to the NODE ROOT, which is where the editor's kind
+ * furnace })` ({@link FurnaceMeta}) is hoisted to the NODE ROOT, which is where the editor's kind
  * resolver reads it from. The root `$schema` key is stripped: dialect metadata,
  * not shape.
  */

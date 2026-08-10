@@ -5,7 +5,7 @@
 // compiles the grid into a span of lattice-snapped brush ops. The registry is
 // the ONE plug point (resolves the third-grid-vocabulary dispatch tax), and
 // commitGenerator owns the entity semantics: one commit = one undo entry.
-import { z } from "../registry/index.ts";
+import { type FurnaceMeta, z } from "../registry/index.ts";
 import { caveGenerator } from "./cave.ts";
 import {
   applyFieldOp,
@@ -428,26 +428,26 @@ const HALL_PARAMS = {
     .min(4)
     .max(24)
     .multipleOf(1, MUST_BE_INTEGER)
-    .meta({ default: 8, furnace: { unit: "cells" } }),
+    .meta({ default: 8, furnace: { unit: "cells" } satisfies FurnaceMeta }),
   height: z
     .number()
     .min(6)
     .max(12)
     .multipleOf(1, MUST_BE_INTEGER)
-    .meta({ default: 6, furnace: { unit: "cells" } }),
+    .meta({ default: 6, furnace: { unit: "cells" } satisfies FurnaceMeta }),
   depth: z
     .number()
     .min(4)
     .max(32)
     .multipleOf(1, MUST_BE_INTEGER)
-    .meta({ default: 8, furnace: { unit: "cells" } }),
+    .meta({ default: 8, furnace: { unit: "cells" } satisfies FurnaceMeta }),
   pillars: z.enum(PILLAR_KINDS).meta({ default: "none" }),
   pillarSpacing: z
     .number()
     .min(2)
     .max(8)
     .multipleOf(1, MUST_BE_INTEGER)
-    .meta({ default: 3, furnace: { unit: "cells" } }),
+    .meta({ default: 3, furnace: { unit: "cells" } satisfies FurnaceMeta }),
   rotation: z.enum(ROTATIONS).default("0").optional(),
   doorNorth: z.boolean().meta({ default: true }),
   doorSouth: z.boolean().meta({ default: false }),
@@ -883,10 +883,15 @@ export const FIELD_GENERATORS: readonly GeneratorDef[] = [
   scatterGenerator,
 ];
 
-/** Registry lookup, setup-loud on unknown ids. */
+/** Registry lookup, setup-loud on unknown ids — **the message NAMES the registered ids**,
+ *  because the one caller that cannot see this array is an agent over the editor's MCP door
+ *  (`generate` refuses through here) and a bare "unknown" leaves it guessing. */
 export function generatorById(id: string): GeneratorDef {
   const def = FIELD_GENERATORS.find((g) => g.id === id);
-  if (!def) throw new Error(`unknown field generator "${id}"`);
+  if (!def)
+    throw new Error(
+      `unknown field generator "${id}" — registered: ${FIELD_GENERATORS.map((g) => g.id).join(", ")}`,
+    );
   return def;
 }
 

@@ -70,11 +70,36 @@ export const BUDGET_CEILING_MATCHES_CORE: BudgetMatchesCore = true;
 /** A flood's cell budget — integers in `[1, MAX_SELECTION_BUDGET]`, core's own range. */
 const floodBudget = z.number().int().positive().max(MAX_FLOOD_BUDGET);
 
-/** A world-metre point. Tuple rather than `z.array(z.number()).length(3)` so the ADVERTISED
- *  JSON Schema says "exactly three numbers" in a form a client can read off. Finiteness is
- *  core's check, not this one — `z.number()` already rejects `NaN`, and whether a finite
- *  value is BUILDABLE is a question only the applier can answer. */
-const vec3 = z.tuple([z.number(), z.number(), z.number()]);
+/**
+ * A world-metre point — a tuple, whose PROJECTION had to be corrected by hand.
+ *
+ * Finiteness is core's check, not this one: `z.number()` already rejects `NaN`, and whether
+ * a finite value is BUILDABLE is a question only the applier can answer.
+ *
+ * **THE `.meta()` IS THE ADVERTISEMENT, AND IT IS THERE BECAUSE THE REFLECTION IS LOSSY.**
+ * This declaration used to carry the line *"tuple rather than `z.array(z.number()).length(3)`
+ * so the ADVERTISED JSON Schema says 'exactly three numbers' in a form a client can read
+ * off"*, which was **false**, measured on zod 4.4.3 at T4c Task 6:
+ * `z.toJSONSchema(z.tuple([n,n,n]))` emits `prefixItems` and NOTHING else — no `minItems`,
+ * no `maxItems`, no `items: false` — and `prefixItems` alone constrains no length at all. So
+ * the door advertised a shape that admits `[1, 2]` while `dispatch` refuses it: the
+ * advertisement looser than the validator, which is the one defect the projection exists to
+ * make impossible. The bounds are restated through `.meta()`, which zod hoists onto the same
+ * node, so the document a client reads and the schema that decides agree again.
+ *
+ * `.meta()` RATHER THAN SWITCHING TO `z.array(...).length(3)`, which projects correctly on
+ * its own: that spelling infers `number[]`, and both drift pins in this daemon
+ * ({@link OP_SCHEMA_MATCHES_CORE} and `session-handlers.ts`'s `QUERY_SCHEMA_MATCHES_WIRE`)
+ * assert against declarations typed as three-tuples. Trading a compile-time pin for a
+ * keyword is the wrong side of that bargain. Metadata does not touch parsing — verified —
+ * so this adds a keyword to the document and nothing to the runtime.
+ *
+ * A NEW TUPLE THAT FORGETS THIS IS CAUGHT: `tests/mcp.test.ts` walks every advertised
+ * document and reds on a `prefixItems` node with no matching length bounds.
+ */
+const vec3 = z
+  .tuple([z.number(), z.number(), z.number()])
+  .meta({ minItems: 3, maxItems: 3 });
 
 /** The three brush extents. A discriminated union on `kind`, which is what makes a bad shape
  *  report against the member it MEANT rather than as "no union arm matched". */

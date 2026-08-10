@@ -38,24 +38,38 @@
 // naming the right one costs nothing now and stops a defaulted field ever being advertised as
 // required later.
 //
-// THE ONE PLACE THE TWO SIDES DIVERGE, stated because a pin that hid it would be worth less
-// than none: an UNDECLARED key. `z.object` (not `strictObject`) STRIPS unknown keys, and the
-// reflected document carries no `additionalProperties` at all — so both ADMIT the value and the
-// verdict this file compares agrees, while what comes out the other side differs (zod's parsed
-// data has the stray key removed; the advertisement never said it would be). That is a
-// divergence in the OUTPUT, not in what goes in, and the samples below pin the admitting half
-// explicitly rather than leaving it to be discovered. The day a row goes `strictObject` the
-// completeness case reds on `additionalProperties`, which is the intended door.
+// THE ONE PLACE THE TWO SIDES DIVERGED IS CLOSED, and this paragraph is kept because how it
+// closed is the point. An UNDECLARED key used to be admitted by both sides and STRIPPED by
+// one: `z.object` drops unknown keys and the reflected document carried no
+// `additionalProperties` at all, so the verdicts this file compares agreed while what came out
+// the other side differed — a divergence in the OUTPUT rather than in what goes in. It was
+// filed rather than fixed (`action-input-schemas-strip-what-commands-refuse`) because the
+// choice was a posture change across six rows with a chrome caller each.
+//
+// T4c Task 6 made the call, at the trigger the entry named — the moment these rows became
+// reachable from an agent through `daemon/mcp.ts`'s `action_run`. All six are `z.strictObject`
+// now, matching every daemon command, and the advertisement grew `additionalProperties: false`
+// with them. That fired the door this file predicted in as many words (*"the day a row goes
+// `strictObject` the completeness case reds on `additionalProperties`"*): it did, `admits`
+// below learned the keyword, and `PAIRS_ADMITTED` fell as the samples carrying a stray key
+// stopped being accepted. A pin that reds when the thing it watches changes, in the way it
+// said it would, is the pin working.
 //
 // SAMPLES ARE WIRE-SHAPED ONLY — everything below is expressible in JSON. `{name: undefined}`
 // is deliberately absent: `undefined` has no JSON encoding, so no MCP caller can send it, and a
 // probe the wire cannot carry would be grading this file rather than the contract.
 //
-// NOTHING IS PROJECTED YET. These six schemas advertise nothing to anyone today —
-// `daemon/mcp.ts` projects three daemon COMMANDS with a hand-written `NO_ARGUMENTS` document
-// and imports this directory not at all (verified at T4b Task 6: `grep -rn "action-registry"
-// src/daemon/` is empty). This is the plumbing pin that lands BEFORE the projection, so the
-// projection cannot be the thing that discovers the two representations disagree.
+// IT LANDED BEFORE THE PROJECTION, WHICH WAS THE POINT — and the projection has since
+// arrived. At T4b Task 6 these six schemas advertised nothing to anyone: `daemon/mcp.ts`
+// projected three daemon COMMANDS with a hand-written `NO_ARGUMENTS` document and imported
+// this directory not at all. This was the plumbing pin that landed FIRST, so the projection
+// could not be the thing that discovered the two representations disagree — and it was not:
+// the strip/refuse divergence above was found here, filed, and closed at T4c Task 6, which is
+// also when `action_run` began naming these ids to agents. What the six advertise today is
+// still not this document — `daemon/mcp.ts` advertises the `action.run` COMMAND's own schema
+// (`{id, input?}`) and names the six ids in prose, because a per-id `oneOf` would be a lie for
+// the 33 bare verbs. These schemas remain the thing the daemon ENFORCES, which is why the
+// verdict comparison below is what matters about them.
 import { expect, test } from "bun:test";
 import { type JsonSchema, toJsonSchema } from "@furnace/core/registry";
 import { ACTION_INPUT_SCHEMAS } from "../../src/action-registry/schemas.ts";
@@ -118,15 +132,28 @@ const admitsField = (field: JsonSchema, value: unknown): boolean => {
 };
 
 /** Would a client that read ONLY this document send `value`? The independent half of the
- *  comparison: it never touches the zod schema the document came from. */
+ *  comparison: it never touches the zod schema the document came from.
+ *
+ *  `additionalProperties` IS READ SINCE T4c Task 6, when the six rows went `strictObject`.
+ *  Only the `false` spelling is interpreted, and a SCHEMA-valued `additionalProperties` (a
+ *  document saying "extra keys, but they must look like this") would be a constraint this
+ *  reader cannot apply — so the completeness case below admits the keyword only while the
+ *  documents keep spelling it `false`, and {@link admitsField} throws on anything it cannot
+ *  read for the same reason. */
 const admits = (doc: JsonSchema, value: unknown): boolean => {
   if (doc["type"] !== "object") return false;
   if (!isJsonObject(value)) return false;
+  const declared = fieldsOf(doc);
   const everyRequiredKeyPresent = requiredOf(doc).every((k) => k in value);
-  const everyDeclaredKeyWellTyped = Object.entries(fieldsOf(doc)).every(
+  const everyDeclaredKeyWellTyped = Object.entries(declared).every(
     ([key, field]) => !(key in value) || admitsField(field, value[key]),
   );
-  return everyRequiredKeyPresent && everyDeclaredKeyWellTyped;
+  const noUndeclaredKey =
+    doc["additionalProperties"] !== false ||
+    Object.keys(value).every((k) => k in declared);
+  return (
+    everyRequiredKeyPresent && everyDeclaredKeyWellTyped && noUndeclaredKey
+  );
 };
 
 type Sample = { readonly why: string; readonly value: unknown };
@@ -188,7 +215,11 @@ const SAMPLES: readonly Sample[] = [
 const ROWS = 6;
 const SAMPLE_COUNT = 15;
 const PAIRS_COMPARED = 90;
-const PAIRS_ADMITTED = 13;
+// 13 UNTIL T4c Task 6, when the six rows went `strictObject`. The seven that left are the
+// stray-key samples — `{name, ignored}` against the two name rows, and `{entityId, name}`
+// against all five rows that declare one of those two — so what remains is exactly one
+// admission per row: each row's own argument, and nothing else's. Recomputed by running this.
+const PAIRS_ADMITTED = 6;
 
 test("the advertised schema and the enforced schema reach the same verdict, sample for sample", () => {
   const disagreements: string[] = [];
@@ -228,8 +259,17 @@ test("the advertisement says nothing this file cannot read", () => {
   for (const [id, schema] of Object.entries(ACTION_INPUT_SCHEMAS)) {
     const advertised = toJsonSchema(schema, { io: "input" });
     for (const keyword of Object.keys(advertised))
-      if (!["type", "properties", "required"].includes(keyword))
+      if (
+        !["type", "properties", "required", "additionalProperties"].includes(
+          keyword,
+        )
+      )
         unread.push(`${id}: ${keyword}`);
+    // `additionalProperties` is read only in its `false` spelling — see `admits`. A schema
+    // there would be a constraint this file silently ignores, which is the false agreement
+    // this whole case exists to refuse.
+    if (advertised["additionalProperties"] !== false)
+      unread.push(`${id}: additionalProperties is not \`false\``);
     for (const [name, field] of Object.entries(fieldsOf(advertised))) {
       fieldsWalked++;
       for (const keyword of Object.keys(field))

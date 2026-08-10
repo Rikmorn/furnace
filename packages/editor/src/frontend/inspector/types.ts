@@ -8,8 +8,12 @@
  *
  * NOTE: this module must not value-import @furnace/core (frontend leakage scan).
  * JSON Schema nodes are plain data from introspect(); the quat↔euler math is
- * hand-rolled in lib/euler.ts.
+ * hand-rolled in lib/euler.ts. The one `@furnace/core` reference below is an
+ * `import type`, which that scan excludes by design (its rules carry a `type`
+ * lookahead) and which is erased before the bundle exists.
  */
+import type { FurnaceMeta } from "@furnace/core/registry";
+
 export type JsonSchemaNode = {
   type?: string | string[];
   enum?: unknown[];
@@ -20,17 +24,17 @@ export type JsonSchemaNode = {
    * `z.toJSONSchema` to the NODE ROOT (verified against zod 4 output) — it is
    * NOT nested under a `meta` wrapper. Read it from here.
    *
-   * Every member is OPTIONAL, `kind` included: `unit` annotates a node whose
-   * control is already decided by its SHAPE (a bounded number is a slider
-   * whether or not it carries metres), so requiring a `kind` beside it would
-   * force every unit-bearing schema to invent one.
+   * **IT IS CORE'S TYPE SINCE T4c, NOT A SECOND DECLARATION OF IT.** The key has
+   * three writers (`field/generators.ts`, `scatter.ts`, `cave.ts`) and two readers
+   * (this inspector, and the MCP door shipping a generator's `paramSchema` to an
+   * agent), and the copy that used to live here was the only type in the workspace
+   * — so a misspelt member on the WRITING side simply rendered no suffix and
+   * nothing failed. `FurnaceMeta` is declared beside the `z` those sites build
+   * with, each site now spells `satisfies FurnaceMeta`, and this reader takes the
+   * same declaration rather than agreeing with it by review. Every member is
+   * optional and `kind` is `string` for the reasons stated there.
    */
-  furnace?: {
-    kind?: string;
-    /** The physical unit of the value, rendered beside the control (D-25:
-     *  units always). A display suffix — never parsed, never converted. */
-    unit?: string;
-  };
+  furnace?: FurnaceMeta;
   /** JSON Schema default value, emitted by zod `.default()` — used by field renderers to seed display when the doc omits the field. */
   default?: unknown;
   [key: string]: unknown;

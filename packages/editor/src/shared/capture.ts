@@ -4,8 +4,10 @@
 // T4c): where a photograph may be taken from and how big it may be. The host derives a
 // camera and a texture size from these (`field-host/field-capture.ts`), the chrome relays
 // them, and the daemon VALIDATES against them (`daemon/session-handlers.ts`). The MCP door is
-// the fourth reader and arrives at T4c Task 6, which advertises this array as a JSON Schema
-// enum; nothing in `daemon/mcp.ts` reads it yet.
+// the fourth reader and arrived at T4c Task 6: it does not read this file either, which is
+// the projection working — the daemon's `z.enum(CAPTURE_VIEWS)` IS the advertised JSON Schema
+// enum, reflected out of the schema `dispatch` runs, so the array reaches an agent without a
+// fifth site naming it.
 //
 // WHY THE NEUTRAL FLOOR AND NOT BESIDE THE VERB. The daemon is Node-portable and may not
 // pull `@furnace/core`, and every file in `field-host/` value-imports it. So a bound the

@@ -1,5 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
+import { ACTION_INPUT_SCHEMAS } from "../src/action-registry/schemas.ts";
 import { MCP_INSTRUCTIONS } from "../src/daemon/mcp.ts";
 import type { McpTranscript } from "./_helpers/mcp-probe.ts";
 
@@ -52,6 +53,40 @@ beforeAll(async () => {
 
 const parsed = (text: string): unknown => JSON.parse(text);
 
+/** One advertised row, as a client reads it off the wire. */
+type AdvertisedTool = {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: unknown;
+  annotations?: { readOnlyHint?: boolean };
+};
+
+const advertised = (): AdvertisedTool[] => t.tools as AdvertisedTool[];
+
+const isJsonObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Every schema NODE in a document, root included — `properties` and `$defs` hold schemas
+ *  under arbitrary keys, everything else nests positionally. */
+function nodesOf(doc: unknown, into: Record<string, unknown>[] = []) {
+  if (Array.isArray(doc)) {
+    for (const item of doc) nodesOf(item, into);
+    return into;
+  }
+  if (!isJsonObject(doc)) return into;
+  into.push(doc);
+  for (const [keyword, value] of Object.entries(doc)) {
+    if (keyword === "properties" || keyword === "$defs") {
+      if (isJsonObject(value))
+        for (const child of Object.values(value)) nodesOf(child, into);
+    } else if (keyword !== "enum" && keyword !== "required") {
+      nodesOf(value, into);
+    }
+  }
+  return into;
+}
+
 // --- The handshake, and what it advertises ------------------------------------
 
 test("initialize delivers the instructions, and they fit the discovery budget", () => {
@@ -59,47 +94,170 @@ test("initialize delivers the instructions, and they fit the discovery budget", 
   // UNDER 2 KB, asserted on BYTES rather than characters: the cap is about what rides every
   // initialize of every session, and a multi-byte character costs what it costs.
   expect(Buffer.byteLength(MCP_INSTRUCTIONS, "utf8")).toBeLessThanOrEqual(2048);
-  // ALL FOUR of the things the const's docblock names as the reason it is in there at all,
-  // plus the read-only closing — a FIFTH claim rather than one of the four, pinned because
-  // it is the sentence that stops an agent hunting for a write verb. An earlier version of
-  // this comment said "the three things … each named at the docblock", which was wrong
-  // twice over: the docblock names FOUR, and the third needle was not one of them — so the
-  // relay fact and the `{ready:false}` arm were asserted by nothing at all.
+  // ALL SIX of the things the const's docblock names as the reason it is in there at all.
+  // Four of them are T4b's; the last two arrived with the door's hands, and both are pinned
+  // because both are sentences an agent ACTS on rather than reads past.
   expect(MCP_INSTRUCTIONS).toContain("relays to"); // (1) the live half is RELAYED
   expect(MCP_INSTRUCTIONS).toContain("GUEST"); // (2) the claim model
   expect(MCP_INSTRUCTIONS).toContain("NEVER PARSE IT"); // (3) the cursor is compare-only
   expect(MCP_INSTRUCTIONS).toContain("{ready:false}"); // (4) the not-ready arm is real
-  expect(MCP_INSTRUCTIONS).toContain("THIS SERVER READS"); // and the read-only closing
+  expect(MCP_INSTRUCTIONS).toContain("ONE undo step"); // (5) a batch is one ⌘Z
+  // (6) THE ARMEDNESS RULE, which is the sentence a measured misreading cost us. It is
+  // pinned as the RULE and not as a member list, because the member list is what was
+  // already there when the agent got it wrong. Matched against the text REFLOWED to single
+  // spaces: this literal is hard-wrapped for the source, and a needle that also asserted
+  // where the wrap fell would red on a reflow that changed nothing an agent reads.
+  expect(MCP_INSTRUCTIONS.replace(/\s+/g, " ")).toContain(
+    "`brush` is a standing SETTING and is NOT a claim that anything is armed",
+  );
+  // **THE READS-ONLY CLOSING IS GONE, asserted as an ABSENCE.** It was pinned as a presence
+  // for the whole of T4b and it stopped being true the moment the daemon grew write verbs;
+  // a door with hands that tells an agent "nothing here edits a world" is worse than one
+  // that says nothing, because the sentence is acted on.
+  expect(MCP_INSTRUCTIONS).not.toContain("THIS SERVER READS");
 });
 
-test("tools/list advertises exactly three read tools, and no outputSchema", () => {
-  const tools = t.tools as {
-    name: string;
-    description?: string;
-    inputSchema: { type: string };
-    outputSchema?: unknown;
-    annotations?: { readOnlyHint?: boolean };
-  }[];
+test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSchema", () => {
   // The table restated independently, the way `errors.test.ts` restates `HTTP_STATUS`: a
-  // test that imported `TOOLS` would agree with any edit to it, including a fourth row.
-  expect(tools.map((x) => x.name)).toEqual([
-    "session_state",
-    "world_list",
-    "project_get",
+  // test that imported `TOOLS` would agree with any edit to it, including a tenth row.
+  // `reads` is restated here too — a row that flipped to `readOnlyHint: true` while it
+  // writes is the one defect this annotation can cause, and it cannot be caught by a loop
+  // that reads the flag off the same table it is checking.
+  expect(
+    advertised().map((x) => ({
+      name: x.name,
+      readOnly: x.annotations?.readOnlyHint,
+    })),
+  ).toEqual([
+    { name: "session_state", readOnly: true },
+    { name: "world_list", readOnly: true },
+    { name: "project_get", readOnly: true },
+    { name: "session_query", readOnly: true },
+    { name: "viewport_capture", readOnly: true },
+    // The four writes carry NO annotations object at all, so `readOnlyHint` reads
+    // `undefined` — the specification's default is already "not read-only", and an explicit
+    // `false` would be a second spelling of one fact.
+    { name: "edit_apply", readOnly: undefined },
+    { name: "generate", readOnly: undefined },
+    { name: "action_run", readOnly: undefined },
+    { name: "session_interrupt", readOnly: undefined },
   ]);
-  for (const tool of tools) {
+  // TEN IS THE CEILING the tranche budgeted and nine is what it spent. Asserted as a bound
+  // rather than restated as a count, because the count above already inventories the rows;
+  // what this adds is the BUDGET, which is the thing a later row has to argue against.
+  expect(advertised().length).toBeLessThanOrEqual(10);
+  // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
+  // ceiling-of-ten exists because "every row a model must consider is paid for on every
+  // turn"; the descriptions are 6,004 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
+  // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
+  // and these rows are full of em-dashes. 8,192 is 1.36× head: it admits a tenth row even at
+  // `session_query`'s length (1,266) and reds well before a doubling. A TOTAL rather than a
+  // per-row cap, because `session_query`'s wall is the one length this door had to buy.
+  const proseBytes = advertised().reduce(
+    (sum, tool) => sum + Buffer.byteLength(tool.description ?? "", "utf8"),
+    0,
+  );
+  expect({ overBudget: proseBytes > 8192 }).toEqual({ overBudget: false });
+  for (const tool of advertised()) {
     // snake_case and prefix-free — the SERVER is the namespace, and a client composes
     // `mcp__<its own config key>__<name>` on top of these.
     expect(tool.name).toMatch(/^[a-z]+(_[a-z]+)*$/);
     expect(tool.description ?? "").not.toBe("");
-    expect(tool.inputSchema.type).toBe("object");
+    // THE PROTOCOL'S OWN RULE, and the reason `advertise()` hoists a `type` over the one row
+    // that projects to a bare `oneOf`: the SDK types this as `z.literal("object")` on both
+    // sides, so a union-rooted document would be rejected before any agent saw it.
+    expect({ name: tool.name, type: tool.inputSchema["type"] }).toEqual({
+      name: tool.name,
+      type: "object",
+    });
     // **NO `outputSchema`, on every row.** Declaring one has broken tool registration in the
     // client this door exists for, which is why the results are TEXT-first — a pin rather
     // than a comment, because "we did not add one" is exactly the kind of decision a later
     // convenience quietly reverses.
     expect(tool.outputSchema).toBeUndefined();
-    expect(tool.annotations?.readOnlyHint).toBe(true);
   }
+});
+
+test("the advertised documents say nothing this suite cannot read — and no tuple lies about its length", () => {
+  // **THE COMPLETENESS CLAUSE, borrowed from `action-registry/projection-round-trip.test.ts`
+  // and pointed at the door.** The advertisement is a PROJECTION of the schema `dispatch`
+  // runs, so the two cannot drift by editing — but they CAN drift by zod reflecting a
+  // construct lossily, which is not hypothetical: `z.tuple` projects `prefixItems` and no
+  // length keyword, so before T4c Task 6 every vector on this wire was advertised as an
+  // array of any length while `dispatch` demanded exactly three. Measured, not reasoned.
+  //
+  // So: inventory every keyword the nine documents use. A construct nobody has checked
+  // reflects faithfully reds HERE, before an agent reads a document that under-states the
+  // rule. Growing the list is the deliberate act of saying "I checked this one".
+  const keywords = new Set<string>();
+  let nodesWalked = 0;
+  const tuplesWithoutLength: string[] = [];
+  for (const tool of advertised()) {
+    for (const node of nodesOf(tool.inputSchema)) {
+      nodesWalked++;
+      for (const keyword of Object.keys(node)) keywords.add(keyword);
+      if (
+        Array.isArray(node["prefixItems"]) &&
+        (node["minItems"] !== node["prefixItems"].length ||
+          node["maxItems"] !== node["prefixItems"].length)
+      )
+        tuplesWithoutLength.push(`${tool.name}: ${JSON.stringify(node)}`);
+    }
+  }
+  // WHAT WAS WALKED, ASSERTED BEFORE WHAT WAS FOUND — an empty walk with an empty finding
+  // list is a passing test that read nothing. A THRESHOLD rather than the exact count (120 at
+  // head), deliberately: the number moves with every keyword the op vocabulary grows, and a
+  // literal would red on a change it has no opinion about. What it has to catch is a walk that
+  // stopped walking.
+  expect({
+    nodesWalked: nodesWalked > 100,
+    tuplesWithoutLength,
+    keywords: [...keywords].sort(),
+  }).toEqual({
+    nodesWalked: true,
+    tuplesWithoutLength: [],
+    keywords: [
+      "additionalProperties",
+      "const",
+      "description",
+      "enum",
+      "exclusiveMinimum",
+      "items",
+      "maxItems",
+      "maximum",
+      "minItems",
+      "minLength",
+      "minimum",
+      "oneOf",
+      "prefixItems",
+      "properties",
+      "propertyNames",
+      "required",
+      "type",
+    ],
+  });
+});
+
+test("the action_run row names every id that takes an input", () => {
+  // The one description in the table that restates another module's data. It is prose
+  // because a per-id `oneOf` would be a lie for the 33 bare verbs (any `input` is legal for
+  // them), and prose drifts — so the drift is closed here rather than accepted: a seventh
+  // row in `ACTION_INPUT_SCHEMAS` that nobody mentioned reds.
+  const row = advertised().find((x) => x.name === "action_run");
+  const named = Object.keys(ACTION_INPUT_SCHEMAS).filter(
+    (id) => !(row?.description ?? "").includes(id),
+  );
+  expect({ rows: Object.keys(ACTION_INPUT_SCHEMAS).length, named }).toEqual({
+    rows: 6,
+    named: [],
+  });
+  // AND IT DOES NOT NAME `session.escape`, which is the T4c Task 5 disposition made
+  // machine-checkable. Both spellings reach `FieldHost.escape`, they are NOT equivalent
+  // (the registry verb answers ok whether or not anything was cancelled; `session_interrupt`
+  // reads the boolean and refuses), and pointing an agent at the one that cannot report a
+  // no-op would undo the verb this tranche built.
+  expect(row?.description ?? "").not.toContain("session.escape");
 });
 
 test("one client makes many calls on one connection — the per-POST transport holds", () => {
@@ -109,7 +267,7 @@ test("one client makes many calls on one connection — the per-POST transport h
   // and asserted one call would be green over a door that works exactly once.
   expect(t.repeat.first.isError).toBe(false);
   expect(t.repeat.second).toEqual(t.repeat.first);
-  expect(t.repeat.listedTwice).toBe(3);
+  expect(t.repeat.listedTwice).toBe(9);
 });
 
 // --- The two daemon-direct reads ----------------------------------------------
@@ -135,6 +293,140 @@ test("an invented argument is REFUSED, not dropped — dispatch validates this e
   expect(t.inventedArgument.isError).toBe(true);
   expect(t.inventedArgument.text).toContain("invalid-input");
   expect(t.inventedArgument.text).toContain("Re-read its inputSchema");
+});
+
+// --- Advertisement equals validation ------------------------------------------
+
+test("every bound the document states is a bound dispatch enforces", () => {
+  // **THE PIN THIS TASK EXISTS FOR, taken through the real protocol with no editor open.**
+  // `dispatch` parses before it runs, so a value the advertised document forbids earns
+  // `invalid-input` regardless of any session — which makes each of these a statement about
+  // the SCHEMA and nothing else. Sabotage: drop the `.meta({minItems, maxItems})` from
+  // `point3` and the two-number case still reds nowhere HERE (dispatch never admitted it);
+  // it reds in the tuple-length case above, which is why both exist.
+  const labels = Object.keys(t.boundRefusals);
+  const admitted = labels.filter((l) => !t.boundRefusals[l]?.isError);
+  const wrongCode = labels.filter(
+    (l) => !(t.boundRefusals[l]?.text ?? "").includes("invalid-input"),
+  );
+  expect({ probes: labels.length, admitted, wrongCode }).toEqual({
+    probes: 13,
+    admitted: [],
+    wrongCode: [],
+  });
+  // **THE THREE THAT ARE NOT SCHEMA KEYWORDS**, each carrying its rule as prose, because
+  // prose is what an agent has instead of a bound it could have read. The count is the point
+  // as much as the cases: the door has exactly three looser-than-validation points and the
+  // probe's docblock enumerates them, so a FOURTH arriving unlisted is the thing to catch.
+  expect(
+    t.boundRefusals["a zero direction — the ONE bound no JSON Schema can state"]
+      ?.text,
+  ).toContain("zero vector");
+  expect(
+    t.boundRefusals["a fenced action id — a handler rule, not a shape"]?.text,
+  ).toContain("op attribution");
+  // The stray key on an action row — the `z.object` → `z.strictObject` change, at the WIRE.
+  // Before it, this call answered ok having silently discarded `nope`. The message names the
+  // key, which is what makes the refusal actionable rather than merely correct.
+  expect(
+    t.boundRefusals[
+      "a stray key on an action row's input — stripped before T4c, refused now"
+    ]?.text,
+  ).toContain("nope");
+  // …AND THE ZERO-VECTOR RULE IS ADVERTISED AS WELL AS ENFORCED, which is the other half and
+  // the one a refusal cannot supply: an agent that has to send a bad ray to learn the rule
+  // has already spent the round trip. `.describe()` on `direction3` is where it rides, and
+  // this asserts it survived into the document rather than only into the error.
+  const rayArm = advertised()
+    .filter((x) => x.name === "session_query")
+    .flatMap((x) => nodesOf(x.inputSchema))
+    .filter((n) => typeof n["description"] === "string")
+    .map((n) => n["description"]);
+  expect(rayArm.filter((d) => String(d).includes("zero vector"))).toHaveLength(
+    1,
+  );
+});
+
+test("the four prose hand-offs the earlier tasks named are in the rows that owe them", () => {
+  // **THE MIGRATION-MARKER DEBT, AS ASSERTIONS.** Three markers plus one
+  // docblock hand-off named four sentences the door owed an agent, each because a reader
+  // without it makes a specific mistake that has already been observed or reasoned out.
+  // (The marker string itself is deliberately not spelled here: the convention's grep must
+  // surface real debts, and a test quoting it would be a permanent false positive.) They
+  // are pinned by NEEDLE rather than by whole text so the prose can be rewritten, and by
+  // needles that carry the RULE rather than a keyword, because a keyword survives a rewrite
+  // that drops the meaning.
+  const row = (name: string): string =>
+    (advertised().find((x) => x.name === name)?.description ?? "").replace(
+      /\s+/g,
+      " ",
+    );
+  expect({
+    // (1) The armedness rule — the misreading measured live at the T4b gate walk.
+    armedness: row("session_state").includes(
+      "is NOT a claim that anything is armed",
+    ),
+    // (2) The contact rule, from `field-query.ts`'s `Query.answer`: the probe's origin, its
+    // tolerance, and the deliberate asymmetry. "Ask this, don't squint" is worth nothing to
+    // an agent that cannot read what contact MEANS.
+    contactProbe: row("session_query").includes(
+      "straight down from the centre of its proxy box's BASE",
+    ),
+    contactTolerance: row("session_query").includes("within one cell size"),
+    entitiesNotProbed: row("session_query").includes(
+      "Entities are deliberately NOT contact-probed",
+    ),
+    // (3) `session_interrupt`'s limit: one rung, and no long job can be stopped. Without it
+    // an agent reaches for this to cancel a bake and is silently disappointed.
+    interruptOneRung: row("session_interrupt").includes("ONE rung"),
+    interruptCannotAbort:
+      row("session_interrupt").includes("cannot stop a bake"),
+    // (4) The undo fence, said where an agent would otherwise discover it by being refused.
+    undoFenced: row("action_run").includes(
+      "edit.undo and edit.redo are refused for every agent",
+    ),
+  }).toEqual({
+    armedness: true,
+    contactProbe: true,
+    contactTolerance: true,
+    entitiesNotProbed: true,
+    interruptOneRung: true,
+    interruptCannotAbort: true,
+    undoFenced: true,
+  });
+});
+
+test("a WELL-FORMED batch is refused by the SESSION, not by the schema", () => {
+  // THE VACUITY GUARD for the case above. Against a door that refused every argument it was
+  // handed, all twelve bound probes would pass and pin nothing; this is the same row and the
+  // same shape with legal values, and it has to get PAST the schema to reach the missing
+  // session. `no-session` here is therefore the positive control.
+  expect(t.wellFormedBatch.isError).toBe(true);
+  expect(t.wellFormedBatch.text).toContain("no-session");
+  expect(t.wellFormedBatch.text).not.toContain("invalid-input");
+});
+
+test("viewport_capture hands over an IMAGE block, and the base64 appears exactly once", () => {
+  // **THE DECODE `shared/wire.ts` ASSIGNED TO THIS DOOR.** The chrome base64s the PNG because
+  // a `SessionAnswer` is JSON and JSON has no bytes; left as text the agent would receive a
+  // megabyte of base64 in its context window and no `isError` assertion would ever notice.
+  // So the shape is pinned, not just the success.
+  expect(t.capture.isError).toBe(false);
+  expect(
+    t.capture.blocks.map((b) => ({ type: b.type, mimeType: b.mimeType })),
+  ).toEqual([
+    { type: "image", mimeType: "image/png" },
+    { type: "text", mimeType: undefined },
+  ]);
+  // The string the fake chrome answered with, handed over UNCHANGED — not re-encoded, not
+  // truncated, not wrapped.
+  expect(t.capture.imageData).toBe(t.capture.posted);
+  // …and the measurements beside it, with the PNG lifted OUT. `toEqual` and not a subset
+  // check: a `png` key surviving into the text block would double the cost of every capture
+  // while every other assertion here stayed green, and this is the assertion that sees it.
+  expect(t.capture.measured).toEqual({ width: 256, height: 144, view: "+y" });
+  // The base64 is carried ONCE, at full length, in the block built to hold it.
+  expect(t.capture.blocks[0]?.length).toBe(t.capture.posted.length);
 });
 
 // --- The relayed read ---------------------------------------------------------

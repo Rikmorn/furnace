@@ -828,8 +828,10 @@ test("the read WRITES NOTHING — the store, the log and the answer's boxes are 
   q.answer({ about: "entities" });
   q.answer({ about: "ray", origin: [0, 4, 0], dir: [0, -1, 0] });
   q.answer({ about: "selection" });
-  // THE `readOnlyHint` Task 6 will advertise, EARNED here. Nothing on any of the three paths
-  // touches the store, the log or the undo stacks.
+  // THE `readOnlyHint` THE DOOR ADVERTISES (T4c Task 6, `daemon/mcp.ts`'s `session_query`
+  // row), EARNED here. Nothing on any of the three paths touches the store, the log or the
+  // undo stacks — the annotation is a HINT by specification, so this is the only thing that
+  // makes it true.
   //
   // CONTENTS, NOT `chunks.size` — and the first draft of this case compared the size, which
   // is the guard that cannot see the realistic write. Measured at review: injecting a
