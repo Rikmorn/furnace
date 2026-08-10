@@ -88,7 +88,7 @@ import type {
   DerivedMember,
   FamilyId,
 } from "../../shared/action-table.ts";
-import { deriveFamilies } from "../../shared/action-table.ts";
+import { deriveFamilies, memberRefId } from "../../shared/action-table.ts";
 import type { ConfirmRequest } from "../components/ConfirmDialog.tsx";
 import type { ViewActions, ViewState } from "../hooks/useView.tsx";
 import type { WorkspaceActions } from "../hooks/useWorkspace.tsx";
@@ -374,7 +374,7 @@ const NAMED_RENDER: GateEnv = { caller: "named", confirmOpen: false };
  *  nothing at the only place it travels to. Which five the gate actually raises is stated at
  *  {@link RefusalClass} and greppable from {@link quiet}'s call sites.
  *
- *  THE COST, PLAINLY: nothing stops `quiet("…", "member")` compiling. *"Five of the seven are
+ *  THE COST, PLAINLY: nothing stops `quiet("…", "member")` compiling. *"Five of the eight are
  *  the gate's"* is therefore held by the vocabulary table in `tests/actions.test.ts` and by
  *  the per-class pins in `tests/keybindings.test.ts` — by pins, not by the type — which is a
  *  weaker instrument than this commit uses elsewhere and is written down rather than left for
@@ -386,7 +386,7 @@ export type GateVerdict =
 /** A refusal the user is NOT told about — the reason travels, the toast does not.
  *
  *  THE POLICY, STATED ONCE, and the question it answers is WHO HEARS a refusal — not which
- *  refusals exist. The union is wider than the gate: {@link RefusalClass} has seven, and two
+ *  refusals exist. The union is wider than the gate: {@link RefusalClass} has eight, and three
  *  of them are raised past the gate entirely.
  *
  *  THE COUNT LIVES HERE AND NOWHERE ELSE, because it is one fact serving two audits and a
@@ -489,19 +489,28 @@ export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
 // --- results ------------------------------------------------------------------
 
 /** The run of a verb that HANDS OFF and cannot fail from here — every action whose whole
- *  body is one call into the host or into one of the chrome's own funnels.
+ *  body is one call into one of the CHROME's own funnels (`ctx.run`).
+ *
+ *  IT NO LONGER COVERS THE HOST, which is the T4c narrowing and the reason this line reads
+ *  differently from the one above it. A body reaching `ctx.host` has a precondition — the
+ *  engine may not be up — and {@link handOffToHost} is where that is stated; what is left
+ *  here is the set with no precondition at all, because `ctx.run` is assembled by whoever
+ *  built the ctx and is always there. So "cannot fail from here" is now true by
+ *  construction rather than by inspection of each body.
  *
  *  NO COUNT, deliberately. This file's own header records that the reader count "was three
  *  when this file was written and has been wrong at every re-count since"; a second tally
- *  nothing checks would rot the same way, and it did — the first draft of this line said 30
- *  and `ACTION_OK`'s said 34 about the same set, where head has 31 (25 here plus the six
- *  axis views, which reach this through `axisView`). The membership is greppable: it is
- *  every `run: handOff(` in `BEHAVIORS`.
+ *  nothing checks would rot the same way, and it did — an earlier draft of this line said 30
+ *  and `ACTION_OK`'s said 34 about the same set. The membership is greppable and that is the
+ *  whole instruction: it is every `run: handOff(` in `BEHAVIORS`, and every `run:
+ *  handOffToHost(` is the other set.
  *
  *  It is not optimism. A host verb that refuses reports on the host's OWN channel
  *  (`reportToolError` → `subscribeToolError` → a toast), later and asynchronously, and that
  *  refusal is not this action's verdict to give — see {@link ActionResult}'s module header
- *  for the three provenances and the rule that keeps them from doubling a toast. */
+ *  for the three provenances and the rule that keeps them from doubling a toast. That
+ *  argument covers a host that EXISTS and declines; it never covered a host that is not
+ *  there, which is the gap {@link handOffToHost} closes. */
 const handOff =
   (effect: (ctx: ActionCtx) => void) =>
   (ctx: ActionCtx): Promise<ActionResult> => {
@@ -513,6 +522,68 @@ const handOff =
  *  called at the END of a body where {@link handOff} wraps one. */
 const okAfter = (effect: () => void): Promise<ActionResult> => {
   effect();
+  return Promise.resolve(ACTION_OK);
+};
+
+/** The one sentence every verb shares when the engine bundle has not landed. A BACKSTOP in
+ *  the same sense {@link NO_ENTITY} is: nine of the fourteen sites it covers are already
+ *  unreachable through `enabled`, because their predicates read ctx facts the host is the
+ *  source of. The five that are NOT are the ones this exists for. */
+const NO_ENGINE = "the engine is not up yet — nothing has been done";
+
+/**
+ * {@link handOff} for a body whose whole content is one call ON THE HOST — and the fix for
+ * the only positive claim the named funnel could still make falsely.
+ *
+ * WHAT IT REPLACES: the `ctx.host?.` optional chain at fourteen sites — TEN of them
+ * `run: handOff((ctx) => ctx.host?.undo())` and FOUR inside an `okAfter` body, which is why
+ * there are two seams here rather than one. With no
+ * engine the optional call evaluated to `undefined`, the body did nothing, and the funnel
+ * answered `ACTION_OK` — a claim that a verb ran, about a call that never happened.
+ * Invisible to a human, who reads a dead key as "not ready yet"; a LIE to a caller holding
+ * the {@link ActionResult}, which since T4c is an agent with no canvas to infer that from.
+ *
+ * IT IS T4b's MEMBER-ARM FIX, ONE DOOR OVER. `ToolFamilyMember.arm` closed exactly this
+ * shape on the member funnel — `c.host?.startStamp(g.id)` became a `ctx.host === null`
+ * check returning `refused(…, "inert")` — and the named path had the same shape and was
+ * left standing. The knowledge stays where the EFFECT is written, which is that arm's
+ * argument and the reason this is a wrapper rather than a blanket guard inside
+ * {@link runAction}: a body that reaches `ctx.run` needs no host at all, and a funnel-level
+ * check would refuse those too.
+ *
+ * `"inert"` RATHER THAN `"input"`, and the two are worth telling apart at exactly this
+ * seam: nothing is wrong with the request. The engine arrives on its own a moment later, so
+ * *change nothing and ask again* is the correct advice — which is `inert`'s bullet
+ * verbatim, and the opposite of what the new class means.
+ *
+ * IT DOES NOT OVERTURN THE FIVE `enabled: () => true` DECISIONS, which was the open
+ * question when this was filed and is answered by reading them. `edit.reselect`,
+ * `session.escape`, `view.frame`, `view.frameWorld` and the six axis views each carry a
+ * comment saying why they stay live — a view verb needs no selection, Esc is never refused,
+ * the host reports "nothing to frame" on its own channel — and every one of those arguments
+ * is about a host that EXISTS and has nothing to do. None of them is an argument for
+ * answering `ok` when there is no host to have nothing to do. They stay live and they
+ * refuse honestly, which are not in tension.
+ */
+const handOffToHost =
+  (effect: (host: FieldHost) => void) =>
+  (ctx: ActionCtx): Promise<ActionResult> => {
+    const host = ctx.host;
+    if (host === null) return Promise.resolve(refused(NO_ENGINE, "inert"));
+    effect(host);
+    return Promise.resolve(ACTION_OK);
+  };
+
+/** {@link okAfter}'s host-requiring sibling, for the bodies that computed or refused
+ *  something first. Takes the ctx because — unlike `okAfter`, which closes over nothing —
+ *  it has a precondition to test. */
+const okAfterHost = (
+  ctx: ActionCtx,
+  effect: (host: FieldHost) => void,
+): Promise<ActionResult> => {
+  const host = ctx.host;
+  if (host === null) return Promise.resolve(refused(NO_ENGINE, "inert"));
+  effect(host);
   return Promise.resolve(ACTION_OK);
 };
 
@@ -673,10 +744,13 @@ const axisView = <A extends Axis, S extends 1 | -1>(
   sign: S,
 ): ActionBehavior<AxisViewId<A, S>> => ({
   label: () => axisViewLabel(axis, sign),
-  // Live with no selection and no engine, like `view.frame` beside it: a view verb needs
-  // neither, and a row greyed with no visible reason reads as broken.
+  // Live with no selection, like `view.frame` beside it: a view verb needs one and a row
+  // greyed with no visible reason reads as broken. It used to say "and no engine" as well,
+  // which was true of the PREDICATE and false of what the run then did — with no host the
+  // body was a no-op reporting success. The row stays live; the run refuses honestly
+  // ({@link handOffToHost}), which is the distinction that sentence was missing.
   enabled: () => true,
-  run: handOff((ctx) => ctx.host?.snapView(axis, sign)),
+  run: handOffToHost((host) => host.snapView(axis, sign)),
 });
 
 // --- the behaviors ------------------------------------------------------------
@@ -777,13 +851,13 @@ const BEHAVIORS: ActionBehaviors = {
     label: (ctx) =>
       ctx.history.undoLabel === null ? "Undo" : `Undo ${ctx.history.undoLabel}`,
     enabled: (ctx) => (ctx.stats?.undoDepth ?? 0) > 0,
-    run: handOff((ctx) => ctx.host?.undo()),
+    run: handOffToHost((host) => host.undo()),
   },
   "edit.redo": {
     label: (ctx) =>
       ctx.history.redoLabel === null ? "Redo" : `Redo ${ctx.history.redoLabel}`,
     enabled: (ctx) => (ctx.stats?.redoDepth ?? 0) > 0,
-    run: handOff((ctx) => ctx.host?.redo()),
+    run: handOffToHost((host) => host.redo()),
   },
   "edit.duplicate": {
     label: (ctx) =>
@@ -795,7 +869,7 @@ const BEHAVIORS: ActionBehaviors = {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined)
         return Promise.resolve(refused(NO_ENTITY, "inert"));
-      return okAfter(() => ctx.host?.duplicateEntity(entityId));
+      return okAfterHost(ctx, (host) => host.duplicateEntity(entityId));
     },
   },
   "edit.delete": {
@@ -817,22 +891,41 @@ const BEHAVIORS: ActionBehaviors = {
       // wrong stamp. (T4's projection is where a host-side lookup would change this.)
       const entityId = input?.entityId ?? entity.entityId;
       if (entityId !== entity.entityId)
+        // `"input"` SINCE T4C — the second of the two refusals the class was split out for,
+        // and the clearer of the pair: the caller named an entity, the verb acts on a
+        // different one, and NOTHING about the editor's state is wrong. Under `"inert"` a
+        // caller was told to change the world and come back, which would have left it
+        // selecting stamps at random; the honest instruction is in the sentence, and now the
+        // class agrees with it.
         return Promise.resolve(
           refused(
             `select stamp #${entityId} first — Delete confirms against the SELECTED stamp`,
-            "inert",
+            "input",
           ),
         );
       // The same prompt the palette row raises, with the op count in it: a row reads
       // "3 ops" but a scatter reads "1 ops" and takes every prop it placed with it.
       const ops = entity.opSpan[1] - entity.opSpan[0] + 1;
-      return okAfter(() =>
+      // THE FOURTEENTH SITE, and the one that is a VARIANT rather than an instance — worth
+      // the two lines because the fix looks like overkill until the alternative is named.
+      // The enclosing claim here was always honest: `okAfter` says "the confirm was
+      // raised", which is exactly what happened, and the host call sits inside a callback
+      // that runs LATER, after a human decides. So there was no false `ok` to remove.
+      //
+      // What there WAS is a prompt that could be raised over a host that cannot serve it —
+      // the user reads a destructive confirm, presses Delete, and the optional chain
+      // silently does nothing. Checking up here rather than inside `onConfirm` is what
+      // makes that unreachable: the host is resolved BEFORE the question is asked, so the
+      // callback closes over a non-null one and the prompt is only ever raised when there
+      // is something behind it. Refusing later would be worse than refusing now — it would
+      // ask a human to confirm and then answer nobody.
+      return okAfterHost(ctx, (host) =>
         ctx.run.openConfirm({
           title: `Delete stamp #${entity.entityId}?`,
           message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
           confirmLabel: "Delete",
           destructive: true,
-          onConfirm: () => ctx.host?.deleteEntity(entity.entityId),
+          onConfirm: () => host.deleteEntity(entity.entityId),
         }),
       );
     },
@@ -849,7 +942,7 @@ const BEHAVIORS: ActionBehaviors = {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined)
         return Promise.resolve(refused(NO_ENTITY, "inert"));
-      return okAfter(() => ctx.host?.beginMove(entityId));
+      return okAfterHost(ctx, (host) => host.beginMove(entityId));
     },
   },
   "edit.clearSelection": {
@@ -861,7 +954,7 @@ const BEHAVIORS: ActionBehaviors = {
     // most recent thing, so it is never refused, but a named menu item over an empty
     // selection is a verb with no object.
     enabled: (ctx) => ctx.selection !== null,
-    run: handOff((ctx) => ctx.host?.clearSelection()),
+    run: handOffToHost((host) => host.clearSelection()),
   },
   "edit.reselect": {
     label: () => "Reselect",
@@ -869,7 +962,7 @@ const BEHAVIORS: ActionBehaviors = {
     // exactly when there is NO selection, because what it restores is what the last
     // Clear (or replace) displaced. The host no-ops on an empty slot.
     enabled: () => true,
-    run: handOff((ctx) => ctx.host?.reselect()),
+    run: handOffToHost((host) => host.reselect()),
   },
   "edit.history": {
     // Named for the surface it opens, and ALWAYS enabled: an empty history is something
@@ -925,7 +1018,7 @@ const BEHAVIORS: ActionBehaviors = {
             "inert",
           ),
         );
-      return okAfter(() => ctx.host?.startStamp(generatorId));
+      return okAfterHost(ctx, (host) => host.startStamp(generatorId));
     },
   },
   "tool.stampCycle": {
@@ -956,19 +1049,19 @@ const BEHAVIORS: ActionBehaviors = {
     // focused has no canvas listener to answer ⏎ — while the status bar advertises
     // "⏎ drop". `confirmSession` is the move-aware verb both keys route through.
     enabled: (ctx) => ctx.session !== null,
-    run: handOff((ctx) => ctx.host?.confirmSession()),
+    run: handOffToHost((host) => host.confirmSession()),
   },
   "session.rotate": {
     label: () => "Rotate a quarter turn",
     enabled: (ctx) => ctx.session !== null,
-    run: handOff((ctx) => ctx.host?.rotateStamp()),
+    run: handOffToHost((host) => host.rotateStamp()),
   },
   "session.escape": {
     label: () => "Cancel",
     // Never disabled: the ladder decides what there is to cancel, and an Esc with
     // nothing to cancel is a no-op rather than a refusal.
     enabled: () => true,
-    run: handOff((ctx) => ctx.host?.escape()),
+    run: handOffToHost((host) => host.escape()),
   },
 
   // ——— view ————————————————————————————————————————————————————————————————
@@ -988,14 +1081,14 @@ const BEHAVIORS: ActionBehaviors = {
     // The host reports "nothing to frame" itself, so this stays live with neither
     // selection: a key that swallows the press and says nothing reads as broken.
     enabled: () => true,
-    run: handOff((ctx) => ctx.host?.frameSelection()),
+    run: handOffToHost((host) => host.frameSelection()),
   },
   "view.frameWorld": {
     label: () => "Frame world",
     // Same stance as `view.frame` beside it: the host says "nothing to frame yet"
     // itself, so this stays live on an empty world rather than going quiet.
     enabled: () => true,
-    run: handOff((ctx) => ctx.host?.frameWorld()),
+    run: handOffToHost((host) => host.frameWorld()),
   },
   "view.snapPosX": axisView("view.snapPosX", "x", 1),
   "view.snapNegX": axisView("view.snapNegX", "x", -1),
@@ -1289,7 +1382,11 @@ function familyMembers(
   return (ctx) => {
     const i = armedIndex(family.members, ctx);
     return family.members.map((m, index) => ({
-      id: m.label,
+      // THE REF, NOT THE LABEL (T4c) — `memberRefId` carries the whole argument. Two ids
+      // stop matching what the flyout prints (`material` is "Wand", `void` is "Room"),
+      // which is the point rather than a cost: an id a caller names must not move when the
+      // copy does.
+      id: memberRefId(m.ref),
       label: m.label,
       hint: m.hint,
       armed: index === i && idle(ctx),
@@ -1626,6 +1723,45 @@ export function runNamed(
   input?: ActionInput,
 ): Promise<ActionResult> {
   return runAction(def, ctx, namedDispatch(ctx), input);
+}
+
+/**
+ * {@link runNamed} for a caller that holds an id as a STRING rather than as an
+ * {@link ActionId} — the agent door's entry point (foundations T4c).
+ *
+ * WHY IT IS NOT `runNamed(byId(id), …)` AT THE CALL SITE. `byId` takes the UNION and
+ * THROWS, which is exactly right for its callers: every one of them is chrome code naming a
+ * literal, where a renamed action should take the editor down at import rather than render a
+ * dead control. A string off the wire is the opposite case — an unknown id there is an
+ * ordinary bad request, not a broken build, and a throw would become a `failed` claiming
+ * something went wrong inside the editor.
+ *
+ * SO THE MISS IS A REFUSAL, and `"input"` is its class: the request named something that
+ * does not exist, nothing about the editor's state is wrong, and the remedy is to ask again
+ * with a different id. That is the same shape {@link runMember} gives a member miss one door
+ * over — including the LIST. Spelling all of them out is the same argument that function
+ * makes and it is stronger here: the caller cannot see a menu, and until the door advertises
+ * the table this sentence is the only way it can learn what it should have said.
+ *
+ * IT IS THE ONLY VALIDATION THIS FUNCTION DOES. `input` is relayed to the run untouched —
+ * the daemon has already parsed it against the action's own schema
+ * (`action-registry/schemas.ts`), which is where per-id input validation lives and where the
+ * door advertises it from. A second parse here would be a second author for one contract.
+ */
+export function runNamedById(
+  id: string,
+  ctx: ActionCtx,
+  input?: ActionInput,
+): Promise<ActionResult> {
+  const def = ACTIONS.find((a) => a.id === id);
+  if (def === undefined)
+    return Promise.resolve(
+      refused(
+        `no action "${id}" — the editor's verbs are [${ACTIONS.map((a) => a.id).join(", ")}]`,
+        "input",
+      ),
+    );
+  return runNamed(def, ctx, input);
 }
 
 /** RUN A MEMBER PICK: find it in its family, gate against that FAMILY, do the member's own

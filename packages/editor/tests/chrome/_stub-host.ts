@@ -336,6 +336,26 @@ export function makeStubHost(
         view: "user" as const,
       }),
     ),
+    // The mutation pair answers OK and a fixed committed record. Both are the
+    // SHAPE a chrome-side caller has to relay, not the behaviour — the refusals,
+    // the indexed locator, the region default and the session guard are the real
+    // seam's and are pinned against a real store in `tests/field-host/mutation`.
+    // What a stub can prove is that the answerer passes the payload through
+    // without reshaping it, so the record here is deliberately not the defaults
+    // anything else would produce.
+    applyOps: mock(() => ({ ok: true }) as const),
+    generate: mock(() => ({
+      ok: true as const,
+      entityId: 7,
+      generator: "hall",
+      seed: 4242,
+      region: {
+        min: [0, 0, 0] as [number, number, number],
+        max: [4, 3, 4] as [number, number, number],
+      },
+      params: { width: 3 },
+      dirtyChunks: 2,
+    })),
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
@@ -498,6 +518,8 @@ export function makeStubHost(
     // other answer sets it through `setCameraAimed` below.
     cameraAimedByHand: () => cameraAimed,
     snapView: calls.snapView,
+    applyOps: calls.applyOps,
+    generate: calls.generate,
     captureScene: calls.captureScene,
     subscribeEntities: (cb) => {
       calls.subscribeEntities(cb);

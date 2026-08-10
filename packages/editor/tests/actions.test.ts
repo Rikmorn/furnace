@@ -21,6 +21,7 @@ import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
   ACTION_GROUPS,
   ACTIONS,
+  type ActionCtx,
   type ActionGroup,
   type ActionId,
   byId,
@@ -32,6 +33,7 @@ import {
   runAction,
   runMember,
   runNamed,
+  runNamedById,
   TOOL_FAMILIES,
   type ToolFamily,
   type ToolFamilyMember,
@@ -791,9 +793,12 @@ test("Delete refuses an entityId that is not the SELECTED one — the confirm de
     kind: "refused",
     message:
       "select stamp #99 first — Delete confirms against the SELECTED stamp",
-    // An ARGUMENT refusal wearing `"inert"`; `RefusalClass`'s docblock argues why there is
-    // no `input` class and names this as one of the two that would move if one arrived.
-    because: "inert",
+    // `"input"` SINCE T4C. This assertion read `"inert"` and carried a comment saying the
+    // class did not exist yet and that this was one of the two refusals that would move
+    // when it did. It arrived with its first caller and they both moved; this is the
+    // clearer of the pair, because nothing about the editor's state is wrong — only the id
+    // in the request.
+    because: "input",
   });
   expect(ctx.run.openConfirm).not.toHaveBeenCalled();
   expect(host.deleteEntity).not.toHaveBeenCalled();
@@ -1076,12 +1081,17 @@ test("a member id no member answers to is `refused` as `member`, and names the i
   // an expectation built from the same list the code reads would pass whatever that list
   // said. A member renamed in `FAMILY_ROWS` reds this case, which is the point: the sentence
   // is the only way the caller this funnel exists for can learn what it should have asked.
+  //
+  // THE IDS ARE THE REFS SINCE T4C, and the sentence is what makes the change worth having:
+  // it used to list `[Dig, Fill, Paint, Smooth, Segment]` — display strings a caller could
+  // pass back only for as long as nobody reworded them. It now lists the stable ids, so the
+  // remedy it hands out is one a caller can use verbatim and keep using.
   const ctx = makeCtx();
   expect(runMember(family("brush"), "Pain", ctx)).toEqual({
     ok: false,
     kind: "refused",
     message:
-      'no "Pain" in the Brush tools — its members are [Dig, Fill, Paint, Smooth, Segment]',
+      'no "Pain" in the Brush tools — its members are [dig, fill, paint, smooth, segment]',
     because: "member",
   });
   // Nothing was armed, and nothing was SAID: no human can name an id that is not in the list
@@ -1292,6 +1302,16 @@ const REFUSALS: Record<
   // `enabled` false with the gate OPEN — no undo depth on a fresh ctx.
   inert: () => runAction(byId("edit.undo"), makeCtx(), KEY),
   member: () => runMember(family("brush"), "no-such-member", makeCtx()),
+  // The eighth (T4c), and reached through a NAMED dispatch because that is the only caller
+  // class that can produce it: an argument refusal needs an argument, and a key carries
+  // none. `edit.delete` handed an id that is not the selected one — a verb whose gate is
+  // open, whose `enabled` is true, and which refuses on the REQUEST alone.
+  input: () =>
+    runNamed(
+      byId("edit.delete"),
+      makeCtx({ selectedEntity: entity({ entityId: 3 }) }),
+      { entityId: 99 },
+    ),
 };
 
 test("every refusal class is REACHABLE through a funnel, and answers with its own name", async () => {
@@ -1362,4 +1382,181 @@ test("`clickGate` has exactly ONE caller in the editor — the DISPLAY seam it f
   // Its own file — the declaration and `controlVerdict`'s call — and NOT an empty list, for
   // the reason the scan above gives.
   expect(callers).toEqual(["frontend/lib/actions.ts"]);
+});
+
+// --- the engine precondition (T4c) ------------------------------------------
+//
+// `handOffToHost` closed the last positive claim the named funnel could make falsely: with
+// no engine, fourteen bodies reached the host through `ctx.host?.`, did nothing, and the
+// funnel answered `ACTION_OK`. What these hold is that the answer is now a refusal — and,
+// as importantly, that it is the SAME refusal everywhere, because fourteen sites answering
+// in fourteen ways is the thing a shared seam exists to prevent.
+
+/** Every action id whose run reaches the host, and therefore must refuse without one.
+ *
+ *  A LITERAL LIST, and the claim that it is COMPLETE is held by the source scan below rather
+ *  than by this comment. An earlier version of this block asserted it was "derived rather
+ *  than listed" and that "a FIFTEENTH site would arrive covered" — directly above a literal
+ *  of eleven, with `edit.duplicate`, `edit.grab` and `tool.stamp` in no no-engine test at
+ *  all. The claim was false in the direction that matters: it told a reader not to check.
+ *
+ *  Nineteen ids over fourteen SITES — `snapView` is one site instantiated six times. */
+const HOST_VERBS: ActionId[] = [
+  "edit.undo",
+  "edit.redo",
+  "edit.duplicate",
+  // `edit.delete` is in the list AND has a case of its own below. It refuses in exactly the
+  // shape every other host verb does, so it belongs to the sweep; what its own case adds is
+  // the thing no other verb has — that the destructive CONFIRM is not raised either.
+  "edit.delete",
+  "edit.grab",
+  "edit.clearSelection",
+  "edit.reselect",
+  "tool.stamp",
+  "session.confirm",
+  "session.rotate",
+  "session.escape",
+  "view.frame",
+  "view.frameWorld",
+  "view.snapPosX",
+  "view.snapNegX",
+  "view.snapPosY",
+  "view.snapNegY",
+  "view.snapPosZ",
+  "view.snapNegZ",
+];
+
+/** A ctx with everything the four `okAfterHost` verbs need to REACH the host — a selected
+ *  entity and a registered generator. Without them `edit.duplicate`, `edit.grab` and
+ *  `tool.stamp` refuse `NO_ENTITY`/"nothing to stamp" first and never test the engine
+ *  precondition at all, which is how three of them went unpinned. */
+const hostReachingCtx = (host: ActionCtx["host"]): ActionCtx =>
+  makeCtx({
+    host,
+    selectedEntity: entity({ entityId: 3 }),
+    generators: [{ id: "hall", name: "Hall" }],
+  });
+
+test("every host-reaching verb REFUSES with no engine, in one class and one sentence", async () => {
+  // The five `enabled: () => true` verbs are what this is really about — nine of the
+  // fourteen sites are already unreachable through `enabled`, so every id here is dispatched
+  // through its `run` DIRECTLY (`byId(id).run(ctx, undefined)`), which is what reaches the
+  // body regardless of the gate. Not `runAction`: an earlier version of this comment said it
+  // was, and it never has been.
+  const bare = hostReachingCtx(null);
+  const answers = await Promise.all(
+    HOST_VERBS.map((id) => byId(id).run(bare, undefined)),
+  );
+  for (const [i, answer] of answers.entries()) {
+    // BY NAME, so a single drifting verb reds as itself rather than as one opaque diff.
+    expect([HOST_VERBS[i], answer]).toEqual([
+      HOST_VERBS[i],
+      {
+        ok: false,
+        kind: "refused",
+        message: "the engine is not up yet — nothing has been done",
+        // `inert`, NOT `input`: nothing is wrong with the request, and the engine arrives
+        // on its own — so "change nothing and ask again" is the correct advice, which is
+        // exactly what this class means and the opposite of what `input` means.
+        because: "inert",
+      },
+    ]);
+  }
+});
+
+test("the host-verb list is COMPLETE — a fifteenth site reds this count", () => {
+  // WHAT MAKES THE LITERAL ABOVE TRUSTWORTHY, and it is the instrument this file already
+  // uses for rules about what the source may SAY (see `member.arm`'s one-caller scan). The
+  // two host-requiring seams are the only way a run may touch `ctx.host`, so counting their
+  // call sites counts the verbs that need covering: fourteen sites, nineteen ids, because
+  // `axisView` is one site instantiated six times.
+  //
+  // A PROXY, with the same limits that scan states: it counts spellings, not semantics. What
+  // it catches is the case it is for — a new host-reaching verb added without a line in
+  // `HOST_VERBS` — which is exactly what went unnoticed for three verbs.
+  //
+  // COMMENTS ARE STRIPPED FIRST, and that is not incidental: this file argues its decisions
+  // at length, so both seam names and the very `ctx.host?.` shape they replaced appear in
+  // prose. Scanning the raw text counts 15 sites for 14 calls and finds a `ctx.host?.` that
+  // is a quotation. A scan that cannot tell code from the essay about the code is the kind
+  // that gets weakened the first time it cries wolf.
+  const raw = readFileSync(
+    join(import.meta.dir, "..", "src", "frontend", "lib", "actions.ts"),
+    "utf8",
+  );
+  const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const sites =
+    (code.match(/\bhandOffToHost\(/g)?.length ?? 0) +
+    (code.match(/\bokAfterHost\(/g)?.length ?? 0);
+  const AXIS_VIEW_IDS = 6;
+  expect(sites).toBe(14);
+  expect(HOST_VERBS.length).toBe(sites + AXIS_VIEW_IDS - 1);
+  // And no `ctx.host?.` CALL survives in a run body — the shape the seams replaced.
+  expect(code.match(/ctx\.host\?\.\w+\(/g)).toBeNull();
+});
+
+test("a host-reaching verb with an engine still hands off and answers ok", () => {
+  // THE OTHER HALF, because a guard that refused everything would pass the case above.
+  // `makeCtx` supplies a host spy by default, so this is the ordinary path.
+  const ctx = makeCtx();
+  return expect(byId("view.frame").run(ctx, undefined)).resolves.toEqual({
+    ok: true,
+  });
+});
+
+test("edit.delete raises NO confirm without an engine — the prompt would answer nobody", () => {
+  // THE FOURTEENTH SITE, which is a VARIANT: its `okAfter` claim ("the confirm was raised")
+  // was always honest, and what was wrong was raising a destructive prompt over a host that
+  // could not serve the answer. Resolving the host BEFORE the question is what makes that
+  // unreachable, so the pin is on the prompt not appearing rather than on the verdict.
+  const ctx = makeCtx({
+    host: null,
+    selectedEntity: entity({ entityId: 3 }),
+  });
+  return byId("edit.delete")
+    .run(ctx, undefined)
+    .then((answer) => {
+      expect(answer).toEqual({
+        ok: false,
+        kind: "refused",
+        message: "the engine is not up yet — nothing has been done",
+        because: "inert",
+      });
+      expect(ctx.run.openConfirm).not.toHaveBeenCalled();
+    });
+});
+
+// --- the agent door's id resolution (T4c) -----------------------------------
+
+test("runNamedById refuses an unknown id as `input`, and names the verbs that exist", async () => {
+  // `byId` THROWS on a miss, which is right for its callers — chrome code naming a literal,
+  // where a renamed action should take the editor down at import. A string off the wire is
+  // the opposite case: an unknown id is an ordinary bad request, and a throw would surface
+  // as `failed` claiming something broke inside the editor.
+  const answer = await runNamedById("world.explode", makeCtx());
+  if (answer.ok) throw new Error("expected a refusal");
+  if (answer.kind !== "refused") throw new Error("expected refused");
+  expect(answer.because).toBe("input");
+  // THE LIST, for `runMember`'s reason one door over and more strongly: this caller cannot
+  // see a menu, so the sentence is the only way it learns what it should have asked. Two
+  // real ids are spot-checked rather than the whole string compared — the message is prose
+  // and the LIST is the claim.
+  expect(answer.message).toContain("world.save");
+  expect(answer.message).toContain("edit.undo");
+});
+
+test("runNamedById reaches the real verb, gate and all", async () => {
+  // The door is `runNamed` with a lookup in front, so a verb reached through it is gated
+  // exactly as the chrome's own dispatch gates it — here, by a modal that the named env
+  // polls at dispatch time.
+  expect(
+    await runNamedById("view.frame", makeCtx({ isConfirmOpen: () => true })),
+  ).toEqual({
+    ok: false,
+    kind: "refused",
+    message: MODAL,
+    because: "modal",
+  });
+  // …and runs when nothing refuses it.
+  expect(await runNamedById("view.frame", makeCtx())).toEqual({ ok: true });
 });

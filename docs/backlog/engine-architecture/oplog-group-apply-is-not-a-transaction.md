@@ -1,5 +1,41 @@
 # Pass 2 of a group apply does not roll the store back
 
+> **The trigger FIRED at T4c Task 3 (2026-08-10). The entry stays OPEN and the residue
+> stays DECLARED.** The surviving clause was "an op source that is not a fixed editor
+> gesture reaches either function", and the note below predicted T4c would be it. It was:
+> `FieldHost.applyOps` (`packages/editor/src/field-host/field-mutation.ts`) is the editor's
+> first caller of `logApplyGroup`, and the ops it hands over are written by an MCP client
+> rather than drawn. **`logApplyGroup` no longer has zero editor consumers** — the count
+> re-verified through T4a is now one, and the grep in the retired-clause note below is
+> stale as a RESULT while still correct as an instruction.
+>
+> **What T4c did NOT do is fix it, by ruling rather than by omission.** Pass-2 rollback was
+> an explicit stop condition for that task: it is the design decision this entry has always
+> said it is, and it does not get made inside a task that needed the seam. What T4c owed
+> instead was the DECLARATION at the new layer, and that is paid — `applyOps`' TSDoc
+> restates the residue in the editor's own terms, and states the two consequences a caller
+> meets that core's own paragraph does not mention, because they are the editor's:
+>
+> 1. **The two cases ARE told apart, and the editor answers them differently.** An earlier
+>    version of this note said the seam "cannot tell a pass-1 rejection from a pass-2 applier
+>    throw" and classed both as the caller's fault. That was wrong, and this entry's own
+>    reference disproves it: `logApplyGroup` wraps a pass-1 rejection with `cause` set
+>    (`ops.ts:1125`) and that is the **only** `{ cause: … }` in the file, so a raw throw with
+>    no cause is a pass-2 failure. The editor discriminates on that — pass 1 is
+>    `refused(…, "input")` (nothing moved), pass 2 is **`failed`**, whose message carries the
+>    residue explicitly. No message prefix is parsed, so `result.ts`'s "the message is not a
+>    key" rule is respected. **This does not close the entry**: the store is still not rolled
+>    back. What it closes is a caller being told the world is fine when it is not.
+> 2. **Stranded writes are also UNMESHED.** The dirty set only exists on the success path,
+>    so the cells a partial write left in the store are never marked — they sit in the field
+>    and in no mesh until something else dirties them or the world is reloaded. That is a
+>    strictly editor-side consequence and it is the one a human would actually notice.
+>
+> **Reachability has therefore risen exactly as predicted**, from "no editor gesture emits
+> a shape that validates and cannot apply" to "an agent composes the op list". Nothing else
+> below is re-measured; the numbers in this entry were taken at T4a and the mechanism has
+> not moved.
+
 > **Narrowed at T4a Task 5 (2026-08-09), not closed.** The entry used to cover the whole
 > "a multi-op apply is one undo entry, not a transaction" surface. Validation atomicity —
 > the half a tranche could close — is closed and pinned; what is left is the store
@@ -99,8 +135,11 @@ world whose re-bake from the log produces different bytes than the live store.
 
 > **Clause 1 of the original trigger is retired, not carried forward.** It read "T3c wires
 > its first real caller to `logApplyGroup`". It did NOT fire at T3c (verified 2026-08-07)
-> and has still NOT fired: `logApplyGroup` has **zero occurrences** under
-> `packages/editor/src` and `packages/editor/tests` (re-verified 2026-08-09). T3c is
+> and has still NOT fired: `logApplyGroup` had **zero occurrences** under
+> `packages/editor/src` and `packages/editor/tests` when this note was written
+> (re-verified 2026-08-09). ***That figure is superseded — see the T4c note at the top of
+> this entry: the count is now one, and the caller is `FieldHost.applyOps`.*** The grep is
+> kept because it is still the right instruction; only its result moved. T3c is
 > closed, so the clause can no longer fire at all and naming a closed tranche as a trigger
 > is dead weight.
 >

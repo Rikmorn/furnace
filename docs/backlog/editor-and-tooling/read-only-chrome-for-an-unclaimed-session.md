@@ -75,5 +75,6 @@ about it.
 - `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` — the settled policy this
   entry narrows.
 - `packages/editor/src/action-registry/result.ts` — `RefusalClass`, where a "not the editing
-  session" arm would go. (`refusal-class-has-no-input-arm.md` is the sibling entry for the other
-  missing arm.)
+  session" arm would go. (The sibling entry for the other missing arm, `input`, was RESOLVED at
+  T4c Task 3 — the class exists now, so `RefusalClass` has eight arms and the precedent for
+  adding a ninth is the T4c commit rather than a backlog file.)

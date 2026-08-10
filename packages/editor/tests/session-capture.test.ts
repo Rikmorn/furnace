@@ -37,6 +37,7 @@ function row(host: FieldHost | undefined) {
   const answerers = createSessionAnswerers(
     { current: null },
     { current: host },
+    { current: null },
   );
   const handler = answerers["viewport.capture"];
   if (handler === undefined)

@@ -11,6 +11,11 @@ import type { Context } from "@furnace/core/gpu";
 import * as gpu from "@furnace/core/gpu";
 import type * as material from "@furnace/core/material";
 import type * as mesh from "@furnace/core/mesh";
+// THE REFUSAL VOCABULARY, and the one thing this directory takes from its sibling. The
+// edge, why it points this way, and why the import is the FILE rather than the barrel are
+// argued in `field-mutation.ts`'s header; `tests/no-chrome-leakage.test.ts` asserts the
+// membership so a second name cannot arrive here unnoticed.
+import type { ActionResult } from "../action-registry/result.ts";
 import type { EntityArchetype, EntityCatalog } from "../shared/catalog.ts";
 // `latticeClearance` — the duplicate offset's lattice step — left with
 // `field-entities.ts` on 2026-08-08 (foundations T3d Task 6), with the verb that
@@ -26,6 +31,7 @@ import type { BrushEffect } from "../shared/field-brush.ts";
 // three now in `field-tool.ts`; `DIG_RANGE_M` — neither enforced nor stated, but what
 // `MAX_SEGMENT_M` is twice of — went with the eyedropper's raycast, its only reader here.
 import { MAX_SEGMENT_M } from "../shared/field-limits.ts";
+import type { BrushOpInput } from "../shared/field-op.ts";
 import { createAnalyzer } from "./field-analyzer.ts";
 // The rig, and with it BOTH pure camera modules: `camera-control.ts` (the orbit math) and
 // `field-camera.ts` (the input arithmetic) each had every one of their readers inside the
@@ -52,6 +58,11 @@ import type { FieldHistory } from "./field-history.ts";
 import { createHistoryFeed } from "./field-history-feed.ts";
 import { createFieldMachine, randomStampSeed } from "./field-machine.ts";
 import { createMaterials } from "./field-materials.ts";
+import {
+  createMutation,
+  type GenerateOutcome,
+  type GenerateRequest,
+} from "./field-mutation.ts";
 import { createPicking } from "./field-picking.ts";
 // `placementsByEntity` left with `field-entities.ts` at T3d Task 6 — it was
 // `listEntities`' one-pass attribution and had no other reader here. What stays
@@ -1152,6 +1163,39 @@ export type FieldHost = {
    *  clamp the look drag uses, which is what keeps the up vector defined) and
    *  KEEP the current yaw, because yaw means nothing straight up. */
   snapView(axis: "x" | "y" | "z", sign: 1 | -1): void;
+  /** Apply a batch of ops as ONE undo entry — **the editor's agent-facing hands**
+   *  (foundations T4c), and the twin of {@link captureScene} below.
+   *
+   *  The whole contract — the single undo entry, the indexed locator a refusal
+   *  carries, the live-session refusal, and the residue core's `logApplyGroup`
+   *  declares and this does not fix — is `field-mutation.ts`'s `applyOps` to
+   *  state, and it states it there rather than here because that is where the
+   *  composition lives. What belongs on the facade is the one fact a caller
+   *  reads off the signature: it RETURNS its verdict and never speaks it, which
+   *  is the opposite of every interactive write in this host.
+   *
+   *  TWO NON-OK ARMS, and which one arrives is the answer to the only question a
+   *  caller has — *did the world move?* `refused(…, "input")` means validation
+   *  stopped the batch before any write, so nothing moved and the op is the thing
+   *  to fix. `failed` means the APPLIER died mid-list: earlier ops are in the
+   *  store, unrecorded and unmeshed, and the message says so.
+   *
+   *  SYNCHRONOUS, unlike {@link captureScene}: everything it does is a store
+   *  write and two notifications, and the remesh it schedules is the frame's
+   *  work rather than this call's. A caller wanting to SEE the result must let
+   *  the drain run — {@link captureScene} photographs what is on screen,
+   *  remesh lag included. */
+  applyOps(ops: readonly BrushOpInput[]): ActionResult;
+  /** Commit a generator in ONE act, opening no stamp session and leaving none —
+   *  the agent's route to what `startStamp` opens interactively.
+   *
+   *  Returns the COMMITTED record read back (entity id, generator, seed, region,
+   *  params) plus the chunk count it dirtied, or a refusal in the same
+   *  vocabulary {@link applyOps} uses. Why the success arm is its own type rather
+   *  than a widened `ActionResult`, what each default is READ from, and why a
+   *  missing region refuses rather than guessing are `field-mutation.ts`'s
+   *  `generate` to state. */
+  generate(req: GenerateRequest): GenerateOutcome;
   /** Photograph the viewport as a PNG — **the editor's agent-facing eyes**
    *  (foundations T4c).
    *
@@ -3631,6 +3675,28 @@ export function createFieldHost(deps?: {
     cameraYaw: () => cameraRig.pose().yaw,
   });
 
+  // --- the MUTATION seam: how a caller with no pointer writes ---------------
+  //
+  // Assembled LAST of the module records, because it composes four of them and
+  // owns no state of its own — every dep below is another cluster's verb, which
+  // is what makes this a seam rather than a nineteenth owner. It is `capture`'s
+  // twin one tranche on: that one borrows the render composition to answer a
+  // question, this one borrows the write pair to land a change, and neither
+  // reaches under any module it uses.
+  const mutation = createMutation({
+    substrate,
+    markDirtyWithNeighbors: (changed) => world.markDirtyWithNeighbors(changed),
+    notifyHistory: historyFeed.notify,
+    notifyEntities: entities.notify,
+    rebuildProps: props.rebuild,
+    session: machine.session,
+    selectionRegion: selection.region,
+    // Threaded rather than imported, exactly as `field-entities.ts` takes it —
+    // this file is the one place `randomStampSeed` is named, so a second import
+    // would be a second edge onto `field-machine.ts` for one pure function.
+    randomSeed: randomStampSeed,
+  });
+
   // --- the LIFECYCLE cluster: DECLARED FACADE-RESIDENT, foundations T3d -----
   //
   // The third row to carry this marker after `catalogs` and `history.stepHistory`,
@@ -4045,8 +4111,14 @@ export function createFieldHost(deps?: {
     frameWorld: cameraRig.frameWorld,
     cameraAimedByHand: cameraRig.aimedByHand,
     snapView: cameraRig.snapView,
-    // A straight delegate, and the ONLY member of this facade that hands back an
-    // image. The default request is `{}` rather than a spread of the three
+    // The T4c agent pair, all three straight delegates. `applyOps` and `generate`
+    // are the only members of this facade that hand back a REFUSAL rather than
+    // reporting one on the host's own channel, and `captureScene` the only one
+    // that hands back an image — which is the whole of what makes the three
+    // agent-facing: each answers its caller instead of the room.
+    applyOps: mutation.applyOps,
+    generate: mutation.generate,
+    // The default request is `{}` rather than a spread of the three
     // defaults, because `field-capture.ts` owns what they are and a second copy
     // here is a second thing to keep in step.
     captureScene: (req) => capture.scene(req ?? {}),

@@ -1,5 +1,33 @@
 # The backchannel's refusals blur two causes at the lifetime edges
 
+> **Narrowed at T4c Task 3 (2026-08-10), not closed — and item 1's trigger did NOT fire the
+> way this entry expected.** The trigger read: *"the first caller that must distinguish a
+> chrome refusal from a daemon fault (T4c's mutation verbs are the likely one — a refused
+> write and a broken write want different retries)"*. T4c's three write verbs landed
+> (`edit.apply`, `generate`, `action.run`) and **that clause still has not fired**, for a
+> reason worth recording because it changes what the entry is waiting for.
+>
+> **A refused WRITE never reaches `ask()`'s failure path at all.** The chrome answers a
+> refusal as a successful ANSWER whose payload is an `ActionResult` — `{ok: false, kind:
+> "refused", because: …}` — so it travels the `ok: true` leg of `SessionAnswer` and arrives
+> at the agent as data it can branch on, with a machine-readable class. The `internal` code
+> is raised only when the chrome cannot answer at all (an unserved method, a handler that
+> threw), which is still exactly the version-skew-or-daemon-fault pair this entry is about.
+> So the mutation verbs made the distinction MORE available rather than more urgent: the
+> refusal channel an agent actually uses is typed and separate, and `internal` stayed the
+> rare case.
+>
+> **What that means for item 1.** The eleventh code (`session-refused`) is still unbuilt and
+> still right, but its caller is now narrower than predicted: not "any write verb", but a
+> client that must tell a STALE TAB from a broken daemon — which is a deployment concern
+> (the `bun run edit` loop restarting the daemon under an open tab) rather than an
+> authoring one. Item 2 is unchanged and unreached.
+>
+> **Trigger, restated:** item 1 fires on the first client that RETRIES differently for a
+> version-skewed tab than for a daemon fault — most likely a long-running agent session
+> that survives an editor rebuild. Item 2 fires unchanged, on the first ask that outlives a
+> daemon restart. Neither is T4c's.
+
 Foundations T4b's whole thesis is that a refusal must be TRUE and ACTIONABLE — `no-session`
 rather than a polite timeout when a tab departs, `session-timeout` rather than a hang when one
 goes quiet. Two places at the relay's lifetime edges do not reach that bar. Neither is

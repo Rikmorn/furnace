@@ -1,6 +1,7 @@
 // packages/editor/src/daemon/session-handlers.ts
 import type { ServerResponse } from "node:http";
 import { z } from "zod";
+import { ACTION_INPUT_SCHEMAS } from "../action-registry/schemas.ts";
 import {
   CAPTURE_VIEWS,
   MAX_CAPTURE_SIZE,
@@ -11,6 +12,7 @@ import type { Backchannel } from "./backchannel.ts";
 import type { ClaimKey, Claims } from "./claims.ts";
 import { EditorError } from "./errors.ts";
 import type { Handlers } from "./handlers.ts";
+import { BRUSH_OPS } from "./op-schema.ts";
 import { WORLD_NAME_RE } from "./worlds.ts";
 
 /**
@@ -70,6 +72,26 @@ const sessionToken = z.string().min(1);
  */
 export const CAPTURE_ASK_TIMEOUT_MS = 30_000;
 
+/**
+ * How long `generate` may take before it is a `session-timeout`.
+ *
+ * THE SAME NUMBER AS {@link CAPTURE_ASK_TIMEOUT_MS} FOR A DIFFERENT REASON, which is why it
+ * is a second constant rather than a shared one. That budget is about a GPU round trip; this
+ * is about a generator's own `evaluate` running on the tab's main thread — `commitGenerator`
+ * re-evaluates the whole recipe and applies its span synchronously, and a maze over a large
+ * region is real CPU work with no worker under it. The two costs are unrelated, so a single
+ * constant would tie two budgets that should be free to move apart, and the day one of them
+ * needs to change nobody would know which callers they were changing.
+ *
+ * CHOSEN AGAINST THE SAME CLIENT FLOOR: Claude Code's per-request timer for an HTTP/SSE MCP
+ * server is 60 s and configuration can only RAISE it, so 30 s is strictly inside the floor
+ * for every client and leaves room for the answer's own POST.
+ *
+ * `edit.apply` deliberately has NO raised budget: its cost is bounded by the op list the
+ * caller sent, so a caller meeting the default has a remedy of its own — send fewer ops.
+ */
+export const GENERATE_ASK_TIMEOUT_MS = 30_000;
+
 /** One answer to one relayed question (`shared/wire.ts`'s `SessionAnswer`, as a schema).
  *
  *  IT CARRIES NO TOKEN, and that is the one place this family's shape breaks — argued
@@ -118,6 +140,51 @@ const sessionAnswer = z.discriminatedUnion("ok", [
     error: z.string(),
   }),
 ]);
+
+/**
+ * The action ids an agent may NOT reach through `action.run`, and the only deny-list in this
+ * daemon.
+ *
+ * **A USER RULING, ENFORCED — not a policy this layer invented.** Undo is fenced until op
+ * ATTRIBUTION lands, and the two are to be designed together, because without attribution
+ * the log is a bare LIFO with no `origin` on an entry: an agent's `edit.undo` pops whatever
+ * is on top, which is routinely a HUMAN's stroke. There is no way at head to let an agent
+ * undo its own work without letting it undo somebody else's, and "the agent should be
+ * careful" is not a guardrail.
+ *
+ * **WHY IT EXISTS AT ALL, given no dedicated undo command was ever built.** The tranche's
+ * stop condition was satisfied literally — there is no `edit.undo` verb on this wire — and
+ * `action.run` then made the ruling moot by accepting any registered id. A door that accepts
+ * `edit.undo` IS an agent undo verb wearing a different spelling. The plan's *"the door
+ * accepts any registered id — advertisement is the filter"* was written about LISTING versus
+ * VALIDATING; it was not a licence to reach a verb the user fenced.
+ *
+ * **AND IT IS NOT THE SECOND ALLOW-LIST THE PLAN FORBADE.** That instruction was about not
+ * keeping a second copy of *which ids exist* — knowledge that belongs to the action registry
+ * and lives in `runNamedById`. This is a much smaller and different thing: two ids the user
+ * ruled out, named once. It cannot drift out of step with the registry, because an id that
+ * stopped existing would simply stop being reachable anyway.
+ *
+ * **HERE RATHER THAN IN THE CHROME's answerer, and the reason is decisive rather than
+ * stylistic.** A chrome-side fence lives in the TAB's bundle, and the `bun run edit` loop
+ * restarts this daemon on every source change while an open tab keeps the bundle it booted
+ * with — a fact this repo has already written down (`backchannel-refusals-blur-two-causes`).
+ * So a tab of an older vintage would answer `edit.undo` happily, and the fence would hold
+ * only for tabs that did not need it. A daemon-side fence holds regardless of what the tab
+ * believes, which is the property a safety fence has to have. The cost is that this module
+ * now knows two action ids; that is the price of enforcement not depending on a client.
+ *
+ * **NOT relying on non-advertisement.** `mcp.ts` lists three tools today, so no MCP client
+ * can name these ids yet — and that is exactly the reasoning this tranche keeps refusing
+ * elsewhere. Advertisement is not enforcement; the cull is Task 6's and it is a different
+ * mechanism from a rule.
+ */
+const FENCED_ACTIONS: ReadonlySet<string> = new Set(["edit.undo", "edit.redo"]);
+
+/** What a caller is told when it names a fenced verb. It carries the REASON and the LIFT
+ *  CONDITION, because a refusal an agent cannot act on is a refusal it will retry. */
+const fenceMessage = (id: string): string =>
+  `"${id}" is not available to an agent: undo has no op attribution yet, so stepping the log would discard whatever is on top of it — routinely the human's own work, not yours. This fence lifts when op attribution ships and undo is designed with it. To reverse something you just did, apply the inverse ops explicitly.`;
 
 /** A world in a sentence a human reads.
  *
@@ -310,6 +377,147 @@ export function createSessionHandlers(
         input,
         CAPTURE_ASK_TIMEOUT_MS,
       );
+    },
+  });
+
+  // THE FIRST BROKERED WRITE (foundations T4c). Everything above relays a QUESTION; this
+  // relays an INSTRUCTION, and the difference the daemon can see is exactly none — it is
+  // still a relay with a correlation table, and the tab still decides. What changes is the
+  // stakes of getting the schema right, which is why the op shape is validated here in full
+  // (`op-schema.ts` argues why a door that advertises beats a door that discovers).
+  //
+  // ONE BATCHED VERB rather than one per op, and the reason is the HUMAN's undo stack: the
+  // chrome lands the whole list as a single entry, so an agent's batch is one ⌘Z. A per-op
+  // verb would be friendlier to compose and would fill the history with steps nobody drew.
+  //
+  // NO BUDGET OF ITS OWN. The work is a validation pass and a store write, both bounded by
+  // the list the CALLER sent — so a caller that finds it slow has the remedy in its own
+  // hands (send fewer ops), which is not true of `viewport.capture` or `generate` below.
+  handlers.set("edit.apply", {
+    input: z.strictObject({ ops: BRUSH_OPS }),
+    run: (input) => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to edit",
+        );
+      }
+      return session.backchannel.ask("edit.apply", input);
+    },
+  });
+
+  // THE SECOND WRITE, and the one that MAKES rather than edits. It commits a generator in
+  // one act — no stamp session opened and none left behind, which is not a detail: a
+  // session standing after this call would refuse `world.bake` (`actions.ts`'s `enabled`
+  // requires none) and every family key with it, so a verb that leaked one would break the
+  // step after itself.
+  //
+  // THE PARAMS ARE `z.record(z.unknown())` AND THAT IS THE HONEST CEILING HERE. Every
+  // generator has its own param schema, projected from zod by core's own `defineGenerator`
+  // — and it lives in the REGISTRY, which is behind the engine, which this Node-portable
+  // daemon may not import. So the daemon cannot check them and does not pretend to: core
+  // validates them at commit and its rejection names the generator. What an agent needs in
+  // order to send the right ones is the schema itself, which `session.state`'s neighbours
+  // cannot carry either — it comes off `listGenerators`, and putting it in front of an
+  // agent is the advertisement half of Task 6 rather than a validation gap here.
+  handlers.set("generate", {
+    input: z.strictObject({
+      generatorId: z.string().min(1),
+      params: z.record(z.string(), z.unknown()).optional(),
+      seed: z.number().int().optional(),
+      region: z
+        .strictObject({
+          min: z.tuple([z.number(), z.number(), z.number()]),
+          max: z.tuple([z.number(), z.number(), z.number()]),
+        })
+        .optional(),
+    }),
+    run: (input) => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to generate into",
+        );
+      }
+      return session.backchannel.ask(
+        "generate",
+        input,
+        GENERATE_ASK_TIMEOUT_MS,
+      );
+    },
+  });
+
+  // THE NAMED-VERB DOOR — the editor's own 39 verbs, reachable by id.
+  //
+  // IT BUILDS NO ALLOW-LIST, deliberately, and that is the whole shape of the decision.
+  // WHICH ids an agent is TOLD about is the MCP door's to choose (Task 6); which ids EXIST
+  // is the action registry's, and `runNamedById` in the chrome is the one funnel that knows
+  // the table and refuses an id that is not in it — with the list, so a caller learns what
+  // it should have said. A second membership test here would be a second thing to keep in
+  // step with the first, and the two would disagree the day a verb was added to one.
+  // Advertisement is the filter; dispatch stays the validator.
+  //
+  // WHAT IT DOES VALIDATE is the half it can: the six verbs that take an input have their
+  // schema HERE, in `action-registry/schemas.ts`, and this is where that schema is applied.
+  // The chrome then relays `input` to the run unparsed — one author for one contract.
+  //
+  // THE FIRST DAEMON CONSUMER OF `action-registry/`, which that directory's own barrel
+  // predicted it did not yet have. It is reached by RELATIVE path, as every in-package
+  // import here is; the export-map entry remains for an outside-the-package consumer, which
+  // this is not. Loading it on a DOM-free runtime was MEASURED before it was relied on
+  // (`tests/action-registry/node-door.test.ts` is the standing form of that check) — it
+  // value-imports `@furnace/core/registry` for its zod, and that module re-exports the same
+  // single installed copy rather than reaching any browser API.
+  //
+  // AN ID WITH NO SCHEMA IS NOT AN ERROR: 33 of the 39 take no input at all. An `input`
+  // sent with one is relayed and ignored by the run, exactly as it is for a chrome caller
+  // that passes one — refusing it would need the descriptor table to tell "bare verb" from
+  // "unknown id", which is the allow-list this command exists without.
+  handlers.set("action.run", {
+    input: z.strictObject({
+      id: z.string().min(1),
+      input: z.unknown().optional(),
+    }),
+    run: (raw) => {
+      // Boundary cast: dispatch() validated input against this command's schema.
+      const args = raw as { id: string; input?: unknown };
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to drive",
+        );
+      }
+      if (FENCED_ACTIONS.has(args.id)) {
+        throw new EditorError("invalid-input", fenceMessage(args.id));
+      }
+      // `Object.hasOwn` BEFORE the index, and it is a correctness fix rather than a
+      // hardening flourish. `ACTION_INPUT_SCHEMAS` is a plain object literal, so it
+      // INHERITS from `Object.prototype` — `ACTION_INPUT_SCHEMAS["toString"]` resolves to a
+      // function, `schema !== undefined` passes, and `schema.safeParse` is not a method on
+      // it. That throws a raw `TypeError`, which `dispatch` does not wrap, so `server.ts`
+      // answers HTTP 500 `internal` and NO frame ever reaches the tab. An agent is told the
+      // daemon broke when it merely named a verb that does not exist — the opposite of this
+      // command's own contract, which says an unreal id is refused by the chrome funnel
+      // WITH the list. Same for `valueOf`, `constructor`, `hasOwnProperty`, `__proto__`.
+      // `Object.hasOwn` rather than a null-prototype map because it fixes the read at the
+      // read, where the next person indexing this record will see it.
+      const schema = Object.hasOwn(ACTION_INPUT_SCHEMAS, args.id)
+        ? ACTION_INPUT_SCHEMAS[args.id as keyof typeof ACTION_INPUT_SCHEMAS]
+        : undefined;
+      // ABSENT INPUT IS ALWAYS LEGAL, including for the six. That is the chrome/agent split
+      // `schemas.ts` states: a caller that names no object gets the run's fallback to
+      // whatever is selected, and a caller that names one names all of it.
+      if (schema !== undefined && args.input !== undefined) {
+        const parsed = schema.safeParse(args.input);
+        if (!parsed.success) {
+          const issue = parsed.error.issues[0];
+          throw new EditorError(
+            "invalid-input",
+            `invalid input for "${args.id}" at "${issue?.path.join(".") ?? ""}": ${issue?.message ?? ""}`,
+          );
+        }
+      }
+      return session.backchannel.ask("action.run", args);
     },
   });
 

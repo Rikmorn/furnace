@@ -89,12 +89,15 @@ async function mountSession(host?: ReturnType<typeof makeStubHost>) {
 	const sessionStateRef: { current: SessionStateReader | null } = {
 		current: null,
 	};
-	// The host ref `viewport.capture` reads. This file is about `session.state`, which does
-	// not touch it — it is passed because the factory takes it, and filled with the same
-	// stub the shell mounts over so nothing here depends on it being empty.
-	const answerers = createSessionAnswerers(sessionStateRef, {
-		current: host?.host,
-	});
+	// The host ref `viewport.capture` and the two mutation rows read, and the dispatcher ref
+	// `action.run` reads. This file is about `session.state`, which touches neither — they
+	// are passed because the factory takes them, and the host is filled with the same stub
+	// the shell mounts over so nothing here depends on it being empty.
+	const answerers = createSessionAnswerers(
+		sessionStateRef,
+		{ current: host?.host },
+		{ current: null },
+	);
 	const ask = (): SessionState => {
 		const row = answerers["session.state"];
 		if (row === undefined) throw new Error("no session.state answerer");

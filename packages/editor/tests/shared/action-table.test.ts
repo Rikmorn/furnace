@@ -49,6 +49,7 @@ import {
   EFFECT_ROWS,
   FAMILY_ROWS,
   GESTURE_ROWS,
+  memberRefId,
   STATUS_PRECEDENCE,
 } from "../../src/shared/action-table.ts";
 import type { BrushEffect } from "../../src/shared/field-brush.ts";
@@ -292,12 +293,17 @@ test("the member source picks the naming rule, and TOOL_FAMILIES obeys it", () =
     }
 });
 
-test("a member's ref is what ARMS it, and the rail keys its rows on the label", () => {
+test("a member's ref is what ARMS it, and the rail keys its rows on the REF", () => {
   // `DerivedMember` carries the REF and no `id` — Task 5's deletion pass, because `id` was
   // `row.label` unconditionally and a second name for one string is what this module exists
   // to remove. The consequence worth pinning is that the two halves still line up: the
-  // rail's member list (`ToolFamilyMember`) is keyed on the LABEL for a rows-family, and
-  // every one of those members carries a ref the arm can act on.
+  // rail's member list (`ToolFamilyMember`) is keyed on `memberRefId` of the ref for a
+  // rows-family, and every one of those members carries a ref the arm can act on.
+  //
+  // THIS ASSERTION READ `m.label` UNTIL T4C, which is the defect it was unknowingly
+  // pinning: the key and the display string were the same value, so a relabelling silently
+  // rewrote an id a caller had been told to use. Keying on the ref is what breaks that
+  // coupling, and the test now says so in the direction the code does.
   const ctx = makeCtx();
   for (const row of FAMILY_ROWS) {
     if (row.memberSource !== "rows") continue;
@@ -306,12 +312,42 @@ test("a member's ref is what ARMS it, and the rail keys its rows on the label", 
     if (live === undefined)
       throw new Error(`TOOL_FAMILIES dropped "${row.id}"`);
     expect(live.members(ctx).map((m) => m.id)).toEqual(
-      derived.members.map((m) => m.label),
+      derived.members.map((m) => memberRefId(m.ref)),
     );
     // The refs survive resolution in ORDER — the cycle steps this list, so a reordering
     // here is a reordering of what ⇧B does.
     expect(derived.members.map((m) => m.ref)).toEqual([...row.members]);
   }
+});
+
+test("a member id is DATA, not copy — the two ids that no longer echo their labels", () => {
+  // THE WHOLE POINT OF THE MIGRATION, stated as the case that would have been impossible
+  // before it. `material` is displayed "Wand" and `void` is displayed "Room": for those two
+  // the id and the label are now different strings, so an assertion that they agree — which
+  // is what the old `id: m.label` made true by construction — cannot pass by accident.
+  //
+  // LITERALS on both sides, deliberately. Deriving either half from the table would assert
+  // that the table equals itself; the point is that these exact ids are a CONTRACT a caller
+  // outside the chrome holds, and a rename of either the id or the label reds this.
+  const ctx = makeCtx();
+  const select = TOOL_FAMILIES.find((f) => f.id === "select");
+  if (select === undefined) throw new Error("TOOL_FAMILIES dropped 'select'");
+  expect(select.members(ctx).map((m) => [m.id, m.label])).toEqual([
+    ["box", "Box"],
+    ["material", "Wand"],
+    ["void", "Room"],
+  ]);
+});
+
+test("no effect id collides with a gesture id — a flat member id stays unambiguous", () => {
+  // WHAT `memberRefId` DEPENDS ON. It flattens a two-armed union onto one string, which is
+  // only unambiguous while the two key spaces are disjoint. A fifth brush effect named
+  // after a gesture (`box`, say) would give two members of two different families the same
+  // id — survivable — but would also make the flattening lossy for anything that later
+  // wants to invert it, and it would do so silently. Cheap to assert, invisible otherwise.
+  const effects = Object.keys(EFFECT_ROWS);
+  const gestures = Object.keys(GESTURE_ROWS);
+  expect(effects.filter((e) => gestures.includes(e))).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------

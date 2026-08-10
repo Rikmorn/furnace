@@ -46,13 +46,22 @@
  * is unchanged by that: the daemon is a fourth reader ABOVE the floor like every other, and
  * `shared/` still imports nothing above itself.
  *
- * IT HOLDS TYPES ONLY AND STILL DOES. Since T4c it has ONE import — `CaptureView` from
- * `./capture.ts`, its sibling on the same floor — and it is an `import type`, so this
- * module still compiles to nothing and still gives neither side a runtime edge. That module
- * is a VALUE module (it carries the array the daemon's schema and the MCP door enumerate);
- * this file deliberately takes only the type off it.
+ * IT HOLDS TYPES ONLY AND STILL DOES. Since T4c it has TWO imports, both `import type` and
+ * both from siblings on this same floor, so this module still compiles to nothing and still
+ * gives neither side a runtime edge. `CaptureView` comes from `./capture.ts`, which is a
+ * VALUE module (it carries the array the daemon's schema and the MCP door enumerate) that
+ * this file deliberately takes only the type off; `BrushOpInput` comes from
+ * `./field-op.ts`, which is types-only like this one and is where the op vocabulary is
+ * DERIVED from core's rather than restated.
+ *
+ * NEITHER IMPORT REACHES UPWARD, which is the property that actually matters and the one
+ * this tranche tested: the two request types below relay shapes the daemon validates, and
+ * their ANSWERS — `ActionResult` and `GenerateOutcome` — are deliberately NOT named here,
+ * because both live in layers above this floor. {@link EditApplyRequest} carries that
+ * argument.
  */
 import type { CaptureView } from "./capture.ts";
+import type { BrushOpInput } from "./field-op.ts";
 
 /**
  * A question the daemon is relaying to the claimed editor session.
@@ -162,6 +171,76 @@ export type ViewportCaptureResult = {
   height: number;
   /** The view actually used — the request's, or `"user"`. */
   view: CaptureView;
+};
+
+/**
+ * What `edit.apply` asks for — a batch of ops to land as ONE undo entry (foundations T4c).
+ *
+ * ONE BATCHED VERB RATHER THAN A VERB PER OP, and the reason is the human's undo stack.
+ * `field.logApplyGroup` pushes exactly one entry for the whole list, so an agent's batch is
+ * one ⌘Z for the person sitting in the tab however many ops it held — the "named stroke"
+ * guardrail. A per-op verb would spray the history with entries nobody drew and make the
+ * editor's own Undo unusable after any agent-driven edit.
+ *
+ * THE ANSWER IS NOT DECLARED HERE, and its absence is the one thing about this pair worth
+ * saying. `edit.apply` answers with the action layer's `ActionResult`
+ * (`action-registry/result.ts`) — the editor's ONE refusal vocabulary, deliberately not
+ * re-spelled for the wire. This floor cannot NAME it: `shared/` sits below every layer and
+ * imports nothing above itself (this module's header), and `action-registry/` is above.
+ * That is a real constraint rather than an oversight, and the relay is unaffected: the
+ * daemon has always passed payloads through untouched and has no standing to police a shape
+ * it did not build (`daemon/session-handlers.ts` argues it for `session.state`). `generate`
+ * answers a `GenerateOutcome` (`field-host/field-mutation.ts`) for exactly the same reason.
+ */
+export type EditApplyRequest = {
+  /** The ops, in application order. Each is a `BrushOpInput` — `shared/field-op.ts`, which
+   *  derives it from core's own `BrushOp` so this vocabulary cannot drift from the one the
+   *  engine applies. Not typed as that here, because the daemon validates the shape and the
+   *  chrome relays it; the ONE declaration both of them point at is that module. */
+  ops: readonly BrushOpInput[];
+};
+
+/**
+ * What `generate` asks for — one generator, committed atomically (foundations T4c).
+ *
+ * EVERY FIELD BUT THE ID IS OPTIONAL AND EVERY DEFAULT IS READ FROM SOMETHING THAT ALREADY
+ * EXISTS — the generator def's own `defaults`, a fresh seed roll, the current selection's
+ * box. `field-host/field-mutation.ts`'s `generate` owns that account, including why a
+ * missing region REFUSES rather than inventing one.
+ *
+ * NO `policy`. A merge policy is a refinement to add when a caller asks for one; `replace`
+ * is what the interactive paths fall back to and what this commits with.
+ */
+export type GenerateRequest = {
+  /** A registry generator id — `hall`, `maze`. */
+  generatorId: string;
+  /** Overlaid onto the generator's own defaults, so naming one param keeps the rest. */
+  params?: Record<string, unknown>;
+  /** Omitted = a fresh roll. The seed actually used is reported back. */
+  seed?: number;
+  /** World metres. Omitted = the current cell selection's box; with neither, refused. */
+  region?: { min: [number, number, number]; max: [number, number, number] };
+};
+
+/**
+ * What `action.run` asks for — any REGISTERED action id, with its input (foundations T4c).
+ *
+ * THE DOOR IS WIDER THAN THE ADVERTISEMENT, deliberately. This accepts any id the action
+ * registry carries; which ids are LISTED to an agent is the MCP door's decision, made
+ * separately. Advertisement is the filter and `dispatch` stays the validator — so an id that
+ * is real but unlisted runs, and an id that is not real is refused by the one funnel that
+ * knows the table (`runNamedById`). A second allow-list here would be a second thing to keep
+ * in step with the first, and the two would disagree the day a verb was added to one.
+ */
+export type ActionRunRequest = {
+  /** The action's stable id — `world.save`, `view.frame`, `edit.undo`. */
+  id: string;
+  /** The action's own input, per `action-registry/schemas.ts`. Absent for the 33 bare verbs,
+   *  and absent is also how a caller says "act on whatever is selected" for the six that
+   *  take one. `unknown` because THIS module cannot name six per-id shapes without importing
+   *  the layer that declares them; the daemon parses it against the id's schema before it
+   *  ever reaches the chrome, which is where that knowledge lives. */
+  input?: unknown;
 };
 
 /**

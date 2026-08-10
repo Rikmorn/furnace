@@ -59,12 +59,16 @@ import { walk } from "./_source-scan.ts";
 //
 // `action-registry/` (foundations T3b2 Task 3) is the third scanned directory and the
 // newest layer node: the editor's 39 verbs as ROWS, so a process with no DOM can hold the
-// table. It sits BESIDE `field-host/` under the chrome — it may value-import
-// `@furnace/core` and `shared/`, and it may import React, `field-host/` or `frontend/` not
-// at all. The first two rules below are the host's, read at the new node; the third
-// (`field-host/`) is this file's first, and it exists because the two nodes are SIBLINGS
-// rather than a chain: nothing else would stop the registry reaching sideways into the
-// engine-facing half and taking a `FieldHost` type — or a value — with it.
+// table. It may value-import `@furnace/core` and `shared/`, and it may import React,
+// `field-host/` or `frontend/` not at all. The first two rules below are the host's, read at
+// the new node; the third (`field-host/`) is this file's first, and it exists because
+// nothing else would stop the registry reaching sideways into the engine-facing half and
+// taking a `FieldHost` type — or a value — with it.
+//
+// IT SAT BESIDE `field-host/` THROUGH T4b AND SITS BENEATH IT SINCE T4c. The two were
+// SIBLINGS — neither imported the other — until `field-host/field-mutation.ts` needed the
+// refusal vocabulary; the arrow now runs one way, DOWN, and both directions are asserted
+// here for their own reasons (see the two `field-host/` rules at the foot).
 //
 // The DOM half of the rule is NOT a regex and could not usefully be one: a
 // `KeyboardEvent` named in a type position is erased, and the identifiers that matter
@@ -162,6 +166,49 @@ test("action-registry/ imports nothing out of frontend/ — the arrow runs one w
   expect(offenders(ACTION_REGISTRY, CHROME)).toEqual([]);
 });
 
-test("action-registry/ imports nothing out of field-host/ — the two are siblings", () => {
+test("action-registry/ imports nothing out of field-host/ — the arrow runs one way", () => {
   expect(offenders(ACTION_REGISTRY, HOST)).toEqual([]);
+});
+
+/** Every `action-registry` specifier reaching out of `field-host/`, file by file.
+ *
+ *  A CAPTURING scan rather than a `bans` rule, because the answer this test needs is not
+ *  "is there one" but "which one" — the edge is permitted for exactly one module and
+ *  forbidden for the rest, and a boolean cannot say that. */
+const registryImports = (dir: string): string[] =>
+  walk(dir).flatMap((f) =>
+    [
+      // `action-registry(\/|["'])` — the SEGMENT-ENDING anchor, identical to `HOST`'s above
+      // and for the same reason. An earlier version required a literal trailing slash, so
+      // `from "../action-registry"` — the extensionless barrel, which resolves under
+      // `moduleResolution: "bundler"` and typechecks clean — matched nothing and the pin
+      // stayed green over exactly the import it exists to forbid. Verified by planting it.
+      ...readFileSync(f, "utf8").matchAll(
+        /from\s+["']([^"']*action-registry(?:\/[^"']*)?)["']/g,
+      ),
+    ].map((m) => m[1] ?? ""),
+  );
+
+test("field-host/ takes exactly ONE thing from action-registry/ — the refusal vocabulary", () => {
+  // THE EDGE T4c ADDED, asserted deliberately rather than left unguarded — which is the
+  // asymmetry this file otherwise had. The rule above bans `action-registry → field-host`,
+  // which through T4b made the two SIBLINGS; nothing said anything about the reverse, so the day
+  // `field-mutation.ts` needed `ActionResult` there was no test to consult and no test to
+  // break. Silence is not permission, and an edge nobody decided is exactly what the repo's
+  // boundary rule calls an accident of file layout.
+  //
+  // WHAT IS PERMITTED AND WHY: `result.ts` only. `field-host/field-mutation.ts` answers a
+  // caller rather than the room, and `result.ts`'s own header puts the refusal vocabulary
+  // BELOW the chrome precisely so non-chrome callers can hold it — "there is ONE vocabulary
+  // of refusal in this editor". So the host holds it, and `action-registry/` stops being a
+  // sibling of `field-host/` and becomes a layer beneath it. That is the decision; this is
+  // where it is written down.
+  //
+  // AND WHY IT IS THE FILE RATHER THAN THE BARREL: `index.ts` is zod-free today, but it is
+  // one re-export away from not being, and `schemas.ts` value-imports `@furnace/core/registry`.
+  // Naming the module keeps the host's graph unable to reach zod through this edge at all,
+  // which is a property that survives someone widening the barrel.
+  expect([...new Set(registryImports(FIELD_HOST))].sort()).toEqual([
+    "../action-registry/result.ts",
+  ]);
 });

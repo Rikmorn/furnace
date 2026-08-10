@@ -274,7 +274,7 @@ export type GestureRow = {
 /** A family member, as a REFERENCE into one of the two sub-tables above. The union is the
  *  join the six tables never had: a family is an ordered list of members drawn from BOTH
  *  discriminators, which is why the brush family can end in a gesture (`segment` strokes). */
-type FamilyMemberRef =
+export type FamilyMemberRef =
   | { readonly effect: BrushEffect }
   | { readonly gesture: GestureId };
 
@@ -784,8 +784,9 @@ export function deriveSelectModes(): Record<
  *  There is no `id` beside `label`. There WAS, in Task 2, holding `id: row.label` so the
  *  derivation matched a literal that spelled both — and once the literal went, a second name
  *  for one string is the defect this module exists to remove. The one surface that needs a
- *  per-member KEY (`ToolFamilyMember.id`, which is a generator's id for the stamp family and
- *  a label everywhere else) spells that choice once, where the two cases meet. */
+ *  per-member KEY (`ToolFamilyMember.id`) spells that choice once, where the two cases meet;
+ *  since T4c the non-generator half of it is {@link memberRefId} of this `ref` rather than
+ *  this `label`, so the key survives a relabelling. */
 export type DerivedMember = {
   /** WHICH row this is, and therefore what arming it DOES. */
   readonly ref: FamilyMemberRef;
@@ -826,4 +827,37 @@ function resolveMember(ref: FamilyMemberRef): DerivedMember {
   const row =
     "effect" in ref ? EFFECT_ROWS[ref.effect] : GESTURE_ROWS[ref.gesture];
   return { ref, label: row.label, hint: row.hint };
+}
+
+/**
+ * A member ref as a STABLE STRING — the id a caller outside the chrome names a member by.
+ *
+ * WHY IT EXISTS (foundations T4c). `ToolFamilyMember.id` was the member's LABEL for four of
+ * the five families — `Dig`, `Fill`, `Paint`, `Smooth`, `Segment`, `Box`, `Wand`, `Room` —
+ * which was harmless while an id was a React key and a cmdk `value`. T4b promoted it:
+ * `runMember(family, memberId, ctx)` takes it as its caller-facing argument and quotes it
+ * back in the refusal. So renaming a brush member from "Smooth" to "Blur" — a pure copy
+ * change, the kind this editor makes freely — became a breaking change for exactly the
+ * caller class that signature was introduced to serve, and nothing flagged it. That sits
+ * against the rule the same tranche wrote into `action-registry/result.ts`: prose is free to
+ * be reworded, which is WHY `because` exists as a separate machine-readable field. A member
+ * id was the one place a display string was still load-bearing for a machine.
+ *
+ * THE DISCRIMINATOR ITSELF, unchanged. `dig`, `fill`, `paint`, `smooth` from the effect
+ * arm; `box`, `material`, `void`, `segment` from the gesture arm. Those are DATA — they are
+ * what `armMember` already switches on and what the two sub-tables are keyed by — so an id
+ * derived from them is stable across any relabelling, and it reads the way the generator
+ * half already does (a stamp member's id has always been its generator id).
+ *
+ * THE TWO ARMS CANNOT COLLIDE, which is what lets this be a flat string rather than a
+ * namespaced one: `BrushEffect` is dig/fill/paint/smooth and `GestureId` is
+ * box/material/void/segment/pointer, and the two sets are disjoint. A fifth effect named
+ * after a gesture would break that silently, so it is asserted in `tests/shared/`.
+ *
+ * WHAT MOVED VISIBLY: two ids stopped matching their labels — `material` is displayed
+ * "Wand" and `void` is displayed "Room". Every other member's id is its label lowercased,
+ * which is a coincidence of the copy rather than a rule, and must not be relied on.
+ */
+export function memberRefId(ref: FamilyMemberRef): string {
+  return "effect" in ref ? ref.effect : ref.gesture;
 }

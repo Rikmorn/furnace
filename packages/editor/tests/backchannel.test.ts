@@ -12,6 +12,7 @@ import { dispatch, type Handlers } from "../src/daemon/handlers.ts";
 import {
   CAPTURE_ASK_TIMEOUT_MS,
   createSessionHandlers,
+  GENERATE_ASK_TIMEOUT_MS,
 } from "../src/daemon/session-handlers.ts";
 import type { SessionAnswer, SessionRequest } from "../src/shared/wire.ts";
 
@@ -550,5 +551,341 @@ test("with no event feed, `session.answer` says `no-session` rather than pretend
         payload: null,
       }),
     ),
+  ).toBe("no-session");
+});
+
+// --- the three WRITE commands (foundations T4c) ------------------------------
+//
+// EVERY ASK THESE CASES OPEN IS SETTLED, and the discipline is not tidiness — it is this
+// suite's own documented defect biting. `EventHub.close()` deliberately does NOT fire its
+// close handlers, so `abandonAsksOn` never runs at teardown and a pending ask survives its
+// test on an `unref`'d timer. It then rejects up to its budget later — 30 s for `generate`
+// — INSIDE whatever file bun happens to be running by then, as an unhandled rejection
+// attributed to a stranger. Measured while writing these: three unsettled asks reddened
+// `tests/chrome/tool-rail.test.tsx` with `session-timeout: "generate"`, a file that names
+// none of this, and the failure MOVED between runs. The fix is local (answer what you ask);
+// the underlying gap is filed at
+// `docs/backlog/editor-and-tooling/backchannel-refusals-blur-two-causes.md` item 2, and this
+// is the first live evidence for it.
+
+/** Relay one `action.run` and SETTLE it, handing back the frame the tab saw. */
+async function relayAndSettle(
+  handlers: Handlers,
+  tab: FakeConnection,
+  params: { id: string; input?: unknown },
+): Promise<SessionRequest> {
+  const asked = dispatch(handlers, "action.run", params);
+  const relayed = requestsTo(tab).at(-1);
+  if (relayed === undefined) throw new Error("test: nothing reached the tab");
+  expect(relayed.params).toEqual(params);
+  await answer(handlers, {
+    requestId: relayed.requestId,
+    ok: true,
+    payload: { ok: true },
+  });
+  await asked;
+  return relayed;
+}
+//
+// The relay does not change shape for a write — same ask, same correlation, same typed
+// refusals — so what these pin is the half that IS new: the schemas. A read that arrives
+// malformed wastes a round trip; a WRITE that arrives malformed and is relayed anyway asks
+// a tab to mutate a world on a shape nobody checked.
+
+test("edit.apply RELAYS a valid batch, and its schema is the op vocabulary", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const ops = [
+    {
+      kind: "brush",
+      effect: "dig",
+      shape: { kind: "sphere", center: [1, 2, 3], radius: 1.5 },
+    },
+  ];
+  const asked = dispatch(handlers, "edit.apply", { ops });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("edit.apply");
+  expect(req.params).toEqual({ ops });
+  // The ANSWER is an `ActionResult` the chrome built, relayed untouched — the daemon
+  // declares no result type for it and could not (`shared/wire.ts` argues why).
+  const payload = {
+    ok: false,
+    kind: "refused",
+    message: "…",
+    because: "input",
+  };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+});
+
+test("edit.apply REFUSES a malformed op before any tab is asked", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const bad = async (ops: unknown): Promise<string> =>
+    codeOf(dispatch(handlers, "edit.apply", { ops }));
+
+  // An EMPTY batch. Core treats an empty list as a deliberate no-op, so without this rule
+  // the door would answer `ok` for doing nothing — true, and hiding a caller's mistake.
+  expect(await bad([])).toBe("invalid-input");
+  // An unknown effect, a missing shape, and a misspelled field — the third is the one
+  // `z.strictObject` buys: a dropped `radius` would reach the applier as a shape with no
+  // radius and be refused for a reason that says nothing about the typo.
+  expect(
+    await bad([
+      {
+        kind: "brush",
+        effect: "melt",
+        shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+      },
+    ]),
+  ).toBe("invalid-input");
+  expect(await bad([{ kind: "brush", effect: "dig" }])).toBe("invalid-input");
+  expect(
+    await bad([
+      {
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [0, 0, 0], radiuss: 1 },
+      },
+    ]),
+  ).toBe("invalid-input");
+  // A two-number centre: the tuple is what makes "exactly three" advertisable.
+  expect(
+    await bad([
+      {
+        kind: "brush",
+        effect: "dig",
+        shape: { kind: "sphere", center: [0, 0], radius: 1 },
+      },
+    ]),
+  ).toBe("invalid-input");
+  // AN INVENTED KEY, at BOTH levels — and these two are here because sabotage showed the
+  // case above does not cover them. The `radiuss` op is refused for its MISSING `radius`,
+  // so it stays red whether or not the object is strict; relaxing `z.strictObject` to
+  // `z.object` left every assertion above passing. An extra key beside a COMPLETE record is
+  // the only shape that isolates strictness, and it matters here for the reason
+  // `viewport.capture`'s own `quality` case gives: a silently dropped field is a caller
+  // being ignored rather than corrected.
+  const sphere = { kind: "sphere", center: [0, 0, 0], radius: 1 };
+  // THE HOLLOW FLOOR, advertised and enforced at this door. The interactive `clampTool`
+  // floor never applied here — `applyOps` goes straight to `logApplyGroup` — so before this
+  // an agent could carve the sub-cell shell the floor exists to prevent, with nothing
+  // refusing it. Core accepts any positive thickness; this is the editor's position.
+  expect(
+    await bad([{ kind: "brush", effect: "fill", shape: sphere, hollow: 0.05 }]),
+  ).toBe("invalid-input");
+  // THE FLOOD BUDGET CEILING — core's `MAX_SELECTION_BUDGET`, restated at this door under a
+  // compile-time equality guard rather than left undeclared. One over the top is refused
+  // here rather than discovered a round trip later.
+  const flood = {
+    kind: "selection",
+    selection: { kind: "flood-void", seed: [0, 0, 0], budget: 262145 },
+  };
+  expect(
+    await bad([{ kind: "brush", effect: "dig", shape: sphere, mask: flood }]),
+  ).toBe("invalid-input");
+  expect(
+    await bad([{ kind: "brush", effect: "dig", shape: sphere, quality: 90 }]),
+  ).toBe("invalid-input");
+  expect(
+    await bad([
+      { kind: "brush", effect: "dig", shape: { ...sphere, falloff: 2 } },
+    ]),
+  ).toBe("invalid-input");
+  // NOT ONE of those reached the tab — the whole point of validating at the door.
+  expect(requestsTo(tab)).toEqual([]);
+});
+
+test("generate RELAYS, and carries a budget of its own above the default", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "generate", {
+    generatorId: "hall",
+    region: { min: [0, 0, 0], max: [8, 5, 8] },
+  });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("generate");
+  const payload = { ok: true, entityId: 3, generator: "hall" };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+  // A generator's `evaluate` runs on the tab's main thread, so the budget is raised for a
+  // different reason from the capture one beside it — and both stay inside the 60 s client
+  // floor, which is the constraint that actually binds.
+  expect(GENERATE_ASK_TIMEOUT_MS).toBeGreaterThan(DEFAULT_ASK_TIMEOUT_MS);
+  expect(GENERATE_ASK_TIMEOUT_MS).toBeLessThan(60_000);
+});
+
+test("generate REFUSES a malformed request, and does NOT police generator params", async () => {
+  const { handlers, session } = daemon();
+  // ONE claimed tab for the whole case: the backchannel addresses whichever session is
+  // claimed, and a second would make every ask below refuse for "many sessions" instead of
+  // for the reason under test.
+  const tab = session("cavern");
+  expect(await codeOf(dispatch(handlers, "generate", {}))).toBe(
+    "invalid-input",
+  );
+  expect(
+    await codeOf(
+      dispatch(handlers, "generate", {
+        generatorId: "hall",
+        region: { min: [0, 0], max: [1, 1, 1] },
+      }),
+    ),
+  ).toBe("invalid-input");
+  expect(requestsTo(tab)).toEqual([]);
+  // THE DELIBERATE GAP, pinned so nobody later reads it as an oversight: params are
+  // `z.record(z.unknown())` because a generator's schema lives in the REGISTRY, behind the
+  // engine, which this Node-portable daemon may not import. Core validates them at commit.
+  // So an absurd param is ACCEPTED here and refused one hop later, by the layer that knows.
+  const passed = dispatch(handlers, "generate", {
+    generatorId: "hall",
+    params: { width: "enormous" },
+    region: { min: [0, 0, 0], max: [8, 5, 8] },
+  });
+  const relayed = requestsTo(tab).at(-1);
+  if (relayed === undefined) throw new Error("test: nothing reached the tab");
+  expect(relayed.method).toBe("generate");
+  await answer(handlers, {
+    requestId: relayed.requestId,
+    ok: true,
+    payload: { ok: false, kind: "refused", message: "…", because: "input" },
+  });
+  await passed;
+});
+
+test("action.run validates the SIX ids that take input, and relays the rest untouched", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+
+  // A schema'd id with a WRONG input: refused at the door, against
+  // `action-registry/schemas.ts` — the one place per-id input shapes are declared.
+  expect(
+    await codeOf(
+      dispatch(handlers, "action.run", {
+        id: "world.saveAs",
+        input: { name: 7 },
+      }),
+    ),
+  ).toBe("invalid-input");
+  expect(
+    await codeOf(
+      dispatch(handlers, "action.run", {
+        id: "edit.duplicate",
+        input: { entityId: "three" },
+      }),
+    ),
+  ).toBe("invalid-input");
+  expect(requestsTo(tab)).toEqual([]);
+
+  // A schema'd id with NO input is legal — that is the chrome/agent split: name nothing and
+  // the run falls back to what is selected.
+  await relayAndSettle(handlers, tab, { id: "edit.duplicate" });
+
+  // A BARE verb relays straight through. `view.frame` rather than `edit.undo`, which this
+  // door fences (see the undo case below).
+  await relayAndSettle(handlers, tab, { id: "view.frame" });
+});
+
+test("action.run FENCES undo and redo — a user ruling, enforced at the daemon", async () => {
+  // THE STOP CONDITION, held by a rule rather than by non-advertisement. No dedicated undo
+  // verb was ever built, but `action.run` accepts any registered id — and a door that
+  // accepts `edit.undo` IS an agent undo verb wearing a different spelling. Without op
+  // attribution the log is a bare LIFO, so an agent's undo pops whatever is on top, which
+  // is routinely the HUMAN's stroke.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  for (const id of ["edit.undo", "edit.redo"]) {
+    // BY NAME, so a fence that lets one through reds as itself.
+    expect([
+      id,
+      await codeOf(dispatch(handlers, "action.run", { id })),
+    ]).toEqual([id, "invalid-input"]);
+  }
+  // NOT ONE FRAME reached the tab — the fence is a refusal, not a relay the chrome
+  // declines. A round trip would put the decision in a bundle that can be older than this
+  // daemon, which is the whole reason it lives here.
+  expect(requestsTo(tab)).toEqual([]);
+});
+
+test("the fence REFUSES with a reason and a lift condition, not a bare no", () => {
+  // A refusal an agent cannot act on is a refusal it retries. This one says WHY (no
+  // attribution), what that costs (it would discard the human's work) and WHEN it lifts.
+  const { handlers, session } = daemon();
+  session("cavern");
+  return dispatch(handlers, "action.run", { id: "edit.undo" }).then(
+    () => {
+      throw new Error("expected a refusal");
+    },
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toContain("attribution");
+      expect(message).toContain("lifts");
+    },
+  );
+});
+
+test("a PROTOTYPE key is not an action schema — `toString` refuses, it does not 500", async () => {
+  // A NEW DEFECT the review caught, and the failure mode is worse than the bug: on a plain
+  // object literal `ACTION_INPUT_SCHEMAS["toString"]` resolves to `Object.prototype`'s
+  // method, passes a `!== undefined` guard, and `schema.safeParse` throws a raw TypeError.
+  // `dispatch` does not wrap handler throws, so that becomes HTTP 500 `internal` — an agent
+  // told the daemon is broken because it named a verb that does not exist. `Object.hasOwn`
+  // is what makes these ordinary unknown ids again: relayed, and refused by the chrome
+  // funnel that owns the table.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  for (const id of [
+    "toString",
+    "valueOf",
+    "constructor",
+    "hasOwnProperty",
+    "__proto__",
+  ]) {
+    const relayed = await relayAndSettle(handlers, tab, {
+      id,
+      input: { x: 1 },
+    });
+    expect([id, relayed.method]).toEqual([id, "action.run"]);
+  }
+});
+
+test("action.run builds NO allow-list — an unknown id is the CHROME's refusal, not the door's", async () => {
+  // THE DECISION, pinned. Which ids EXIST is the action registry's answer and `runNamedById`
+  // in the chrome is the one funnel that knows the table; a membership test here would be a
+  // second copy of that knowledge, and the two would disagree the day a verb was added to
+  // one. So an id the table does not carry is RELAYED, and comes back refused with the list.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const relayed = await relayAndSettle(handlers, tab, { id: "world.explode" });
+  expect(relayed.method).toBe("action.run");
+});
+
+test("all three write commands answer `no-session` on a daemon with no feed", async () => {
+  // The `session.state` rule, extended to the writes: a daemon with no event feed has no
+  // connections, so there is no session to edit, generate into or drive. That is the true
+  // answer rather than a stub.
+  const handlers = createSessionHandlers(undefined);
+  expect(
+    await codeOf(
+      dispatch(handlers, "edit.apply", {
+        ops: [
+          {
+            kind: "brush",
+            effect: "dig",
+            shape: { kind: "sphere", center: [0, 0, 0], radius: 1 },
+          },
+        ],
+      }),
+    ),
+  ).toBe("no-session");
+  expect(
+    await codeOf(dispatch(handlers, "generate", { generatorId: "hall" })),
+  ).toBe("no-session");
+  expect(
+    await codeOf(dispatch(handlers, "action.run", { id: "edit.undo" })),
   ).toBe("no-session");
 });

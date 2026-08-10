@@ -318,6 +318,36 @@ test("every action is a row, plus the multi-member families' members", async () 
 	expect(rowNames()).not.toContain("Select · Select");
 });
 
+test("a member is still findable by its LABEL after its id stopped being one (T4c)", async () => {
+	// THE PIN THE MEMBER-ID MIGRATION NEEDED, and the reason it needs one is that its
+	// failure is INVISIBLE to every other test in this file. cmdk scores a row on its
+	// `value` PLUS its `keywords`; the value is `${family.arm.id}.${member.id}`, and the id
+	// used to BE the label — so "Wand" matched through the value by accident. T4c made ids
+	// stable data (`memberRefId`), and `Wand`'s is now `material`: the value no longer
+	// contains the word a human types.
+	//
+	// What keeps search working is `keywords` carrying `member.label`, which was already
+	// there and is now LOAD-BEARING rather than belt-and-braces. Drop it and every row still
+	// renders, every id still resolves, every other case here still passes — and the human
+	// can no longer find Wand, Room or Box by name. That is a silent regression with no
+	// other detector, which is exactly what a pin is for.
+	const stub = stubWithGenerators();
+	await renderShell(stub);
+	pressCommandK();
+
+	// The two members whose id and label genuinely differ — the migration's whole visible
+	// surface. `Wand` is `material`, `Room` is `void`.
+	typeQuery("Wand");
+	expect(rowNames()).toContain("Cell select · Wand");
+	typeQuery("Room");
+	expect(rowNames()).toContain("Cell select · Room");
+
+	// …and the id still finds it too, which is the half an AGENT uses. Both spellings reach
+	// the same row, from opposite directions.
+	typeQuery("material");
+	expect(rowNames()).toContain("Cell select · Wand");
+});
+
 test("labels are CONTEXTUAL — the registry's own label function, not a static name", async () => {
 	const stub = stubWithGenerators();
 	await renderShell(stub);

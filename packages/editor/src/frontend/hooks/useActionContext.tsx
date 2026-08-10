@@ -50,7 +50,8 @@ import {
 import type { FieldHost, FieldTool } from "../../field-host/index.ts"; // type-only: erased
 import { brushArming } from "../../shared/field-brush.ts";
 import { useEditor } from "../components/editor-context.ts";
-import type { ActionCtx } from "../lib/actions.ts";
+import type { ActionCtx, ActionInput } from "../lib/actions.ts";
+import { runNamedById } from "../lib/actions.ts";
 import { sessionState } from "../lib/session-answerers.ts";
 import { useCatalog } from "./useCatalogs.tsx";
 import {
@@ -106,8 +107,13 @@ export function ActionContextProvider({
 	openShortcuts: () => void;
 	children: ReactNode;
 }) {
-	const { openConfirm, confirmRef, claimLostRef, sessionStateRef } =
-		useEditor();
+	const {
+		openConfirm,
+		confirmRef,
+		claimLostRef,
+		sessionStateRef,
+		dispatchRef,
+	} = useEditor();
 	const { stats } = useFieldHostState();
 	const { tool, gesture, pendingStamp, setGesture, setTool } = useFieldTool();
 	const { stamp } = useFieldStamp();
@@ -306,6 +312,37 @@ export function ActionContextProvider({
 			sessionStateRef.current = null;
 		};
 	}, [ctx, history, sessionStateRef]);
+
+	// The backchannel's DISPATCHER (T4c) — the write half of the seam above, filled here for
+	// the same reason and in the same shape: this is where the ctx is built, and a named
+	// action's run is `(ctx) => …`.
+	//
+	// IT CLOSES OVER `ctx` RATHER THAN READING `ctxRef`, and the two are not
+	// interchangeable. `ctxRef` exists for the window keydown listener, which binds ONCE and
+	// therefore cannot capture anything; this effect re-runs whenever the ctx moves, so a
+	// captured value is both current and one fewer indirection to keep honest — the reader
+	// effect above makes the same choice for the same reason.
+	//
+	// A SEPARATE EFFECT from the reader's rather than one effect writing both, because their
+	// dep lists differ: the reader needs `history` (it projects the full payload) and this
+	// does not. Merging them would re-install the dispatcher on every history push for no
+	// reason, and — worse — would make a future reader assume the two must move together.
+	//
+	// The cleanup nulls it, which is what makes an unmounted shell REFUSE `action.run`
+	// rather than dispatch into a ctx nothing is rendering from.
+	useEffect(() => {
+		dispatchRef.current = (id, input) =>
+			// Boundary cast: `input` arrives as `unknown` because the backchannel envelope
+			// RELAYS rather than reads, and the daemon has already parsed it against this
+			// id's own schema (`action-registry/schemas.ts`, through `action.run`'s handler)
+			// — the invariant the type system cannot carry across a JSON hop. Parsing again
+			// here would put a second author on one contract; `ActionInput` is the union
+			// those schemas infer, so this names the shape rather than erasing it.
+			runNamedById(id, ctx, input as ActionInput);
+		return () => {
+			dispatchRef.current = null;
+		};
+	}, [ctx, dispatchRef]);
 
 	useGlobalKeybindings(ctxRef, confirmRef, claimLostRef);
 

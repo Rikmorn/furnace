@@ -8,6 +8,7 @@ import { api } from "../lib/api.ts";
 import { EngineBuildError, loadEngine } from "../lib/engine.ts";
 import { createUiStore } from "../lib/persist.ts";
 import {
+	type ActionDispatch,
 	createSessionAnswerers,
 	type SessionStateReader,
 } from "../lib/session-answerers.ts";
@@ -61,13 +62,20 @@ export function App() {
 	// this component and the reader sits beside the feed that asks for them.
 	const sessionStateRef = useRef<SessionStateReader | null>(null);
 
+	// How the backchannel DRIVES this session (T4c): a thunk that dispatches a named action
+	// by id against the live ctx. The ref above's shape exactly and filled by the same
+	// component, because the two answer one question from opposite sides — what can be seen
+	// from here, and what can be done from here — and both need the ctx that only
+	// `ActionContextProvider` assembles.
+	const dispatchRef = useRef<ActionDispatch | null>(null);
+
 	// The other half of that conversation (T4b): the daemon relays a question to whichever
 	// tab holds the claim, and this answers it. Nothing renders — see the hook's header for
 	// why it mounts here rather than beside the chrome's latched mirrors.
 	//
 	// MEMOIZED, because the registry is no longer a module constant: `session.state` closes
-	// over the ref above and `viewport.capture` over `fieldHostRef`, so the record is built
-	// here. The memo is what satisfies the
+	// over the reader ref, `viewport.capture` and the two mutation rows over `fieldHostRef`,
+	// and `action.run` over `dispatchRef`, so the record is built here. The memo is what satisfies the
 	// stability rule the feed's dep list imposes on this callback — a fresh identity per
 	// render would open and close one EventSource per render. `[]`, and it is the honest
 	// list rather than a silenced one: the only things captured are ref OBJECTS, which React
@@ -82,7 +90,7 @@ export function App() {
 	// dropping a real dep from the effect in `useActionContext.tsx` earns *"does not specify
 	// its dependency on ctx"*. So this list is not a judgement call anyone has to trust.
 	const answerers = useMemo(
-		() => createSessionAnswerers(sessionStateRef, fieldHostRef),
+		() => createSessionAnswerers(sessionStateRef, fieldHostRef, dispatchRef),
 		[],
 	);
 	const onSessionRequest = useSessionAnswer(answerers);
@@ -166,6 +174,7 @@ export function App() {
 		setAuthoredWorld: claim.setAuthoredWorld,
 		claimLostRef: claim.claimLostRef,
 		sessionStateRef,
+		dispatchRef,
 		viewportFocusRef,
 		store,
 	};

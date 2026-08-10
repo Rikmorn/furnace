@@ -60,27 +60,39 @@
  *    class a human is told about out loud, and the caller holds the two verbs that end it
  *    (`session.confirm` applies, `session.escape` discards).
  *  - `inert` — the verb cannot act on what it has: no world name, no selected stamp, no
- *    engine up yet, no generators registered, an argument it cannot use. Changing the state
+ *    engine up yet, no generators registered. Changing the state
  *    changes the answer, but the caller must change SOMETHING — an immediate retry gets the
  *    same word back. RAISED IN TWO PLACES and it is one class, not two spellings: the
  *    canonical one is the funnel's own (`refuseOrClaim` — the gate is OPEN and `enabled` is
  *    false, which is why the verb's LABEL is the honest sentence there), and the second is a
  *    verb's own body finding mid-run that what it needs is not there.
  *  - `member` — the tool family has no member by that id ({@link ActionResult} reaches this
- *    only through the member funnel). The one class about the REQUEST rather than the state:
- *    a retry cannot help, the id has to change, and the sentence lists the ids that exist.
+ *    only through the member funnel). A retry cannot help, the id has to change, and the
+ *    sentence lists the ids that exist.
+ *  - `input` — the ARGUMENT was wrong, and the world is fine. The newest class (foundations
+ *    T4c) and the counterpart to `inert`: where that one says *change the state and ask
+ *    again*, this says *ask again differently, and change nothing else*. A caller that
+ *    branches on the two retries in opposite directions, which is the whole reason they are
+ *    not one class.
  *
- *  FIVE OF THE SEVEN ARE THE GATE'S (`modal`, `typing`, `looking`, `menuOnly`, `session`) and
- *  two are raised past it — `inert` by the funnel and by verb bodies, as its own bullet
- *  states, and `member` at the member funnel's front door. Which side a class comes from is
+ *  FIVE OF THE EIGHT ARE THE GATE'S (`modal`, `typing`, `looking`, `menuOnly`, `session`) and
+ *  three are raised past it — `inert` by the funnel and by verb bodies, as its own bullet
+ *  states, `member` at the member funnel's front door, and `input` by any verb that reads its
+ *  own argument. Which side a class comes from is
  *  not a distinction a caller needs, which is why there is one union and not two.
  *
- *  NO `input` CLASS TODAY, deliberately: two of the refusals carrying `inert` are really about
- *  an ARGUMENT rather than about state, and splitting the class is a decision with no caller
- *  to settle it yet. That is the one thing this docblock owes a reader here — a split would be
- *  a WIDENING, which is why the union is exported rather than inlined into the arm below. The
- *  two sites, the candidate shape and the trigger are held in
- *  `docs/backlog/editor-and-tooling/refusal-class-has-no-input-arm.md`, whose job that is. */
+ *  THE EIGHTH ARRIVED WITH ITS FIRST CALLER, which is what this docblock promised it would
+ *  wait for. It read *"NO `input` CLASS TODAY, deliberately … splitting the class is a
+ *  decision with no caller to settle it yet"*, and named the two refusals then carrying
+ *  `inert` that were really about an argument. T4c built the caller: an agent composing a
+ *  request it cannot see the screen to check, whose retry for "fix your argument" is not the
+ *  retry for "change the world". So the split landed and those two moved —
+ *  `useWorld`'s invalid world name and `edit.delete`'s entity-id mismatch — joined by every
+ *  refusal the mutation seam raises about the ops or the generator id it was handed
+ *  ({@link ActionResult} is what `FieldHost.applyOps` answers with). `member` did NOT move
+ *  and is the near miss worth naming: it is also about the request, but it carries a LIST of
+ *  what would have worked, and collapsing it into `input` would lose the one thing that makes
+ *  it actionable without a second round trip. */
 export type RefusalClass =
   | "modal"
   | "typing"
@@ -88,7 +100,8 @@ export type RefusalClass =
   | "menuOnly"
   | "session"
   | "inert"
-  | "member";
+  | "member"
+  | "input";
 
 /** What running an action MEANS.
  *

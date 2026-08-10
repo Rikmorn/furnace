@@ -70,6 +70,11 @@ export function makeEditorContext(
 	return {
 		state: { ...initialState, status: "ready", ...overrides.state },
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
+		// The backchannel's DISPATCH seam (T4c). Not overridable like `sessionStateRef`
+		// below, because no inspector test drives an action through it — it is here because
+		// the context type requires it, and `null` is the honest empty value (it is what
+		// App creates it with, and what an unmounted shell leaves behind).
+		dispatchRef: { current: null },
 		worldsVersion: overrides.worldsVersion ?? 0,
 		openConfirm: overrides.openConfirm ?? noop,
 		// No prompt pending: the shell's keydown listener reads this to decide whether a

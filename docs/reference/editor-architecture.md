@@ -429,7 +429,7 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why a host constant the chrome needs is normally restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7) — with three exceptions since T3b2: `MAX_SEGMENT_M`, `SELECTION_UI_BUDGET` and the `LATTICE` step now live in `src/shared/` (`field-limits.ts`, `field-brush.ts`), where BOTH layers value-import the same number instead of agreeing by review (§22), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes are SIBLINGS, not a chain: neither imports the other, and `tests/no-chrome-leakage.test.ts` pins that direction explicitly because nothing else would — the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. **Foundations T4b added a fourth reader that is not on that arrow at all: the daemon.** `src/shared/wire.ts` holds the backchannel's two frame types, and `daemon/events.ts` + `daemon/session-handlers.ts` `import type` them exactly as the chrome does. It changes no rule — the daemon sits above the floor like everything else and the floor still imports nothing above itself — and the two leakage suites turn out to have been enforcing precisely what a daemon-facing module needs from the other direction: React-free, engine-free and zod-free is also Node-portable. `wire.ts` is types-only, so both edges are erased. **T4c added the floor's first module the daemon VALUE-imports**: `src/shared/capture.ts` holds `CAPTURE_VIEWS` and the capture size bounds, read by the host (which derives and clamps), by `wire.ts` (type only) and by the daemon's zod schema (which validates); the MCP door joins them when the tool is advertised. It is on the floor for exactly the reason the rule exists — the daemon may not touch anything that imports `@furnace/core`, and every file in `field-host/` does — and it changes no rule either: a plain array and three numbers are React-free, engine-free, zod-free and Node-portable, which is the same four properties `wire.ts` satisfies by being empty at run time. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+**The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes were SIBLINGS through T4b — neither imported the other — and **since T4c they are a chain: `field-host/ → action-registry/`.** `tests/no-chrome-leakage.test.ts` pins BOTH directions, and each for its own reason. Upward is forbidden outright (the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold). Downward is permitted for EXACTLY ONE module, `action-registry/result.ts`, and asserted as a membership rather than merely left unguarded: `field-host/field-mutation.ts` answers a caller instead of the room, and `result.ts` puts the refusal vocabulary below the chrome precisely so non-chrome callers can hold it — *"there is ONE vocabulary of refusal in this editor"*. The alternative was a host-local result type converted in the chrome verb, which is the second-name-for-a-subset that file argues against. It is the FILE and not the barrel, so `schemas.ts`'s zod never becomes reachable from anything the host pulls in. Before T4c the reverse edge was simply unguarded, which is the accident-of-file-layout the repo's boundary rule exists to prevent — silence is not permission. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. **Foundations T4b added a fourth reader that is not on that arrow at all: the daemon.** `src/shared/wire.ts` holds the backchannel's two frame types, and `daemon/events.ts` + `daemon/session-handlers.ts` `import type` them exactly as the chrome does. It changes no rule — the daemon sits above the floor like everything else and the floor still imports nothing above itself — and the two leakage suites turn out to have been enforcing precisely what a daemon-facing module needs from the other direction: React-free, engine-free and zod-free is also Node-portable. `wire.ts` is types-only, so both edges are erased. **T4c added the floor's first module the daemon VALUE-imports**: `src/shared/capture.ts` holds `CAPTURE_VIEWS` and the capture size bounds, read by the host (which derives and clamps), by `wire.ts` (type only) and by the daemon's zod schema (which validates); the MCP door joins them when the tool is advertised. It is on the floor for exactly the reason the rule exists — the daemon may not touch anything that imports `@furnace/core`, and every file in `field-host/` does — and it changes no rule either: a plain array and three numbers are React-free, engine-free, zod-free and Node-portable, which is the same four properties `wire.ts` satisfies by being empty at run time. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
 - **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts`. Two of the three are VALUE-imported by chrome components as well as by the host; **`catalog.ts` is the exception and always was** — the host `import type`s it at all four of its sites (`field-host.ts`, `field-placements.ts`, `field-props.ts`, `substrate.ts`), so only the chrome (`hooks/useCatalogs.tsx`) takes a value edge. It belongs here on the *type*-sharing half of the rule rather than the value-sharing half, and the earlier wording claiming otherwise was corrected in T3b2 Task 5. T3b2 added three more, all value-imported by both layers: `field-limits.ts`, `action-table.ts` (Task 5 switched the chrome onto it — §22), and `field-brush.ts`' `LATTICE` gained a registry-side reader too. T3c added a fourth, `tool-registry.ts`, value-imported by `tool-params.tsx` for the dead-control answer — and the floor is where it had to go for exactly the reason this bullet states, which §23.4 works through as three independent facts. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
@@ -3594,18 +3594,21 @@ missing: **one export-map entry** (`packages/editor/package.json` carried exactl
 by bare specifier), the five closures, and **nothing machine-enforcing Node-importability**
 at all. All three are addressed.
 
-**The layer.** `action-registry/` sits BESIDE `field-host/` under the chrome, not under it.
-It may value-import `@furnace/core` and `shared/`; it may import React, the DOM,
-`field-host/` or `frontend/` not at all. Four rules, deliberately split across the two guard
-files **by mechanism rather than by subject**, so each stays provable the way its file
-proves things:
+**The layer.** `action-registry/` may value-import `@furnace/core` and `shared/`; it may
+import React, the DOM, `field-host/` or `frontend/` not at all. It sat BESIDE `field-host/`
+under the chrome through T4b — **and since T4c it sits BENEATH it**, because `field-host/`
+now holds the refusal vocabulary (`result.ts`, and nothing else from this directory). The
+arrow is one-way and asserted in both directions; §7 carries the full statement. Five rules,
+deliberately split across the two guard files **by mechanism rather than by subject**, so
+each stays provable the way its file proves things:
 
 | rule | where | how |
 |---|---|---|
 | no React | `no-chrome-leakage.test.ts` | specifier scan |
 | nothing out of `frontend/` | same | specifier scan |
-| nothing out of `field-host/` | same | specifier scan (the file's first host rule — the two nodes are siblings, so nothing else would stop the registry taking a `FieldHost` with it) |
+| nothing out of `field-host/` | same | specifier scan (the file's first host rule — nothing else would stop the registry taking a `FieldHost` with it, and since T4c this is the UPWARD half of a one-way arrow rather than a wall between siblings) |
 | the chrome may not VALUE-import `schemas.ts` (nor bare `zod`) | `frontend-no-engine-leakage.test.ts` | that file's `valueImportRules`, which already knows `import type` is erased |
+| `field-host/` may import `result.ts` from here **and nothing else** (T4c) | `no-chrome-leakage.test.ts` | capturing scan — the answer needed is *which* specifier, not *whether*, so a boolean `bans` rule could not express it. The FILE, not the barrel, so `schemas.ts`'s zod stays unreachable from the host's graph even if the barrel widens |
 
 The fourth is that file's rule because it is that file's *reason*: `schemas.ts` is licensed
 to value-import core (an action that takes input carries a zod schema built from core's `z`
@@ -3917,11 +3920,11 @@ resolves it against the family BEFORE gating, so an id nothing answers to is ref
 malformed ask rather than as a bad moment. Nothing a human sees moved here either — `spoken`
 is untouched, `controlVerdict` does not read `because`, and every existing sentence is
 byte-identical. The vocabulary is pinned as a `Record<RefusalClass, …>` in
-`tests/actions.test.ts`, so a class with no route that produces it does not compile. The
-deliberate absence is an `input` class: two `inert` refusals are really about an argument
-(`write`'s invalid world name, `edit.delete`'s non-selected `entityId`), and the split is
-filed rather than invented ahead of a caller that would branch on it
-(`docs/backlog/editor-and-tooling/refusal-class-has-no-input-arm.md`).
+`tests/actions.test.ts`, so a class with no route that produces it does not compile. That absence
+is now filled: the `input` class landed at **T4c Task 3** with its first caller, and the two
+`inert` refusals that were really about an argument moved onto it (`write`'s invalid world
+name, `edit.delete`'s non-selected `entityId`). Eight arms, five of them the gate's. See
+§27.1.
 
 **Where the input typing does and does not reach.** The DECLARATION site is checked — the
 behavior table is keyed by `ActionId` and each row's `run` states its own `InputOf<Id>`, so
@@ -5056,7 +5059,7 @@ each one. **Clause 5 is the review session's to walk** and is the only one not c
 | **4. `session.state` reports the live chrome truthfully, with a cursor that changes on edit / undo / world-swap** | **HOLDS, and its boundary is pinned rather than merely stated.** `tests/chrome/session-state.test.tsx`: *"a mounted chrome answers what its mirrors actually hold"*, *"every mirror the payload names moves the answer"*, *"the live SESSION and the selected ENTITY are projected, not passed through"*, *"the payload is a COPY — no member aliases live chrome state"*, *"the CAMERA is POLLED at answer time — never mirrored, never on the ctx"* (with *"the ACTION CONTEXT did not grow a member for this"* pinned as a **type**, mutually, so a removed member reds as loudly as an added one), and *"an UNFILLED reader and a HOSTLESS chrome share one honest arm"* for the `{ready:false}` discriminant that makes a false claim of emptiness unspellable. Cursor motion is `tests/field-host-history.test.ts`: *"the token moves on a mutation, and an undo/redo round trip returns it"*, *"a NEW WORLD over an empty one still moves the token — and PUBLISHES"* (the world-swap leg, which also forced the change guard's three new terms), and *"`ops.length` is LOAD-BEARING — undo, then a mutation that mints no op"*. **What the cursor does NOT certify is pinned too**: it rides the history payload and certifies `history` alone, and its one reachable alias (freeze → ⌘Z → bake) is reproduced rather than described, in *"THE ONE ALIAS IT CARRIES, pinned so the gap cannot be forgotten"*. |
 | **5. Claude Code end-to-end: connect, list, read truth** | **NOT CLOSED HERE — the REVIEW session walks it**, against the user's own daemon on a real world. It is the only clause no test can stand in for, because what it checks is that the payload matches what a *human* sees. The walk, and what a pass looks like: (a) start the editor (`bun run dungeon:editor`), open a world, and confirm the banner's second line prints `mcp  http://127.0.0.1:<port>/mcp`; (b) `claude mcp add --transport http furnace http://127.0.0.1:4500/mcp`, then a Claude Code session **lists exactly three tools** — `session_state`, `world_list`, `project_get` — and no fourth; (c) `session_state` returns `ready: true` and its `world`, `tool`, `gesture`, `selection` and `camera` **agree with what is on screen** — arm a different tool, select an entity, orbit, and read again to see each move; (d) kill the tab mid-call and the next call answers the **typed** `no-session` (fast) or `session-timeout` (at the budget) with `isError: true` and a remedy sentence — never a hang; (e) a **second** Claude Code client against the same daemon reads the same claim as a guest, and neither client can claim, steal or release. Any step that needs a source change fails the clause. *(The deferred HOLISTIC user gate stays at T4 close; this is the functional gate only.)* |
 | **6. Advertisement round-trips validation for all six schemas** | **HOLDS, with one divergence stated rather than hidden.** `tests/action-registry/projection-round-trip.test.ts` is the first caller of `toJsonSchema` on an action at all, and **it compares VERDICTS, not shapes** — a case asserting the reflected document *looks like* the zod schema re-derives one side from the other and would keep agreeing while both drifted together. `admits()` reads the advertised document the way a client would (root `type`, `required`, each property's `type` and its bounds) and its answer must equal `safeParse().success` for the same value; every sample runs against **every** row, so no row is graded only on arguments tailored to it. A second case forbids agreement bought by reading less: every keyword the six documents carry must be one the reader interprets, and `admitsField` **throws** on an unreadable type rather than returning `false`, which would look like a refusal the advertisement made. **The divergence:** all six rows are `z.object`, which STRIPS unknown keys, and the reflected document carries no `additionalProperties` — so both *admit* a stray key and the compared verdicts agree, while the OUTPUT differs. That is a live posture split against the daemon's `z.strictObject` commands, it becomes agent-visible the moment T4c projects these rows, and it is filed rather than changed here (a behaviour change does not belong in a plumbing commit). |
-| **7. `runMember` refuses unknown members, never claims false success, and every refusal carries a `because`** | **HOLDS.** The funnel takes an **id**, and resolution happens **before** the gate deliberately: an id no member answers to is a malformed *request*, and answering it with "finish the session first" would send the caller off to end a session and back to the same typo. `tests/actions.test.ts`: *"a member id no member answers to is `refused` as `member`, and names the ids that exist"*, *"an unknown member id is answered BEFORE the family's gate — a bad request, not a bad moment"*, and *"a stamp pick with no engine is `refused` — and a brush pick with no engine is not"* — the pair that pins the false-success fix at the ARM rather than as a blanket guard in the funnel, since Paint needs no host and a blanket guard would refuse it for a fact about a different family. The compiler holds the no-false-success rule rather than a docblock: `arm` returns `Exclude<ActionResult, {kind:"failed"}>`. The vocabulary is exhaustive by type — *"every refusal class is REACHABLE through a funnel, and answers with its own name"* is a `Record<RefusalClass, …>`, so an eighth class with no route producing it does not compile — and the one-funnel rule is a source scan asserting the caller list is exactly `["frontend/lib/actions.ts"]`. **The same false-`ok` shape survives ONE DOOR OVER and is filed, not claimed closed**: the action table reaches the host through `ctx.host?.` at 14 sites, ten action ids reachable pre-engine today, and fixing it coherently overturns five deliberate always-live stances — `named-run-bodies-claim-ok-with-no-host.md`. |
+| **7. `runMember` refuses unknown members, never claims false success, and every refusal carries a `because`** | **HOLDS.** The funnel takes an **id**, and resolution happens **before** the gate deliberately: an id no member answers to is a malformed *request*, and answering it with "finish the session first" would send the caller off to end a session and back to the same typo. `tests/actions.test.ts`: *"a member id no member answers to is `refused` as `member`, and names the ids that exist"*, *"an unknown member id is answered BEFORE the family's gate — a bad request, not a bad moment"*, and *"a stamp pick with no engine is `refused` — and a brush pick with no engine is not"* — the pair that pins the false-success fix at the ARM rather than as a blanket guard in the funnel, since Paint needs no host and a blanket guard would refuse it for a fact about a different family. The compiler holds the no-false-success rule rather than a docblock: `arm` returns `Exclude<ActionResult, {kind:"failed"}>`. The vocabulary is exhaustive by type — *"every refusal class is REACHABLE through a funnel, and answers with its own name"* is a `Record<RefusalClass, …>`, so an eighth class with no route producing it does not compile — and the one-funnel rule is a source scan asserting the caller list is exactly `["frontend/lib/actions.ts"]`. **The same false-`ok` shape survived ONE DOOR OVER and was filed rather than claimed closed**: the action table reached the host through `ctx.host?.` at 14 sites, ten action ids reachable pre-engine, and fixing it coherently touched five deliberate always-live stances. *Closed at T4c Task 3* — all 14 went through `handOffToHost`/`okAfterHost`, refusing `inert`; the five always-live stances were kept, since each argued about a host that EXISTS and has nothing to do, which is not an argument for answering `ok` when there is no host (§27.1). |
 
 **Backlog dispositions, re-derived from `git diff --name-status 0e89327d~1..HEAD -- docs/backlog/`
 rather than from memory: seven added, five modified.** **NONE DELETED** — the donor entry
@@ -5068,7 +5071,8 @@ NON-optional peer, read from the SDK's own manifest — so the workspace's singl
 on that one zod satisfying `^3.25 || ^4.0`, and **the check is re-run on any zod bump**).
 **Seven filed**, five of them mid-tranche by the tasks that
 surfaced them: `named-run-bodies-claim-ok-with-no-host.md`, `refusal-class-has-no-input-arm.md`
-and `member-id-is-a-display-label.md` (Task 1),
+and `member-id-is-a-display-label.md` (Task 1 — *all three RESOLVED and deleted at T4c Task 3;
+named here as the historical record of what T4b filed, not as live paths*),
 `read-only-chrome-for-an-unclaimed-session.md` (Task 2's declared narrowing of the settled
 policy — this tranche ships steal plus the cover, because read-only is a per-control decision
 across the whole shell and half of it would be worse than none),
@@ -5116,3 +5120,178 @@ none needs a design decision and every one of them is cheapest inside work alrea
   have one running and an agent calling it, which is the cheapest place this can be found out.
   It is a note for the walk rather than a defect: nothing predicts a problem, and nothing has
   looked.
+
+
+---
+
+## 27. Foundations T4c — an agent builds a world (2026-08-10)
+
+T4b gave an agent EYES: three read tools, a backchannel that relays a question into the
+claimed tab, and a refusal vocabulary honest enough to branch on. T4c gives it HANDS. The
+gate is one script end to end — `world_list → generate → edit_apply → session_query →
+world save+bake → viewport_capture` — and what it needs is a way to write that is neither a
+second engine API nor a puppet of the pointer.
+
+*(Tasks 0–2 recorded themselves in place, in the sections they changed: the claim re-key at
+§26.1, MSAA's exit at §1413 and §1861, the capture verb at §2871. This section starts at
+Task 3, which is the first that adds a seam rather than moving one.)*
+
+### 27.1 The mutation seam — `applyOps`, `generate`, and the named-verb door (Task 3)
+
+**Three doors, and only one of them is new machinery.** `edit.apply` and `generate` are
+answerer rows over `fieldHostRef` reaching two new `FieldHost` members; `action.run` is a
+door onto the 39 verbs the editor already had. All three are brokered commands on the
+existing backchannel — same ask, same correlation table, same typed refusals — because a
+write does not need a different relay from a read.
+
+**`FieldHost.applyOps(ops)` is a composition, not a capability.** It rides
+`field.logApplyGroup`, which core shipped at T4a with **zero editor consumers** and a TSDoc
+naming this exact caller: *"A caller handing over a list it WROTE — a batched op stream
+rather than a drawn gesture — has no other way to find the record to fix."* One batched verb
+rather than one per op, deliberately: the group is ONE undo entry, so an agent's batch is one
+⌘Z for the human. That is the **named-stroke guardrail**, and it buys the human's undo stack
+back without needing op attribution — which is post-T4 and fenced.
+
+**The failure posture is the whole design, and it is the OPPOSITE of the interactive one.**
+`field-tool.ts`'s `commitToolOp` catches every setup-loud throw, reports it on the host's own
+channel, and DROPS the op — right for a pointer drag, where a human is watching and a throw
+out of `pointerdown` would strand the gesture mid-capture. None of that holds for a caller
+with no canvas. `applyOps` **returns** its refusal, typed, and says nothing out loud: an
+agent-caused refusal must not interrupt the person in the tab, which is T4b's ruling carried
+forward. What it DOES copy is the two visibility lines — `markDirtyWithNeighbors` and
+`notifyHistory` — because a write that skipped either would land in the store and be
+invisible, and an agent's edit must be the same event to every surface as a human's.
+
+**`generate` commits atomically and opens no session.** `startStamp` is the interactive
+route and it opens one — or, with nothing selected, arms region-draw and waits for two clicks
+that never come from a caller with no pointer. Worse than useless: a session left standing
+refuses `world.bake` (whose `enabled` requires `ctx.session === null`) and every family key
+with it, so the gate script would die at the step after this one. So `generate` calls
+`field.commitGenerator` directly — what `commitStampSession` calls at the END of the
+interactive path — and touches session state at no point. Every default is READ and never
+invented: params from the def's own `defaults` (overlaid, so naming one keeps the rest), seed
+from a fresh roll, region from the current selection. **With no region and no selection it
+REFUSES** rather than inventing a box at the origin: `startStamp` has no third answer either,
+and a silent guess at the one input that decides where the world changes is the class of
+default that produces a confident commit in the wrong place. The outcome is the committed
+record READ BACK — entity id, generator, seed, region, params — never an echo of the request,
+so a caller that named no seed can still reproduce what it made.
+
+**Both verbs refuse under a live stamp session, and it is one rule.** A session holds a
+GHOST computed against the store as it stands; `commitStampSession` then commits from those
+same inputs, so the ghost IS what will land — with one documented exception, a store that
+moved underneath the preview. D-7 suspends the brush for the whole of a session, so the
+interactive path cannot reach that state; a caller that is not the pointer is the only one
+that can. `logApplyGroup` writes cells and `commitGenerator` writes cells, so the mechanism
+does not distinguish the two verbs and neither does the refusal. A PENDING stamp is not a
+session and deliberately does not block: nothing has been evaluated, so there is no ghost to
+invalidate.
+
+**The residue is declared, not fixed, by ruling.** `logApplyGroup`'s all-or-nothing covers
+VALIDATION only — an op that clears `assertOpValid` and dies in the applier leaves earlier
+writes in the store with no entry describing them. `applyOps` restates that and, since the T4c review, **tells the two
+cases apart and answers them differently.** The discriminator is structural, not prose:
+`logApplyGroup` wraps a pass-1 rejection with `cause` set and nothing else in that file sets
+one, so `cause !== undefined` IS "validation refused this before touching the store". A
+pass-1 rejection is `refused(…, "input")` — nothing moved, fix the op. A pass-2 applier throw
+is **`failed`**, because the caller's argument is not what broke and the world is NOT fine,
+and its message carries what no caller could otherwise discover: the ops before the failure
+are written, unrecorded and UNMESHED (the dirty set exists only on the success path). An
+earlier version lumped both onto `"input"` under a docblock asserting they *"cannot be told
+apart"* — a claim the cited code disproves, and one that made the verb lie in exactly the
+case that matters most.
+
+**`generate` classifies differently, and the asymmetry is deliberate.** Its catch covers
+`commitGenerator`, which reaches `def.evaluate` — arbitrary generator code — so the throws
+behind it span the caller's params, a defect in the DEF (`emits` contradiction, an invalid op
+in the evaluated span) and a bug in the generator itself. Those disagree about whose fault
+they are, and nothing structural separates them (the two that most need separating both
+arrive raw from `evaluateGenerator`). So the honest class is the one claiming nothing:
+`failed`. Under `"input"` an agent meeting a broken def would retry with different params for
+ever. The two causes `generate` CAN attribute — an unresolvable id and a missing region — are
+settled before the call and keep `"input"`. Pass-2 rollback stays
+`docs/backlog/engine-architecture/oplog-group-apply-is-not-a-transaction.md`'s, whose trigger
+this task fired.
+
+**`action-registry/` stopped being `field-host/`'s sibling and became a layer beneath it.**
+`applyOps` answers an `ActionResult`, and `result.ts` puts that vocabulary below the chrome
+precisely so non-chrome callers can hold it — *"there is ONE vocabulary of refusal in this
+editor"*. A host-local result type converted in the chrome verb was the alternative and is
+the second-name-for-a-subset that file argues against. The edge is **asserted rather than
+merely permitted**: `tests/no-chrome-leakage.test.ts` now pins that `field-host/` imports
+exactly `../action-registry/result.ts` from that directory and nothing else — the file, not
+the barrel, so `schemas.ts`'s zod stays unreachable from the host's graph. Before this the
+reverse direction was banned and this one was simply unguarded, which is the accident-of-file-
+layout the repo's boundary rule exists to prevent.
+
+**`RefusalClass` has eight arms.** `input` — *the ARGUMENT was wrong, and the world is fine*
+— arrived with its first caller, exactly as its docblock said it would wait for. It is the
+counterpart to `inert`: where that one says *change the state and ask again*, this says *ask
+again differently*. The two refusals that were miscarrying `inert` moved (`useWorld`'s invalid
+world name, `edit.delete`'s non-selected `entityId`), joined by every refusal the mutation
+seam raises. `member` did NOT move and is the near miss worth naming: it is also about the
+request, but it carries a LIST of what would have worked.
+
+**The dispatcher ref is the one new chrome seam.** `runNamed` takes an `ActionCtx`; the
+answerer registry holds a serialized projection and is memoized `[]` for the feed's stability
+rule. So `action.run` travels through a `RefObject<(id, input?) => Promise<ActionResult>>`
+that `ActionContextProvider` fills — `sessionStateRef`'s shape exactly, one verb over, and
+for the same reason: the ctx is assembled far below the mount point. The two together are one
+ref to READ the session and one to DRIVE it, both closing over the same ctx, so an agent's
+picture and an agent's actions cannot come from different assemblies of the chrome. **The
+created-above/filled-below precedent list therefore has FOUR members** — `bakeBusyRef`
+(filled by the shell's world verbs), `viewportFocusRef` (installed by `CanvasHost`),
+`sessionStateRef` and now `dispatchRef` (both filled by `ActionContextProvider`).
+`fieldHostRef` is still not one of them, being a ref `App` owns end to end, and
+`claimLostRef` is not either — it is written inside a hook `App` itself calls.
+
+**`edit.apply` and `generate` are NOT registry rows, and that is a product decision.**
+`CommandPalette.tsx` renders every descriptor, so a row would put "Apply ops" and "Generate"
+in front of a human as commands they cannot meaningfully invoke — nobody types a JSON op list
+into a command palette. What a row would have bought is the gate, and the host applies the
+only clause of it that means anything for a write (the live-session refusal above). It would
+also have forced `generate` to discard the entity id, since `ACTION_OK` is a payload-free
+frozen singleton and widening it would make most of a 39-row table carry a meaningless field.
+
+**`action.run` builds no allow-list, and holds one DENY-list.** Which ids EXIST is the
+registry's answer and `runNamedById` is the one funnel that knows the table — it refuses an
+unknown id as `input` and names the verbs that do exist, because the caller cannot see a
+menu. Which ids are ADVERTISED is the MCP door's separate choice.
+
+**`edit.undo` and `edit.redo` are FENCED at the daemon**, and that is a user ruling enforced
+rather than a policy this layer invented. The tranche's stop condition — no agent undo verb —
+was satisfied literally, and `action.run` then made it moot: a door that accepts `edit.undo`
+IS an agent undo verb wearing a different spelling. Without op attribution the log is a bare
+LIFO with no `origin` on an entry, so an agent's undo pops whatever is on top, routinely the
+human's own stroke; undo and attribution are to be designed together, and the fence's message
+says so and names the lift condition. It is **not** the second allow-list the plan forbade —
+that was about not keeping a second copy of *which ids exist*; this is two ids the user ruled
+out, named once, which cannot drift out of step with a registry it does not mirror. It lives
+DAEMON-side rather than in the chrome's answerer because the `bun run edit` loop restarts the
+daemon on every source change while an open tab keeps the bundle it booted with: a chrome-side
+fence would hold only for tabs that did not need it. And it is a rule rather than a reliance
+on `mcp.ts` listing three tools — advertisement is not enforcement, which is the gap this
+tranche keeps closing elsewhere. The daemon validates the half it can: the six
+verbs with an input schema have it applied from `action-registry/schemas.ts`, which makes the
+daemon the **first consumer of that directory** — by relative path, so the export-map entry
+still has no consumer and its trigger (an outside-the-package importer) has still not fired.
+
+**A member id is data now, not copy.** `ToolFamilyMember.id` was the member's LABEL for four
+of the five families, harmless while it was a React key and a cmdk value — and load-bearing
+the moment T4b made it `runMember`'s caller-facing argument. It is `memberRefId(m.ref)` since
+T4c: `dig`, `fill`, `paint`, `smooth`, `segment`, `box`, `material`, `void`. Two ids no longer
+echo their labels (`material` is displayed "Wand", `void` is "Room"), which is the point. The
+palette's cmdk `value` contains the id, so **its `keywords` carrying `member.label` became
+load-bearing** rather than belt-and-braces — a human searching "Wand" matches only through
+that, and dropping it degrades search while every other test stays green. Pinned for exactly
+that reason.
+
+**The 14 silent-ok host bodies are closed.** `handOffToHost`/`okAfterHost` replaced
+`ctx.host?.`, refusing `inert` when the engine is not up — T4b's member-arm fix one door over,
+with the precondition stated at the effect rather than in the funnel (a body reaching
+`ctx.run` needs no host, so a blanket guard would refuse it for a fact about a different
+family). The five deliberate `enabled: () => true` stances were KEPT: each argues about a host
+that EXISTS and has nothing to do, which is not an argument for answering `ok` when there is
+no host at all. `edit.delete` is the variant — its `okAfter` claim ("the confirm was raised")
+was always honest, and what was wrong was raising a destructive prompt over a host that could
+not serve the answer; resolving the host BEFORE the question makes that unreachable.

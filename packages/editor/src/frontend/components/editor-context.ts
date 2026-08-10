@@ -2,7 +2,10 @@ import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 import type { FieldHost } from "../../field-host/index.ts";
 import type { UiStore } from "../lib/persist.ts";
-import type { SessionStateReader } from "../lib/session-answerers.ts";
+import type {
+  ActionDispatch,
+  SessionStateReader,
+} from "../lib/session-answerers.ts";
 import type { EditorState } from "../lib/state.ts";
 import type { ConfirmRequest } from "./ConfirmDialog.tsx";
 
@@ -137,6 +140,20 @@ export type EditorContextValue = {
    *
    *  `ActionContextProvider` is the only writer — it is where the ctx is built. */
   sessionStateRef: RefObject<SessionStateReader | null>;
+  /** How the agent backchannel DRIVES this session (foundations T4c): a thunk that
+   *  dispatches a named action by id against the live {@link ActionCtx}, or `null` before
+   *  the shell has committed a render.
+   *
+   *  `sessionStateRef`'s shape exactly, one verb over — same owner (`App` creates it,
+   *  `ActionContextProvider` fills it), same reason (the ctx is assembled far below the
+   *  mount point), same readiness spelling. The pair is deliberate: one ref to READ this
+   *  session, one to DRIVE it, and both closing over the one ctx so an agent's picture and
+   *  an agent's actions cannot come from different assemblies of the chrome.
+   *
+   *  It carries the DISPATCHER and not the table: which verbs exist stays
+   *  `frontend/lib/actions.ts`'s answer, and `runNamedById` is what refuses an id that is
+   *  not one of them. */
+  dispatchRef: RefObject<ActionDispatch | null>;
   /** The viewport focus seam ({@link ViewportFocus}), as a ref: App creates it,
    *  `CanvasHost` fills it, and every dismissible overlay reads it through
    *  `useViewportFocusReturn`. A ref rather than state because it is filled in an effect

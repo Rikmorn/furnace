@@ -53,6 +53,14 @@ export {
   type ToolErrorSeverity,
   type ViewportGesture,
 } from "./field-host.ts";
+// The mutation seam's request and answer, beside the host that serves them — the
+// chrome's `generate` answerer names both and reaches into field-mutation.ts for
+// neither, exactly as the capture pair above. `BrushOpInput` is deliberately NOT
+// here: like `CaptureView` it lives on the neutral floor (`shared/field-op.ts`)
+// because the daemon validates it and may not touch anything that imports the
+// engine, so every layer takes it from there and this barrel would be a second
+// route to one declaration.
+export type { GenerateOutcome, GenerateRequest } from "./field-mutation.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer
 // can NAME the type without reaching into field-placements.ts.
 export type { PlacedArchetype } from "./field-placements.ts";

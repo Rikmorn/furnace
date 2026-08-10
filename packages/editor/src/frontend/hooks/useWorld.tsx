@@ -393,9 +393,15 @@ export function WorldProvider({ children }: { children: ReactNode }) {
 					// uses `notify.error` so the toast is the same one it always was). This is the
 					// only failure in `write` that `write` itself decides — every other one below
 					// belongs to `world-actions.ts`, which composes and says its own.
+					//
+					// `"input"` SINCE T4C, and it is one of the two refusals that class was split
+					// out for. It carried `"inert"`, which said *change the state and ask again* —
+					// false here in both halves: nothing about the world needs to change, and the
+					// only thing that can is the NAME in the request. An agent naming a world is
+					// the likeliest caller to meet it and the one that would have retried wrongly.
 					return refused(
 						`"${target}" is not a valid world name — ${WORLD_NAME_RULE}`,
-						"inert",
+						"input",
 					);
 				// `saveWorld` has ALREADY said this on its own channel ("bake failed: ENOSPC",
 				// "save refused — could not check whether worlds/x is tracked …"). Surfaced

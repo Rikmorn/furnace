@@ -18,6 +18,15 @@
 // (`tests/action-registry/node-door.test.ts`); what it does not yet have is a consumer. The
 // trigger that would give it one is the paragraph below, and it is not a daemon-side one.
 //
+// T4c CONFIRMED THAT VERDICT BY DOING THE THING IT PREDICTED, and the distinction is worth
+// keeping straight because the headline reads the other way. The daemon now DOES consume this
+// directory: `daemon/session-handlers.ts` imports `ACTION_INPUT_SCHEMAS` to validate
+// `action.run`'s per-id input, which makes it the first daemon-side reader of anything under
+// here. It reaches it by RELATIVE path — exactly as the paragraph above says the daemon's own
+// source does — so the bare specifier still has no importer and the export-map entry still has
+// no consumer. A daemon-side reader was never the trigger; an OUTSIDE-the-package one is, and
+// it has not arrived.
+//
 // THIS BARREL IS THE ZOD-FREE SURFACE. Everything named below is safe for the chrome to
 // VALUE-import, and that is what makes the narrowed leakage rule work: the ban is on
 // `action-registry/schemas` (and bare `zod`), not on the directory, so a barrel that
