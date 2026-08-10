@@ -19,17 +19,20 @@
 // the bare noun is the pure module — and `field-camera.ts`'s own header already
 // used the word "rig" for the thing this file turned out to be.
 //
-// TWENTY-TWO VERBS OVER FOURTEEN FUNCTIONS, and the gap runs BOTH ways at once,
+// TWENTY-THREE VERBS OVER FOURTEEN FUNCTIONS, and the gap runs BOTH ways at once,
 // which is the third mechanism (`field-host-clusters.md` §2.8) showing up in one
 // row. FIVE of the fourteen are private here — `aimCamera`, `placeCamera`,
 // `applyOrbit`, `orbitPivot` and `frameTargetBox` each have callers only inside
-// this file. THIRTEEN verbs are new surface (22 − the 9 of the 14 that are
-// exported), and they are all the same thing said thirteen ways: state the
+// this file. FOURTEEN verbs are new surface (23 − the 9 of the 14 that are
+// exported), and thirteen of them are the same thing said thirteen ways: state the
 // closure let its neighbours read and write directly now has an act's name —
 // `bind`/`unbind`/`release` for the lifecycle's four assignments,
 // `noteKeyDown`/`noteKeyUp`/`releaseKeys` for the fly set's three, `wheelDolly`
 // for the banked travel, `centreOn` for the drift report's re-centre, and five
-// accessors.
+// accessors. The FOURTEENTH is `orbit`, and it is a different animal — not a
+// closure binding acquiring a name but a SIXTH accessor added at foundations T4c,
+// for a reader outside the rig that has to derive a view from the rig's framing
+// without moving it. Its docblock argues the deep copy that makes that safe.
 //
 // `applyOrbit` IS THE ONE TO READ THE SPLIT BY, and its call sites are what
 // decided three of those thirteen. It had EIGHT in the closure — the file's
@@ -151,10 +154,26 @@ type Vec3T = [number, number, number];
  *  five across the directory is still a prune-tranche job. */
 type Box = { min: Vec3T; max: Vec3T };
 
-/** The editor's vertical field of view. One reader — {@link CameraRig.bind} — and
- *  it travelled with it; the chrome states the same angle nowhere, because the
- *  only thing outside this file that could care is a projection the host owns. */
-const EDITOR_FOV_Y = Math.PI / 3;
+/** The editor camera's PROJECTION — everything `camera.perspective` needs except
+ *  the aspect, which is the one member that differs between the two cameras that
+ *  read this.
+ *
+ *  ONE RECORD RATHER THAN THREE CONSTANTS, and exported, since foundations T4c.
+ *  It was a lone unexported `EDITOR_FOV_Y` beside two literals inline in
+ *  {@link CameraRig.bind}, on the reasoning that the only thing outside this file
+ *  that could care is a projection the host owns. That is still true and there is
+ *  now a second such thing: `field-capture.ts` builds the OFF-SCREEN camera an
+ *  agent's photograph is taken through. Borrowing the viewport's composition means
+ *  everything but the target and the pixel count is the same number — a capture
+ *  with its own near plane would clip geometry the human can see, which is the
+ *  quietest possible way for the photograph to stop being the viewport. Grouping
+ *  the three is what stops the next reader single-sourcing one of them and
+ *  re-typing the other two. The chrome still states none of them. */
+export const EDITOR_PROJECTION = {
+  fovYRad: Math.PI / 3,
+  near: 0.1,
+  far: 1000,
+} as const;
 
 /** What the camera needs from the rest of the host. Nine members, every one a
  *  call.
@@ -262,6 +281,33 @@ export type CameraRig = {
    *  snapshot are both this, so a field added to the pose cannot reach one and
    *  miss the other; `exportArtifact` takes its yaw. */
   pose(): CameraPose;
+  /** The WHOLE rig state — pivot, distance and both angles — as a fresh record
+   *  with a fresh `target` array. {@link pose} is two of its four fields and stays
+   *  the seam every EXISTING reader uses; this one exists for the single caller
+   *  that has to re-aim the rig without moving it (`field-capture.ts` derives an
+   *  axis-snapped view for an agent's photograph through the same `snapToAxis`
+   *  the `snapView` verb calls).
+   *
+   *  **DEEP-COPIED, and that is the member's whole contract.** `snapToAxis`
+   *  returns `{...s, yaw, pitch}`, which SHARES the `target` array with its input
+   *  — so handing out the live `orbitState` would put the rig's pivot behind a
+   *  reference in another module, one `target[1] = …` away from moving the human's
+   *  camera from a read. Copying here is what makes "a supplied pose never touches
+   *  the rig" a property of this file rather than a promise the caller keeps.
+   *
+   *  **THE COPY ITSELF IS NOT DIRECTLY PINNED**, because nothing outside this module can
+   *  reach `orbit()` — it is not a `FieldHost` member, so no test can take one and mutate
+   *  it. What IS pinned is the consequence: `tests/field-capture.gpu.test.ts` reads the pose
+   *  seam and the baked `playerStart` either side of three posed captures and requires both
+   *  byte-identical, and `tests/field-host/field-capture.test.ts` requires the derivation
+   *  over an orbit to mutate nothing. Removing the copy would red neither today; it would
+   *  leave them one careless line away from redding.
+   *
+   *  NOT a `CameraPose` widening, deliberately: `pose` is a published wire shape
+   *  (`shared/wire.ts`'s `SessionState.camera`, the pose channel, `exportArtifact`),
+   *  and growing it would put the pivot on a wire that has never carried world
+   *  coordinates. Two readers, two shapes, one state. */
+  orbit(): OrbitState;
   /** `FieldHost.cameraAimedByHand`: has an interactive gesture or an
    *  aim-at-a-thing verb moved this camera. */
   aimedByHand(): boolean;
@@ -521,12 +567,7 @@ export function createCameraRig(deps: CameraRigDeps): CameraRig {
   return {
     cam: () => cam,
     bind(c) {
-      cam = camera.perspective({
-        fovYRad: EDITOR_FOV_Y,
-        aspect: 1,
-        near: 0.1,
-        far: 1000,
-      });
+      cam = camera.perspective({ ...EDITOR_PROJECTION, aspect: 1 });
       applyOrbit();
       unbindCamera = camera.bindToCanvas(c, cam);
     },
@@ -552,6 +593,7 @@ export function createCameraRig(deps: CameraRigDeps): CameraRig {
     },
     eye: cameraEye,
     pose,
+    orbit: () => ({ ...orbitState, target: [...orbitState.target] }),
     aimedByHand: () => cameraAimed,
     subscribePose(cb) {
       return cameraPoseChannel.subscribe(cb);

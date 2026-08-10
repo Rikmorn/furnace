@@ -9,7 +9,10 @@ import { createClaims } from "../src/daemon/claims.ts";
 import { EditorError } from "../src/daemon/errors.ts";
 import { createEventHub, type EventHub } from "../src/daemon/events.ts";
 import { dispatch, type Handlers } from "../src/daemon/handlers.ts";
-import { createSessionHandlers } from "../src/daemon/session-handlers.ts";
+import {
+  CAPTURE_ASK_TIMEOUT_MS,
+  createSessionHandlers,
+} from "../src/daemon/session-handlers.ts";
 import type { SessionAnswer, SessionRequest } from "../src/shared/wire.ts";
 
 // The relay, at the level where its RULES live — the `tests/claims.test.ts` posture, and
@@ -224,6 +227,62 @@ test("the default budget sits inside the client timer that would otherwise expir
   // could reach it. Raising this constant past the floor is the edit this case exists to
   // stop.
   expect(DEFAULT_ASK_TIMEOUT_MS).toBeLessThan(60_000);
+});
+
+test("the capture budget is bigger than the default AND still inside the same floor", () => {
+  // The per-method budget `ask`'s third parameter exists for, spent for the first time at
+  // T4c: `viewport.capture` makes the tab RENDER (a mesh pass, up to thirteen line passes,
+  // a GPU readback and a PNG encode) where every other method reads a record it is already
+  // holding. Both halves of the inequality are the argument, so both are pinned — bigger,
+  // or the parameter buys nothing; and still under the 60 s client floor the case above
+  // explains, or the agent's own request dies first and our typed error reaches nobody.
+  expect(CAPTURE_ASK_TIMEOUT_MS).toBeGreaterThan(DEFAULT_ASK_TIMEOUT_MS);
+  expect(CAPTURE_ASK_TIMEOUT_MS).toBeLessThan(60_000);
+});
+
+test("viewport.capture RELAYS — the daemon asks the claimed tab and hands back what it said", async () => {
+  // The daemon computes nothing about a picture and could not: the pixels live in the
+  // other bundle. What is pinned here is that the command is a relay with a schema —
+  // the method name that goes out, the validated params that ride with it, and the
+  // payload coming back untouched.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "viewport.capture", {
+    view: "+y",
+    size: 512,
+  });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("viewport.capture");
+  expect(req.params).toEqual({ view: "+y", size: 512 });
+  const payload = { png: "aGk=", width: 512, height: 288, view: "+y" };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+});
+
+test("viewport.capture REFUSES a view the host cannot serve, and a size out of range", async () => {
+  // The schema is the enum the HOST publishes (`shared/capture.ts`'s `CAPTURE_VIEWS`) and
+  // the same bounds it clamps to — one declaration, so an arm added on one side cannot go
+  // missing on the other. Refusing rather than clamping is the daemon's half of that split:
+  // a schema is also what the MCP door advertises, and an agent told the range stops
+  // guessing at it.
+  const { handlers, session } = daemon();
+  session("cavern");
+  expect(
+    await codeOf(dispatch(handlers, "viewport.capture", { view: "top" })),
+  ).toBe("invalid-input");
+  expect(
+    await codeOf(dispatch(handlers, "viewport.capture", { size: 4096 })),
+  ).toBe("invalid-input");
+  expect(
+    await codeOf(dispatch(handlers, "viewport.capture", { size: 2 })),
+  ).toBe("invalid-input");
+  // `z.strictObject`, like every other command here: an invented parameter is reported
+  // rather than silently dropped.
+  expect(
+    await codeOf(dispatch(handlers, "viewport.capture", { quality: 90 })),
+  ).toBe("invalid-input");
 });
 
 test("a handler that answers `undefined` round-trips — the key JSON drops is not malformed", async () => {

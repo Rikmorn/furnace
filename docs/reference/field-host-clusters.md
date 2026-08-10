@@ -651,9 +651,15 @@ take from it.
   `selectionCell`, `ghostCube` and `shading`, FIVE bindings behind five verbs (a sixth
   accessor, `kitInstanced`, is a second spelling of `kitMat`'s handle rather than a sixth
   binding — which is why the module's own header counts eight accessors over seven handles).
-  `field-render.ts` exports
-  **ONE** verb against 5 functions, `picking`'s shape at four times the width — its four
-  helpers each have exactly one caller (the fifth), and the fifth has exactly one (`tick`).
+  `field-render.ts` exported
+  **ONE** verb against 5 functions at T3d, `picking`'s shape at four times the width — its
+  four helpers each had exactly one caller (the fifth), and the fifth had exactly one
+  (`tick`). **It is TWO verbs against 6 functions since foundations T4c (2026-08-10)**, and
+  the second one is what the mechanism predicts rather than a counter-example: a SECOND
+  outside caller appeared (`field-capture.ts`, which submits the same draw lists at an
+  off-screen texture), so `scene` split into `compose` + `scene` and the seam widened by
+  exactly the one function that acquired a second caller. The four helpers are still
+  private, still one-caller-each.
   So the third mechanism is now on the board: **a row's function count measures the cluster;
   its MUTATED-BY column, its READ-BY column, and its internal call graph each measure the
   seam, and they can disagree in both directions at once.**
@@ -1199,7 +1205,7 @@ sweep.
 |---|---|---|---|---|---|---|
 | `world` | 8 → **3** (`store`, `log`, `dirty`, `worker`, `chunkMeshes` stayed — substrate VALUE members) | 14 → **0** | 5 | 18 | 94 | 17 — **EXTRACTED 2026-08-08** (`field-world.ts`, T3d Task 6, the LAST cluster out); **all 17 stand and all 17 now cross a module line**. The 12 outbound become MODULE→MODULE (their targets left at Tasks 1/2/5, their writer here); the 5 inbound become closure→MODULE as TWO verbs, `discardChunkRenders` and `redirtyAll` — which is what takes §5.7's in-closure residual to ZERO. Its SEAM is **18** verbs over a 14-function row with **5** private |
 | `stamp` | 7 → **1** (`ghostMeshes` stayed — substrate) | 19 → **0** | 11 (12 until `commitSession` died) | **13** | 45 | 6 — **EXTRACTED 2026-08-07** (`field-machine.ts`, with `move` + `gesture`); at head **2 stand as cross-module calls** (`setDrift`, `noteReconfigureMs` — §5.5) and **4 are gone**, internalised |
-| `render` | 5 → **0** | 5 → **0** | 0 | 13 | 30 | 0 — **EXTRACTED 2026-08-08** (`field-render.ts`, T3d Task 3); nothing stayed. Its 30 read edges all became module reads: 4 through the substrate, 26 through a 29-member deps record. Its SEAM is **ONE** verb — `picking`'s shape at four times the width (§2.8) |
+| `render` | 5 → **0** | 5 → **0** | 0 | 13 | 30 | 0 — **EXTRACTED 2026-08-08** (`field-render.ts`, T3d Task 3); nothing stayed. Its 30 read edges all became module reads: 4 through the substrate, 26 through a 29-member deps record. Its SEAM was **ONE** verb — `picking`'s shape at four times the width (§2.8) — and is **TWO since foundations T4c** (`compose` + `scene`), because `field-capture.ts` needed the same draw lists aimed at an off-screen texture. The 29-member deps record and its zero mutations are UNCHANGED by that split |
 | `lifecycle` | 5 | 1 | 2 | 11 | 76 | 24 — **all 24 stand and all 24 now cross a module line** (§5.1) · **DECLARED FACADE-RESIDENT 2026-08-08** (T3d Task 6): its state cannot leave (`requestContext` is a substrate VALUE member, `ctx`/`disposed` BACK two substrate thunks eight modules read through, `raf`/`lastFrameT` drive a loop whose ends are `input`'s), its teardown ORDER is load-bearing across seven modules and a context guard, and `init`/`dispose`/`tick` are what a facade over framework + tools owns. Verdict at source, above `return {` |
 | `input` | 2 | 13 → **14** (12 of the original 13 — `escapeLadder` deleted — plus the capture pair) | 1 | 10 → **0 clusters + 3 modules** (`field-tool.ts`, `field-camera-rig.ts`, `field-targeting.ts`, all as WRITES) | 59 → **13** (**0** reads out since 2026-08-08, 1 read in, 12 writes out — re-derived; every read it had left was a `tool`/`camera` binding and each went inside the verb the listener now calls, and the 8 machine-accessor read sites plus the handler delegations are CALLS counted nowhere, per the map's own rule) | 20 → **12** — **PARTIALLY HOLLOWED 2026-08-07**: **all 12 now cross a module line while every writer stayed** (§5.2), which is the disposition no other subsection has |
 | `catalogs` | 3 | 0 | 3 | 10 | 26 | 2 — **both now cross a module line** (T3d Task 6 turned `ret.setMaterialTable`'s two `world` writes into `world.discardChunkRenders` + `world.redirtyAll`) · **DECLARED FACADE-RESIDENT 2026-08-07** (T3d): probed and it stays — 0 functions, and all three setters are facade members. `table()` + `archetypeById()` already ride the substrate; `archetypes` is barred from it (one extracted reader) and rides as a function dep. Verdict at source, `field-host.ts` @1554 |

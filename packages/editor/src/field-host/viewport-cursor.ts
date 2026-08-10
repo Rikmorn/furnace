@@ -11,7 +11,7 @@
 // Pure and GPU-free, for the reason every other pure module here exists: a
 // decision table inside the frame path can only be asserted through a live GPU
 // context, and these two are exactly the kind that go quietly wrong. The host
-// owns the drawing (`renderCursorAffordance`) and the DOM write (`syncCursor`);
+// owns the drawing (`cursorAffordanceBatch`) and the DOM write (`syncCursor`);
 // the geometry the marks are made of stays in `field-ghost.ts`.
 //
 // `ViewportGesture` is a TYPE-ONLY import from `field-host.ts` — erased at build,

@@ -322,6 +322,20 @@ export function makeStubHost(
     frameSelection: mock(),
     frameWorld: mock(),
     snapView: mock(),
+    // The capture verb answers a FIXED 2×1 red-then-blue PNG-shaped payload — the
+    // bytes are not a PNG and are not meant to be. What a chrome-side caller has
+    // to get right is the base64 encoding and the passthrough of `width`/`height`/
+    // `view`, and asymmetric bytes are what makes an encoding that reverses or
+    // truncates them visible. The real encoder is `field-capture.ts`'s and is
+    // pinned (as far as it can be headlessly) in `tests/field-capture.gpu.test.ts`.
+    captureScene: mock(() =>
+      Promise.resolve({
+        png: new Uint8Array([1, 2, 3, 250]),
+        width: 2,
+        height: 1,
+        view: "user" as const,
+      }),
+    ),
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
@@ -484,6 +498,7 @@ export function makeStubHost(
     // other answer sets it through `setCameraAimed` below.
     cameraAimedByHand: () => cameraAimed,
     snapView: calls.snapView,
+    captureScene: calls.captureScene,
     subscribeEntities: (cb) => {
       calls.subscribeEntities(cb);
       return seams.entities.subscribe(cb);

@@ -12,7 +12,7 @@
 // this move could therefore only mean the extraction changed behaviour.
 //
 // AND ITS DATA SURFACE WAS ALREADY THE SUBSTRATE'S. `store`, `worker`, `ctx()`,
-// `disposed()` and the `voidCastMeshes` map that `renderScene` still draws from
+// `disposed()` and the `voidCastMeshes` map `compose` still builds the draw list from
 // (`field-render.ts`'s since T3d, the host's before that) are five of the sixteen
 // members `substrate.ts` had declared and left unconsumed. That is what shapes
 // the deps record below: ONE substrate member carrying everything shared, and
@@ -88,7 +88,7 @@ export type VoidCastDeps = {
    *  the budget is checked against, and the cell size the job is sized in),
    *  `worker` (the request pipe), `ctx()` and `disposed()` (the two liveness
    *  guards), and `voidCastMeshes` — the map this module fills and empties and
-   *  `field-render.ts`'s `renderScene` draws from, shared BY IDENTITY, which is
+   *  `field-render.ts`'s `compose` builds the draw list from, shared BY IDENTITY, which is
    *  the only reason the two halves can never disagree about what is on screen. */
   substrate: HostSubstrate;
   /** Report something the user should see (console + the panel subscriber).
@@ -114,7 +114,7 @@ export type VoidCastDeps = {
 /** The X-ray layer's three verbs and the one fact the host still reads off it.
  *
  *  No state is exposed. The meshes live in the substrate because
- *  `field-render.ts`'s `renderScene` draws them, and the two generations are
+ *  `field-render.ts`'s `compose` lists them, and the two generations are
  *  private because nothing outside ever
  *  had a use for either — the map's whole outbound surface was `voidCastJobGen`
  *  read by `tick`, which {@link VoidCast.jobGen} is.

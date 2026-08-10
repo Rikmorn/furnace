@@ -66,11 +66,14 @@ export function App() {
 	// why it mounts here rather than beside the chrome's latched mirrors.
 	//
 	// MEMOIZED, because the registry is no longer a module constant: `session.state` closes
-	// over the ref above, so the record is built here. The memo is what satisfies the
+	// over the ref above and `viewport.capture` over `fieldHostRef`, so the record is built
+	// here. The memo is what satisfies the
 	// stability rule the feed's dep list imposes on this callback — a fresh identity per
 	// render would open and close one EventSource per render. `[]`, and it is the honest
-	// list rather than a silenced one: the only thing captured is a ref OBJECT, which React
-	// guarantees never changes, and the reader inside it is read at ask time.
+	// list rather than a silenced one: the only things captured are ref OBJECTS, which React
+	// guarantees never change, and what is inside them is read at ask time. That second one
+	// is why the capture answerer can be built before the engine module has even loaded —
+	// it reads the slot when it is asked, not when it is made.
 	//
 	// The empty list is MACHINE-CHECKED, which is worth naming because a reader has no other
 	// way to know: `lint/correctness/useExhaustiveDependencies` is live in this package and
@@ -78,7 +81,10 @@ export function App() {
 	// naming `sessionStateRef` here earns *"specifies more dependencies than necessary"* and
 	// dropping a real dep from the effect in `useActionContext.tsx` earns *"does not specify
 	// its dependency on ctx"*. So this list is not a judgement call anyone has to trust.
-	const answerers = useMemo(() => createSessionAnswerers(sessionStateRef), []);
+	const answerers = useMemo(
+		() => createSessionAnswerers(sessionStateRef, fieldHostRef),
+		[],
+	);
 	const onSessionRequest = useSessionAnswer(answerers);
 
 	// The daemon's SSE feed. Carried in context as the refetch trigger for whatever renders

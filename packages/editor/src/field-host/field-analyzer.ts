@@ -298,7 +298,7 @@ export type AnalyzerDeps = {
  * {@link Analyzer.setSelectedFlag} — the RAW selection write, which is on the seam
  * because the viewport's own marker click (`field-picking.ts`) goes straight to
  * it, past the public verb's refusal and framing. The next four are FACTS read off
- * the advisor: two layers for `renderScene`, one meter for the stats push, and
+ * the advisor: two layers for `compose`, one meter for the stats push, and
  * {@link Analyzer.markerCount} — which is the SIXTH facade member, sitting here
  * rather than above because what it publishes is a fact and not a verb. The last
  * eight are the map's inbound mutation edges as verbs — every one named for the
@@ -330,16 +330,16 @@ export type Analyzer = {
    *  press. */
   setSelectedFlag(key: string | null): void;
   /** The marker layer's instanced mesh, or `null` when nothing is visible or
-   *  before GPU init. `renderScene` pushes it under the `flags` layer gate.
+   *  before GPU init. `compose` pushes it under the `flags` layer gate.
    *
    *  The MESH and not the `{ im, g }` pair it is half of: the geometry exists only
-   *  so this module can free it, and `renderScene` never had a use for it.
+   *  so this module can free it, and `compose` never had a use for it.
    *  `VoidCast.jobGen` states the ethic — the seam publishes the fact rather than
    *  a second derivation of it — and a pair here would be a second handle on GPU
    *  state whose whole lifecycle is {@link Analyzer.destroyMarkers}'s. */
   markerMesh(): mesh.InstancedMesh | null;
   /** The selected finding's cell outline, or `null` when nothing resolves.
-   *  `renderScene` draws it under the same gate. */
+   *  `compose` lists it under the same gate. */
   selectionBatch(): LineBatch | null;
   /** How many markers the last rebuild DECIDED on — settled before the GPU guard,
    *  so it is honest on a host that has never initialized. Backs
@@ -863,7 +863,7 @@ export function createAnalyzer(deps: AnalyzerDeps): Analyzer {
   // tests/field-host/field-flags.test.ts, and `summary.selected`'s own resolution
   // is covered there and in tests/field-host-flag-select.test.ts. An accessor added
   // for one assertion is not worth the surface; the gate is the eyeball check. The
-  // third of the three is the cell layer's `selection` gate — see renderScene.
+  // third of the three is the cell layer's `selection` gate — see compose.
   let flagSelectionBatch: LineBatch | null = null;
 
   const rebuildFlagSelection = (summary: FlagsSummary): void => {

@@ -123,8 +123,8 @@ export type SegmentDeps = {
 
 /** The segment gesture's live state and the six functions over it.
  *
- *  The three readers exist because the host still draws and routes: `renderScene`
- *  needs both batches, and `renderCursorAffordance` and the pointer-move branch
+ *  The three readers exist because the host still draws and routes: `compose`
+ *  needs both batches, and `cursorAffordanceBatch` and the pointer-move branch
  *  need to know whether a point is down. They are calls rather than fields for the
  *  same reason {@link SegmentDeps.digRadius} is: the values move. */
 export type SegmentBrush = {

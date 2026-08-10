@@ -219,7 +219,7 @@ function generatorSchemaProperties(
 export type MachineDeps = {
   /** The shared substrate: the store, the log, the worker, the material table,
    *  the entity catalog index, the GPU context, the disposed latch, and the
-   *  `ghostMeshes` map this module fills and `field-render.ts`'s `renderScene`
+   *  `ghostMeshes` map this module fills and `field-render.ts`'s `compose`
    *  draws from. That map stays a substrate VALUE member rather than moving
    *  here, on the
    *  `voidCastMeshes` precedent: the meshes this module builds and the loop that
@@ -434,8 +434,8 @@ export type MachineDeps = {
 /** The session + gesture machine's live state, the verbs over it, and the four
  *  pointer handlers that arbitrate between them.
  *
- *  The five readers exist because the host still draws and reports: `renderScene`
- *  needs the placement ghost and both suppression facts, `renderCursorAffordance`
+ *  The five readers exist because the host still draws and reports: `compose`
+ *  needs the placement ghost and both suppression facts, `cursorAffordanceBatch`
  *  and `syncCursor` need what is armed, and the gizmo and the cursor both need to
  *  know what a drag is doing. They are calls rather than fields for the same
  *  reason every substrate thunk is: the values move. There were SIX until T3c
@@ -451,7 +451,7 @@ export type FieldMachine = {
    *  BY REFERENCE, and READ-ONLY by contract: this is the machine's own object,
    *  not a copy. The publish seam clones ({@link subscribeStamp}) because it
    *  crosses into the chrome, which holds what it is given; this reader does not,
-   *  because it is called from `renderScene`, `syncCursor` and the pointer
+   *  because it is called from `compose`, `syncCursor` and the pointer
    *  handlers — per-frame and per-event paths where a `structuredClone` of a
    *  params record would be real cost for a caller that only ever asks whether a
    *  session exists and what phase it is in. Mutating what comes back would move
@@ -565,7 +565,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // POINTER is the default (D-F4.5-7): a host opens ready to SELECT, not ready
   // to dig, so the first click on a world can never be a destructive one. Two
   // existing behaviours fall out of that with no new rule — the brush ghost
-  // hides (renderScene draws it only while `gesture === null`) and LMB bypasses
+  // hides (compose draws it only while `gesture === null`) and LMB bypasses
   // applyTool (this module's own arbitration) — which is exactly right: nothing
   // on screen promises a stroke that will not happen. Arming a brush effect is
   // what the chrome does to get back to `null`.
@@ -592,7 +592,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // LMB-is-down for the PLAIN brush (the `gesture === null` fallthrough at the
   // bottom of the pointerdown chain), and the timestamp its throttle measures
   // from. They came with the chain in T3c and they had to: nothing outside the
-  // four pointer handlers ever read either one — not `renderScene`, not the
+  // four pointer handlers ever read either one — not `compose`, not the
   // cursor, not the facade — so they were host state only in the sense that they
   // were declared there.
   //
@@ -627,7 +627,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // preview response, cleared with them. Null = the preview placed nothing.
   //
   // The SURFACE half of the ghost lives in `substrate.ghostMeshes` (one entry per
-  // previewed chunk) rather than here, because `renderScene` draws it: the map is
+  // previewed chunk) rather than here, because `compose` puts it on the draw list: the map is
   // shared by identity, so the meshes this module builds and the loop that draws
   // them can never be two collections that disagree.
   let placementGhost: LineBatch | null = null;
@@ -1694,7 +1694,7 @@ export function createFieldMachine(deps: MachineDeps): FieldMachine {
   // stroke would carve the very thing it is being fitted to — while the
   // registry's `armsTool` gate has already stopped the user changing tools out
   // of it, so a live brush here is one the session INHERITED rather than one
-  // they chose. The ghost hides for the same reason (see renderScene).
+  // they chose. The ghost hides for the same reason (see compose).
   //
   // TWO callers, both in `pointerDown` below, because the two brushes reach the
   // store through different branches: the sphere brush's stroke, and `segment`'s

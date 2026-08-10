@@ -33,6 +33,11 @@ import { createAnalyzer } from "./field-analyzer.ts";
 // (foundations T3d Task 4). `@furnace/core/camera` went with them — nothing here holds a
 // `Camera` any more; the frame asks `cameraRig.cam()` for the one it draws with.
 import { createCameraRig } from "./field-camera-rig.ts";
+import {
+  type CaptureImage,
+  type CaptureRequest,
+  createCapture,
+} from "./field-capture.ts";
 import { FieldWorkerClient, type WorkerLike } from "./field-client.ts";
 import { createDrift } from "./field-drift.ts";
 import { createEntities } from "./field-entities.ts";
@@ -1147,6 +1152,36 @@ export type FieldHost = {
    *  clamp the look drag uses, which is what keeps the up vector defined) and
    *  KEEP the current yaw, because yaw means nothing straight up. */
   snapView(axis: "x" | "y" | "z", sign: 1 | -1): void;
+  /** Photograph the viewport as a PNG — **the editor's agent-facing eyes**
+   *  (foundations T4c).
+   *
+   *  It re-renders the SAME composition the frame is drawing (`field-render.ts`'s
+   *  `compose`) into an off-screen texture: the same lights, the same ambient,
+   *  the same layer gates, the same line overlays in the same order. Not a canvas
+   *  snapshot — the argument against one is Safari's open capture-correctness bug,
+   *  and it is written out in `field-capture.ts`'s header along with the
+   *  precedent survey that says a borrowed composition is what shipped editor
+   *  tools do.
+   *
+   *  **A NAMED VIEW NEVER MOVES THE HUMAN'S CAMERA.** `view: "user"` is the live
+   *  pose; the six axis views are derived from a COPY of the rig, keeping the
+   *  human's pivot and view distance and moving only the angles. Nothing on this
+   *  path writes camera state, which is the constraint that makes an agent safe
+   *  to have in the room while somebody is working.
+   *
+   *  **IT PHOTOGRAPHS WHAT IS ON SCREEN, INCLUDING THE REMESH LAG.** Chunks
+   *  edited a moment ago may not be in any mesh yet — the drain is paced per frame
+   *  and the mesher is a worker. This verb neither drains nor waits, on purpose:
+   *  parity with what the human can see is the whole point. Wait on an edit's own
+   *  completion before photographing its result.
+   *
+   *  ASYNC — a GPU readback plus a PNG encode, both real. The daemon's per-method
+   *  ask budget for it is raised accordingly (`daemon/session-handlers.ts`).
+   *
+   *  @throws Error - with the reason, when there is no GPU context (not
+   *    initialised, or disposed), when the canvas has no size, or when the
+   *    readback or encode fails. */
+  captureScene(req?: CaptureRequest): Promise<CaptureImage>;
   /** Subscribes to "the entity list may have changed" — a bare TICK, not a
    *  value: the subscriber re-reads {@link listEntities} itself (the records are
    *  clones; pushing them would clone on every fire whether or not anything
@@ -1691,11 +1726,11 @@ export function createFieldHost(deps?: {
   let archetypeById: ReadonlyMap<string, EntityArchetype> = new Map();
   // The committed prop layer: one instanced draw per archetype, rebuilt from the
   // op log's placement records by `field-props.ts`. Stays in the closure as a
-  // `HostSubstrate` value member because `renderScene` draws it — the module
+  // `HostSubstrate` value member because `compose` lists it — the module
   // empties and refills the host's own array rather than a copy of it. Since T3d
-  // Task 3 `renderScene` is `field-render.ts`'s and reads this through the same
+  // Task 3 `compose` is `field-render.ts`'s and reads this through the same
   // record, so both ends of the sharing are now modules and the array is what
-  // they share; every other `renderScene` mention below means that function, in
+  // they share; every other `compose` mention below means that function, in
   // that file.
   const propMeshes: PropRender[] = [];
 
@@ -1718,7 +1753,7 @@ export function createFieldHost(deps?: {
   // accounting classifies as substrate rather than as cluster state.
   //
   // Until 2026-08-08 the paragraph here drew a distinction between them: those
-  // three stayed because `renderScene` DREW them, this one because the substrate
+  // three stayed because `compose` LISTED them, this one because the substrate
   // had to hand it out before its owner existed. The first half of that expired
   // when `render` left the closure for `field-materials.ts`'s neighbour
   // `field-render.ts` — the three containers are now read by an EXTRACTED module
@@ -1759,7 +1794,7 @@ export function createFieldHost(deps?: {
   // channel all left with `field-machine.ts`. What stayed on this side of the
   // block is what OTHER clusters own and the session merely writes: the drift
   // report below (cleared by `stepHistory` and `resetWorld` too), the entity tick,
-  // and the ghost MESHES — a `HostSubstrate` value member, because `renderScene`
+  // and the ghost MESHES — a `HostSubstrate` value member, because `compose`
   // draws them and one Map shared by identity is what stops the module that fills
   // it and the loop that draws it disagreeing about what is on screen.
 
@@ -1789,7 +1824,7 @@ export function createFieldHost(deps?: {
   // The ghost's other half — the previewed PLACEMENTS' wireframe batch — left
   // with the machine, unlike the meshes above: it is a CPU-only line batch with
   // no GPU handle to free at dispose, so nothing here needs to reach it.
-  // `renderScene` reads `machine.placementGhost()`.
+  // `compose` reads `machine.placementGhost()`.
   // The SELECTED entity, its footprint box, the translate gizmo that hangs on
   // that box and the panel channel that announces it ALL LEFT with
   // `field-entities.ts` on 2026-08-08 (foundations T3d Task 5), together with the
@@ -1813,7 +1848,7 @@ export function createFieldHost(deps?: {
 
   // The SELECTED finding's cell outline left with `field-analyzer.ts` too, and
   // unlike the ghost meshes above it could: it is a CPU-only line batch with no
-  // GPU handle for `dispose` to free, and its one reader is `renderScene`, which
+  // GPU handle for `dispose` to free, and its one reader is `compose`, which
   // asks `advisor.selectionBatch()`.
 
   // --- void cast (the X-ray) ----------------------------------------------
@@ -1823,7 +1858,7 @@ export function createFieldHost(deps?: {
   // rebuilt on its own.
   //
   // The map is ALL the cast leaves in this closure, and it stays because
-  // `renderScene` draws from it: it is a `HostSubstrate` value member, so the
+  // `compose` builds the draw list from it: it is a `HostSubstrate` value member, so the
   // module that fills it and the loop that draws it share one identity rather
   // than two copies that could disagree about what is on screen.
   // The cast's MATERIAL and binding left with `field-materials.ts` on the stamp
@@ -1857,7 +1892,7 @@ export function createFieldHost(deps?: {
   // that are pure functions of it, the two delegates now call
   // `targeting.notePointer` on the way past, and its three readers ask
   // `targeting.pointer()`. Two of those three (`ghostState`,
-  // `renderCursorAffordance`) left this file for `field-render.ts` at T3d Task 3
+  // `cursorAffordanceBatch`) left this file for `field-render.ts` at T3d Task 3
   // and the third, the facade's `beginMove`, is the only one still here.
   // `lastRemeshMs` and `remeshVersion` — the two numbers the stats meter reads
   // off the remesh — left on 2026-08-08 (foundations T3d Task 6) with
@@ -2035,7 +2070,7 @@ export function createFieldHost(deps?: {
 
   // The committed prop layer, lifted out whole (`field-props.ts`): its three
   // functions and its instance-count map left, `propMeshes` stayed as a
-  // substrate value member because `renderScene` draws it. The assembly sits
+  // substrate value member because `compose` lists it. The assembly sits
   // where the functions were, on `createSegmentBrush`'s precedent — a cluster's
   // remaining footprint marks where the cluster was.
   //
@@ -2498,7 +2533,7 @@ export function createFieldHost(deps?: {
   // first consumer of the substrate assembled at the top of this closure.
   //
   // What stays here is the wiring, and it is short because the cluster's DATA
-  // was already substrate: the meshes `renderScene` draws ARE the module's, one
+  // was already substrate: the meshes `compose` lists ARE the module's, one
   // Map shared by identity, and the only fact anything else ever read off the
   // cluster is the in-flight generation `tick` turns into
   // `FieldStats.voidCastPending` — `voidcast.jobGen()` below.
@@ -2583,7 +2618,7 @@ export function createFieldHost(deps?: {
   // before this declaration executes. No hoist was needed, and none was taken.
   // Two modules read it from BELOW and so do not forward-reference at all:
   // `field-picking.ts`, whose assembly is deliberately under this line, and
-  // `field-render.ts` since T3d Task 3 — which took `renderScene` and its
+  // `field-render.ts` since T3d Task 3 — which took `compose` and its
   // fourteen `layers` sites out of this file entirely, so the densest reader of
   // this binding is now a plain `layers: viewState.layers` on a deps record.
   const viewState = createView({
@@ -3062,6 +3097,31 @@ export function createFieldHost(deps?: {
     anchorCrossHalfM: ANCHOR_CROSS_HALF_M,
   });
 
+  // The agent's eyes (foundations T4c): the same composition the line above
+  // builds, aimed at an off-screen texture and read back as a PNG.
+  //
+  // THREE DEPS, WHICH IS THE POINT OF WHERE IT SITS. It reads the substrate's
+  // context, the rig's orbit state and the frame's draw lists — nothing else in
+  // the host at all — so its position is forced by exactly two lines: it must
+  // follow `createCameraRig` (~634 up) and `createRender` (directly above). The
+  // second bound is the tight one, and it is the only line in this closure whose
+  // lower bound moved because of THIS tranche rather than because of the
+  // extraction that put it here. Nothing takes `capture`, so nothing is pinned
+  // below it.
+  //
+  // A COMPARISON WORTH KEEPING BESIDE `createRender`'s twenty-nine: this module
+  // asks for one record and two calls, and it draws the entire editor. That is
+  // what `compose` returning a value bought — the frame's fan-in is paid once, by
+  // the module that has to see everything, and the second consumer of the same
+  // picture pays nothing. A capture that rebuilt its own draw list would have
+  // needed a second copy of that twenty-nine-member record, and the two would
+  // have drifted the first time a layer gate changed.
+  const capture = createCapture({
+    ctx: substrate.ctx,
+    orbit: cameraRig.orbit,
+    compose: render.compose,
+  });
+
   // The live stats readout, lifted out whole (`field-stats.ts`): its channel, its
   // reconfigure timing, its four cache bindings and `currentLogStats` all left,
   // and NOTHING of it stayed — unlike the three clusters before it, this one
@@ -3222,7 +3282,7 @@ export function createFieldHost(deps?: {
   // with the five cursor-to-world functions it is the cached ARGUMENT of, so the
   // line is now `targeting.notePointer(...)`. Nothing about the argument above
   // changed — the machine still must not own this write — and its three readers
-  // ask `targeting.pointer()` for it: `ghostState` and `renderCursorAffordance`,
+  // ask `targeting.pointer()` for it: `ghostState` and `cursorAffordanceBatch`,
   // both `field-render.ts`'s since T3d Task 3, and the facade's `beginMove`,
   // which anchors a `G` grab at the last known cursor and is the one left here.
 
@@ -3985,6 +4045,11 @@ export function createFieldHost(deps?: {
     frameWorld: cameraRig.frameWorld,
     cameraAimedByHand: cameraRig.aimedByHand,
     snapView: cameraRig.snapView,
+    // A straight delegate, and the ONLY member of this facade that hands back an
+    // image. The default request is `{}` rather than a spread of the three
+    // defaults, because `field-capture.ts` owns what they are and a second copy
+    // here is a second thing to keep in step.
+    captureScene: (req) => capture.scene(req ?? {}),
     subscribeEntities(cb) {
       return entities.subscribe(cb);
     },

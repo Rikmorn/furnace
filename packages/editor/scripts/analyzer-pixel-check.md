@@ -2,7 +2,7 @@
 
 The walkability advisor's viewport markers are the one part of F4 whose output is
 **pixels**, and pixels are the one thing the `bun:test` suite cannot see. Deleting
-the `layers.flags && flagMarkers` push from `renderScene` fails no test in this
+the `layers.flags && flagMarkers` push from `compose` fails no test in this
 repo; so does forcing every marker tint to white. `tests/field-host-analyzer.gpu.test.ts`
 says so in its own header, and this file is the other half of that sentence.
 

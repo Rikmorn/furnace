@@ -20,9 +20,9 @@
 // takes the teardown alone.
 //
 // The closure map (`docs/reference/field-host-clusters.md` §6) recorded ONE
-// inbound edge — `render.renderScene` reading `propMeshes` — and that edge is
+// inbound edge — `render.compose` reading `propMeshes` — and that edge is
 // real and unchanged, though since 2026-08-08 it crosses a MODULE line rather
-// than a cluster one: `renderScene` is `field-render.ts`'s, and it reaches the
+// than a cluster one: `compose` is `field-render.ts`'s, and it reaches the
 // array through the same substrate record this module fills it through. The nine
 // calls stand beside it uncounted, because the
 // map's edges are over DATA bindings and a cross-cluster CALL is not one (§2.1's
@@ -41,7 +41,7 @@
 //   - `propMeshes` and `log` are `const` in the host, mutated through the
 //     identity it hands over, so they ride BY VALUE inside the substrate. The
 //     array is emptied with `length = 0` and re-pushed rather than replaced,
-//     which is the only reason `renderScene` and this module can never disagree
+//     which is the only reason `compose` and this module can never disagree
 //     about what is drawn.
 //   - `ctx` and `archetypeById` are host `let`s and both ride as SUBSTRATE
 //     THUNKS — but NOT for the same reason, and the difference is the part a
@@ -107,7 +107,7 @@ export type PropsDeps = {
    *  the whole layer is derived from), `archetypeById()` (the catalog that
    *  decides each archetype's proxy primitive and tint), `ctx()` (the GPU
    *  guard), and `propMeshes` — the array this module fills and empties and
-   *  `field-render.ts`'s `renderScene` draws from, shared BY IDENTITY. */
+   *  `field-render.ts`'s `compose` builds the draw list from, shared BY IDENTITY. */
   substrate: HostSubstrate;
   /** The kit material, or `null` before the first `init` and after `dispose`.
    *  The NULLABLE read, and the layer's GPU guard: `rebuild` refuses to upload
@@ -134,7 +134,7 @@ export type PropsDeps = {
 /** The prop layer's two verbs and the one fact the host publishes off it.
  *
  *  No state is exposed. The meshes live in the substrate because
- *  `field-render.ts`'s `renderScene` draws them; the per-archetype counts are
+ *  `field-render.ts`'s `compose` lists them; the per-archetype counts are
  *  private because the only thing that
  *  ever read them is `FieldHost.propInstanceCounts`, which
  *  {@link Props.instanceCounts} now is.

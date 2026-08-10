@@ -11,6 +11,13 @@
 // follows the move (`git log --follow`); dated records under `docs/learnings/` are where
 // the old spelling still reads as current.
 
+// The capture verb's request and answer, beside the host that serves them — the
+// chrome's `viewport.capture` answerer names both and reaches into
+// field-capture.ts for neither. `CaptureView` is deliberately NOT here: it lives
+// on the neutral floor (`shared/capture.ts`) because the daemon validates it
+// and may not touch anything that imports the engine, so every layer takes it
+// from there and this barrel would be a second route to one declaration.
+export type { CaptureImage, CaptureRequest } from "./field-capture.ts";
 // The advisor's presentation types, re-exported beside the host that hands them
 // out — a consumer names them without reaching into field-flags.ts.
 export type {

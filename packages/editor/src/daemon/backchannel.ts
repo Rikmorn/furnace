@@ -56,15 +56,21 @@ export type Backchannel = {
    *
    * @param timeoutMs - defaults to {@link DEFAULT_ASK_TIMEOUT_MS}.
    *
-   * **PRODUCTION SURFACE WITH NO PRODUCTION CALLER, stated plainly rather than left to be
-   * discovered.** Nothing shipped passes it, so the default is the only value that runs
-   * outside tests and the only pin on it is an inequality. It exists as a parameter rather
-   * than a constant for two reasons that are not "a test needed it": a per-method budget is
-   * a legitimate thing for a relay to carry (a worker round trip and a ref read do not
-   * deserve the same wait), and injecting 20 ms is what lets the timeout be pinned for real
-   * — against fake timers, which would prove the code calls `setTimeout`, and against a ten
-   * second wall-clock wait, which would prove nothing anyone would keep. Delete it the day
-   * a per-method budget is decided against; do not delete it to "remove unused surface".
+   * **IT HAS A PRODUCTION CALLER SINCE T4C, and the paragraph this replaces is worth
+   * knowing about because it was a REASON that came true rather than one that rotted.** It
+   * used to open *"production surface with no production caller"* and close with *"delete
+   * it the day a per-method budget is decided against; do not delete it to remove unused
+   * surface"* — kept on the argument that a worker round trip and a ref read do not deserve
+   * the same wait. `viewport.capture` is that worker round trip: it asks the tab to render,
+   * read back and PNG-encode a frame, and `session-handlers.ts` passes it
+   * `CAPTURE_ASK_TIMEOUT_MS` (30 s, three times the default). So the per-method budget is
+   * DECIDED FOR rather than against, and the parameter is ordinary shipped surface now.
+   *
+   * Two things survive that paragraph. The default is still what every OTHER method runs
+   * on, and it is still the only value the inequality pin asserts against. And injecting
+   * 20 ms is still what lets the timeout be pinned for real — against fake timers, which
+   * would prove only that the code calls `setTimeout`, and against a ten second wall-clock
+   * wait, which would prove nothing anyone would keep.
    *
    * @returns the answering session's payload — shaped by the method, unknown to this module.
    * @throws {@link EditorError} `no-session` when no session is claimed, when more than one

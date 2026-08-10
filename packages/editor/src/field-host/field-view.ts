@@ -16,7 +16,7 @@
 // counts differ by exactly one: `cursorRay` reads the plane TWICE in a single
 // expression, so 24 sites became a call one-for-one and the 25th collapsed its
 // two reads into one forced local (see below). So the extraction
-// is a THREADING pass through `renderScene`, not a deps record; the module below
+// is a THREADING pass through `compose`, not a deps record; the module below
 // is 5 members over 2 bindings, and the diff it cost is spread over ~26 lines of
 // somebody else's code.
 //
@@ -61,7 +61,7 @@
 //
 // PER-READ CALL, NOT A HOISTED SNAPSHOT — the same choice `field-props.ts` and
 // `field-stats.ts` made, restated because this is where it is most tempting.
-// `renderScene` has FOURTEEN `layers` read SITES, and one
+// `compose` has FOURTEEN `layers` read SITES, and one
 // `const l = viewState.layers()` at the top of it would be observationally
 // identical (one synchronous body, no reassignment in between). It is still not
 // what the threading did: the substrate's whole point is that a `let` is read
@@ -88,16 +88,24 @@
 // expression cannot observe a write between them, so the local says exactly what
 // the closure said.
 //
-// AND THE HOST BINDING IS `viewState`, NOT `view`. `renderScene`,
-// `renderGhostLines` and `renderCursorAffordance` all take a parameter named
-// `view` — a `camera.Camera` — so a closure-level `view` would be shadowed inside
-// the very function that reads this module fourteen times, and `view.layers()`
-// would be a type error there. The compiler proves the collision rather than the
-// reader having to spot it; the binding is named for the state it holds. Those
-// three functions moved to `field-render.ts` on 2026-08-08 (foundations T3d),
-// which takes `layers` as a plain ref off this seam and carried the hoist
-// argument above with it verbatim — the collision that named this binding is now
-// in another file, and the binding keeps the name for the same reason it got it.
+// AND THE HOST BINDING IS `viewState`, NOT `view`. The collision that named it
+// was real: the frame's three functions each took a parameter named `view` — a
+// `camera.Camera` — so a closure-level `view` would have been shadowed inside the
+// very function that reads this module fourteen times, and `view.layers()` would
+// have been a type error there. The compiler proved the collision rather than the
+// reader having to spot it; the binding is named for the state it holds.
+//
+// TWO THINGS HAVE SINCE MOVED UNDER THAT ARGUMENT AND IT STILL HOLDS, which is
+// worth saying rather than leaving the paragraph to read as current. The three
+// functions left for `field-render.ts` on 2026-08-08 (foundations T3d), which
+// takes `layers` as a plain ref off this seam and carried the hoist argument above
+// with it verbatim. Then foundations T4c split the frame in two: the fourteen
+// `layers` reads live in `compose(c)`, which takes NO camera at all (a draw list
+// is built for no particular viewpoint — that is what let the agent's capture
+// borrow it), and the `view` parameter is now `scene(c, view)`'s alone. So the
+// collision is gone as well as being in another file. The binding keeps the name
+// for the reason it got it, and this is the note that stops that reason being
+// re-derived from a shadowing that no longer exists.
 import type { FieldLayers } from "./field-host.ts";
 import type { HostSubstrate } from "./substrate.ts";
 
@@ -144,7 +152,7 @@ export type View = {
    *  copy rule {@link View.setLayers} keeps at the write half: the setter takes a
    *  copy so host state never aliases a panel's object, and a getter handing the
    *  same object back mutable would give that copy away again. SEVENTEEN of the
-   *  twenty-five read sites go through here, fourteen of them in `renderScene`
+   *  twenty-five read sites go through here, fourteen of them in `compose`
    *  alone — the densest read site in the editor, and the reason this getter is a
    *  call rather than a snapshot. The remaining three are spread across the host
    *  and `field-picking.ts`; they are deliberately not enumerated, because a list

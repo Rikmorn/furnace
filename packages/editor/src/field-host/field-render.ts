@@ -3,16 +3,42 @@
 // `createFieldHost`, and the one the closure map called "pure fan-in — the one
 // function that has to see everything" (§7.2).
 //
-// ONE VERB OUT OF FIVE FUNCTIONS AND TWENTY-NINE DEPS, which is the shape worth
-// naming before anything else. `field-picking.ts` was four functions and ONE verb
-// because each stage's only caller was the next; this is five functions and ONE
-// verb for the same structural reason — `sceneLights`, `ghostState`,
-// `renderGhostLines` and `renderCursorAffordance` are called by
-// {@link Render.scene} and by nothing else in the host, and `scene` itself is
-// called once, by `tick`. So the seam is one line wide and the deps record is
-// twenty-nine members. That inversion is the whole cluster: it OWNS almost
-// nothing (five bindings — two grid batches, their source segments, and two
-// scratch vectors for the ghost cube's pose) and it READS almost everything.
+// THE PRIVATE NAMES CHANGED AT T4C AND SIBLING PROSE WAS RE-POINTED, recorded
+// here because a reader will meet the old ones in dated records under `docs/` and
+// they are not typos: `renderScene` → {@link Render.compose} (it stopped being the
+// whole frame and became the draw-list build), `renderGhostLines` →
+// `ghostLineBatch` and `renderCursorAffordance` → `cursorAffordanceBatch` (both
+// stopped drawing and started returning a batch). Every mention in
+// `packages/editor/src` and `packages/editor/tests` was re-pointed in the same
+// commit — 47 of them across ten files, most of them sibling modules saying which
+// function reads their container. `docs/learnings/`, `docs/superpowers/` and
+// `docs/reference/field-host-clusters.md`'s dated per-binding tables keep the old
+// spelling on purpose: they are measurements of a commit, not descriptions of head.
+//
+// TWO VERBS OUT OF SIX FUNCTIONS AND TWENTY-NINE DEPS, and the second verb is
+// two days old. It was ONE verb — `scene` — until foundations T4c, when the
+// agent-facing capture needed the same draw list aimed at an off-screen texture
+// and the frame split along the seam it already had: {@link Render.compose}
+// BUILDS the lists (and is the whole of the gating, the ordering and the
+// arithmetic), {@link Render.scene} SUBMITS them at the swap chain. Four of the
+// six functions are still module-private for `field-picking.ts`'s reason —
+// `sceneLights`, `ghostState`, `ghostLineBatch` and `cursorAffordanceBatch` are
+// called by `compose` and by nothing else — and the inversion the cluster was
+// named for is unchanged: it OWNS almost nothing (five bindings — two grid
+// batches, their source segments, and two scratch vectors for the ghost cube's
+// pose) and it READS almost everything.
+//
+// WHAT THE SPLIT MUST NOT DO is change a pixel of the live frame, and the shape
+// that keeps that true is worth stating: `scene` is now literally
+// `compose(c)` followed by the submit it always did, with the SAME gate
+// expressions evaluated in the SAME order and the thirteen possible `drawLines`
+// passes issued in the same order after `frame.render`. Nothing runs between the
+// build and the submit — `frame.render` used
+// to sit in the middle of the gate sequence, and it reads no host state and calls
+// nothing back, so hoisting every gate above it cannot change what any of them
+// answers. The pins that would notice are named at the bottom of this header, and
+// the honest reading of them is that there are almost none: this is a change the
+// suite cannot check and the Safari gate can.
 //
 // WHY THE MAP'S ZERO-MUTATION ROW IS THE INTERESTING NUMBER. `render` is one of
 // four clusters with no mutation edge in either direction (§5.6), and that is
@@ -22,6 +48,30 @@
 // ghost cube on the GPU — through a `mesh.setPosition`/`setScale` pair on a
 // handle it asks for by call. A record this wide would be a design smell if any
 // of it were a write-thunk; as reads it is a photograph of what a frame IS.
+//
+// THAT ONE MUTATION NOW HAS A SECOND CALLER, and it stays inside `compose`
+// deliberately rather than being lifted to the submit side where it would leave
+// `compose` pure. Three reasons, in the order they decided it. (1) The ghost's
+// pose does not depend on the camera it will be DRAWN from: `ghostState` reaches
+// `computeTarget`, which raycasts through the LIVE camera whatever
+// `compose`'s caller intends to do with the result, so composing for a capture
+// computes the same box the live frame computes and re-posing the cube to it is
+// idempotent. (2) A pure `compose` would have to hand the pose back as data and
+// let the submit side apply it — and the cube's position in `meshes` is
+// load-bearing (it composites against the stamp ghosts by submission order),
+// so that means either a second list or an index, both of which restructure the
+// live path this task must freeze. (3) Left un-posed on the capture path the cube
+// would draw at whatever the last frame that INCLUDED it left behind, which is
+// wrong exactly when the gates differ between the two — a gesture disarmed since
+// the last live frame is enough. Posing in `compose` makes the capture agree with
+// the frame by construction instead of by luck.
+//
+// AND THE INTERLEAVING IS NOT A HAZARD, because of where the awaits are: the
+// capture's `compose` → `renderToTexture` → `drawLinesToTexture` →
+// `copyTextureToBuffer` are all SYNCHRONOUS and all submitted before its first
+// `await` (`field-capture.ts` states the same fact from its end). So a live
+// `tick` can neither land between the capture's pose write and its draws, nor see
+// a cube the capture posed and the next frame has not re-posed.
 //
 // NONE OF THE TWENTY-NINE NAMES HOST STATE ANY MORE, and the arithmetic of
 // getting here is the whole argument for how this record is shaped. It was
@@ -80,7 +130,7 @@
 //     question.
 //
 // NO SNAPSHOT AT THE TOP OF THE FRAME, and the temptation is real enough that the
-// map priced it: `layers()` is read at FOURTEEN sites in `scene`, and two of them
+// map priced it: `layers()` is read at FOURTEEN sites in `compose`, and two of them
 // sit inside `for (const cm of chunkMeshes.values())`, so the true cost is
 // **12 + 2 × chunkCount** calls per frame rather than fourteen. Hoisting one
 // `const l = deps.layers()` at the top would collapse that to one — and would
@@ -90,30 +140,38 @@
 // term is the price of the CALL, not of the extraction, and it was two property
 // reads inside the same loop before either happened.
 //
-// SUBMISSION ORDER IS BEHAVIOUR, not tidiness, and it is the reason this file
+// SUBMISSION ORDER IS BEHAVIOUR, not tidiness, and it is the reason `compose`
 // reads as one long function rather than as several. Within `frame.render`'s
 // blended group submission order is preserved, so the void cast, the kit-fill
 // hologram and the stamp ghosts composite against each other in the order they
 // are pushed; the four selection overlays and the two segment previews draw after
 // the grid because they are `occlude: false`. Every one of those orderings is
-// argued at its own line below. Splitting `scene` into "opaques" and "overlays"
+// argued at its own line below. Splitting `compose` into "opaques" and "overlays"
 // helpers would read better and would make the two groups' interleaving a thing a
 // reader has to reconstruct.
+//
+// WHICH IS ALSO WHY THE SPLIT THAT DID HAPPEN CUT WHERE IT DID. `compose`/`scene`
+// separates the two lists from the two targets, and it leaves every ordering
+// decision on one side of the line — the array index of a `LinePass` IS its draw
+// order, and each submitter walks the array. A split into opaques/overlays would have
+// cut across those arguments; this one cuts along them.
 //
 // NO UNIT TEST, by the house pattern eleven extractions old: the argument is
 // `tests/field-host/field-machine.test.ts`'s header and is not re-made here. The
 // host suites passing UNMODIFIED across this move ARE this module's contract.
 //
-// ONE PRUNE CANDIDATE IS PARKED, not taken, because this slice is behaviour-
-// frozen and the change is not free: `scene` contains NINE near-identical
+// THE PARKED PRUNE CANDIDATE WAS COLLECTED BY THE SPLIT, which is worth recording
+// because it was parked here with a reason and the reason expired rather than was
+// overruled. It read: `scene` contains NINE near-identical
 // `frame.drawLines(c, { vertices, colors, camera: view, occlude: false })`
-// literals, ~54 lines that a `drawBatch(c, view, batch)` helper collapses to ~9.
-// It is a real reduction and it is deliberately deferred — every one of those
-// nine sits under a different gate with a different argument written above it,
-// and folding them in the same commit that MOVED them would make the
-// rename-normalized diff that proves this extraction behaviour-neutral
-// impossible to read. T5 prune tranche, beside the `Vec3T` / `LineBatch` alias
-// consolidation and `field-materials.ts`'s `kitMat` / `kitInstanced` pair.
+// literals, ~54 lines that a helper collapses to ~9 — deferred because folding
+// them in the same commit that MOVED the cluster would have made the
+// rename-normalized diff that proved the extraction behaviour-neutral impossible
+// to read. That diff is long since read. The nine literals are now nine
+// `lines.push({ ...batch, occlude })` calls and ONE `frame.drawLines` in `scene`,
+// and the collapse came free with a split that had to happen anyway. What is still
+// parked for T5: the `Vec3T` / `LineBatch` alias consolidation across the
+// directory, and `field-materials.ts`'s `kitMat` / `kitInstanced` pair.
 //
 // AND THE SUITE PINS THAT THIS FILE RUNS, NOT WHAT IT DRAWS. Measured at the
 // extraction, against the whole editor suite (1469/0 at head), and it is the
@@ -137,11 +195,20 @@
 // So a change to draw ORDER or a dropped layer gate will pass `bun test` and reach
 // the user, and the only defence is reading the argument at each line and looking
 // at the screen.
+//
+// ONE CRACK OF LIGHT SINCE T4C, and it is deliberately not oversold. The capture
+// path reads {@link Render.compose}'s output back as PIXELS
+// (`tests/field-capture.gpu.test.ts`), so for the first time something in this
+// package asserts that a composed frame is lit, is not blank, and has its line
+// overlays in it. That suite builds its OWN composition by hand rather than
+// driving this module — so it pins the COMPOSITION TYPE's contract and the
+// capture that consumes it, not this file's gates. The sentence above stands:
+// nothing tests what `compose` decides.
 import type * as camera from "@furnace/core/camera";
 import * as frame from "@furnace/core/frame";
 import type { Context } from "@furnace/core/gpu";
 import * as mesh from "@furnace/core/mesh";
-import { vec4 } from "@furnace/core/transform";
+import { type Vec4, vec4 } from "@furnace/core/transform";
 import { snappedKitBox } from "../shared/field-brush.ts";
 import { boxEdges } from "./box-edges.ts";
 import {
@@ -326,15 +393,77 @@ export type RenderDeps = {
   anchorCrossHalfM: number;
 };
 
-/** The frame's one verb.
+/** One `frame.drawLines` call's worth of overlay, as DATA: a batch plus the depth
+ *  mode it draws in. The array index inside a {@link FrameComposition} is the draw
+ *  order — see this module's header on why that is behaviour rather than tidiness. */
+export type LinePass = LineBatch & {
+  /** `true` = depth-tested (the grid); `false` = always-on-top (every other
+   *  overlay). Passed straight through to `frame.drawLines`' own `occlude`, whose
+   *  default is `true` — spelled explicitly on every pass here because half of them
+   *  want the non-default. */
+  occlude: boolean;
+};
+
+/** One frame's draw lists, aimed at NO TARGET — which is the whole point of the
+ *  type. {@link Render.scene} submits it at the swap chain; `field-capture.ts`
+ *  submits the same record at an off-screen texture through
+ *  `frame.renderToTexture` + `frame.drawLinesToTexture`, so the agent's photograph
+ *  and the human's viewport are the same composition rather than two that have to
+ *  be kept in step.
  *
- *  The four functions behind it — the light list, this frame's ghost state, the
+ *  THE CAMERA IS ABSENT, and that is what makes the borrowing honest rather than
+ *  approximate: nothing in the build reads the camera it will be drawn from (the
+ *  one thing that looks like it does — the brush ghost's world centre — raycasts
+ *  through the LIVE camera by way of `field-targeting.ts`, at compose time, for
+ *  both callers). So a composition is a description of what is in the scene, and
+ *  the caller supplies where it is looked at from.
+ *
+ *  BORROWED, NOT OWNED. Every array and every mesh handle in here belongs to the
+ *  host — `meshes`/`instanced` hold live GPU resources, `lines` holds batches that
+ *  other clusters prebuilt and may rebuild on the next selection change, and
+ *  `clearColor` is a module `const`. It is valid for the synchronous stretch that
+ *  follows the `compose` that produced it and no longer; nothing may retain one. */
+export type FrameComposition = {
+  /** Individually-transformed draws: the field's per-class surfaces, the void
+   *  cast, the kit-fill hologram cube and the stamp ghosts, in submission order. */
+  meshes: mesh.Mesh[];
+  /** One instanced draw per group: the chunk kit, each prop archetype, the
+   *  walkability markers, the cell-selection display. Recorded after `meshes`. */
+  instanced: mesh.InstancedMesh[];
+  /** Every line overlay this frame draws, IN ORDER, after the mesh pass. */
+  lines: LinePass[];
+  /** The scene's lights — one camera-following key in `studio`, none in `normals`. */
+  lights: frame.Light[];
+  /** The hemisphere fill that goes with `lights`. */
+  ambient: frame.Ambient;
+  /** The background the pass clears to. */
+  clearColor: Vec4;
+};
+
+/** The frame's two verbs — build, and submit what was built.
+ *
+ *  The four functions behind them — the light list, this frame's ghost state, the
  *  ghost's lines and the cursor affordance — are module-private because each has
- *  exactly one caller: {@link Render.scene}. See this module's header. */
+ *  exactly one caller: {@link Render.compose}. See this module's header. */
 export type Render = {
-  /** Build and submit one frame's draw lists. Called once per `tick`, under a
-   *  proven context and camera. */
+  /** Build and submit one frame's draw lists at the swap chain. Called once per
+   *  `tick`, under a proven context and camera.
+   *
+   *  Its whole body is `compose(c)` and then the submit — no third thing — and holding
+   *  it to that is what keeps the capture honest: the moment the live path grows a step
+   *  the composition does not carry, the agent's photograph stops being the human's
+   *  viewport. */
   scene(c: Context, view: camera.Camera): void;
+  /** Build this frame's draw lists without submitting anything.
+   *
+   *  MUTATES ONE THING — it poses the host's ghost cube on the GPU when a kit-fill
+   *  preview is live. That is the single mutation the cluster has ever performed and
+   *  it stays here on purpose; the three reasons are argued in this module's header,
+   *  and the short one is that the pose is camera-independent, so composing for a
+   *  capture computes the same box the frame does and writing it again is idempotent.
+   *
+   *  The returned record is BORROWED — see {@link FrameComposition}. */
+  compose(c: Context): FrameComposition;
 };
 
 /** Build the frame over one host's dependencies. One per host; it holds that
@@ -391,27 +520,16 @@ export function createRender(deps: RenderDeps): Render {
     return { center, kitBox };
   };
 
-  // Draw the ghost preview lines, occlude:false so they read through solid
+  // The ghost preview lines, drawn occlude:false so they read through solid
   // rock: a kit fill previews its snapped box's 12 edges; every sphere tool
   // previews the two brush rings. Corner/ring math lives in field-ghost.ts.
-  const renderGhostLines = (
-    c: Context,
-    view: camera.Camera,
-    g: GhostState,
-  ): void => {
-    const batch = g.kitBox
+  const ghostLineBatch = (g: GhostState): LineBatch =>
+    g.kitBox
       ? boxEdges(boxCorners(g.kitBox.center, g.kitBox.halfExtents), GHOST_COLOR)
       : segmentsToBatch(
           sphereGhostSegments(g.center, deps.digRadius()),
           GHOST_COLOR,
         );
-    frame.drawLines(c, {
-      vertices: batch.vertices,
-      colors: batch.colors,
-      camera: view,
-      occlude: false,
-    });
-  };
 
   // The cursor mark a two-click gesture shows before its first click. Built per
   // FRAME rather than stored per pointer-move, because it has to track the
@@ -424,7 +542,7 @@ export function createRender(deps: RenderDeps): Render {
   // amber cross is the box/region ANCHOR the click will leave (`setBoxAnchor`),
   // and the hologram ring is the segment's own radius (`setSegmentAnchor` is
   // hologram too). Neither changes colour when the click lands.
-  const renderCursorAffordance = (c: Context, view: camera.Camera): void => {
+  const cursorAffordanceBatch = (): LineBatch | null => {
     const shape = cursorAffordance({
       gesture: deps.gesture(),
       pendingStamp: deps.pendingStamp() !== null,
@@ -433,27 +551,20 @@ export function createRender(deps: RenderDeps): Render {
     // Split rather than folded into one `||`, to keep the short-circuit the
     // closure's `if (shape === null || !lastPointer)` had: with no gesture armed
     // — the common frame — the cursor is not asked for at all.
-    if (shape === null) return;
+    if (shape === null) return null;
     const last = deps.pointer();
-    if (last === null) return;
+    if (last === null) return null;
     const p = deps.selectionPoint(last.x, last.y);
-    if (!p) return;
-    const batch =
-      shape === "ring"
-        ? segmentsToBatch(sphereGhostSegments(p, deps.digRadius()), GHOST_COLOR)
-        : segmentsToBatch(
-            crossSegments(p, deps.anchorCrossHalfM),
-            deps.selectionColor,
-          );
-    frame.drawLines(c, {
-      vertices: batch.vertices,
-      colors: batch.colors,
-      camera: view,
-      occlude: false,
-    });
+    if (!p) return null;
+    return shape === "ring"
+      ? segmentsToBatch(sphereGhostSegments(p, deps.digRadius()), GHOST_COLOR)
+      : segmentsToBatch(
+          crossSegments(p, deps.anchorCrossHalfM),
+          deps.selectionColor,
+        );
   };
 
-  const renderScene = (c: Context, view: camera.Camera): void => {
+  const compose = (c: Context): FrameComposition => {
     // Layer gating happens HERE, at draw-list build time: the host has no
     // per-mesh visibility flag — it reconstructs the frame.render lists (and
     // issues the drawLines calls) every frame, so a hidden layer is simply
@@ -551,33 +662,17 @@ export function createRender(deps: RenderDeps): Render {
     if (deps.layers().ghost)
       for (const entries of deps.substrate.ghostMeshes.values())
         for (const e of entries) meshes.push(e.m);
-    // Kit instances always render with the lit-instanced material, even in the
-    // `normals` debug mode — there is no normal-coloured instanced variant, and
-    // NORMALS_AMBIENT (full white) is what keeps them readable there. A deliberate
-    // v0 choice.
-    frame.render(c, {
-      meshes,
-      instanced,
-      camera: view,
-      clearColor: CLEAR,
-      lights: sceneLights(),
-      ambient: deps.shading() === "studio" ? STUDIO_AMBIENT : NORMALS_AMBIENT,
-      effects: [],
-    });
+    // EVERY LINE OVERLAY BELOW IS PUSHED, NOT DRAWN, and the array's order is the
+    // draw order — {@link Render.scene} walks it with one `frame.drawLines` call,
+    // and `field-capture.ts` walks the same array with `drawLinesToTexture`. The gates,
+    // the locals bound before them and the arguments written above each are
+    // unchanged from when this block issued the calls itself; what moved is only
+    // where the pass is aimed, which is now the caller's decision.
+    const lines: LinePass[] = [];
     // Depth-tested grid (occlude:true): solid geometry hides it. Minors, then majors.
     if (deps.layers().grid) {
-      frame.drawLines(c, {
-        vertices: gridMinor.vertices,
-        colors: gridMinor.colors,
-        camera: view,
-        occlude: true,
-      });
-      frame.drawLines(c, {
-        vertices: gridMajor.vertices,
-        colors: gridMajor.colors,
-        camera: view,
-        occlude: true,
-      });
+      lines.push({ ...gridMinor, occlude: true });
+      lines.push({ ...gridMajor, occlude: true });
     }
     // Selection overlay: the amber cell-selection AABB + pending box-select
     // anchor cross + the pending-region preview, and the SELECTED ENTITY's
@@ -588,48 +683,20 @@ export function createRender(deps: RenderDeps): Render {
     // cell one keeps masking ops, the entity one keeps feeding its seam).
     if (deps.layers().selection) {
       const selectionBatch = deps.selectionBatch();
-      if (selectionBatch)
-        frame.drawLines(c, {
-          vertices: selectionBatch.vertices,
-          colors: selectionBatch.colors,
-          camera: view,
-          occlude: false,
-        });
+      if (selectionBatch) lines.push({ ...selectionBatch, occlude: false });
       const anchorBatch = deps.anchorBatch();
-      if (anchorBatch)
-        frame.drawLines(c, {
-          vertices: anchorBatch.vertices,
-          colors: anchorBatch.colors,
-          camera: view,
-          occlude: false,
-        });
+      if (anchorBatch) lines.push({ ...anchorBatch, occlude: false });
       const boxPreviewBatch = deps.boxPreviewBatch();
-      if (boxPreviewBatch)
-        frame.drawLines(c, {
-          vertices: boxPreviewBatch.vertices,
-          colors: boxPreviewBatch.colors,
-          camera: view,
-          occlude: false,
-        });
+      if (boxPreviewBatch) lines.push({ ...boxPreviewBatch, occlude: false });
       const entitySelectionBatch = deps.entitySelectionBatch();
       if (entitySelectionBatch)
-        frame.drawLines(c, {
-          vertices: entitySelectionBatch.vertices,
-          colors: entitySelectionBatch.colors,
-          camera: view,
-          occlude: false,
-        });
+        lines.push({ ...entitySelectionBatch, occlude: false });
       // The translate gizmo, LAST of the selection overlays and occlude:false
       // like them: a handle behind the box it moves must still be grabbable, and
       // what the user sees has to be what `gizmoAxisAt` hit-tests.
       const gizmoBatch = deps.gizmoBatch();
       if (gizmoBatch && deps.gizmoVisible())
-        frame.drawLines(c, {
-          vertices: gizmoBatch.vertices,
-          colors: gizmoBatch.colors,
-          camera: view,
-          occlude: false,
-        });
+        lines.push({ ...gizmoBatch, occlude: false });
     }
     // The selected FINDING's cell outline, in the same primary blue as the entity
     // box above (D-F4.5-15's "reuse --primary, no new hue") — but under the FLAGS
@@ -642,52 +709,75 @@ export function createRender(deps: RenderDeps): Render {
     // layer above takes one — three reads of one slot behind a call.
     const flagSelectionBatch = deps.flagSelectionBatch();
     if (deps.layers().flags && flagSelectionBatch)
-      frame.drawLines(c, {
-        vertices: flagSelectionBatch.vertices,
-        colors: flagSelectionBatch.colors,
-        camera: view,
-        occlude: false,
-      });
+      lines.push({ ...flagSelectionBatch, occlude: false });
     // The stamp's PLACEMENT proxies — one merged batch of oriented wireframe
     // boxes, occlude:false like every other ghost overlay so props previewed
     // inside a cave read through its walls. Under the ghost layer gate with the
     // hologram meshes: they are two halves of one preview.
     const placements = deps.placementGhost();
     if (deps.layers().ghost && placements)
-      frame.drawLines(c, {
-        vertices: placements.vertices,
-        colors: placements.colors,
-        camera: view,
-        occlude: false,
-      });
+      lines.push({ ...placements, occlude: false });
     // The segment brush's pending anchor + capsule preview. Under the GHOST
     // layer, not `selection`: they preview a brush op the next click commits.
     if (deps.layers().ghost) {
       const anchorLines = deps.segmentAnchorBatch();
-      if (anchorLines)
-        frame.drawLines(c, {
-          vertices: anchorLines.vertices,
-          colors: anchorLines.colors,
-          camera: view,
-          occlude: false,
-        });
+      if (anchorLines) lines.push({ ...anchorLines, occlude: false });
       const previewLines = deps.segmentPreviewBatch();
-      if (previewLines)
-        frame.drawLines(c, {
-          vertices: previewLines.vertices,
-          colors: previewLines.colors,
-          camera: view,
-          occlude: false,
-        });
+      if (previewLines) lines.push({ ...previewLines, occlude: false });
     }
     // Ghost target preview last so it draws over the scene + grid (occlude:false).
-    if (ghost) renderGhostLines(c, view, ghost);
+    if (ghost) lines.push({ ...ghostLineBatch(ghost), occlude: false });
     // The armed-but-unanchored cursor affordance (f2b item 10 / D-F4.5-7): what
     // a two-click gesture shows BEFORE its first click, so arming one is not a
     // mode with no affordance at all. Which mark to draw is `cursorAffordance`'s
-    // decision, pinned in the pure module; here is only the drawing.
-    if (deps.layers().ghost) renderCursorAffordance(c, view);
+    // decision, pinned in the pure module; here is only the pushing.
+    //
+    // The layer gate stays OUTSIDE the call exactly as it was: `cursorAffordance`
+    // and the `selectionPoint` raycast behind it cost a frame's work, and with the
+    // ghost layer hidden neither is asked for.
+    if (deps.layers().ghost) {
+      const cursorBatch = cursorAffordanceBatch();
+      if (cursorBatch) lines.push({ ...cursorBatch, occlude: false });
+    }
+    // Kit instances always render with the lit-instanced material, even in the
+    // `normals` debug mode — there is no normal-coloured instanced variant, and
+    // NORMALS_AMBIENT (full white) is what keeps them readable there. A deliberate
+    // v0 choice.
+    return {
+      meshes,
+      instanced,
+      lines,
+      lights: sceneLights(),
+      ambient: deps.shading() === "studio" ? STUDIO_AMBIENT : NORMALS_AMBIENT,
+      clearColor: CLEAR,
+    };
   };
 
-  return { scene: renderScene };
+  const scene = (c: Context, view: camera.Camera): void => {
+    const composition = compose(c);
+    // `effects: []` is the editor's whole post chain, and it is what keeps the
+    // capture's off-screen pass a faithful copy: `frame.renderToTexture` runs no
+    // chain at all, so a viewport that grew one would silently stop matching its
+    // own photograph. (It is also what makes `drawLines` safe here at any sample
+    // count — see that function's MSAA + post-chain skip.)
+    frame.render(c, {
+      meshes: composition.meshes,
+      instanced: composition.instanced,
+      camera: view,
+      clearColor: composition.clearColor,
+      lights: composition.lights,
+      ambient: composition.ambient,
+      effects: [],
+    });
+    for (const pass of composition.lines) {
+      frame.drawLines(c, {
+        vertices: pass.vertices,
+        colors: pass.colors,
+        camera: view,
+        occlude: pass.occlude,
+      });
+    }
+  };
+
+  return { scene, compose };
 }

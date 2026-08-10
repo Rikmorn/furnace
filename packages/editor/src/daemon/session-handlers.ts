@@ -1,6 +1,11 @@
 // packages/editor/src/daemon/session-handlers.ts
 import type { ServerResponse } from "node:http";
 import { z } from "zod";
+import {
+  CAPTURE_VIEWS,
+  MAX_CAPTURE_SIZE,
+  MIN_CAPTURE_SIZE,
+} from "../shared/capture.ts";
 import type { SessionAnswer } from "../shared/wire.ts";
 import type { Backchannel } from "./backchannel.ts";
 import type { ClaimKey, Claims } from "./claims.ts";
@@ -46,6 +51,24 @@ const claimedWorld = z.string().regex(WORLD_NAME_RE).nullable();
  *  `invalid-input` (a claim about the request that would be wrong the moment the mint
  *  changed shape). */
 const sessionToken = z.string().min(1);
+
+/**
+ * How long `viewport.capture` may take before it is a `session-timeout`.
+ *
+ * **THREE TIMES THE DEFAULT, and the reason is that this ask makes the tab do GPU work
+ * rather than read a record it is already holding.** A capture composes the frame, runs a
+ * mesh pass plus up to thirteen line passes into an off-screen texture, maps the result back
+ * off the GPU (`mapAsync`, which waits on the queue), swizzles it and lets a 2D canvas
+ * encode a PNG of up to 1568 px. On a busy editor — a remesh burst, a void cast in flight —
+ * that is a different order of wait from `session.state`.
+ *
+ * CHOSEN AGAINST THE CLIENT FLOOR, exactly as `DEFAULT_ASK_TIMEOUT_MS` is: Claude Code's
+ * per-request timer for an HTTP/SSE MCP server is 60 s and configuration can only RAISE it,
+ * so 30 s is strictly inside the floor for every client and leaves room for the answer's own
+ * POST. A budget above the floor would mean the agent's request dying first and our typed
+ * error being delivered to nobody, which is the failure that number was picked to avoid.
+ */
+export const CAPTURE_ASK_TIMEOUT_MS = 30_000;
 
 /** One answer to one relayed question (`shared/wire.ts`'s `SessionAnswer`, as a schema).
  *
@@ -236,6 +259,57 @@ export function createSessionHandlers(
         );
       }
       return session.backchannel.ask("session.state", {});
+    },
+  });
+
+  // THE SECOND ASK, AND THE FIRST WITH A BUDGET OF ITS OWN (foundations T4c). `session.state`
+  // reads a record the chrome is already holding and answers in about as long as a POST
+  // takes; this one asks the tab to RENDER — compose the frame's draw lists, run a mesh pass
+  // and up to thirteen line passes into an off-screen texture, map the result back off the
+  // GPU, swizzle it, and let a 2D canvas encode a PNG of up to 1568 px. The default 10 s is
+  // a reasonable budget for a read and a thin one for that, so this is the day
+  // `Backchannel.ask`'s third parameter earns the sentence its docblock has been carrying:
+  // *"a per-method budget is a legitimate thing for a relay to carry (a worker round trip
+  // and a ref read do not deserve the same wait)"*. It is no longer a production surface
+  // with no production caller, and that docblock now says so.
+  //
+  // THIRTY SECONDS, and the number is chosen against the same client floor the default is:
+  // Claude Code's per-request timer for an HTTP/SSE MCP server is 60 s and no configuration
+  // can lower it (`backchannel.ts`'s constant argues it out), so 30 s is strictly inside the
+  // floor for every client and leaves headroom for the answer's own POST. Above the floor
+  // the agent's request would die first and the typed error we are so careful to produce
+  // would be delivered to nobody.
+  //
+  // THE ENUM IS THE HOST'S OWN LIST, imported rather than retyped: `CAPTURE_VIEWS` lives on
+  // the neutral floor for exactly this — the daemon may not touch anything that imports the
+  // engine, and a hand-copied closed list is the drift `shared/wire.ts`'s header calls
+  // invisible in both directions. `size` is bounded here as well as clamped in the host,
+  // which is not belt-and-braces: a schema that states its range is what the MCP door
+  // advertises to an agent (Task 6), and being TOLD the ceiling beats discovering it by
+  // having a request silently reshaped.
+  handlers.set("viewport.capture", {
+    input: z.strictObject({
+      view: z.enum(CAPTURE_VIEWS).optional(),
+      size: z
+        .number()
+        .int()
+        .min(MIN_CAPTURE_SIZE)
+        .max(MAX_CAPTURE_SIZE)
+        .optional(),
+      overlays: z.boolean().optional(),
+    }),
+    run: (input) => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to photograph",
+        );
+      }
+      return session.backchannel.ask(
+        "viewport.capture",
+        input,
+        CAPTURE_ASK_TIMEOUT_MS,
+      );
     },
   });
 

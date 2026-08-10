@@ -45,7 +45,14 @@
  * arrow `frontend/ → { field-host/, action-registry/ } → shared/` (editor-architecture §7)
  * is unchanged by that: the daemon is a fourth reader ABOVE the floor like every other, and
  * `shared/` still imports nothing above itself.
+ *
+ * IT HOLDS TYPES ONLY AND STILL DOES. Since T4c it has ONE import — `CaptureView` from
+ * `./capture.ts`, its sibling on the same floor — and it is an `import type`, so this
+ * module still compiles to nothing and still gives neither side a runtime edge. That module
+ * is a VALUE module (it carries the array the daemon's schema and the MCP door enumerate);
+ * this file deliberately takes only the type off it.
  */
+import type { CaptureView } from "./capture.ts";
 
 /**
  * A question the daemon is relaying to the claimed editor session.
@@ -92,6 +99,70 @@ export type SessionRequest = {
 export type SessionAnswer =
   | { requestId: string; ok: true; payload: unknown }
   | { requestId: string; ok: false; error: string };
+
+/**
+ * What `viewport.capture` is ASKED — the parameters an agent may set on a photograph of the
+ * live viewport (foundations T4c).
+ *
+ * **THE ONLY WIRE TYPE HERE THAT IS A STRUCTURAL MIRROR RATHER THAN A PROJECTION.** Every
+ * field below has the same name, the same type and the same default as `CaptureRequest` in
+ * `field-host/field-capture.ts`, which is where the meanings and the whole parameter-shape
+ * argument live. That is deliberate and it is the OPPOSITE choice from
+ * {@link SessionState}, which projects: a request has no engine types in it (three
+ * primitives), it is the agent's own vocabulary rather than the host's, and nothing is
+ * gained by renaming it on the way across. The host type cannot be imported here — this
+ * file is held engine-free, and `field-capture.ts` value-imports `@furnace/core` — so the
+ * duplication is forced; what is NOT forced is keeping the spellings identical, and they
+ * are, so a reader who has seen one has seen both.
+ *
+ * **`view` IS THE REAL UNION, WHICH IS THE ONE EXCEPTION TO THIS FILE'S `string` RULE** —
+ * and the exception proves the rule rather than bending it. {@link SessionState}'s
+ * string-typed members are `string` because their closed unions live BEHIND the engine
+ * (`tool.effect` is core's, `gesture` is the host's), so a declaration here could only ever
+ * be a hand-copy that drifts. {@link CaptureView} lives on this same neutral floor
+ * precisely so it does not have to be copied: the host, this wire and the daemon's zod enum
+ * all read `shared/capture.ts` today, and the MCP door's JSON Schema joins them at Task 6. The rule was never
+ * "don't type unions" — it is "don't copy a union you cannot import".
+ */
+export type ViewportCaptureRequest = {
+  /** Where to photograph from — `"user"` (the human's live camera, the default) or one of
+   *  the six axis views the editor already names. An axis view keeps the human's pivot and
+   *  view distance and moves only the angles, and **never moves their camera.** */
+  view?: CaptureView;
+  /** Longest edge in pixels. Clamped rather than refused; the answer reports what it got.
+   *  Default 1024. */
+  size?: number;
+  /** Draw the line overlays (grid, selection outlines, gizmo, brush ghost). Default `true`. */
+  overlays?: boolean;
+};
+
+/**
+ * What `viewport.capture` answers.
+ *
+ * **`png` IS BASE64, AND THIS IS THE ONLY PLACE IT IS.** The host hands back a
+ * `Uint8Array` and the MCP door will hand an agent an image content block; base64 exists
+ * for the one hop in between, because {@link SessionAnswer} travels as JSON and JSON has no
+ * bytes. Encoding at the wire and nowhere else is what keeps the conversion a single
+ * documented step rather than a format that leaks into the host's own vocabulary — the
+ * chrome's answerer encodes, the daemon relays the string untouched (it relays every payload
+ * untouched), and Task 6's door decodes into its content block.
+ *
+ * NO MIME FIELD. PNG is the format, decided in `field-capture.ts` and not negotiable per
+ * call — thin overlay lines ring under JPEG, which is the whole reason. A `mime` member
+ * would be a parameter pretending to be a fact.
+ *
+ * `width`/`height` are the pixels actually produced, which is how a clamped or
+ * aspect-adjusted `size` becomes visible to the caller instead of being a silent surprise.
+ * `view` is echoed for the same reason.
+ */
+export type ViewportCaptureResult = {
+  /** The PNG, base64-encoded. */
+  png: string;
+  width: number;
+  height: number;
+  /** The view actually used — the request's, or `"user"`. */
+  view: CaptureView;
+};
 
 /**
  * What `session.state` answers — **the first method with a payload worth naming**, and the

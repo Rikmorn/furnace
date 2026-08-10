@@ -9,9 +9,9 @@
 // returns before it writes a cell — and writing cells is what feeds the mirror.
 //
 // ⚠️ NOT PROVEN ANYWHERE IN THIS SUITE: that the marker layer is DRAWN AT ALL.
-// Deleting the `layers.flags && flagMarkers` push from `renderScene` fails no
+// Deleting the `layers.flags && flagMarkers` push from `compose` fails no
 // test in this repo. The tests below build the layer against a real device and
-// pin its instance count, and the tick tests do call `renderScene` — but the
+// pin its instance count, and the tick tests do call `compose` — but the
 // host requests its context without `surfaceFormat: "linear"`, so under
 // bun-webgpu that render is invalid (see the mute below) and proves nothing
 // about what reached the draw list. There is no draw-list seam and no pixel read
@@ -64,7 +64,7 @@ import { stubAnimationFrameCaptured } from "./_helpers/raf.ts";
 
 await ensureBunWebGpu();
 
-// The tick tests below drive `renderScene`, and under bun-webgpu that render is
+// The tick tests below drive `compose`, and under bun-webgpu that render is
 // INVALID: the host requests its context without `surfaceFormat: "linear"`, so
 // `createView({ format: "bgra8unorm-srgb" })` fails validation against the mock's
 // canvas texture (the gpu-fixture header). It fails ASYNCHRONOUSLY, as uncaptured

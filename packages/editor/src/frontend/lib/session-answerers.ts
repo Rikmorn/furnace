@@ -3,8 +3,12 @@ import type { RefObject } from "react";
 // TYPE-ONLY, so both are erased and this module stays a plain record with no runtime
 // edge on the host — the rule `tests/frontend-no-engine-leakage.test.ts` machine-enforces
 // for everything the chrome bundle pulls in.
-import type { FieldHistory } from "../../field-host/index.ts";
-import type { SessionState } from "../../shared/wire.ts";
+import type { FieldHistory, FieldHost } from "../../field-host/index.ts";
+import type {
+  SessionState,
+  ViewportCaptureRequest,
+  ViewportCaptureResult,
+} from "../../shared/wire.ts";
 import type { ActionCtx } from "./actions.ts";
 
 /**
@@ -28,9 +32,11 @@ import type { ActionCtx } from "./actions.ts";
  * is converted there. That is what keeps "never a hang" true for a handler's own bugs and
  * not only for a missing method.
  *
- * It is also why a future async method costs nothing here: the daemon's budget is ten
- * seconds, and a fact behind a worker round trip is a legitimate answer, not a reason to
- * fire-and-forget inside a synchronous body.
+ * It is also why an async method costs nothing here, which stopped being a prediction at
+ * T4c: `viewport.capture` awaits a GPU readback and a PNG encode. A fact behind a round
+ * trip is a legitimate answer, not a reason to fire-and-forget inside a synchronous body —
+ * and the daemon's budget is per-method rather than a flat ten seconds precisely so a slow
+ * honest answer is affordable (`daemon/backchannel.ts`'s `ask`).
  *
  * `undefined` IS A LEGITIMATE ANSWER. `JSON.stringify` drops the key, the daemon's schema
  * takes the body with `payload` absent, and the ask resolves `undefined` — the round trip is
@@ -222,9 +228,32 @@ export type SessionStateReader = () => SessionState;
  *
  * The result is a NEW OBJECT per call, so the caller must memoize it — `useSessionAnswer`
  * states that rule and why the feed's dep list imposes it.
+ *
+ * **THE SECOND REF IS NOT A THIRD INSTANCE OF THAT PATTERN, and saying so is the point of
+ * this paragraph.** `host` is `App`'s `fieldHostRef`, which App creates AND fills itself —
+ * one assignment inside its own engine-bootstrap effect, synchronously before the dispatch
+ * that makes the editor ready. Neither its writer nor its reader is below `App`, so it is
+ * not `viewportFocusRef`'s shape (created above, installed from far below) and it is not
+ * even `claimLostRef`'s (written by a hook `App` calls, read from below) — it is the
+ * simplest case of all, a ref `App` owns end to end. The two-precedent list above is
+ * therefore unchanged by it and must not grow a third entry. What
+ * makes it a ref at all is different and simpler: the registry is memoized `[]` for the
+ * feed's stability rule, so it cannot close over a value that arrives after the first
+ * render, and a ref object is the only thing React guarantees never changes identity.
+ *
+ * `undefined`, not `null`, because that is what `useRef<FieldHost | undefined>(undefined)`
+ * spells and normalising it here would be a conversion whose only purpose is to make two
+ * refs look alike. The two answerers therefore test their readiness differently — `null`
+ * for the reader, `undefined` for the host — and each tests the value its owner actually
+ * writes.
+ *
+ * @param reader - the `SessionState` projection, filled by `ActionContextProvider`.
+ * @param host - the field host, filled by `App`'s engine bootstrap. `undefined` until the
+ * engine module has loaded, which is a state `viewport.capture` refuses out loud.
  */
 export function createSessionAnswerers(
   reader: RefObject<SessionStateReader | null>,
+  host: RefObject<FieldHost | undefined>,
 ): SessionAnswerers {
   return {
     ...BASE_ANSWERERS,
@@ -233,5 +262,75 @@ export function createSessionAnswerers(
       if (read === null) return { ready: false };
       return read();
     },
+    // THE FIRST ANSWER THAT IS NOT A PROJECTION OF A MIRROR (foundations T4c). Every
+    // method before it read a latch the chrome was already holding and shaped it for the
+    // wire; this one asks the ENGINE to do work — render the viewport's own composition
+    // into an off-screen texture, read it back, encode a PNG — and hands over the result.
+    // That is why it is `async` and why the daemon raises its ask budget for this method
+    // alone (`daemon/session-handlers.ts`); the seam has always permitted a promise
+    // (`useSessionAnswer` awaits, and its header argues why), and this is the first row to
+    // spend it.
+    //
+    // IT REFUSES BY THROWING, which is the honest shape here and the opposite of
+    // `session.state`'s `{ ready: false }`. That method has a truthful answer for a chrome
+    // with no engine — "there is no session state yet" — and this one does not: there is no
+    // picture of a viewport that does not exist, and inventing a blank image would be a
+    // POSITIVE claim about what the human is looking at. `useSessionAnswer` converts the
+    // throw into a typed refusal the caller reads, so the failure lands where the question
+    // came from.
+    "viewport.capture": async (
+      params: unknown,
+    ): Promise<ViewportCaptureResult> => {
+      const engine = host.current;
+      if (engine === undefined) {
+        throw new Error(
+          "this editor tab has no engine yet — there is nothing to photograph",
+        );
+      }
+      // ONE cast, at the relay boundary, and it is the same one every daemon-side handler
+      // takes: `params` is `unknown` because the envelope relays rather than reads, and the
+      // daemon has already validated it against `viewport.capture`'s schema.
+      const req = (params ?? {}) as ViewportCaptureRequest;
+      // NO SECOND CAST ON `view`, and its absence is the load-bearing part. Both sides name
+      // the SAME `CaptureView` — `shared/capture.ts` declares it on the neutral floor
+      // precisely so the daemon can validate it without touching the engine — so the wire
+      // type and the host's parameter are one union and this assignment type-checks on its
+      // own. A cast here would have been a no-op wearing a justification.
+      const shot = await engine.captureScene({
+        view: req.view,
+        size: req.size,
+        overlays: req.overlays,
+      });
+      return {
+        // THE ONE PLACE BYTES BECOME BASE64. `shared/wire.ts` argues why here and nowhere
+        // else. Chunked rather than one `String.fromCharCode(...bytes)` spread: a 1024 px
+        // capture is ~1 MB of PNG and a spread that wide overflows the argument limit in
+        // every engine — the failure is a `RangeError` at capture time, on the size that
+        // is the DEFAULT, which is the kind of bug that ships because the small fixture
+        // never hits it.
+        png: base64(shot.png),
+        width: shot.width,
+        height: shot.height,
+        view: shot.view,
+      };
+    },
   };
+}
+
+/** How many bytes per `fromCharCode` call. 8 KiB is comfortably inside every engine's
+ *  argument-count limit (the smallest documented is ~64 K) with room to spare, and large
+ *  enough that a 1 MB capture is ~128 calls rather than a million. */
+const BASE64_CHUNK = 8192;
+
+/** Bytes → base64, for the one wire hop that cannot carry bytes.
+ *
+ *  `btoa` over a binary string, which is the platform's only synchronous encoder — the
+ *  alternative (`FileReader` over a `Blob`) is async and would add a second await to a path
+ *  that already has two. Chunked for the reason the call site states. */
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK));
+  }
+  return btoa(binary);
 }
