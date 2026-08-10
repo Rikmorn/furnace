@@ -119,10 +119,19 @@ export type SessionAnswer =
  * argument live. That is deliberate and it is the OPPOSITE choice from
  * {@link SessionState}, which projects: a request has no engine types in it (three
  * primitives), it is the agent's own vocabulary rather than the host's, and nothing is
- * gained by renaming it on the way across. The host type cannot be imported here — this
- * file is held engine-free, and `field-capture.ts` value-imports `@furnace/core` — so the
- * duplication is forced; what is NOT forced is keeping the spellings identical, and they
- * are, so a reader who has seen one has seen both.
+ * gained by renaming it on the way across. The spellings are kept identical, so a reader who
+ * has seen one has seen both.
+ *
+ * **IT IS A CHOICE AND NOT A NECESSITY, which an earlier version of this paragraph got
+ * wrong.** It said the host type "cannot be imported here — this file is held engine-free,
+ * and `field-capture.ts` value-imports `@furnace/core` — so the duplication is forced". The
+ * first clause is true and the conclusion does not follow: a duplication is forced only when
+ * NEITHER direction is available, and the other one is. `field-host/` may import this floor
+ * and already does (`field-capture.ts` ← `./capture.ts`), so declaring the request here and
+ * having the host take it was open the whole time. {@link SessionQueryRequest} (T4c Task 4)
+ * is that shape and argues it. This pair stays mirrored because retrofitting it is a change
+ * to a shipped contract with no defect behind it, not because it had to be — and saying which
+ * is the point, since "forced" is what stops anyone re-examining it.
  *
  * **`view` IS THE REAL UNION, WHICH IS THE ONE EXCEPTION TO THIS FILE'S `string` RULE** —
  * and the exception proves the rule rather than bending it. {@link SessionState}'s
@@ -242,6 +251,63 @@ export type ActionRunRequest = {
    *  ever reaches the chrome, which is where that knowledge lives. */
   input?: unknown;
 };
+
+/**
+ * What `session.query` asks — **the spatial read, parameterized on what is being asked
+ * about** (foundations T4c).
+ *
+ * ONE TOOL RATHER THAN THREE, and the reason is a budget rather than taste: the agent door
+ * carries a hard ceiling of ten tools, the tranche's planned set is nine, and three separate
+ * spatial reads would have spent a third of the remaining room on one concern. A
+ * discriminated union is what a client's `inputSchema` renders as a `oneOf` an agent picks an
+ * arm from, which is the same choice made once instead of three tool names to search.
+ *
+ * **IT IS DECLARED ONCE AND THE HOST IMPORTS IT, which is the opposite of what the two
+ * request types above do.** {@link ViewportCaptureRequest} and {@link GenerateRequest} are
+ * hand-mirrored against `field-host/field-capture.ts` and `field-host/field-mutation.ts`, and
+ * this one is not: `field-host/field-query.ts` type-imports this declaration directly. The
+ * edge is legal and already worn — `field-mutation.ts` imports `./field-op.ts` and
+ * `field-capture.ts` imports `./capture.ts`, both from this same floor — so a host module
+ * naming a wire type costs nothing and removes the drift the mirrors accept. The repo's own
+ * rule is the tie-breaker: two ways to spell one thing is a smell, and the only reason to
+ * mirror is when one side cannot reach the other.
+ *
+ * The arms carry no engine type at all — three primitives and two number triples — which is
+ * what makes the single declaration POSSIBLE here. The ANSWER is a different matter and is
+ * deliberately not declared on this floor, for {@link EditApplyRequest}'s reason exactly: it
+ * names `FieldEntityInfo`, a selection spec and a field hit, all of which are core's, and
+ * this file is held engine-free. `field-host/field-query.ts` owns it; the daemon relays it
+ * untouched, as it relays every payload.
+ */
+export type SessionQueryRequest =
+  | {
+      /** Every committed generator entity with its footprint box, plus the PLACED PROPS
+       *  lint — how many there are, which ones are not resting on anything, and which ones
+       *  interpenetrate. */
+      about: "entities";
+    }
+  | {
+      /** One ray cast into the density field — the general-purpose probe, and the same
+       *  mechanism the `entities` arm's contact test runs per prop. */
+      about: "ray";
+      /** Where the ray starts, in world metres. */
+      origin: [number, number, number];
+      /** Which way it points. Normalized by the engine, so any length works — but it must
+       *  not be the ZERO vector, which the daemon refuses. A zero direction is not a ray:
+       *  core divides by `hypot(...) || 1`, so it walks +X from the origin and answers a hit
+       *  that describes a question nobody asked, or `null` — indistinguishable from "nothing
+       *  within reach". The one input on this wire where a plausible-looking value produces a
+       *  confidently wrong answer. */
+      dir: [number, number, number];
+      /** How far to look, in metres. Default `DEFAULT_PROBE_M`, ceiling `MAX_PROBE_M`
+       *  (`shared/field-limits.ts` carries both, and why the ceiling is where it is). */
+      maxDist?: number;
+    }
+  | {
+      /** The human's current cell selection — its replayable spec, its size and its box.
+       *  **Never its cells**; the answer's own docblock argues why. */
+      about: "selection";
+    };
 
 /**
  * What `session.state` answers — **the first method with a payload worth naming**, and the

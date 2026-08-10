@@ -32,6 +32,7 @@ import type { BrushEffect } from "../shared/field-brush.ts";
 // `MAX_SEGMENT_M` is twice of — went with the eyedropper's raycast, its only reader here.
 import { MAX_SEGMENT_M } from "../shared/field-limits.ts";
 import type { BrushOpInput } from "../shared/field-op.ts";
+import type { SessionQueryRequest } from "../shared/wire.ts";
 import { createAnalyzer } from "./field-analyzer.ts";
 // The rig, and with it BOTH pure camera modules: `camera-control.ts` (the orbit math) and
 // `field-camera.ts` (the input arithmetic) each had every one of their readers inside the
@@ -74,6 +75,7 @@ import {
   withArchetypeOptions,
 } from "./field-placements.ts";
 import { createProps } from "./field-props.ts";
+import { createQuery, type QueryAnswer } from "./field-query.ts";
 import { createRender } from "./field-render.ts";
 import { createSegmentBrush } from "./field-segment.ts";
 import { createSelection } from "./field-selection.ts";
@@ -1226,6 +1228,31 @@ export type FieldHost = {
    *    initialised, or disposed), when the canvas has no size, or when the
    *    readback or encode fails. */
   captureScene(req?: CaptureRequest): Promise<CaptureImage>;
+  /** Answer a spatial question GEOMETRICALLY — **the third of the agent seam's
+   *  three verbs, and the one that makes the other two checkable** (foundations
+   *  T4c).
+   *
+   *  *Ask this; do not squint.* {@link captureScene} is how a caller SEES that a
+   *  room looks wrong; this is how it finds out what is wrong, in numbers.
+   *  Whether a prop rests on the floor and whether two props interpenetrate are
+   *  facts the field can state exactly, and reading them off a rendered image is
+   *  the failure mode the tranche's research names (`field-query.ts`'s header
+   *  carries the citation).
+   *
+   *  Three questions behind one parameter — `{about:"entities"}` for what is in
+   *  the world plus the placed-prop lint, `{about:"ray"}` for a probe into the
+   *  density field, `{about:"selection"}` for what the human has selected.
+   *  `field-query.ts` owns every definition, including what CONTACT means and why
+   *  the selection answer never carries cells.
+   *
+   *  SYNCHRONOUS, like {@link applyOps} and unlike {@link captureScene}: it is
+   *  store and log work with no GPU on the path. Bounded work — the prop scan has
+   *  a measured cap and says when it bit, because this runs on the same thread as
+   *  the human's viewport.
+   *
+   *  READ-ONLY, and the code earns it rather than declaring it: nothing on the
+   *  path writes to the store, the log, or any host state. */
+  query(req: SessionQueryRequest): QueryAnswer;
   /** Subscribes to "the entity list may have changed" — a bare TICK, not a
    *  value: the subscriber re-reads {@link listEntities} itself (the records are
    *  clones; pushing them would clone on every fire whether or not anything
@@ -3697,6 +3724,23 @@ export function createFieldHost(deps?: {
     randomSeed: randomStampSeed,
   });
 
+  // The agent seam's THIRD module, assembled beside the second for the same
+  // reason: it composes other clusters' reads and owns no state at all. Every
+  // dep is a plain ref onto a seam declared above — the substrate, two of
+  // `field-entities.ts`' members and one of `field-selection.ts`' — so unlike
+  // `mutation` it needs no arrow wrappers and unlike `capture` it needs no
+  // context. It is the cheapest cluster in this closure and the only one that
+  // cannot change anything.
+  const query = createQuery({
+    substrate,
+    entities: entities.list,
+    footprints: entities.footprints,
+    // `info`, not `spec`+`region`+`cellCount` reassembled here: the panel's
+    // payload and the agent's answer come off ONE builder, which is what stops
+    // the two describing the same selection differently.
+    selection: selection.info,
+  });
+
   // --- the LIFECYCLE cluster: DECLARED FACADE-RESIDENT, foundations T3d -----
   //
   // The third row to carry this marker after `catalogs` and `history.stepHistory`,
@@ -4111,17 +4155,21 @@ export function createFieldHost(deps?: {
     frameWorld: cameraRig.frameWorld,
     cameraAimedByHand: cameraRig.aimedByHand,
     snapView: cameraRig.snapView,
-    // The T4c agent pair, all three straight delegates. `applyOps` and `generate`
+    // The T4c agent seam, all four straight delegates. `applyOps` and `generate`
     // are the only members of this facade that hand back a REFUSAL rather than
-    // reporting one on the host's own channel, and `captureScene` the only one
-    // that hands back an image — which is the whole of what makes the three
-    // agent-facing: each answers its caller instead of the room.
+    // reporting one on the host's own channel, `captureScene` the only one that
+    // hands back an image, and `query` the only one that hands back a
+    // MEASUREMENT — which is the whole of what makes the four agent-facing: each
+    // answers its caller instead of the room.
     applyOps: mutation.applyOps,
     generate: mutation.generate,
     // The default request is `{}` rather than a spread of the three
     // defaults, because `field-capture.ts` owns what they are and a second copy
     // here is a second thing to keep in step.
     captureScene: (req) => capture.scene(req ?? {}),
+    // No default request, unlike `captureScene` one line up: `about` is required
+    // — there is no question this verb could sensibly guess at.
+    query: query.answer,
     subscribeEntities(cb) {
       return entities.subscribe(cb);
     },

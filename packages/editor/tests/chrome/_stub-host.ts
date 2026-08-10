@@ -356,6 +356,22 @@ export function makeStubHost(
       params: { width: 3 },
       dirtyChunks: 2,
     })),
+    // The spatial read answers a fixed EMPTY world, for the mutation pair's reason: what a
+    // chrome-side caller has to get right is that the request reaches the host unreshaped and
+    // the answer comes back untouched. Every measurement in a real answer — the contact rule,
+    // the overlap sweep, the caps — needs a real store and log, and is pinned against one in
+    // `tests/field-host/query.test.ts`.
+    query: mock(() => ({
+      about: "entities" as const,
+      entities: [],
+      props: {
+        total: 0,
+        scanned: 0,
+        floating: [],
+        overlapping: [],
+        truncated: false,
+      },
+    })),
     setAgentProfile: mock(),
     setFlagFilters: mock(),
     verifyFlag: mock(),
@@ -521,6 +537,7 @@ export function makeStubHost(
     applyOps: calls.applyOps,
     generate: calls.generate,
     captureScene: calls.captureScene,
+    query: calls.query,
     subscribeEntities: (cb) => {
       calls.subscribeEntities(cb);
       return seams.entities.subscribe(cb);

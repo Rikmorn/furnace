@@ -7,7 +7,8 @@ import {
   MAX_CAPTURE_SIZE,
   MIN_CAPTURE_SIZE,
 } from "../shared/capture.ts";
-import type { SessionAnswer } from "../shared/wire.ts";
+import { MAX_PROBE_M } from "../shared/field-limits.ts";
+import type { SessionAnswer, SessionQueryRequest } from "../shared/wire.ts";
 import type { Backchannel } from "./backchannel.ts";
 import type { ClaimKey, Claims } from "./claims.ts";
 import { EditorError } from "./errors.ts";
@@ -185,6 +186,76 @@ const FENCED_ACTIONS: ReadonlySet<string> = new Set(["edit.undo", "edit.redo"]);
  *  CONDITION, because a refusal an agent cannot act on is a refusal it will retry. */
 const fenceMessage = (id: string): string =>
   `"${id}" is not available to an agent: undo has no op attribution yet, so stepping the log would discard whatever is on top of it — routinely the human's own work, not yours. This fence lifts when op attribution ships and undo is designed with it. To reverse something you just did, apply the inverse ops explicitly.`;
+
+/** A world-metre point. `op-schema.ts` declares the same three-tuple for the same
+ *  advertisement reason (a client reads "exactly three numbers" off the projected JSON
+ *  Schema); the copy is two lines and the alternative is an import between two schema
+ *  modules that share no other vocabulary. */
+const point3 = z.tuple([z.number(), z.number(), z.number()]);
+
+/**
+ * A ray DIRECTION — a `point3` that is not the zero vector.
+ *
+ * **THE REFINEMENT IS THE WHOLE POINT, and it is the `maxDist: .positive()` argument applied
+ * to the field that needed it more.** `z.number()` already rejects `NaN` and `Infinity`
+ * componentwise, so `[0,0,0]` is the one remaining spelling that is well-formed and
+ * meaningless. Core does not refuse it either: `raycastField` normalizes by
+ * `hypot(...) || 1`, so a zero direction becomes a walk along **+X** from the origin — the
+ * answer is a hit describing a question nobody asked, or in carved air a `null`
+ * indistinguishable from "nothing within reach". Both are confidently wrong, which is the
+ * failure class this whole verb exists to remove.
+ *
+ * Refused rather than defaulted, for the door's standing reason: a schema is also the
+ * ADVERTISEMENT, and substituting a direction would answer about a ray the caller never cast.
+ */
+const direction3 = point3.refine(
+  ([x, y, z]) => x !== 0 || y !== 0 || z !== 0,
+  "dir must not be the zero vector — it names no direction to cast along",
+);
+
+/**
+ * What `session.query` accepts — `shared/wire.ts`'s {@link SessionQueryRequest} as a
+ * validator.
+ *
+ * `z.strictObject` PER ARM, so a misspelled `maxdist` is REPORTED rather than dropped into a
+ * silent default. That matters more for a read than it looks: a dropped `maxDist` answers
+ * about a 30 m probe when the caller asked for 300, and the answer is well-formed and wrong.
+ */
+const spatialQuery = z.discriminatedUnion("about", [
+  z.strictObject({ about: z.literal("entities") }),
+  z.strictObject({
+    about: z.literal("ray"),
+    origin: point3,
+    dir: direction3,
+    maxDist: z.number().positive().max(MAX_PROBE_M).optional(),
+  }),
+  z.strictObject({ about: z.literal("selection") }),
+]);
+
+/**
+ * The drift check the two-author arrangement earns — **and it guards ONE declaration here
+ * rather than two, which is what makes it worth so little and worth having anyway.**
+ *
+ * `op-schema.ts`'s pin exists because the op vocabulary has two authors: core's `BrushOp`
+ * type and this daemon's hand-written zod. `session.query` does not — `shared/wire.ts`
+ * declares {@link SessionQueryRequest} once and `field-host/field-query.ts` imports THAT — so
+ * the only thing that can drift is the schema against the single declaration both other
+ * layers already share. This asserts exactly that.
+ *
+ * WHAT IT CATCHES IS NARROW, and the measured table lives at `op-schema.ts`'s
+ * `OP_SCHEMA_MATCHES_CORE` rather than being re-derived (or, as that docblock records
+ * happening twice, re-guessed): a RETYPED field and a newly-REQUIRED field fail the build; an
+ * added, removed or renamed OPTIONAL field does not, because `extends` is assignability and
+ * extra properties on the source side never break it. Do not read this as "it catches the
+ * dangerous direction".
+ *
+ * It is worth the two lines anyway, because the failure it DOES catch is the one this
+ * arrangement invites: a door that accepts a shape the chrome's `session.query` row hands
+ * straight to `FieldHost.query`, which would then read a field that is not there.
+ */
+type QuerySchemaMatchesWire =
+  z.infer<typeof spatialQuery> extends SessionQueryRequest ? true : never;
+export const QUERY_SCHEMA_MATCHES_WIRE: QuerySchemaMatchesWire = true;
 
 /** A world in a sentence a human reads.
  *
@@ -377,6 +448,41 @@ export function createSessionHandlers(
         input,
         CAPTURE_ASK_TIMEOUT_MS,
       );
+    },
+  });
+
+  // THE SPATIAL READ (foundations T4c) — the third ask, and the only one whose input is a
+  // UNION rather than a bag of optional fields.
+  //
+  // ONE COMMAND RATHER THAN THREE, and the reason is the tool budget one layer up: the agent
+  // door carries a hard ceiling of ten tools and the tranche's set is nine, so three spatial
+  // reads would have spent a third of the remaining room on one concern. `z.discriminatedUnion`
+  // rather than a union of object schemas, for `op-schema.ts`'s `shape` reason exactly — a bad
+  // request reports against the arm it MEANT ("`origin` is required") instead of "no union arm
+  // matched", which for a three-armed union is the difference between a fixable message and a
+  // riddle.
+  //
+  // NO BUDGET OF ITS OWN. Unlike `viewport.capture` (a GPU round trip) and `generate` (a
+  // generator's `evaluate` on the main thread), every answer here is store and log arithmetic
+  // with a MEASURED cap on the only quadratic part (`field-host/field-query.ts`'s
+  // `MAX_QUERY_PROPS`, sized against the human's frame budget rather than this timeout). The
+  // default ask budget is more than a bounded read needs.
+  //
+  // `maxDist` IS BOUNDED HERE AND DEFAULTED IN THE HOST, which is the same split `size` takes
+  // on `viewport.capture` and is worth restating rather than assuming: the schema is also the
+  // ADVERTISEMENT, so an agent is TOLD the ceiling instead of discovering it — and the ceiling
+  // is where it is because past it `raycastField`'s own step limit terminates the walk first
+  // and a `null` would stop meaning "nothing there" (`shared/field-limits.ts` measures it out).
+  handlers.set("session.query", {
+    input: spatialQuery,
+    run: (input) => {
+      if (session === undefined) {
+        throw new EditorError(
+          "no-session",
+          "this daemon has no event feed, so there is no editor session to measure",
+        );
+      }
+      return session.backchannel.ask("session.query", input);
     },
   });
 

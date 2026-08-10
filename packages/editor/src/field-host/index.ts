@@ -64,6 +64,24 @@ export type { GenerateOutcome, GenerateRequest } from "./field-mutation.ts";
 // `FieldEntityInfo.placed`'s element type, re-exported beside it so a consumer
 // can NAME the type without reaching into field-placements.ts.
 export type { PlacedArchetype } from "./field-placements.ts";
+// The spatial read's ANSWER, beside the host that serves it — the third instance
+// of the capture/mutation pattern above, with ONE half instead of two.
+// `SessionQueryRequest` is deliberately NOT here and is not merely floor-resident
+// like `CaptureView` and `BrushOpInput`: it is the request type `field-query.ts`
+// ITSELF imports (`shared/wire.ts`), so there is only ever one declaration to
+// name and this barrel re-exporting it would invent a second route to it. That
+// asymmetry with the two pairs above is the point rather than an oversight —
+// `shared/wire.ts` argues why this request is shared where those are mirrored.
+export type {
+  EntityFact,
+  FloatingProp,
+  PropOverlap,
+  PropRef,
+  PropReport,
+  QueryAnswer,
+  RayHit,
+  SelectionFact,
+} from "./field-query.ts";
 export type {
   StampPhase,
   StampRegion,

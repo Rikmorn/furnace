@@ -296,6 +296,17 @@ export type Selection = {
    *  rule: a surface arriving while a selection exists must not render "no
    *  selection" beside a visible amber overlay). */
   subscribe(cb: (info: SelectionInfo | null) => void): () => void;
+  /** The current selection as the panel sees it, or `null` — the payload
+   *  {@link subscribe} pushes, read synchronously (foundations T4c).
+   *
+   *  A PULL BESIDE A PUSH, and the pair is not a duplication: the channel serves
+   *  a React surface that re-renders when the selection moves, and this serves
+   *  `field-query.ts`, which is asked a question at an arbitrary moment and has
+   *  no render to hang a subscription off. Both call the SAME `selectionInfo`
+   *  builder, so the sentence an agent reads and the chip the human sees are one
+   *  derivation — which is the whole reason this is a seam member rather than a
+   *  second projection assembled in the query. */
+  info(): SelectionInfo | null;
   /** How many cell cubes the display settled on. `0` for a region selection by
    *  design — a region draws a box, not cubes. */
   cellCount(): number;
@@ -405,21 +416,31 @@ export function createSelection(deps: SelectionDeps): Selection {
     };
   };
 
+  /** The CURRENT selection as a payload, or `null` when there is none — the one
+   *  expression all three doors onto `selectionInfo` go through.
+   *
+   *  Extracted at foundations T4c Task 4, on the third occurrence exactly (the
+   *  channel's snapshot, the publish, and the new synchronous `info()`), which
+   *  is where `clean-code.md` says to stop tolerating the duplication. Two
+   *  copies were fine and were left alone for two tranches; the third is the one
+   *  that would drift, because a reader adding a fourth door now has an obvious
+   *  thing to call instead of an expression to copy. */
+  const currentInfo = (): SelectionInfo | null =>
+    selection === null ? null : selectionInfo(selection);
+
   // The snapshot is the (re)mount rule: a surface arriving while a selection
   // exists must not render "no selection" next to a visible amber overlay. It
   // spells out the same expression `notifySelection` publishes — one clone per
   // arrival, exactly as the single-slot subscribe body did.
   const selectionChannel = createViewChannel<[SelectionInfo | null]>({
-    snapshot: () => [selection === null ? null : selectionInfo(selection)],
+    snapshot: () => [currentInfo()],
   });
 
   // ONE payload per publish, shared by every subscriber: the clone is at the
   // PUBLISH boundary, not per delivery, so a pushed value is shared across
   // subscribers and must be treated as immutable by all of them.
   const notifySelection = (): void => {
-    selectionChannel.publish(
-      selection === null ? null : selectionInfo(selection),
-    );
+    selectionChannel.publish(currentInfo());
   };
 
   // The 12-edge line batch of a metre AABB — the cell-selection overlay and the
@@ -623,6 +644,7 @@ export function createSelection(deps: SelectionDeps): Selection {
 
   return {
     spec: () => selection?.spec ?? null,
+    info: currentInfo,
     box: () => (selection === null ? null : selectionAabb(selection)),
     region: () => {
       const sel = selection;

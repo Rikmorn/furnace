@@ -698,6 +698,128 @@ test("edit.apply REFUSES a malformed op before any tab is asked", async () => {
   expect(requestsTo(tab)).toEqual([]);
 });
 
+// --- session.query: the spatial read ----------------------------------------
+//
+// The relay does not change shape for it either. What is new is a UNION input — the first on
+// this wire — so the schema cases below are about the arms rather than about the fields.
+
+test("session.query RELAYS each arm, and defaults nothing on the way past", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "session.query", {
+    about: "ray",
+    origin: [0, 4, 0],
+    dir: [0, -1, 0],
+  });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("session.query");
+  // NO `maxDist` ADDED. The default is the HOST's (`DEFAULT_PROBE_M`), applied where the
+  // probe runs — a daemon that filled it in would be a second author of a default, and the
+  // two would drift the day one moved.
+  expect(req.params).toEqual({
+    about: "ray",
+    origin: [0, 4, 0],
+    dir: [0, -1, 0],
+  });
+  // The ANSWER is the host's `QueryAnswer`, relayed untouched — the daemon declares no
+  // result type for it, exactly as it declares none for `edit.apply`'s.
+  const payload = {
+    about: "ray",
+    origin: [0, 4, 0],
+    dir: [0, -1, 0],
+    maxDist: 30,
+    hit: null,
+  };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+});
+
+test("session.query REFUSES a bad arm before any tab is asked", async () => {
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const bad = async (input: unknown): Promise<string> =>
+    codeOf(dispatch(handlers, "session.query", input));
+
+  // An `about` that names no arm at all.
+  expect(await bad({ about: "everything" })).toBe("invalid-input");
+  // The ray arm's REQUIRED members. `origin` and `dir` have no sensible default — a probe
+  // from nowhere is not a question — so the union arm demands both.
+  expect(await bad({ about: "ray", origin: [0, 0, 0] })).toBe("invalid-input");
+  expect(await bad({ about: "ray", origin: [0, 0], dir: [0, -1, 0] })).toBe(
+    "invalid-input",
+  );
+  // `maxDist` IS BOUNDED, and the ceiling is where `raycastField`'s own step limit would
+  // otherwise start terminating walks early — past it a `null` would stop meaning "nothing
+  // there" (`shared/field-limits.ts` measures it out).
+  expect(
+    await bad({
+      about: "ray",
+      origin: [0, 0, 0],
+      dir: [0, -1, 0],
+      maxDist: 5000,
+    }),
+  ).toBe("invalid-input");
+  expect(
+    await bad({ about: "ray", origin: [0, 0, 0], dir: [0, -1, 0], maxDist: 0 }),
+  ).toBe("invalid-input");
+  // `z.strictObject` per arm: a misspelled `maxdist` is REPORTED rather than dropped into a
+  // silent default, which would answer about a 30 m probe for a caller that asked for 300.
+  expect(
+    await bad({
+      about: "ray",
+      origin: [0, 0, 0],
+      dir: [0, -1, 0],
+      maxdist: 300,
+    }),
+  ).toBe("invalid-input");
+  // A ZERO DIRECTION, which is the one spelling that is well-formed and meaningless.
+  // `z.number()` already rejects NaN and Infinity componentwise; `[0,0,0]` survived both that
+  // and core, because `raycastField` normalizes by `hypot(...) || 1` and would have walked
+  // +X from the origin — answering a hit about a question nobody asked, or in carved air a
+  // `null` indistinguishable from "nothing within reach". Refused rather than defaulted, for
+  // the door's standing reason: substituting a direction answers about a ray nobody cast.
+  expect(await bad({ about: "ray", origin: [0, 0, 0], dir: [0, 0, 0] })).toBe(
+    "invalid-input",
+  );
+  // The ACCEPTING side of that rule is not asserted here on purpose: a request the schema
+  // admits is RELAYED, so it opens an ask that only an answer settles, and a case that opened
+  // one without answering would leave an unsettled promise to reject inside some later file
+  // (the contamination this tranche already paid for once). `session.query RELAYS each arm`
+  // above sends `dir: [0,-1,0]` and answers it, which is that half.
+  //
+  // …and the two bare arms take nothing.
+  expect(await bad({ about: "entities", deep: true })).toBe("invalid-input");
+  // NOT ONE of those reached the tab — the whole point of validating at the door.
+  expect(requestsTo(tab)).toEqual([]);
+});
+
+test("session.query round-trips a NULL payload — the selection arm's ordinary answer", async () => {
+  // `{about:"selection"}` on a tab with nothing selected answers `null`, which is a VALUE
+  // rather than an absence, and the relay has to keep it one all the way out. The
+  // `undefined` case earlier in this file covers the key JSON drops; this covers the one
+  // JSON spells.
+  //
+  // WHAT THIS CASE DOES NOT PIN, said rather than left to be assumed. An earlier draft of it
+  // was titled "takes the DEFAULT ask budget" and asserted that the two RAISED budgets are
+  // above the default — which is true, is already asserted where those constants are, and
+  // says nothing whatever about this command. A budget not passed is the absence of an
+  // argument: nothing observable outside `ask` distinguishes it from a raised one without
+  // waiting out a real timeout, so there is no honest pin available and the title claimed one
+  // that did not exist. That `session.query` rides the default is a code-reading fact with
+  // its reason in `session-handlers.ts` (a bounded read needs no more), and it stays one.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "session.query", { about: "selection" });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.params).toEqual({ about: "selection" });
+  await answer(handlers, { requestId: req.requestId, ok: true, payload: null });
+  expect(await asked).toBeNull();
+});
+
 test("generate RELAYS, and carries a budget of its own above the default", async () => {
   const { handlers, session } = daemon();
   const tab = session("cavern");

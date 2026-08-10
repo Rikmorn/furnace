@@ -220,7 +220,9 @@ esbuild bundles this `format: "esm"`, `write: false`, `sourcemap: "inline"`, wit
 
 Every client — the chrome, a curl, the MCP door — funnels through `dispatch()`, so input validation lives in exactly one place. All input schemas are `z.strictObject(...)` (extra keys rejected). The "future AI binding" this sentence named until foundations T4b is now present and is no exception: `src/daemon/mcp.ts` projects three commands as tools and FORWARDS the caller's arguments into `dispatch()` rather than composing its own, so a tool's advertised input schema and the schema that actually decides cannot drift apart in silence — an invented argument earns `invalid-input` at the agent door exactly as it does over HTTP.
 
-There are **14 commands in six families**, and the chrome speaks **12** of them (`frontend/lib/api.ts`); the two it does not are `session.state` and `viewport.capture`, neither of which has a client method on purpose — both are questions the daemon relays INTO a tab, so a chrome method would be a tab asking itself. See the table. (It was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, and 8 until foundations T4b added `session.*`. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+There are **18 commands** — eight dotted families plus one bare verb (`generate`) — and the chrome speaks **12** of them (`frontend/lib/api.ts`). The **six** it does not are `session.state`, `viewport.capture`, `session.query`, `edit.apply`, `generate` and `action.run`, and none of them has a client method on purpose: every one is a question or an instruction the daemon relays INTO a tab, so a chrome method would be a tab addressing itself. See the table. (The chrome's twelve was 11 until foundations T4c gave `session.release` a caller: the claim now RE-KEYS on a world switch, and a re-key refused mid-session is the one moment a tab has a claim to give up without closing. §26.1.) It was 25 until foundations T2 deleted the 17-command `scene.*` family with the document session it drove, 8 until foundations T4b added `session.*`, and 13 until T4c added the five relayed verbs above. The remaining surface is deliberately thin: **the daemon owns bytes and the filesystem, the browser owns the world.** Nothing here holds a document, a schema or a generator.
+
+*(Counts re-derived at T4c Task 4 rather than incremented: `grep -rhn 'handlers\.set("' src/daemon/` lists eighteen names, and each was tested against `frontend/lib/api.ts` for a client method. The paragraph had said "14 in six families, the TWO it does not" — accurate through Task 2 and left behind by Task 3's three verbs, which is exactly the rot a count nobody re-measures acquires.)*
 
 `session.*` is the first family whose answer depends on **which caller is asking** rather than only on what it asked, which is why three of the five carry a connection `token` (§5.1). The other two are the two halves of the backchannel and neither takes one. `session.answer` is the **only command the daemon is the logical originator of** — it is the return leg of a question the daemon asked, and it names a pending ask rather than a connection, so it carries a `requestId` instead. `session.state` is the **only command the daemon cannot answer**: it relays the question to whichever session is CLAIMED and hands back what that session said, so naming a connection would let a caller read a tab the human is not in — the failure the claim exists to prevent.
 
@@ -239,6 +241,10 @@ There are **14 commands in six families**, and the chrome speaks **12** of them 
 | `session.release` | `{ token }` | `{}` — drops whatever this connection holds. It had **no chrome method** through T4b, on the argument that a tab which stops authoring is a tab that closed and the SSE departure hook has already released it. T4c found the exception and gave it one: a claim that RE-KEYS on a world switch can be REFUSED, and the daemon drops the old key only when a new claim succeeds — so without a release the tab would go on holding the world it just left (§26.1). Reached only on that refusal, and never with a `name`: the connection is what holds, so the connection is what is dropped. |
 | `session.state` | `{}` | The claimed session's `SessionState` (`src/shared/wire.ts`), RELAYED — the first command that asks rather than answers. A discriminated union on `ready`: the not-ready arm carries nothing but the discriminant (the engine bundle is async and a tab is claimable before its field host exists, so an empty-looking world would be a false claim of emptiness), and the ready arm carries `cursor`, `world`, `tool`, `gesture`, `session`, `selection`, `selectedEntity`, `camera`, `stats` and `history`. **No token and no input** — it addresses whoever is claimed (§5.1), so zero and many both refuse with `no-session`, a silent tab earns `session-timeout` (§6), and the daemon validates nothing on the way past: it cannot compute one field of this, which is the whole reason the backchannel exists. `cursor` is an opaque compare-only change token that rides the history payload (§17.6). |
 | `viewport.capture` | `{ view?, size?, overlays? }` | `ViewportCaptureResult` (`src/shared/wire.ts`) — a base64 PNG of the live viewport plus the `width`/`height`/`view` it actually produced, RELAYED. The **second** command the daemon cannot answer and the first with a **budget of its own**: 30 s rather than the default 10, because this ask makes the tab render, read back off the GPU and encode, where every other method reads a record it is already holding (§26.1). `view` is validated against the host's own `CAPTURE_VIEWS` (`src/shared/capture.ts`) and `size` against the same bounds the host clamps to — the daemon REFUSES out of range where the host clamps, because a schema is also what the MCP door advertises. |
+| `session.query` | `{ about: "entities" }` \| `{ about: "ray", origin, dir, maxDist? }` \| `{ about: "selection" }` | `QueryAnswer` (`src/field-host/field-query.ts`), RELAYED — the spatial read, and the tranche's answer to *ask this, do not squint* (§27.2). `entities` returns every committed entity with its footprint plus the placed-prop LINT (floating props with their measured gap, interpenetrating pairs with their penetration extents, and a `truncated` flag so an empty list cannot read as a clean world); `ray` returns one `raycastField` hit with its distance; `selection` returns the replayable `SelectionSpec`, count and box — **never the cells**. A `z.discriminatedUnion` per arm, so a bad request reports against the arm it MEANT. **No budget of its own** (store and log arithmetic, with a measured cap on the only quadratic part). `maxDist` is bounded at `MAX_PROBE_M` where `raycastField`'s own step ceiling would otherwise make a `null` ambiguous (and CLAMPED again in the host, so the module's contract does not depend on this door); `dir` is refused as the zero vector, which `z.number()` alone admits and core would silently turn into a walk along +X. |
+| `edit.apply` | `{ ops: BrushOpInput[] }` (`.min(1)`, full op vocabulary — `daemon/op-schema.ts`) | `ActionResult`, RELAYED — a batch landing as ONE undo entry for the human (§27.1). The daemon validates the op SHAPE in full because a write arriving malformed and relayed anyway asks a tab to mutate a world nobody checked; core decides whether the shape is BUILDABLE. No budget of its own: the cost is bounded by the list the caller sent. |
+| `generate` | `{ generatorId, params?, seed?, region? }` | `GenerateOutcome` (`src/field-host/field-mutation.ts`), RELAYED — one generator committed atomically, opening no stamp session and leaving none (§27.1). `params` is `z.record(z.unknown())` and that is the honest ceiling: per-generator schemas live in core's registry, which this Node-portable daemon may not import, so core validates them at commit. Carries a **30 s budget** — a generator's `evaluate` runs on the tab's main thread. |
+| `action.run` | `{ id, input? }` | `ActionResult`, RELAYED — the named-verb door onto the editor's own 39 verbs (§27.1). Builds **no allow-list** (which ids exist is `runNamedById`'s answer) and holds one **deny-list**: `edit.undo` and `edit.redo` are fenced at the daemon until op attribution ships. The six ids with an input schema have it applied here, from `action-registry/schemas.ts`. |
 | `session.answer` | `{ requestId, ok: true, payload }` \| `{ requestId, ok: false, error }` | `{ delivered }` — hands one answer to the backchannel ask it names (`daemon/backchannel.ts`). **No token**: the `requestId` was minted into exactly one connection's stream, so holding it means holding that stream — the same structural argument the token itself rests on. `delivered: false` is the honest report for an id naming no pending ask (an answer that lost the race with its own ask's timeout, a duplicate, a forged one), not an error — refusing would manufacture a client-side failure for a designed race. A discriminated union so a refusal cannot pose as a success with a missing payload. |
 
 `field.load` and every `world.*` verb share ONE name schema — `z.string().regex(WORLD_NAME_RE)` — and `worlds.ts`'s top comment tracks the other copies of that regex.
@@ -2876,9 +2882,16 @@ allowed to stand:
   the register and carries a dated note of what T4b consumed; the transport-agnostic substrate
   the rest mounts over is unchanged — one zod-validated `dispatch()` choke point (§4, which the
   agent door funnels through rather than beside) and a closed error-code union (§6, which now
-  has its second transport edge). The *verb set* an agent would be handed is 14 commands, and
+  has its second transport edge). The *verb set* an agent would be handed is the command
+  registry (**18** at T4c Task 4 — §4 carries the count and how it is re-derived), and
   the "disk edits beat mutation tools" rationale points at the field artifact rather than at a
   scene JSON.
+
+  *(Two clauses of this bullet went stale INSIDE T4c and are left standing for Task 7, which
+  owns this entry's disposition: "every MUTATING tool" stopped being deferred at Task 3
+  — `edit.apply`, `generate` and `action.run` shipped — and the milestone entry is scheduled
+  for DELETION at the tranche's close. Only the count is corrected here, because Task 4 is
+  what moved it.)*
 - **A scene-authoring surface is NOT deferred — it is gone.** The chrome half went at F4.5a,
   the daemon half and `@furnace/core/scene` at foundations T2, and the backlog entry that
   parked the capability was resolved by that deletion rather than by building it. There is no
@@ -5295,3 +5308,143 @@ that EXISTS and has nothing to do, which is not an argument for answering `ok` w
 no host at all. `edit.delete` is the variant — its `okAfter` claim ("the confirm was raised")
 was always honest, and what was wrong was raising a destructive prompt over a host that could
 not serve the answer; resolving the host BEFORE the question makes that unreachable.
+
+### 27.2 The spatial read — `session.query` (Task 4)
+
+**The posture is the design, and it comes from evidence rather than taste.** *Ask this; do
+not squint.* Task 2 gave the agent eyes; the eyes are for SEEING, not for MEASURING. An agent
+must never read a rendered image to answer "is this prop resting on the floor" or "do these
+two things interpenetrate" when the field can state it exactly. The tracked research
+(`docs/research/2026-08-09-viewport-capture-technique.md`, point 4) is the source: VULCAN
+(arxiv 2512.22351) answers floating and collision with ray probes and Set-of-Mark renders,
+and its floating metric collapses from 0.711 to 0 without them. **Reads stay ahead of
+writes** — Task 3 shipped the mutation verbs and this is what makes them checkable; the
+gate's `verify` step does not exist without it.
+
+**WHERE THE CONTACT DEFINITION LIVES TODAY, stated precisely because an earlier draft of this
+paragraph overstated it.** It said *"the sentence is in the tool's own contract, not only in
+this document"*, and there is no tool contract yet: `daemon/mcp.ts` still projects three tools
+with a hardcoded empty `inputSchema`, so `session_query` is not advertised at all and no
+`.describe()` exists anywhere in `src/daemon/`. The definition lives in
+`FieldHost.query`'s TSDoc, in `field-query.ts`'s `Query.answer`, and here. **Carrying it into
+`session_query`'s tool description is part of Task 6's row** and is named as such at the
+declaration — a tool that says "ask me about contact" without saying what contact MEANS hands
+an agent a boolean it cannot calibrate, which would leave "ask this, don't squint" worth
+nothing to the only reader it is addressed to.
+
+**ONE tool, parameterized on `about`** — `entities`, `ray`, `selection`. Three tools would
+have spent a third of the door's remaining room (a hard ceiling of ten, a planned set of
+nine) on one concern. A `z.discriminatedUnion` is what makes a bad request report against the
+arm it MEANT rather than "no union arm matched", which for three arms is the difference
+between a fixable message and a riddle.
+
+**It lives in `field-host/field-query.ts`, and the placement was decided rather than
+defaulted.** The plan left it open ("`frontend/lib/spatial-query.ts` or a field-host module").
+Every answer derives from the LIVE store and LIVE log, so the module value-imports
+`@furnace/core` (`raycastField` directly; `collisionCenter` behind `proxyCorners`) — and
+`tests/frontend-no-engine-leakage.test.ts` fails such an import from any non-worker-entry
+file under `src/frontend/` (the exemption is exactly `field-worker.ts` and
+`analyzer-worker.ts`, which ARE separate bundles; a `lib/spatial-query.ts` would be neither).
+The chrome version does not compile past the suite; this is a machine-enforced constraint,
+not a preference. What the chrome holds is a serialized
+projection, one latch per seam, which cannot answer a question about geometry it does not
+have. `field-mutation.ts` met the same question a task earlier and landed the same way.
+api-posture: **R1** (every export is a query — no resource, no lifecycle verb, one member),
+**R3** (pure helpers take their inputs and no ctx; the seam takes state through `QueryDeps`),
+**R8** (editor surface built ON core, reached through the barrel's declared surface),
+**R9** (a read that cannot be answered THROWS — `[]` and "there is no session" are different
+facts).
+
+**The contact rule, stated because a caller has to act on it.** A prop is IN CONTACT when a
+ray cast straight down from the centre of its proxy box's BASE finds a solid sample within
+one CELL SIZE. Each half is chosen for determinism: the probe is a function of the prop's own
+box and nothing else (no camera, no ordering); the one-cell tolerance is the answer's
+RESOLUTION rather than a fudge factor, because `raycastField` reports the entry into the first
+solid sample's cell and the extracted isosurface lies within one cell of it — anything tighter
+would report lattice noise as a defect; and a prop BURIED in the floor reports contact at
+`gap: 0`, since core's raycast hits its own start voxel at t=0 and "sunk in" is not the defect
+being hunted. **Entities are not contact-probed at all**, and the asymmetry is not an
+oversight: a carver's footprint is a volume of AIR it removed, so a downward probe from its
+base hits the rock under the floor it just made — "in contact", always, for every hall. The
+question has meaning for a thing PUT somewhere, which is a prop.
+
+**The prop report is EXCEPTIONS, not a roster** — `total`, `scanned`, `floating`,
+`overlapping`, `truncated`. A scatter emits hundreds of records; a row per prop is tens of
+kilobytes of "this one is fine" for a reader whose whole question is which ones are not. Both
+lists are the VULCAN metrics exactly, and both are empty on a clean world — the answer an
+agent most often wants and the cheapest to read. `total`/`scanned` beside `truncated` are what
+keep the empty lists honest: a silently-capped list reads as "no overlaps", which is the
+single most damaging thing this verb could say.
+
+**Two bounds, measured, and neither is silent.** `MAX_QUERY_PROPS = 2048` is a COST ceiling,
+sized against the HUMAN's frame budget rather than the ask timeout — the read runs
+synchronously on the tab's main thread, so an agent's question is paid for in the editor's
+smoothness while somebody else is working in it. Measured (bun, 2026-08-10): the O(N²) pair
+scan plus the full-reach contact probes total ~34 ms at 2048, ~96 ms at 4096 and ~319 ms at
+8192, against the 100 ms interaction ceiling core's `materializeSelection` already cites. A
+sort-and-sweep was weighed and rejected: it would not change the degenerate case (props
+stacked at one X stay quadratic), which is precisely the case a bound has to survive, so the
+bound does the work either way and the simple loop is what it was measured against.
+`MAX_REPORTED = 32` is a separate SIZE ceiling on what is said — one number for both lists,
+because they are one kind of thing.
+
+**The selection answer never carries cells, and the spec is why that is a gain rather than a
+compromise.** A flood may hold `MAX_SELECTION_BUDGET` = 262 144 cells; as coordinate triples
+that is megabytes no agent can act on. What travels instead is core's REPLAYABLE
+`SelectionSpec` — the same shape a selection-masked op embeds — plus `count`, `truncated` and
+the metre `aabb`. An agent holding the spec can write an op acting on exactly those cells
+without naming one. The cells were never the answer to "what is selected"; the spec is.
+`SelectionInfo.displayed` is dropped in the projection: it says how much of a flood the
+VIEWPORT draws as cubes, which is a fact about the human's screen.
+
+**One new host seam member, and it is a pull beside a push.** `Selection.info()` returns the
+same `SelectionInfo` the channel publishes, read synchronously — the channel serves a React
+surface that re-renders when the selection moves, and the query is asked at an arbitrary
+moment with no render to hang a subscription off. Both go through the one `selectionInfo`
+builder, so the sentence an agent reads and the chip the human sees are one derivation.
+
+**`SessionQueryRequest` is DECLARED ONCE and imported by both ends** — the first request type
+on this wire that is, and deliberately unlike `ViewportCaptureRequest` and `GenerateRequest`,
+which are hand-mirrored against their host twins. `shared/wire.ts` holds it and
+`field-host/field-query.ts` type-imports it; the edge is legal and already worn
+(`field-capture.ts` ← `shared/capture.ts`). The mirrors' docblock claimed the duplication was
+"forced" because the wire cannot import the host — true, and not sufficient: the other
+direction was available the whole time. That sentence is corrected in place rather than acted
+on, because retrofitting a shipped contract with no defect behind it is churn.
+`QUERY_SCHEMA_MATCHES_WIRE` pins the daemon's zod against that single declaration; it catches
+a RETYPED field and a newly-REQUIRED one and misses optional add/remove/rename, per
+`op-schema.ts`'s measured table (both catching directions sabotage-verified at this task).
+
+**It writes nothing an answer depends on, and the code earns it rather than declaring it.**
+Nothing on any of the three paths touches the store, the log or the undo stacks, and every box
+handed out is a copy — the footprint memo is live host state that the camera framing and the
+pick both read. The one hedge is exact: `deps.footprints()` fills `field-entities.ts`'s
+signature-keyed memo of a pure log derivation, which changes nothing observable and is why
+that dep is taken as a CALL. That is what will make Task 6's `readOnlyHint` true rather than
+aspirational — and the pin behind it compares chunk CONTENTS, not `chunks.size`, after the
+review measured that a size check stays green over a write into an already-allocated chunk
+(which is every chunk a probe walks through).
+
+**Three guards were added at the review and each closed a hole a test could not see.** The
+`about` dispatch is a `switch` with a `const _never: never = req` exhaustiveness binding — the
+first cut ended on a bare `return entitiesAnswer()`, so a fourth arm added to the wire type
+would have compiled clean and answered confidently about ENTITIES; the schema pin cannot cover
+it either, because a narrower schema union stays assignable to a wider wire union. `dir` is
+refused as the zero vector at the door: `z.number()` rejects `NaN`/`Infinity` but `[0,0,0]`
+survived, and core normalizes by `hypot(...) || 1`, so it would have walked +X from the origin
+and answered about a ray nobody cast. And `maxDist` is now CLAMPED in the host as well as
+refused at the door — `MAX_PROBE_M` = 512 m, where `raycastField`'s own 4096-step ceiling would
+otherwise start terminating walks early and a `null` would stop meaning "nothing there"
+(`shared/field-limits.ts` carries the measurement and the worst-direction derivation). Until
+the clamp, this module's central promise about `null` depended on a sibling door being in the
+call path.
+
+**`scanProps`, `findOverlaps` and `lint` are module-level and exported**, not closures — the
+review's observation that they capture only the store, taken because the caps and the
+truncation arithmetic are the logic most worth asserting exactly, and they were reachable only
+through a 2 100-record fixture. `field-capture.ts`'s `capturePixels` is the precedent and its
+docblock the argument. `lint` takes its `tolerance`, so the contact rule is assertable at more
+than the editor's one cell size. **The entity list is still unbounded** where the prop scan is
+capped twice — a payload-size risk rather than a frame-budget one, whose fix is a shape
+decision rather than a slice; filed with its trigger at
+`docs/backlog/editor-and-tooling/session-query-entities-list-is-unbounded.md`.

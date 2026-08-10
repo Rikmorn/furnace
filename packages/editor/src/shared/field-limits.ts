@@ -20,6 +20,18 @@
 // locality. `src/shared/` is React-free and engine-free (both halves machine-enforced), and
 // plain numbers are the easiest possible tenant of that rule.
 //
+// THE DAEMON IS A SECOND ENFORCER SINCE T4c, and the bar reads slightly differently for it —
+// worth one clause, because two of the members below are now here for that reason rather than
+// the chrome's. `daemon/op-schema.ts` reads `HOLLOW_MIN_M` and `daemon/session-handlers.ts`
+// reads `MAX_PROBE_M`, both to state a bound in a zod schema that an MCP client is
+// ADVERTISED. That is the same structural constraint the header opens with, from a third
+// side: the daemon is Node-portable and may not touch anything that imports the engine, so a
+// number it validates against and the host computes with can only be one constant if it lives
+// here. `MAX_PROBE_M` is therefore enforced by the DAEMON and not by the host, which the
+// original bar did not contemplate; the bar's point — no home-less numbers, and no
+// host-private clamps taking up residence — is unchanged. The "user" a schema states a bound
+// to is an agent reading `inputSchema`, and being told a ceiling beats discovering it.
+//
 // `DIG_RANGE_M` is the one member that does NOT meet that bar on its own — no surface states
 // it — and it is here as the INPUT `MAX_SEGMENT_M` is twice by construction. Splitting the
 // two would leave the derived limit spelled `60`, which is the geometry lost to a round
@@ -64,6 +76,66 @@ export const DIG_RANGE_M = 30;
  *  static affordance — the rail's Segment member hint, which describes the gesture before it
  *  starts and has no push to read — takes this one. */
 export const MAX_SEGMENT_M = 2 * DIG_RANGE_M;
+
+/** How far a `session.query` probe looks before it answers "nothing there", in metres.
+ *
+ *  TWO USES, ONE CONCEPT — *how far this editor's spatial probes reach unless told
+ *  otherwise*. It is the FIXED reach of the prop contact probe (`field-host/field-query.ts`
+ *  casts straight down from a prop's base and reports the gap it found), and it is the
+ *  DEFAULT `maxDist` of the `{about:"ray"}` arm, which a caller may override up to
+ *  {@link MAX_PROBE_M}.
+ *
+ *  THE CONTACT PROBE'S REACH IS DELIBERATELY NOT TUNABLE, which is why one of the two uses
+ *  is fixed and the other is not. `contact` is a BOOLEAN an agent compares across calls and
+ *  across props; a per-call reach would make two answers about the same world disagree for a
+ *  reason no reader could see from either one.
+ *
+ *  THIRTY, and the honest reason is that the answer is not sensitive to this number in the
+ *  direction that matters. What a caller acts on is `contact` and — when it is false and a
+ *  surface WAS found — the gap to close. A prop with nothing under it for 30 m and one with
+ *  nothing under it for 300 m are the same defect with the same remedy, and the answer
+ *  distinguishes them anyway (a `null` gap is "nothing within the reach", stated in the tool
+ *  description). What the bound buys is a COST ceiling: at the default 0.25 m cell it is 120
+ *  DDA steps per probe, measured at ~10 µs each on a fully-carved column (the worst case —
+ *  unallocated chunks read as SOLID, so an uncarved world hits at the first sample).
+ *
+ *  EQUAL TO {@link DIG_RANGE_M} TODAY AND DELIBERATELY NOT SPELLED AS IT, exactly as
+ *  {@link HOLLOW_MIN_M} is not spelled as the kit lattice. That one is how far a HAND reaches
+ *  from an eye; this is how far a PROBE looks for a floor. One number, two unrelated
+ *  geometries — a shared spelling would make tuning either move the other. */
+export const DEFAULT_PROBE_M = 30;
+
+/** The furthest a `{about:"ray"}` caller may push `maxDist`, in metres.
+ *
+ *  A CEILING ON A PROMISE RATHER THAN ON COST, and that distinction is the whole reason for
+ *  the number. `raycastField` has a SECOND terminator besides `maxDist` — its own internal
+ *  `MAX_STEPS` (4096, core's `field/raycast.ts`) — and the two disagree about what a `null`
+ *  means. Out of distance is *"nothing is there"*; out of steps is *"I stopped looking"*, and
+ *  the function spells both `null`. Refusing a `maxDist` the walk cannot honour is what keeps
+ *  the answer's `null` a single fact.
+ *
+ *  512, AND THE TWO HALVES OF THAT ARE NOT THE SAME KIND OF CLAIM.
+ *
+ *  MEASURED (bun, 2026-08-10, `field/raycast.ts` at head): at the 0.25 m cell an AXIS-ALIGNED
+ *  ray through carved air finds a plug at 1000 m and not one at 1050 m — bracketing the
+ *  4096 × 0.25 = 1024 m the step ceiling predicts.
+ *
+ *  DERIVED, NOT MEASURED: a 3D-DIAGONAL ray is the worst direction, because it crosses a
+ *  boundary on all three axes per cell of per-axis advance — ~√3 steps per cell of travel —
+ *  so its reach is ~1024/√3 ≈ 591 m. The equivalent probe for it was written and abandoned
+ *  (carving a 700 m diagonal corridor did not finish in two minutes and the arithmetic it
+ *  would have confirmed is already anchored by the axis case).
+ *
+ *  512 sits under the WORST direction, so a `null` at any accepted `maxDist` means "nothing
+ *  there" whatever way the ray points.
+ *
+ *  IT IS EXACT FOR THE ONLY LATTICE THIS DOOR SERVES, and that is a verified fact rather than
+ *  an assumption: the editor is single-lattice at the default cell — `field-host.ts` builds
+ *  its one store with a bare `field.createFieldStore()`, and the two worker mirrors take that
+ *  store's own `cellSize` over the wire. A COARSER cell would only push the true bound out
+ *  (this under-promises, the safe direction); a FINER one would pull it in, which is the case
+ *  to re-derive if the editor ever grows a second lattice. */
+export const MAX_PROBE_M = 512;
 
 /** How many cells a click-gesture flood may select before it truncates.
  *

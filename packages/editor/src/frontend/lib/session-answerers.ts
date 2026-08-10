@@ -4,11 +4,16 @@ import { type ActionResult, refused } from "../../action-registry/result.ts";
 // TYPE-ONLY, so both are erased and this module stays a plain record with no runtime
 // edge on the host — the rule `tests/frontend-no-engine-leakage.test.ts` machine-enforces
 // for everything the chrome bundle pulls in.
-import type { FieldHistory, FieldHost } from "../../field-host/index.ts";
+import type {
+  FieldHistory,
+  FieldHost,
+  QueryAnswer,
+} from "../../field-host/index.ts";
 import type {
   ActionRunRequest,
   EditApplyRequest,
   GenerateRequest,
+  SessionQueryRequest,
   SessionState,
   ViewportCaptureRequest,
   ViewportCaptureResult,
@@ -366,6 +371,44 @@ export function createSessionAnswerers(
         height: shot.height,
         view: shot.view,
       };
+    },
+    // THE SPATIAL READ (foundations T4c) — and the row that keeps the two writes below
+    // CHECKABLE, which is why it is a read placed after the picture and before the hands.
+    //
+    // HOST-DIRECT, like the three rows around it, and SYNCHRONOUS unlike the one above:
+    // `FieldHost.query` is store and log arithmetic with no GPU on the path, so there is
+    // nothing to await and the daemon needs no raised budget for it.
+    //
+    // IT THROWS ON A MISSING ENGINE rather than refusing, which puts it on `viewport.capture`'s
+    // side of the split and not on the two writes'. The test is the one `noEngine` states:
+    // does this method have an honest answer for a chrome with no engine? A WRITE does — *I
+    // did not do it, and here is why*. A READ does not. There is no entity list, no ray hit and
+    // no selection in a world that has not loaded, and answering `{entities: [], props: {total:
+    // 0, …}}` would be a POSITIVE claim that the world is empty — which is the single most
+    // damaging thing this verb could say, because "nothing is wrong" is exactly what an agent
+    // asks it to confirm. `SessionState` solves the same problem with a `ready` discriminant;
+    // this method has no such arm and does not need one, since the seam converts the throw into
+    // a typed refusal at the door.
+    "session.query": (params: unknown): QueryAnswer => {
+      const engine = host.current;
+      if (engine === undefined) {
+        throw new Error(
+          "this editor tab has no engine yet — there is no world to measure",
+        );
+      }
+      // The relay cast every answerer takes, and NO `?? {}` for `edit.apply`'s reason: `about`
+      // is required, so `{}` is not a valid query and manufacturing one would send `undefined`
+      // into a union switch that would silently fall through to the entities arm — an answer
+      // about a question nobody asked. The daemon's schema is what REJECTS a bad request; the
+      // guard below is the one shape assertion that keeps a hole in it from becoming a wrong
+      // answer instead of a sentence.
+      const req = params as SessionQueryRequest | undefined;
+      if (req === undefined || typeof req.about !== "string") {
+        throw new Error(
+          "session.query needs an `about` naming what to ask about — entities, ray or selection",
+        );
+      }
+      return engine.query(req);
     },
     // THE FIRST ANSWER THAT WRITES (foundations T4c). Everything above reads — a mirror, a
     // ref, a rendered frame — and this is where the agent's hands arrive.

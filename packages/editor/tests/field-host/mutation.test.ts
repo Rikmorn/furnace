@@ -44,13 +44,15 @@ const dig = (center: [number, number, number], radius = 1): BrushOpInput => ({
  *  a kit material class in the catalog"), which is correct behaviour and not what these
  *  cases are about.
  *
- *  DECLARED LOCALLY, following this suite's own convention: TWELVE other editor test files
- *  carry their own trimmed copy of a kit-bearing table (measured —
- *  `grep -rl 'kind: "kit"' packages/editor/tests --include="*.ts"`, thirteen hits including
- *  this one). That duplication predates this file and extracting it would touch all
- *  thirteen, which is a tidy-up rather than part of the seam being pinned here. The count is
- *  stated because an earlier draft of this comment guessed "five" off a glob that
- *  double-counted, which is the class of number this repo does not let stand unmeasured. */
+ *  DECLARED LOCALLY, following this suite's own convention: THIRTEEN other editor test files
+ *  carry their own trimmed copy of a kit-bearing table (re-measured at T4c Task 4 —
+ *  `grep -rl 'kind: "kit"' packages/editor/tests --include="*.ts"`, fourteen hits including
+ *  this one; it was thirteen when this comment was written, and `tests/field-host/query.test.ts`
+ *  is the one that made it fourteen). That duplication predates this file and extracting it
+ *  would touch all fourteen, which is a tidy-up rather than part of the seam being pinned
+ *  here. The count is stated because an earlier draft of this comment guessed "five" off a
+ *  glob that double-counted, which is the class of number this repo does not let stand
+ *  unmeasured — and the correction above is the same rule applied to its successor. */
 const TABLE: MaterialTable = {
   classes: [
     { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
