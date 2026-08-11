@@ -9,7 +9,7 @@ if (!Number.isFinite(info.triangles) || info.triangles < 0) {
 }
 ```
 
-The bad-input test in `packages/core/tests/stats/internal-gpu-hooks.test.ts` only exercises the negative arm (`triangles: -3`). The non-finite arm (`NaN`, `Infinity`, `-Infinity`) is the other half of the predicate and has no test.
+The bad-input test in `packages/core/src/stats/internal-gpu-hooks.test.ts` only exercises the negative arm (`triangles: -3`). The non-finite arm (`NaN`, `Infinity`, `-Infinity`) is the other half of the predicate and has no test.
 
 **Trigger to revisit:** Next time `_recordDraw` or similar `Number.isFinite` guards are touched, OR during a broader pass to audit non-finite handling across stats guards.
 

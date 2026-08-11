@@ -13,7 +13,7 @@ After RM-3's A3 commit lands the gen-overflow debug warn, an in-suite test that 
 
 ## Fix shape
 
-New test in `packages/core/tests/resources/pool.test.ts` (non-GPU — operates on the bare pool):
+New test in `packages/core/src/resources/pool.test.ts` (non-GPU — operates on the bare pool):
 
 ```ts
 test("generation overflow wraps cleanly and warns", () => {

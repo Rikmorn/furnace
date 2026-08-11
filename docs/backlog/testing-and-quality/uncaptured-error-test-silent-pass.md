@@ -1,6 +1,6 @@
 # Uncaptured-error tests silently pass on sync-throw backends
 
-The integration tests at `packages/core/tests/stats/uncaptured-errors.gpu.test.ts` and `packages/core/tests/gpu/uncaptured-error.gpu.test.ts` use the same pattern: trigger an invalid pipeline, wait ~30ms, then guard assertions on `if (snapshot(ctx).gpu.uncapturedErrors > 0)`.
+The integration tests at `packages/core/src/stats/uncaptured-errors.gpu.test.ts` and `packages/core/src/gpu/uncaptured-error.gpu.test.ts` use the same pattern: trigger an invalid pipeline, wait ~30ms, then guard assertions on `if (snapshot(ctx).gpu.uncapturedErrors > 0)`.
 
 The risk: on a backend where `createRenderPipeline` throws synchronously (not via the `uncapturederror` event), the `if` guard is false and the test exits green having asserted nothing. The test reports "passed" but ran no assertions on the emitter, log routing, or counter behaviour.
 

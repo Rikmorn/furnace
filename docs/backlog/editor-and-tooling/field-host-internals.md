@@ -90,20 +90,32 @@ tombstone comment. Each was declared **at source** with the words "prune tranche
 of them was ever written down anywhere else. This entry is that record, written at the T3d
 Task 6 review when the count was noticed.
 
-**The eight in-source declarations**, so the two records cannot drift
-(`grep -rnE "prune[- ]tranche" packages/editor/src/field-host/` regenerates the list — two
-of the eight sites spell it hyphenated):
+**The eight in-source declarations**, so the two records cannot drift. Regenerate with:
 
-| Site | What is parked |
-| --- | --- |
-| `field-camera-rig.ts:151` | the local `Box` alias, one of several structural three-word aliases restated per module |
-| `field-analyzer.ts:195` | an alias consolidation this module already names |
-| `field-materials.ts:77` | a deletion candidate in the material seam |
-| `field-materials.ts:156` | a second, beside the alias consolidation above |
-| `field-render.ts:79` | a deletion-pass question raised by the 29-member deps record |
-| `field-render.ts:115` | the `Vec3T` / `LineBatch` alias restatement across six modules |
-| `field-host.ts:1430` | the three accent constants (`SELECTION_COLOR`, `SELECTED_COLOR`, `ANCHOR_CROSS_HALF_M`) — declared in the host with NO host reader since T3d Task 5, kept there because choosing an owner among peer modules is a naming decision whose only spelling makes two siblings value-import a third for a literal |
-| `field-selection.ts:84` | the same three constants from the other end |
+```
+grep -rnE "parked for T5|prune[- ]tranche" packages/editor/src/field-host/
+```
+
+**The alternation is load-bearing, and the narrower grep this entry used to state was wrong.**
+Eight sites park work here but they do not spell it one way: five say "prune tranche", two say
+"prune-tranche" hyphenated, and one (`field-render.ts`) says "parked for T5" and nothing else.
+The originally-stated `prune[- ]tranche`-only command therefore returned **seven** while the
+table below claimed eight — the row it disowned was the eighth. Corrected at the T5 branch
+review, 2026-08-11, along with four line numbers the command had already invalidated.
+
+Line numbers are as of that run; the command above is the authority, and each row carries an
+anchor phrase so it survives the next drift.
+
+| Site | Anchor phrase | What is parked |
+| --- | --- | --- |
+| `field-camera-rig.ts:163` | "consolidating the five across the directory" | the local `Box` alias, one of five spellings of `{ min: Vec3T; max: Vec3T }` restated per module |
+| `field-analyzer.ts:195` | "Consolidating the four across the directory" | the `Vec3T` / `LineBatch` alias family, four spellings, this module's end |
+| `field-materials.ts:77` | "choosing an accent-vocabulary owner" | the accent-constant owner question, from the material seam's end |
+| `field-materials.ts:157` | "TWO PRUNE CANDIDATES ARE PARKED HERE" | `Materials.kitInstanced` / `kitMat`, two spellings of one handle; AND the `Vec3T` / `LineBatch` family, declared privately in FIFTEEN and SEVEN modules |
+| `field-render.ts:129` | "choosing an owner among peer modules" | `selectionColor` / `anchorCrossHalfM`, the two accent constants this module takes as value deps |
+| `field-render.ts:173` | "What is still parked for T5" | the `Vec3T` / `LineBatch` consolidation across the directory, and `field-materials.ts`'s `kitMat` / `kitInstanced` pair — **the site spelled "parked for T5", which is why the old grep never returned it** |
+| `field-host.ts:1569` | "belongs to the prune tranche and not to a threading one" | the three accent constants (`SELECTION_COLOR`, `SELECTED_COLOR`, `ANCHOR_CROSS_HALF_M`) — declared in the host with NO host reader since T3d Task 5, kept there because choosing an owner among peer modules is a naming decision whose only spelling makes two siblings value-import a third for a literal |
+| `field-selection.ts:84` | "the choice of an accent-vocabulary owner is the prune tranche's" | the same three constants from the other end |
 
 **Three more that this tranche treated as parked and that had no record at all** — they are
 the reason this entry exists rather than a ninth `grep` hit:
@@ -147,8 +159,12 @@ question with its own trigger, not a deletion one, and settling it inside a tidy
 a failure-policy decision. Sharing a file is filing, not conflation.
 
 **Reference:** the eight sites above; `docs/reference/field-host-clusters.md` §2.10 (the
-accent constants' argument) and §2.11 (T3d Task 6's measurement, including the 76.6% prose
-figure and the eleven falsified distance hints);
+accent constants' argument), §2.11 (T3d Task 6's measurement) and **§1 "The shape of the
+file"** (the 76.6% prose figure, in the code/comment/blank row — *not* §2.11, which is where
+this line pointed until the T5 branch review, 2026-08-11). **The eleven falsified distance
+hints are recorded NOWHERE but this entry** — `grep -c "distance" docs/reference/field-host-clusters.md`
+returns 0, so the bullet above is the only record of that measurement and must not be deleted
+on the assumption a reference doc carries it;
 `docs/reference/editor-architecture.md` §21.5 (the live module roster) and §24 (the T3d
 as-built); `.claude/rules/working-standards.md` §Design ("deletion pass before addition
 pass").

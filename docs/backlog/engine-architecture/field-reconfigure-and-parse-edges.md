@@ -5,7 +5,9 @@ a precondition nothing enforces. Each section is one previously standalone entry
 Context, *Trigger to revisit* and *Reference* preserved.
 
 They are merged because all three are the same kind of finding on the same path
-(`packages/core/src/field/reconfigure.ts` and `packages/core/src/field/oplog.ts`): the code
+(`packages/core/src/field/reconfigure.ts` and `packages/core/src/field/artifact.ts`, which is
+where the oplog wire codec and `parseOps` actually live — there is no `field/oplog.ts`, and
+this line named one until the T5 branch review, 2026-08-11): the code
 is correct for every input the shipped callers produce, and silently wrong — or merely
 unpinned — for an input they happen never to produce. None is a live bug, and each says so
 in its own words. All three are cited live: the flood-mask and empty-evaluation sections

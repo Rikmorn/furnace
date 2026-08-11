@@ -6334,11 +6334,22 @@ the synchronous kind**, which is the one premise a single new finding could knoc
 
 **The finding that came out of measuring it: the fallback does not cover the workspace, and
 the entry had been spelling it as if it did.** The three per-package commands sum to **369
-files / 3,215 tests** against the root run's **371 / 3,218** —
+files / 3,223 tests** against the root run's **371 / 3,226** —
 `packages/cookbook/tests/demos.test.ts` and
 `packages/hello-world/tests/triangle-shader.test.ts` are in neither. Splitting also buys no
-wall clock (69.57 s summed vs 71.66 s for one root run). So the three are the right three as
-a diagnostic and owe a fourth command as a gate.
+wall clock (69.57 s summed vs 71.66 s for one root run, measured at `0fd37ad7`). So the three
+are the right three as a diagnostic and owe a fourth command as a gate.
+
+*Re-measured at the T5 branch review (2026-08-11, tree at `3b98daae` + the review's doc fixes):
+`bun test packages/{core,dungeon,editor}` gives 1,402 + 62 + 1,759 = **3,223 tests / 369 files**
+against `bun test` at the root's **3,226 tests / 371 files** (3,225 pass / 1 skip / 0 fail).
+The **2-file, 3-test delta is unchanged** — `bun test packages/hello-world packages/cookbook`
+→ 3 pass across 2 files — so the finding survives the correction; only the totals moved,
+by the tests four later commits on this branch added. The figures this section first carried
+(3,215 / 3,218) were the harness entry's, measured mid-branch at `0fd37ad7` and correct there;
+they were reproduced here without their commit label, which is what made them read as stale.
+`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`'s own table states its
+`0fd37ad7` provenance and is left as the dated measurement it is.*
 
 **RULING 2 — `ToolDefinition.build`, and the substance is that the question CONFLATES TWO
 REGISTRIES.** The full ruling is at §27.5 fact (b), where the deferral lived; in one line:
@@ -6457,7 +6468,14 @@ find docs/backlog -name '*.md' -not -name 'README.md' | wc -l
 
 `engine-architecture` 85 → **33**, `editor-and-tooling` 40 → **21**, `dungeon` **19**,
 `native-runtime` 10 → **12**, `testing-and-quality` **10**, `infrastructure` 3 → **4**,
-`ai-agents` **2**; total 169 → **101**.
+`ai-agents` **2**; total 169 → **101**. *(Those are the PRUNE's figures, at `9e12a3a1`.)*
+
+**At the tranche's head (`3b98daae`) the register is 102, not 101**, and `infrastructure` is
+**5**, not 4 — §28.7 opened a charter entry
+(`docs/backlog/infrastructure/docs-registers-findability.md`) in the commit that relaxed the
+threshold, one commit after the prune. Every other dir is unchanged. Both figures are
+`git ls-tree -r --name-only <rev> -- docs/backlog | grep '\.md$' | grep -v 'README\.md$' | wc -l`,
+which is the form that works at any revision; the `find` block above measures the working tree.
 
 **The four other ruled contradiction classes produced ZERO closures, and that is the finding
 rather than an omission.** Ten bowling-era hits: six say bowling explicitly does NOT trigger
@@ -6499,7 +6517,7 @@ stated honestly is worth more than a HOLDS a reviewer disproves in one command.
 | **4. The gate question is RULED in the harness entry with evidence** | **HOLDS, as a RECOMMENDATION for the review to ratify** — which is the honest verdict, because no task gets to decide how the repo gates. Five numbered parts, each with its measurement; the new finding (the per-package fallback does not cover the workspace) is what disqualifies it as a candidate gate. | `grep -n "The gate question, RULED at foundations T5" docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`. Re-measure: `bun test packages/hello-world packages/cookbook` → 3 pass across 2 files, the two the three-command form drops. |
 | **5. `ToolDefinition.build` is judged against the nine-tool evidence table and dispositioned** | **HOLDS, and the judgement is that the question was MALFORMED.** Two registries were being conflated; PARTIAL on the door population, UNTESTABLE at n = 2 on `build`'s own; the deferred item is RETIRED on §23.4 still binding rather than on the criterion holding. **Flagged for ratification: this is a third shape the plan's binary did not offer.** No entry filed, on purpose. | §27.5 fact (b) and the ruling block under it. `grep -n "ToolId =" packages/editor/src/shared/tool-registry.ts` → `"brush" \| "segment"`; `grep -c "^defineTool(" packages/editor/src/shared/tool-registry.ts` → 2, the whole population. |
 | **6. Every zero-consumer core export is classified keep / cookbook-debt / delete-with-argument; deletions executed atomically; the cull entry gone** | **HOLDS.** 418 names classified 150 / 10 / 1 at the audit's input; the one deletion relocated behind the registry's package-private door in the same commit as its caller and as the guardrail it cites. | Surface at head: the `bun -e` block in §28.5 → **22 modules, 417 exported names** (418 minus the one deletion). `test ! -f docs/backlog/engine-architecture/core-zero-consumer-module-exports.md`. `grep -rn "resetServicesForTests" packages/core/src` → **five** lines and **none in `registry/index.ts`**, which is the whole check: the declaration in `registry.ts`, the re-export and its comment in the new `registry/internal.ts`, and the two in `registry/registry.test.ts` — every one of them `_`-prefixed. Guardrail: `bun test packages/core/tests/architecture.test.ts packages/core/src/registry/registry.test.ts` → 16 pass. Debt: `test -f docs/backlog/engine-architecture/cookbook-debt-kcc-collision-events-shader-composition.md`. |
-| **7. The register is at or under its thresholds with nothing lost — closures ratified at review, merge-docs reference-clean** | **PARTIAL, and the shortfall is the honest floor rather than an unfinished job.** *Nothing lost* HOLDS and *reference-clean* HOLDS. **The thresholds do NOT**: `AGENTS.md` says prune above ~100 files or ~20 in one topic dir, and head is **101 total** with **`engine-architecture` at 33** and **`editor-and-tooling` at 21** — three bars, none of them met, two of them barely. Getting under would mean merging a charter input (forbidden by the "nothing is lost" bar) or re-merging already-merged 200–570-line trackers into 700–1,000-line documents, which destroys the findability the merge exists to buy. **One closure, for the review to ratify**: `region-recipe-as-truth`, net zero because its live residual is re-filed. | The two commands in §28.6. Reference-clean, run per deleted entry name over the whole tree (`grep -rln "<name>" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=target`): **it deliberately does NOT return nothing**, and every surviving hit is one of four kinds — dated **seal records** (left alone by rule), **this document's own historical tables** (§27.5, which now says which seven of its names are in that class), **two provenance notes that say in their own text they are not live pointers** (`field-bake-has-no-content-hash.md` on the one closure, `frame-surface-gaps.md` naming the section it is inside), and **one substring false positive** (`gpu-resident-physics` matches `docs/research/gpu-resident-physics-solver.md` and an `engine-architecture.md` heading anchor — neither is the entry). A fifth kind, or any hit presenting a deleted name as a live register, is the failure. |
+| **7. The register is at or under its thresholds with nothing lost — closures ratified at review, merge-docs reference-clean** | **PARTIAL against the bars this clause was written to, and the bars themselves then MOVED — see §28.9.** *Nothing lost* HOLDS and *reference-clean* HOLDS. **Against the ~100 / ~20 pair the clause was authored against, the thresholds do NOT hold**: head is **102 total** with **`engine-architecture` at 33** and **`editor-and-tooling` at 21** — three bars, none met, two barely. Getting under would mean merging a charter input (forbidden by the "nothing is lost" bar) or re-merging already-merged 200–570-line trackers into 700–1,000-line documents, which destroys the findability the merge exists to buy. **That impasse is what produced §28.9's relaxation**, so under the bars now in `AGENTS.md` (~150 / ~50, provisional) head is inside all three — which is a change of instrument, not a clause that came true. **One closure, for the review to ratify**: `region-recipe-as-truth`, net zero because its live residual is re-filed. | The two commands in §28.6. Head count: `git ls-tree -r --name-only HEAD -- docs/backlog \| grep '\.md$' \| grep -v 'README\.md$' \| wc -l` → **102** (101 at the prune, +1 for §28.9's charter entry). Reference-clean, run per deleted entry name over the whole tree (`grep -rln "<name>" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=target`): **it deliberately does NOT return nothing**, and every surviving hit is one of four kinds — dated **seal records** (left alone by rule), **this document's own historical tables** (§27.5, which now says which seven of its names are in that class), **two provenance notes that say in their own text they are not live pointers** (`field-bake-has-no-content-hash.md` on the one closure, `frame-surface-gaps.md` naming the section it is inside), and **one substring false positive** (`gpu-resident-physics` matches `docs/research/gpu-resident-physics-solver.md` and an `engine-architecture.md` heading anchor — neither is the entry). A fifth kind, or any hit presenting a deleted name as a live register, is the failure. |
 | **8. 3b is handed off by name, not dropped** | **HOLDS.** §28.8 below names it, its home, its shape and its position in the queue. Nothing of it was built here, by ruling. | §28.8. `ls packages/editor/.claude/skills/` → the four third-party React skills and nothing else; the 3b skill is deliberately absent, not forgotten. |
 
 ### 28.8 What T5 did NOT do, and what comes next
@@ -6540,3 +6558,46 @@ are discoverable since §28.2; a daemon under real MCP traffic HAS been measured
 not under sustained or concurrent load). **This is what the tranche's own §Discipline rule is
 for**: the number and the verdict were both right somewhere, and neither was in the place a
 reader looks.
+
+### 28.9 The register threshold relaxes — PROVISIONALLY, and the real question is filed
+
+Recorded here because §28.6 and §28.7's clause 7 both reason against a bar that changed in the
+same tranche, one commit after the prune (`3b98daae`), and §28 had not carried the change at all.
+
+**`AGENTS.md` § "Deferred work" moved from ~100 entries / ~20 per topic dir to ~150 / ~50**, and
+the new numbers are marked **provisional** in `AGENTS.md` itself rather than presented as policy.
+The user's ruling is what makes them provisional:
+
+> "these will only grow bigger, i think we should relax the threshold, and if it's truly a
+> problem (and i suspect it might be) then this is something we need to look at properly … instead
+> of just dialing numbers and keeping the doc strategy a mess"
+
+So the relaxation is **an admission that the instrument is wrong, not a finding that the register
+is fine.** Two measurements in the charter entry say why a constant cannot work here: the register
+grows at ≈ **+2 net entries/day**, flat since June with no sign of self-limiting — so any bar is
+re-crossed within weeks of the prune that satisfied it, and a bar with enough headroom to survive
+one epic works out at ~160–175, i.e. it would have to legitimise the exact 169 everyone agreed
+needed pruning. Meanwhile the only remaining moves DOWN make the register less findable, not more
+(see clause 7). **The bar and the only way to satisfy it point in opposite directions.**
+
+**The real question is filed as a charter, not solved here**:
+`docs/backlog/infrastructure/docs-registers-findability.md` — how a growing body of deferred-work
+markdown stays *findable*, so an entry is read when its trigger fires rather than re-derived by
+someone who never found it. It is explicitly **not** a task for a polish tranche: it wants its own
+brainstorm plus a precedent search (large-codebase deferred-work practice, ADR/decision-record
+practice, PKM), and its trigger is the next prune — *do the design pass instead of a fourth
+consolidation round*. It is the entry that takes `infrastructure/` from 4 to 5 and the register
+from 101 to 102.
+
+**The T5 branch review added a second, independent argument to that charter** (2026-08-11):
+citation integrity. The prune moved 84 entries under a keep-it-verbatim rule behind a reference
+gate that validated **filenames only** — so no `file:line`, no source path and no factual claim in
+the moved prose was checked against source. The review found a false bug claim standing as
+"evidence" for two weeks, a table that failed its own stated regenerating command, a citation to a
+module that has never existed, and — by a five-line sweep over all 251 cited package paths in the
+register — **34 dead-path hits**, of which five were re-pointed at the review and **21 name
+architecture that was deleted entirely** (Epic 2's procgen substrate, the pre-T3 chrome) and so
+need a per-entry disposition rather than a new path. That
+class is invisible to a file count, is *propagated* rather than fixed by consolidation, and gets
+worse precisely as the register does its job. Any design for this register has to say how a
+citation stays true, or how it is made cheap to re-derive.

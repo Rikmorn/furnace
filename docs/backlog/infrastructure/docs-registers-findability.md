@@ -75,6 +75,66 @@ past the count that had triggered the prune.
 bimodal, not smooth: **61 entries under 60 lines** and **19 at 200 lines or more**, the largest
 702 (`editor-and-tooling/editor-test-harness-fragility.md`), with six between 296 and 702.
 
+## Citation integrity — measured at the T5 branch review, 2026-08-11
+
+**The prune moved 84 entries under a "keep it verbatim" rule, behind a reference gate that
+checked FILENAMES only.** No `file:line` citation, no source path and no factual claim inside
+the moved prose was ever checked against source. The review found the consequences, and they
+are a second, independent argument that the register's problem is not its size:
+
+- **A false bug claim asserted as evidence in a live register.**
+  `engine-architecture/catalog-collision-schema.md` said the editor's `proxyScale` took
+  `Math.max` with no `Math.abs`, called it "the bug Rider A just fixed", and closed "it is
+  evidence, not hypothesis." It was true when written (`dc7eb0cc`, 2026-07-26 14:11) and fixed
+  **nine hours later** (`a0d76354`, same day) by an unrelated task. The prune carried it forward
+  unread; it stood as a false assertion for two weeks.
+- **A table that failed its own regenerating command.**
+  `editor-and-tooling/field-host-internals.md` stated a grep and said it listed "eight" sites.
+  The grep returned seven, four rows had drifted line numbers, and the eighth row was one the
+  stated command could never return.
+- **A citation to a module that has never existed**, written by the tranche itself:
+  `field/oplog.ts` (the code is in `artifact.ts` / `ops.ts`).
+- **Dead paths, register-wide.** A full sweep —
+
+  ```sh
+  grep -rhoE "packages/[a-z0-9-]+/[A-Za-z0-9_./-]+\.(ts|tsx|rs|json|wgsl|md|html)" docs/backlog/ \
+    | sort -u | while read -r p; do [ -e "$p" ] || echo "DEAD $p"; done
+  ```
+
+  — over **251 distinct cited paths returned 34 dead hits** when first run. Five were re-pointed
+  at that review (the migrated `packages/core/tests/**` → `packages/core/src/**` test files, plus
+  the four the review named individually), leaving **29 hits at head: 27 genuinely stale
+  citations, and 2 deliberate** — one historical `git show <sha>:<old-path>` command, and one
+  old filename quoted inside the note that corrects it. The 27 fall in two classes, and **only
+  the first is a citation fix**:
+
+  **Class A — the file exists under a new path (6 paths).** The 2026-08-04 dungeon `src/` →
+  `world/` + `agent/` split (`char-move.ts`, `fp-controller.ts`, `region.ts`, `world-loader.ts`,
+  `field-world.ts`) and the editor's `frontend/analyzer-protocol.ts` → `field-host/`. Mechanical,
+  not taken at this review only because they sit outside the files it was fixing.
+
+  **Class B — the subject module does not exist anywhere (21 paths), so re-pointing is the
+  wrong move and the entry needs a *disposition*.** `dungeon/src/{bake,built,scatter,world-build}.ts`,
+  the whole `dungeon/src/substrate/` (5) and `dungeon/src/themes/` (5) layers,
+  `dungeon/tests/collar-bore.gpu.test.ts`, four `editor/src/frontend/components/*.tsx` and two
+  `editor/src/frontend/lib/*.ts`. These name architecture that was **retired** — Epic 2's procgen
+  substrate, and the pre-T3 chrome. **Whether an entry whose entire subject was deleted is still
+  live is exactly the "close-with-disposition" question the T5 keep-by-default ruling governs,
+  and it was deliberately not taken at this review** — it is a judgement per entry, not a sweep.
+  Roughly a dozen `docs/backlog/dungeon/` entries are implicated.
+
+**Why this belongs in this charter and not in a bug list.** Every one of these is the same
+mechanism: *a citation is a claim about the codebase that nothing re-checks, in a register whose
+entries outlive the code they describe by months.* A file-count bar cannot see it, consolidation
+does not fix it (the T5 prune propagated it), and it gets worse exactly as the register does its
+job — the longer an entry correctly waits for its trigger, the likelier its citations have rotted.
+**A design for this register has to say how a citation stays true, or how it is made cheap to
+re-derive.** Candidate directions, named for the research pass and not endorsed: symbol-name
+citations instead of line ranges (already the repo's post-T4a preference, unenforced); a
+path-validity check in CI over all three doc registers, which the sweep above shows is a
+five-line script; or entries that carry the command that regenerates their own evidence, which
+is what `field-host-internals.md`'s table now does.
+
 ## Why a number alone cannot be the answer
 
 Two independent reasons, both visible in the numbers above.

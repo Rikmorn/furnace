@@ -27,22 +27,43 @@ use inside `placement-collision.ts`, and its own TSDoc now redirects callers to 
 `placementCollider` derives the same rule independently, and a test asserts the two agree — but
 nothing outside core *calls* it.
 
-**There are already THREE hand-written copies of the extent rule, and the third one has the bug
-Rider A just fixed.** Core's `localHalfExtents`, the dungeon's `placementCollider`, and — found
+**There are already THREE hand-written copies of the extent rule, and the third one HAD drifted
+— it was fixed nine hours later, by a different task, and this entry did not notice for two
+weeks.** The three are core's `localHalfExtents`, the dungeon's `placementCollider`, and — found
 while writing this entry — the editor's `proxyScale`
-(`packages/editor/src/field-host/field-placements.ts:73-79`), which sizes every prop proxy and
-placement ghost. It applies the same split (box per-axis, round primitives by max axis) and takes
-`Math.max(scale[0], scale[1], scale[2])` **raw, with no `Math.abs`** — exactly the divergence
-Rider A removed from the dungeon in the same commit as `collisionCenter`. A mirrored record would
-draw a mirrored proxy. Unreachable from scatter today (uniform, schema-pinned-positive scale) and
-far less severe than the physics case (a render proxy, not a Rapier radius), so it is recorded
-here rather than fixed across a package boundary mid-task — but it is evidence, not hypothesis,
-that this rule does not stay in step by itself.
+(`packages/editor/src/field-host/field-placements.ts`), which sizes every prop proxy and
+placement ghost. All three apply the same split: box per-axis, round primitives by max axis.
+
+**Corrected at the T5 branch review, 2026-08-11.** As first written this paragraph said
+`proxyScale` took `Math.max(scale[0], scale[1], scale[2])` **raw, with no `Math.abs`**, and
+called that "evidence, not hypothesis". *It was true when written and is false now*, and the
+history is worth more than either sentence alone:
+
+- The claim was written in `dc7eb0cc` (2026-07-26 14:11). At that commit `proxyScale` did take
+  the raw `Math.max` — `git show dc7eb0cc:packages/editor/src/viewport-host/field-placements.ts`
+  confirms it, at the very lines the original `:73-79` citation named.
+- It was fixed in `a0d76354` (2026-07-26 23:35 — the SAME DAY, nine hours later, by the analyzer
+  host-wiring task, not by anyone reading this entry). `git log --follow -S "Math.abs(scale[0])"
+  -- packages/editor/src/field-host/field-placements.ts` returns that one commit and no other.
+- The entry was then carried VERBATIM into this merged tracker by the T5 prune (`9e12a3a1`,
+  2026-08-11), which validated filenames but never re-read moved prose against source.
+
+So the load-bearing point stands and is now stronger, not weaker: **the rule genuinely does not
+stay in step by itself.** The third copy DID diverge, the divergence was real, and it was closed
+by a task that happened to be editing the same function rather than by the record that was
+tracking it. What must not be repeated is this entry's own failure — nine hours of drift became
+two weeks of a false claim asserted as evidence in a live register.
+
+Today `proxyScale` takes magnitudes on all three axes before the split, and its TSDoc carries the
+argument ("an extent is a distance, so a MIRRORED record covers the same box… signed arithmetic
+would… make `Math.max` pick the LEAST negative axis for a round one"). The exposure was never
+live in any case: scatter's scale is uniform and schema-pinned positive, and a proxy is a render
+stand-in, not a Rapier radius.
 
 **Option A — export the half-extent TRIPLE instead of the Y scalar.** `localHalfExtents` already
 computes all three axes and throws two away. A public `collisionHalfExtents(collision, scale)`
 would give the editor's ghost/proxy SIZING a real consumer — `proxyScale` above IS that consumer,
-already written, already drifting — and could let the dungeon's `placementCollider` become a thin
+already written, and already shown to drift once — and could let the dungeon's `placementCollider` become a thin
 mapper over core-computed numbers, which would close the three-implementations-of-one-rule problem
 STRUCTURALLY instead of testing around it, as Task 5 had to. *Counter-argument, and it is not weak:* a collider is not an AABB.
 Reconstructing a ball radius or a capsule `halfHeight`/`radius` pair back out of a half-extent
@@ -62,7 +83,7 @@ test would need another way to name the rule (or the rule moves to core entirely
 what the third consumer actually wants from this module, and choosing before it is guessing.
 
 **Reference:** `packages/core/src/field/placement-collision.ts` (`localHalfExtents`,
-`collisionExtentY`, `collisionCenter`); `packages/dungeon/src/field-world.ts`
+`collisionExtentY`, `collisionCenter`); `packages/dungeon/src/world/placement-collider.ts`
 (`placementCollider` — the second implementation of the extent rule);
 `packages/dungeon/tests/field-placements.gpu.test.ts` (the parity test that holds the two
 together); `packages/editor/src/field-host/field-placements.ts` (`proxyScale`, the would-be
@@ -72,7 +93,7 @@ consumer of a triple). `docs/reference/api-posture.md` R4 covers the naming of w
 
 F4's D-F4-14 gave the catalog `collision` schema an explicit `anchor: "center" | "base"` (default
 `"center"`, so every pre-F4 catalog is unchanged). Core's `collisionCenter` /
-`voxelizePlacements`, the dungeon's `field-world.ts` loader, and the editor's ghosts + prop
+`voxelizePlacements`, the dungeon's `world/world-loader.ts` loader, and the editor's ghosts + prop
 proxies all anchor through the same function, so a prop's physics collider and the analyzer's
 walkability flags agree by construction. The stalagmite declares `"base"` (its mesh is
 base-origin, y∈[0,1]); the rock stays centred (its mesh is centre-origin).
@@ -117,10 +138,10 @@ describe the mesh), and both options trade that away.
 player at their authored scatter sizes (a cluttered chamber that must read as impassable, a prop
 used as level geometry).
 
-**Reference:** `packages/dungeon/src/field-world.ts` (`placementCollider`,
+**Reference:** `packages/dungeon/src/world/placement-collider.ts` (`placementCollider`,
 the derived shape); `packages/core/src/field/placement-collision.ts` (`collisionExtentY` +
 `collisionCenter`, the one function every consumer anchors through);
-`packages/dungeon/src/char-move.ts` (`resolve` step-up +
+`packages/dungeon/src/agent/char-move.ts` (`resolve` step-up +
 `applyGravity` rim-ride, the source of the 0.56 / 0.77 m thresholds);
 `packages/dungeon/tests/field-placements.gpu.test.ts` (the derivation + walk-stop + anchor
 lanes). Replaces the F3b-era `placement-props-stepped-over` entry under `docs/backlog/dungeon/`,

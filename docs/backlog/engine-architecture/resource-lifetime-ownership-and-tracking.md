@@ -178,10 +178,34 @@ Open design questions: do we wrap or replace `ctx.device.createBuffer` access? R
 
 *Tier-2 candidate. Surfaced during Resource Manager Stage 2 closeout (2026-05-28).*
 
+> **THE PREMISE IS DEAD, and this is recorded rather than re-pointed — T5 branch review,
+> 2026-08-11.** As written below, this section rests on named cookbook demos holding
+> consumer-owned `GPUBuffer`s they destroy by hand. **They do not, and have not since
+> 2026-05-31** — three days after this entry was filed. Commit `fcaa37a5`
+> ("migrate material @group(1) params to the binding bridge (E-B)") moved both demos onto
+> `@furnace/core/binding`. Today `grep -rn "createBuffer\|GPUBuffer" packages/cookbook/src`
+> returns **one line, and it is a comment saying "Bindings own their GPUBuffers"**; the
+> shader demo calls `binding.create` / `binding.setUniform` / `binding.destroy`, and the
+> only raw `destroy()` calls left in `render-target/entry.ts` are on the PiP **textures**
+> (`r.texture` / `r.depthTexture`), not uniform buffers.
+>
+> **So this entry's own trigger has already fired and been satisfied without anyone noticing.**
+> It said "when a future tranche introduces a managed-buffer primitive… these sites become
+> candidates for migration". `@furnace/core/binding` IS that primitive (Tranche E-B), and the
+> sites DID migrate. What survives is narrower and still true: `MaterialDescriptor.bindings`
+> still accepts raw `GPUBindGroupEntry[]` as a public, consumer-owned, untracked escape hatch
+> (`packages/core/src/material/material.ts` — its TSDoc says "All three are consumer-owned"),
+> and it now has **zero cookbook consumers**. Whether an escape hatch with no demo behind it
+> should stay, be documented as unmanaged, or go, is a surface decision for the classification
+> audit — **flagged for the review, deliberately not taken here.**
+>
+> The original text is kept below unchanged, because it is the record of why the migration was
+> wanted.
+
 Several cookbook demos pass consumer-owned `GPUBuffer` instances into `MaterialDescriptor.bindings` (`@group(1)` entries) and manage their lifecycle by hand via `buffer.destroy()`:
 
-- `packages/cookbook/src/demos/shader/entry.ts:153-154,165-166` — consumer-owned uniform buffers backing the striped + plasma materials.
-- `packages/cookbook/src/demos/render-target/entry.ts` — similar consumer-owned uniform buffers in the PiP rebuild flow.
+- `packages/cookbook/src/demos/shader/entry.ts` — consumer-owned uniform buffers backing the striped + plasma materials. *(Migrated to `binding` at `fcaa37a5`; the `:153-154,165-166` line citation this carried now lands on `binding.setUniform` calls and has been dropped rather than re-pointed.)*
+- `packages/cookbook/src/demos/render-target/entry.ts` — similar consumer-owned uniform buffers in the PiP rebuild flow. *(Migrated at the same commit.)*
 
 Stage 1's resource manager covers Mesh / Material / Geometry / Effect, but NOT the consumer-owned buffers passed into those resources via `MaterialDescriptor.bindings` / `EffectDescriptor.bindings`. Those stay consumer-owned by design — consumers create them, write to them per frame, and destroy them.
 
@@ -196,7 +220,7 @@ When a future tranche introduces a managed-buffer primitive (likely as part of T
 
 ## ctxId wraparound silently aliases handles across contexts
 
-The ctxId field in a resource handle exists to stop one context's handle resolving into another context's live slot — `_lookupRaw`/`_destroyRaw` compare `decodeCtxId(handle)` against `ctx._internal.ctxId` and reject on mismatch (`packages/core/src/resources/internal.ts`). That guard is exact for the first 65535 contexts in a JS realm and then stops being exact: `_nextContextId` (`packages/core/src/gpu/internal.ts:30-34`) wraps `0xffff → 1` with **no guard and no aliasing detection**, and `encodeHandle` masks ctxId to 16 bits, so context N and context N+65535 are indistinguishable to every lookup. A stale handle from the older one then resolves into the newer one's live slot at the same index and generation — precisely the wrong-slot resolution the field was added to prevent, and silent when it happens.
+The ctxId field in a resource handle exists to stop one context's handle resolving into another context's live slot — `_lookupRaw`/`_destroyRaw` compare `decodeCtxId(handle)` against `ctx._internal.ctxId` and reject on mismatch (`packages/core/src/resources/internal.ts`). That guard is exact for the first 65535 contexts in a JS realm and then stops being exact: `_nextContextId` (`packages/core/src/gpu/internal.ts`, lines 43–47 as of 2026-08-11) wraps `0xffff → 1` with **no guard and no aliasing detection**, and `encodeHandle` masks ctxId to 16 bits, so context N and context N+65535 are indistinguishable to every lookup. A stale handle from the older one then resolves into the newer one's live slot at the same index and generation — precisely the wrong-slot resolution the field was added to prevent, and silent when it happens.
 
 Not a today-problem, and the napkin says so: one context per verify at ~1 Hz in a worker that never reloads is ~18 hours of continuous operation to wrap, and per-user-edit construction is unreachable. It is also a limit `Context` has always carried (documented in `packages/core/src/resources/handle.ts` as an SPA-lifetime limit).
 
@@ -206,4 +230,4 @@ Filed now because F4 Task 4 changed the cost side of that calculation, not the r
 
 **Cheap mechanism if it fires:** a warn (or assert) on wrap inside `_nextContextId` — the counter already has the single choke point, so detecting "this realm has now recycled ctxIds, handle-crossing rejection is no longer exact" is a two-line change. Widening the field is the expensive option and needs the handle layout revisited (`encodeHandle` currently spends bits 0-15 slot / 16-31 generation / 32-47 ctxId inside the uint48 safe-integer budget).
 
-**Reference:** `packages/core/src/gpu/internal.ts` (`_nextContextId`, the wrap); `packages/core/src/resources/handle.ts` (`encodeHandle`/`decodeCtxId`, the 16-bit layout + the existing SPA-lifetime note); `packages/core/src/resources/internal.ts` (`_lookupRaw`/`_destroyRaw`, the guard); `packages/core/src/physics/context.ts` (the cheap construction path); cross-context rejection is pinned by `packages/core/tests/physics/headless-context.test.ts`.
+**Reference:** `packages/core/src/gpu/internal.ts` (`_nextContextId`, the wrap); `packages/core/src/resources/handle.ts` (`encodeHandle`/`decodeCtxId`, the 16-bit layout + the existing SPA-lifetime note); `packages/core/src/resources/internal.ts` (`_lookupRaw`/`_destroyRaw`, the guard); `packages/core/src/physics/context.ts` (the cheap construction path); cross-context rejection is pinned by `packages/core/src/physics/headless-context.test.ts`.

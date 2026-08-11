@@ -35,8 +35,16 @@ content lives in the file.
 
 ## Index
 
-28 seals, ordered by **true slice sequence, oldest first** — the order the original
-append-only log accumulated them in.
+Every seal in this directory, ordered by **true slice sequence, oldest first** — the order the
+original append-only log accumulated them in. The count is deliberately not written here: it
+changes with every seal, and this file's own § "Writing a seal" says counts are computed from
+the artifact and never typed. Derive it —
+
+```sh
+ls docs/learnings/seals/*.md | grep -v README | wc -l
+```
+
+— and cross-foot it against the rows below, which must agree.
 
 **Filename order is NOT slice order.** Three files carry the 2026-07-06 extraction date
 rather than their real seal date, because their source prose stated no date of its own:
