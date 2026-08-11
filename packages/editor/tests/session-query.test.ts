@@ -18,6 +18,7 @@ import { createSessionAnswerers } from "../src/frontend/lib/session-answerers.ts
 const ANSWER: QueryAnswer = {
   about: "entities",
   entities: [],
+  entityTotal: 0,
   props: {
     total: 3,
     scanned: 3,

@@ -258,14 +258,39 @@ export type ActionRunRequest = {
 };
 
 /**
- * What `session.query` asks — **the spatial read, parameterized on what is being asked
- * about** (foundations T4c).
+ * What `session.query` asks — **the editor's ONE read, parameterized on what is being asked
+ * about** (foundations T4c; two arms added at T5).
  *
- * ONE TOOL RATHER THAN THREE, and the reason is a budget rather than taste: the agent door
- * carries a hard ceiling of ten tools, the tranche's planned set is nine, and three separate
- * spatial reads would have spent a third of the remaining room on one concern. A
- * discriminated union is what a client's `inputSchema` renders as a `oneOf` an agent picks an
- * arm from, which is the same choice made once instead of three tool names to search.
+ * ONE TOOL RATHER THAN FIVE, and the reason is a budget rather than taste: the agent door
+ * carries a hard ceiling of ten tools, the set is nine, and a tool per question would have
+ * spent the room several times over on one concern. A discriminated union is what a client's
+ * `inputSchema` renders as a `oneOf` an agent picks an arm from, which is the same choice made
+ * once instead of five tool names to search. The trade got BETTER as the arms grew, which is
+ * the test of whether it was a trade or a rationalisation: the door still advertises nine rows
+ * and the last slot is still unspent.
+ *
+ * **AND THE `generators` ARM IS NOT SPATIAL, WHICH IS A STRETCH RATHER THAN A FIT — recorded
+ * here because the alternative was recorded too.** It is a REGISTRY CATALOGUE:
+ * the ids, param schemas and defaults an agent needs before it can call `generate` with
+ * anything but the defaults. Every other arm asks about THIS world's geometry, and the module
+ * that answers them is named `field-host/field-query.ts` for exactly that reason. The honest
+ * shape for a catalogue is its own verb (`generator_list`), and it was declined for one
+ * measurable reason: it costs the door's last budgeted slot, permanently, so that the next
+ * verb that wants it has to argue against a full door. The stretch is conceptual and the slot
+ * is not, so the stretch was taken. The cost to a reader is that "query" now means two things
+ * — *measure this world* and *what can I build with* — and this paragraph is the whole
+ * mitigation. The T4c filing that weighed the two shapes is deleted with the change it asked
+ * for, which is why its argument is restated here rather than cited.
+ *
+ * **`entities` LISTS AND `entity` DETAILS, which is one question split rather than two
+ * questions.** The list arm carries id, generator and footprint box per row plus a top-level
+ * `entityTotal`; everything else an entity knows — its seed, its region, frozen/baked, what it
+ * placed — is the `entity` arm's, one entity at a time. The split exists because the list is
+ * the only unbounded thing this read hands back, and the eight members it used to carry per
+ * row are a payload that stops being skimmable long before it stops being correct. It is
+ * deliberately
+ * NOT a numeric cap: a cap needs a measurement nobody has taken, and the split makes the
+ * question that produced the size (*"tell me everything about everything"*) unaskable instead.
  *
  * **IT IS DECLARED ONCE AND THE HOST IMPORTS IT, which is the opposite of what the two
  * request types above do.** {@link ViewportCaptureRequest} and {@link GenerateRequest} are
@@ -277,19 +302,37 @@ export type ActionRunRequest = {
  * rule is the tie-breaker: two ways to spell one thing is a smell, and the only reason to
  * mirror is when one side cannot reach the other.
  *
- * The arms carry no engine type at all — three primitives and two number triples — which is
- * what makes the single declaration POSSIBLE here. The ANSWER is a different matter and is
+ * The arms carry no engine type at all — a discriminant string, one integer id and two number
+ * triples — which is what makes the single declaration POSSIBLE here, and it survived the two
+ * arms T5 added: a generator catalogue is `Record<string, unknown>` JSON Schema by the time it
+ * reaches an answer, and an entity is named by its id. The ANSWER is a different matter and is
  * deliberately not declared on this floor, for {@link EditApplyRequest}'s reason exactly: it
- * names `FieldEntityInfo`, a selection spec and a field hit, all of which are core's, and
- * this file is held engine-free. `field-host/field-query.ts` owns it; the daemon relays it
- * untouched, as it relays every payload.
+ * names `FieldEntityInfo`, a generator projection, a selection spec and a field hit, all of
+ * which are core's or the host's, and this file is held engine-free.
+ * `field-host/field-query.ts` owns it; the daemon relays it untouched, as it relays every
+ * payload.
  */
 export type SessionQueryRequest =
   | {
-      /** Every committed generator entity with its footprint box, plus the PLACED PROPS
-       *  lint — how many there are, which ones are not resting on anything, and which ones
-       *  interpenetrate. */
+      /** Every committed generator entity as ONE SKIMMABLE ROW — id, generator and footprint
+       *  box — plus `entityTotal` and the PLACED PROPS lint: how many props there are, which
+       *  ones are not resting on anything, and which ones interpenetrate. Ask `entity` for
+       *  one entity's detail. */
       about: "entities";
+    }
+  | {
+      /** ONE committed entity in full — its seed, its region, whether it is frozen or baked,
+       *  and what its span placed. The answer is `null` for an id no entity carries, which is
+       *  a fact about the world rather than a broken call. */
+      about: "entity";
+      /** From the `entities` arm's rows, or from what `generate` answered. */
+      entityId: number;
+    }
+  | {
+      /** The generator REGISTRY — every id, its param schema (JSON Schema, with the project's
+       *  own archetype ids folded into any `archetypeId` param) and its defaults. What makes
+       *  `generate` tunable rather than only callable. NOT a question about this world. */
+      about: "generators";
     }
   | {
       /** One ray cast into the density field — the general-purpose probe, and the same

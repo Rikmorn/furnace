@@ -74,6 +74,7 @@ export type { PlacedArchetype } from "./field-placements.ts";
 // `shared/wire.ts` argues why this request is shared where those are mirrored.
 export type {
   EntityFact,
+  EntitySummary,
   FloatingProp,
   PropOverlap,
   PropRef,

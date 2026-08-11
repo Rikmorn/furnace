@@ -239,9 +239,29 @@ const direction3 = point3
  * `z.strictObject` PER ARM, so a misspelled `maxdist` is REPORTED rather than dropped into a
  * silent default. That matters more for a read than it looks: a dropped `maxDist` answers
  * about a 30 m probe when the caller asked for 300, and the answer is well-formed and wrong.
+ *
+ * **`entityId` CARRIES NO DOMAIN BOUND, and that is a decision rather than an omission.**
+ * Entity ids come off the op log's shared `nextId` counter, which starts at 1 — so a
+ * `.positive()` would be true today and would be this daemon restating a fact it derives from
+ * a counter behind the engine it cannot import. What it would BUY is nothing, because the arm
+ * already has an answer for an id no entity carries (`entity: null`, argued at the answer
+ * type), and the bound would split one question across two refusal shapes: `invalid-input` for
+ * 0 and a null answer for 41. `.int()` stays, because 1.5 is not an id under any counter — it
+ * projects as `"type": "integer"` plus zod's own safe-integer min/max, which is a fact about
+ * JavaScript numbers rather than a claim about this editor's ids.
  */
 const spatialQuery = z.discriminatedUnion("about", [
   z.strictObject({ about: z.literal("entities") }),
+  z.strictObject({
+    about: z.literal("entity"),
+    entityId: z
+      .number()
+      .int()
+      .describe(
+        "From the entities arm's rows, or from what generate answered. An id no entity carries answers entity:null rather than refusing — the entity may have been deleted since you listed.",
+      ),
+  }),
+  z.strictObject({ about: z.literal("generators") }),
   z.strictObject({
     about: z.literal("ray"),
     origin: point3,
@@ -544,16 +564,16 @@ export function createSessionHandlers(
   // daemon may not import. So the daemon cannot check them and does not pretend to: core
   // validates them at commit and its rejection names the generator and the failing path.
   //
-  // AN EARLIER DRAFT OF THIS COMMENT PREDICTED THAT TASK 6 WOULD PUT THAT SCHEMA IN FRONT OF
-  // AN AGENT ("it comes off `listGenerators`"). **It did not, and the prediction was wrong
-  // about what was reachable rather than about what was worth doing.** `listGenerators` is a
-  // `FieldHost` method: reaching it needs a relayed READ that does not exist, i.e. a tenth
-  // tool and an answerer row, which is a seam and not an advertisement. What Task 6 shipped
-  // instead is the two things that make the gap survivable without one — core's
-  // `generatorById` now names the registered ids in its refusal, and EVERY param carries a
-  // default (`defineGenerator`'s `defaultsOf`), so `generate {generatorId, region}` with no
-  // params at all is a complete call. Filed with its trigger at
-  // `docs/backlog/editor-and-tooling/agent-cannot-read-generator-params.md`.
+  // **THE SCHEMA IS IN FRONT OF AN AGENT SINCE T5, AND NOT THROUGH THIS ROW.** T4c predicted
+  // it would need a TENTH TOOL — `listGenerators` is a `FieldHost` method, so reaching it
+  // needs a relayed read — and the prediction was right about the seam and wrong about the
+  // price: `session.query {about:"generators"}` relays exactly that projection on an existing
+  // tool's existing union, so the door still advertises nine rows. What T4c shipped in the
+  // meantime still stands and is what makes a params-free call complete rather than merely
+  // legal: core's `generatorById` names the registered ids in its refusal, and EVERY param
+  // carries a default (`defineGenerator`'s `defaultsOf`), so `generate {generatorId, region}`
+  // is a whole call. `dispatch` still cannot CHECK params — that half is unchanged and is
+  // what the paragraph above is about.
   handlers.set("generate", {
     input: z.strictObject({
       generatorId: z

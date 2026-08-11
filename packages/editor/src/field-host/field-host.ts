@@ -3744,13 +3744,36 @@ export function createFieldHost(deps?: {
     randomSeed: randomStampSeed,
   });
 
+  // The generator registry as everything outside core reads it — core's four
+  // defs minus their `evaluate`, with THIS project's archetype ids folded into
+  // any `archetypeId` param, which is the one thing only the host knows.
+  //
+  // HOISTED OUT OF THE FACADE LITERAL AT T5, and the reason is one caller
+  // rather than taste: `session.query {about:"generators"}` answers this same
+  // projection through `createQuery` below, which is assembled before the
+  // literal exists. Two spellings of it — one here for the seam, one down there
+  // for the panel — is the "two ways to spell one thing" smell the repo's own
+  // design rule names, and the two would drift the day an archetype rule
+  // changed. The facade member delegates.
+  const listGeneratorInfos = (): FieldGeneratorInfo[] => {
+    const ids = archetypes.map((a) => a.id);
+    return field.FIELD_GENERATORS.map((g) => ({
+      id: g.id,
+      name: g.name,
+      paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
+      defaults: structuredClone(g.defaults),
+      placesProps: placesProps(g.emits),
+      usesSeed: g.usesSeed,
+    }));
+  };
+
   // The agent seam's THIRD module, assembled beside the second for the same
   // reason: it composes other clusters' reads and owns no state at all. Every
   // dep is a plain ref onto a seam declared above — the substrate, two of
-  // `field-entities.ts`' members and one of `field-selection.ts`' — so unlike
-  // `mutation` it needs no arrow wrappers and unlike `capture` it needs no
-  // context. It is the cheapest cluster in this closure and the only one that
-  // cannot change anything.
+  // `field-entities.ts`' members, one of `field-selection.ts`' and the registry
+  // projection directly above — so unlike `mutation` it needs no arrow wrappers
+  // and unlike `capture` it needs no context. It is the cheapest cluster in this
+  // closure and the only one that cannot change anything.
   const query = createQuery({
     substrate,
     entities: entities.list,
@@ -3759,6 +3782,9 @@ export function createFieldHost(deps?: {
     // payload and the agent's answer come off ONE builder, which is what stops
     // the two describing the same selection differently.
     selection: selection.info,
+    // The SAME projection the panel gets, for that reason exactly — and a call
+    // rather than an array, because the catalog can be swapped under it.
+    generators: listGeneratorInfos,
   });
 
   // --- the LIFECYCLE cluster: DECLARED FACADE-RESIDENT, foundations T3d -----
@@ -4049,16 +4075,11 @@ export function createFieldHost(deps?: {
       archetypeById = new Map(archetypes.map((a) => [a.id, a]));
       props.rebuild(); // the catalog decides proxy geometry + tint
     },
+    // Delegates to `listGeneratorInfos`, hoisted above the `query` assembly so
+    // the agent's `{about:"generators"}` answer and this panel-facing member are
+    // one projection rather than two — the comment there carries the argument.
     listGenerators() {
-      const ids = archetypes.map((a) => a.id);
-      return field.FIELD_GENERATORS.map((g) => ({
-        id: g.id,
-        name: g.name,
-        paramSchema: withArchetypeOptions(structuredClone(g.paramSchema), ids),
-        defaults: structuredClone(g.defaults),
-        placesProps: placesProps(g.emits),
-        usesSeed: g.usesSeed,
-      }));
+      return listGeneratorInfos();
     },
     propInstanceCounts() {
       return props.instanceCounts();

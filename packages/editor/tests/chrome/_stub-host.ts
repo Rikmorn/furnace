@@ -373,6 +373,7 @@ export function makeStubHost(
     query: mock(() => ({
       about: "entities" as const,
       entities: [],
+      entityTotal: 0,
       props: {
         total: 0,
         scanned: 0,

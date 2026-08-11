@@ -4,6 +4,13 @@
 // the agent eyes, `field-mutation.ts` gave it hands, and this one exists because the eyes
 // are for SEEING and not for MEASURING.
 //
+// **AND SINCE T5, ONE ARM THAT IS NOT SPATIAL AT ALL** — `{about:"generators"}`, the registry
+// catalogue an agent needs before it can tune `generate` rather than only call it. It is a
+// deliberate stretch of this module's name and of the verb's, taken to keep the agent door's
+// last tool slot unspent; `shared/wire.ts`'s {@link SessionQueryRequest} argues the trade in
+// full and is the one place to read it. Named here so the next reader meets the exception in
+// the header rather than discovering it in the switch.
+//
 // **THE POSTURE, WHICH IS THE WHOLE REASON THIS IS FIRST-CLASS SURFACE RATHER THAN A
 // CONVENIENCE.** *Ask this; do not squint.* An agent must never read a rendered image to
 // answer "is this prop resting on the floor" or "do these two things interpenetrate" when
@@ -33,6 +40,14 @@
 // host, one latch per seam, which cannot answer a question about geometry it does not have.
 // `field-mutation.ts` faced the same question one task earlier and landed the same way.
 //
+// **THAT ARGUMENT DOES NOT COVER THE `generators` ARM, and pretending it did would be the
+// easy lie.** Its answer comes off `FieldHost.listGenerators()`, which is plain JSON the
+// chrome already reads for the stamp form (`SessionCard.tsx`) — so that arm COULD have lived
+// above the line. What puts it here is the DISPATCH rather than the data: one `about` union
+// answered by one exhaustive switch, in the module the union's other four arms are already
+// answered in. A chrome-side fifth branch would split one verb's answer across two layers and
+// disable the `never` guard that catches a sixth.
+//
 // The api-posture rules that bear on the shape, cited because the plan asked for them.
 // **R1 (classify first):** every export here is a QUERY over host state — no resource is
 // created, nothing is tracked, nothing is torn down — so there is no lifecycle verb to pick
@@ -52,6 +67,10 @@
 // host does; the ray arm cannot fail because every value it can be handed is total for
 // `raycastField` — the daemon's schema rejects `NaN`/`Infinity` and a zero direction, and
 // `maxDist` is clamped here rather than trusted. The conclusion held; the premise did not.
+// T5's two arms keep it: `generators` reads the registry, which exists whenever the host does,
+// and `entity` takes CALLER input (an id) for which every value is total — an id no entity
+// carries is ANSWERED `null` rather than refused, and that arm's own docblock argues why an
+// absence is a fact here where an empty entity list would be a claim.
 //
 // **IT WRITES NOTHING AN ANSWER DEPENDS ON, AND THAT IS A PROPERTY THE CODE HAS TO EARN
 // rather than a label.** The hedge in that sentence is exact and is worth four words: one dep
@@ -77,7 +96,11 @@ import * as field from "@furnace/core/field";
 import type { EntityArchetype } from "../shared/catalog.ts";
 import { DEFAULT_PROBE_M, MAX_PROBE_M } from "../shared/field-limits.ts";
 import type { SessionQueryRequest } from "../shared/wire.ts";
-import type { FieldEntityInfo, SelectionInfo } from "./field-host.ts";
+import type {
+  FieldEntityInfo,
+  FieldGeneratorInfo,
+  SelectionInfo,
+} from "./field-host.ts";
 import {
   FALLBACK_COLLISION,
   type PlacedArchetype,
@@ -207,15 +230,44 @@ export type PropReport = {
   truncated: boolean;
 };
 
-/** One committed generator entity as the spatial read reports it.
+/** One committed generator entity as the LIST reports it — three fields, and the shape that
+ *  decides how big an answer about a hundred entities is.
+ *
+ *  **THE FAT ROW WAS THE LIST'S UNTIL T5, and splitting it is this read's answer to its own
+ *  size** — filed at T4c against this very function and resolved here. EIGHT MEMBERS, two of
+ *  them boxes (the filing's own phrasing said "eight fields plus a footprint box", which
+ *  counted the box twice), per entity, with no bound: linear and cheap to COMPUTE — which is
+ *  why it never threatened the human's frame budget the way the prop scan does — and
+ *  unbounded to READ, which is the budget it actually spends. What replaces it is the question split rather
+ *  than a number — the list answers *which entities exist and where*, and {@link EntityFact}
+ *  answers *everything about this one*. A cap was the other candidate and was declined: the
+ *  count at which a list stops being skimmable has never been measured here, and this repo's
+ *  planning rule exists to stop exactly that guess from being written down as a constant.
+ *
+ *  `footprint` STAYS IN THE SLIM ROW while `region` moves to the detail arm, and they are not
+ *  the same box: `region` is what the generator was COMMITTED over (the caller's request) and
+ *  the footprint is what its ops actually bounded. The footprint is the one an agent frames,
+ *  picks or avoids with, so it is the one worth carrying per row. */
+export type EntitySummary = {
+  entityId: number;
+  generator: string;
+  /** The union of the span's op bounds — the box the editor draws when this entity is
+   *  selected — or `null` when the entity wrote nothing bounded. */
+  footprint: Box | null;
+};
+
+/** ONE committed generator entity in full — what `{about:"entity", entityId}` answers.
  *
  *  A PROJECTION of `FieldEntityInfo`, not a pass-through, for `SessionState`'s reason: the
  *  host's record carries `params` — a generator-shaped bag whose schema only that generator
  *  knows — and `opSpan`, which names log positions an agent has no verb for. `seed` stays
- *  because it is one number and it is what makes a committed world reproducible. */
-export type EntityFact = {
-  entityId: number;
-  generator: string;
+ *  because it is one number and it is what makes a committed world reproducible.
+ *
+ *  IT IS A SUPERSET OF {@link EntitySummary} rather than the fields the summary lacks, so an
+ *  agent that asked about one entity never has to hold the list row beside the detail to have
+ *  the whole record. The overlap is two fields and a box; the alternative is a caller-side
+ *  join over two answers, which is a rule a reader has no way to know. */
+export type EntityFact = EntitySummary & {
   seed: number;
   /** The region the generator was committed over, world metres. */
   region: Box;
@@ -225,9 +277,6 @@ export type EntityFact = {
   baked: boolean;
   /** One entry per archetype this entity's span placed. Empty for every carver. */
   placed: PlacedArchetype[];
-  /** The union of the span's op bounds — the box the editor draws when this entity is
-   *  selected — or `null` when the entity wrote nothing bounded. */
-  footprint: Box | null;
 };
 
 /** What one ray found. `prev` is the last sample before the hit — the air cell a fill would
@@ -267,7 +316,62 @@ export type SelectionFact = {
 /** What {@link Query.answer} hands back — one arm per `about`, discriminated by it, so a
  *  caller branches on the same word it asked with. */
 export type QueryAnswer =
-  | { about: "entities"; entities: EntityFact[]; props: PropReport }
+  | {
+      about: "entities";
+      entities: EntitySummary[];
+      /** How many committed entities there ARE.
+       *
+       *  **EQUAL TO `entities.length` TODAY, EXACTLY, AND THAT IS THE HONEST STATE OF IT** —
+       *  nothing is cut, so nothing can disagree. It is here as the SIGNAL SLOT the T4c
+       *  filing said a bound would need and the answer had nowhere to put: `truncated` lives
+       *  inside `props`, which is a fact about the prop scan and not about this list, so a
+       *  bound landing later would have had to invent a top-level member in the same change
+       *  that started cutting rows — the worst moment to design one. {@link PropReport} already
+       *  carries the shape this mirrors (`total` beside `scanned`), where the two really do
+       *  differ. A reader must NOT infer truncation from its presence; infer it from
+       *  `entityTotal > entities.length`, which is false everywhere today. */
+      entityTotal: number;
+      props: PropReport;
+    }
+  | {
+      about: "entity";
+      /** ECHOED, so a `null` says which id was not found — the ray arm's posture on
+       *  `maxDist`, applied to the one input this arm takes. */
+      entityId: number;
+      /** `null` when no committed entity carries that id.
+       *
+       *  A TYPED ABSENCE RATHER THAN A THROW, and the two are not interchangeable here. This
+       *  module's R9 stance is that a read which cannot be ANSWERED throws — but "no entity
+       *  has id 41" is an answer, and a true one: the entity was deleted, or was never
+       *  minted. It is also the RACE a list-then-detail split creates by construction, since
+       *  the human can delete a row between the two calls, so an agent meets it on the happy
+       *  path rather than by misuse. `{about:"selection"}` answers `null` for the same kind of
+       *  fact. What would NOT be honest is the entities arm answering `[]` for a world it
+       *  failed to read, which is why that one has no null. */
+      entity: EntityFact | null;
+    }
+  | {
+      about: "generators";
+      /** The registry, RELAYED — `FieldHost.listGenerators()` exactly as the editor's own
+       *  stamp form receives it, including the archetype ids the host folds into any
+       *  `archetypeId` param, which is strictly more than core's registry knows.
+       *
+       *  **A PASS-THROUGH WHERE THE ENTITY ARMS PROJECT, and the six members were tested one
+       *  at a time rather than waved through.** `id` is the handle `generate` takes;
+       *  `paramSchema` and `defaults` are the tuning document this arm exists to deliver;
+       *  `usesSeed` says whether `generate`'s `seed` does anything at all (a hall's does not);
+       *  `placesProps` predicts whether this generator's entity will have a `placed` list and
+       *  whether the prop lint will have anything to say about it; `name` is the label the
+       *  human's own UI shows, so an agent can name a generator to them the way their screen
+       *  does. Nothing on `FieldGeneratorInfo` failed the test, so a projection would have been
+       *  a copy of it — and the copy is what drifts.
+       *
+       *  THE ONE HAZARD OF A PASS-THROUGH is that a SEVENTH member added for the panel's sake
+       *  would reach an agent without anybody deciding it should. `tests/field-host/query.test.ts`
+       *  pins the exact key set for that reason: a new member reds there and the decision gets
+       *  made. */
+      generators: FieldGeneratorInfo[];
+    }
   | {
       about: "ray";
       origin: Vec3T;
@@ -279,7 +383,7 @@ export type QueryAnswer =
     }
   | { about: "selection"; selection: SelectionFact | null };
 
-/** What the spatial read needs from the rest of the host. FOUR members, every one a read. */
+/** What this read needs from the rest of the host. FIVE members, every one a read. */
 export type QueryDeps = {
   /** `store` for the probes and the cell size, `log` for the placements, `archetypeById` for
    *  each record's collision primitive. */
@@ -295,12 +399,21 @@ export type QueryDeps = {
    *  the chrome's panel renders, so an agent and a human cannot be told different things
    *  about one selection. */
   selection(): SelectionInfo | null;
+  /** The generator registry as the host projects it — the facade's own `listGenerators`.
+   *
+   *  A CALL, for {@link QueryDeps.footprints}' reason and a sharper one: `listGenerators()`
+   *  is a SNAPSHOT that changes when the ENTITY CATALOG changes, because the host folds the
+   *  installed archetype ids into every `archetypeId` param before handing it out
+   *  (`field-host.ts`'s `listGenerators`, and `SessionCard.tsx` re-reads it on exactly that
+   *  event). A held array would advertise a project's archetypes to an agent after the
+   *  project stopped having them. */
+  generators(): FieldGeneratorInfo[];
 };
 
-/** The spatial read: one verb. */
+/** The read: one verb, five questions. */
 export type Query = {
   /**
-   * Answer one spatial question. Nothing below writes to the store, the log or the undo
+   * Answer one question. Nothing below writes to the store, the log or the undo
    * stacks (this module's header carries the one benign exception and why it is not one).
    *
    * THE CONTACT RULE, stated here because it is the one definition a caller has to be able to
@@ -431,6 +544,22 @@ const copyBox = (box: {
 const copyBoxOrNull = (box: Box | null | undefined): Box | null =>
   box === undefined || box === null ? null : copyBox(box);
 
+/** One entity's LIST row, from the host's record and the footprint memo.
+ *
+ *  SHARED BY BOTH ENTITY ARMS, which is what makes {@link EntityFact} a superset by
+ *  construction rather than by two literals agreeing: the detail arm spreads this and adds the
+ *  five fields the list drops. Two object literals naming `entityId` and `generator`
+ *  separately is exactly how a list row and a detail row come to disagree about the same
+ *  entity. */
+const summarize = (
+  entity: FieldEntityInfo,
+  footprints: ReadonlyMap<number, Box>,
+): EntitySummary => ({
+  entityId: entity.entityId,
+  generator: entity.generator,
+  footprint: copyBoxOrNull(footprints.get(entity.entityId)),
+});
+
 /** The centre of a box, world metres. */
 const boxCentre = (box: Box): Vec3T => [
   (box.min[0] + box.max[0]) / 2,
@@ -544,18 +673,14 @@ export function createQuery(deps: QueryDeps): Query {
   const entitiesAnswer = (): QueryAnswer => {
     const footprints = deps.footprints();
     const owned = placementOwners(substrate.log.ops);
+    const entities = deps.entities().map((e) => summarize(e, footprints));
     return {
       about: "entities",
-      entities: deps.entities().map((e) => ({
-        entityId: e.entityId,
-        generator: e.generator,
-        seed: e.seed,
-        region: copyBox(e.region),
-        frozen: e.frozen === true,
-        baked: e.baked === true,
-        placed: e.placed,
-        footprint: copyBoxOrNull(footprints.get(e.entityId)),
-      })),
+      entities,
+      // `entities.length` and not a second count off `deps.entities()`: two reads of a live
+      // list is how a total and a list come to disagree, and the member's own docblock says
+      // the two are equal today rather than pretending they are independently derived.
+      entityTotal: entities.length,
       props: lint(
         scanProps(substrate.store, owned, substrate.archetypeById()),
         owned.length,
@@ -563,6 +688,43 @@ export function createQuery(deps: QueryDeps): Query {
       ),
     };
   };
+
+  const entityAnswer = (
+    req: Extract<SessionQueryRequest, { about: "entity" }>,
+  ): QueryAnswer => {
+    // A SCAN OVER THE LIST rather than a map built here, because the list is `entities.list`'s
+    // own clone and building an index would mean a second pass over the same array to answer
+    // about one row. `footprints()` is asked for only once a row is found — it is a memo
+    // whose signature check walks the log, and an unknown id should not pay for it.
+    const record = deps.entities().find((e) => e.entityId === req.entityId);
+    if (record === undefined)
+      return { about: "entity", entityId: req.entityId, entity: null };
+    const summary = summarize(record, deps.footprints());
+    return {
+      about: "entity",
+      entityId: req.entityId,
+      entity: {
+        ...summary,
+        seed: record.seed,
+        region: copyBox(record.region),
+        frozen: record.frozen === true,
+        baked: record.baked === true,
+        placed: record.placed,
+      },
+    };
+  };
+
+  // THE ONE ARM THAT IS NOT ABOUT THIS WORLD (T5) — `shared/wire.ts` records why a registry
+  // catalogue rides a verb whose other four answers are geometry, and that this module's name
+  // is the argument against it. What it is NOT is a second author: the host's own
+  // `listGenerators` already projects core's registry for the stamp form, so this hands back
+  // that projection and adds nothing. A copy is not needed either — the facade
+  // `structuredClone`s each generator's schema and defaults per call, so these objects are
+  // already the caller's own (`field-host.ts`'s `listGenerators`).
+  const generatorsAnswer = (): QueryAnswer => ({
+    about: "generators",
+    generators: deps.generators(),
+  });
 
   const rayAnswer = (
     req: Extract<SessionQueryRequest, { about: "ray" }>,
@@ -638,6 +800,11 @@ export function createQuery(deps: QueryDeps): Query {
      * union stays assignable to a WIDER wire union, so growing the wire is exactly the
      * direction assignability cannot see.
      *
+     * **T5 IS THE CASE IT WAS WRITTEN FOR, and it collected.** Two arms landed — `entity` and
+     * `generators` — and the guard failed the build at this switch before either had a branch,
+     * which is the whole of what the paragraph above predicted and the reason the arms could
+     * not be added anywhere else by accident.
+     *
      * `const _never: never = req` is what turns the gap into a build error: once every arm is
      * handled, `req` narrows to `never` here, and it stops doing so the moment an arm is added
      * without a branch. It is also `clean-code.md` §Branching's rule — dispatch on a
@@ -651,6 +818,10 @@ export function createQuery(deps: QueryDeps): Query {
       switch (req.about) {
         case "entities":
           return entitiesAnswer();
+        case "entity":
+          return entityAnswer(req);
+        case "generators":
+          return generatorsAnswer();
         case "ray":
           return rayAnswer(req);
         case "selection":

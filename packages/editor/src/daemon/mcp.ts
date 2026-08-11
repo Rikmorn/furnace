@@ -226,24 +226,30 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * **THE CEILING IS TEN AND THE SET IS NINE, which is a budget rather than a coincidence.** A
  * model picks a tool by reading names and first sentences, and every row it must consider is
  * paid for on every turn; the tranche sized the door at ten and spent nine, which is why
- * `session.query` is ONE parameterized read rather than three (`shared/wire.ts` argues that
- * trade at the type). The remaining slot is deliberately unspent — the next verb that wants
- * it has to be worth more than the room it takes.
+ * `session.query` is ONE parameterized read rather than five (`shared/wire.ts` argues that
+ * trade at the type, and T5 grew it from three arms to five without touching this table). The
+ * remaining slot is deliberately unspent — the next verb that wants it has to be worth more
+ * than the room it takes.
  *
  * **AND THE ROW COUNT IS THE SMALLER HALF OF THAT BUDGET, so the prose is capped too.** These
- * nine descriptions are 7,082 bytes on the wire — over three and a half times
+ * nine descriptions are 7,502 bytes on the wire — over three and a half times
  * {@link MCP_INSTRUCTIONS}'s pinned 2 KB, riding the same `tools/list` — so capping the
  * discovery blurb and not the rows would be budgeting the cheaper surface and calling it
  * discipline. `tests/mcp.test.ts` pins the total at 8,192. It was 6,004 bytes and 1.36× head
  * when this paragraph was written; the T4c review spent 1,078 of that slack on four rows that
- * described this door WRONGLY (`edit_apply`'s unconditional "a bad batch changes nothing", the
- * live-session refusal neither write verb mentioned, `generate`'s "a bad param is refused" when
- * it answers `failed`, and the retired fixed ladder this file advertised over a recency stack).
- * Head is 1.157×, which admits a tenth row at the median length (870) and reds before one at
- * `session_query`'s (1,266) — the budget doing its job rather than sitting slack. A TOTAL rather than a per-row cap, because one row
- * genuinely is a wall — `session_query` restates the contact rule verbatim, which is the whole
- * reason that rule reaches an agent — and a per-row limit would forbid the one case that
- * earned its length.
+ * described this door WRONGLY, and T5 spent 420 more teaching `session_query` its two new arms
+ * and pointing `generate` at the catalogue that now exists.
+ *
+ * **HEAD IS 1.092×, AND THE TENTH-ROW CLAIM THIS PARAGRAPH USED TO MAKE IS NOW FALSE** —
+ * said plainly rather than quietly dropped, because it is the number a later task will
+ * reason from. It read *"admits a tenth row at the median length (870)"*; 7,502 + 870 = 8,372
+ * and that reds. What is left is 690 bytes, which is shorter than six of the nine rows. So the
+ * prose cap has become the binding constraint on a tenth tool BEFORE the ceiling of ten is —
+ * a tenth verb must now either be describable in 690 bytes or arrive with a cut somewhere
+ * else, and either way somebody has to decide rather than discover it. A TOTAL rather than a
+ * per-row cap, because one row genuinely is a wall — `session_query` restates the contact rule
+ * verbatim, which is the whole reason that rule reaches an agent — and a per-row limit would
+ * forbid the one case that earned its length.
  *
  * THE PROJECTED SCHEMAS (~6.3 KB, mostly `edit_apply`'s op vocabulary) ride the same response
  * and are deliberately NOT capped: they are derived rather than authored, so their size is a
@@ -301,7 +307,7 @@ const TOOLS: readonly ToolRow[] = [
     command: "session.query",
     reads: true,
     description:
-      'MEASURE the world instead of looking at it. Three questions, picked with `about`. "entities": every committed generator entity with its region, seed and footprint box, plus the placed-prop lint — how many props there are, which are FLOATING and which OVERLAP. Both lists are EXCEPTIONS, so empty means nothing is wrong — unless `truncated` is true, which means the scan stopped early and empty means "I did not look at all of it". "ray": one ray cast into the density field, answering where it hit or null. "selection": the human\'s cell selection as a replayable spec, its size and its box. CONTACT IS DEFINED, not eyeballed: a prop is in contact when a ray cast straight down from the centre of its proxy box\'s BASE finds a solid sample within one cell size (0.25 m in this editor, and the answer states the gap in metres so you never have to assume it) — so a prop buried in the floor reports contact with gap 0, and a `gap` of null means nothing was found beneath it within the probe\'s reach at all. Entities are deliberately NOT contact-probed: a carver\'s footprint is the AIR it removed, so a downward probe from its base always hits the floor it just made and the question has no meaning for it. Prefer this over viewport_capture for anything positional.',
+      'MEASURE the world instead of looking at it. Five questions, picked with `about`. "entities": one row per committed generator entity — id, generator and footprint box — plus `entityTotal` and the placed-prop lint: how many props there are, which are FLOATING and which OVERLAP. Both lists are EXCEPTIONS, so empty means nothing is wrong — unless `truncated` is true, which means the scan stopped early and empty means "I did not look at all of it". "entity" {entityId}: ONE entity in full — its seed, the region it was committed over, whether it is frozen or baked, and what it placed; list first, then ask about one. An id no entity carries answers entity:null, not an error. "generators": the generator REGISTRY — every id with its param schema and defaults, which is how you tune `generate` instead of only calling it. "ray": one ray cast into the density field, answering where it hit or null. "selection": the human\'s cell selection as a replayable spec, its size and its box. CONTACT IS DEFINED, not eyeballed: a prop is in contact when a ray cast straight down from the centre of its proxy box\'s BASE finds a solid sample within one cell size (0.25 m in this editor, and the answer states the gap in metres so you never have to assume it) — so a prop buried in the floor reports contact with gap 0, and a `gap` of null means nothing was found beneath it within the probe\'s reach at all. Entities are deliberately NOT contact-probed: a carver\'s footprint is the AIR it removed, so a downward probe from its base always hits the floor it just made and the question has no meaning for it. Prefer this over viewport_capture for anything positional.',
   },
   {
     tool: "viewport_capture",
@@ -323,7 +329,7 @@ const TOOLS: readonly ToolRow[] = [
     command: "generate",
     reads: false,
     description:
-      "MAKE. Commit one registry generator (a hall, a maze, a cave, a scatter) into the live world in a single act — no stamp session is opened and none is left standing, so the step after this one is not blocked. `params` are overlaid onto the generator's OWN defaults, so naming one keeps the rest and omitting them entirely is a complete call — which is the recommended way to call this, because the defaults are not currently readable through any tool. A wrong `generatorId` IS refused, with the list of real ones. A bad param is NOT: the generator runs arbitrary code, so a param it rejects, a defect in the generator itself and an invalid op it emitted all arrive the same way and all answer `failed` with the generator's own sentence — read it rather than assuming your params were wrong. `region` is world metres and defaults to the human's current cell selection; with neither, it refuses rather than guessing where to build. Like edit_apply, it is refused while the human has a stamp session open. Answers the new entity's id, the seed actually used and the region committed, so the result is reproducible by a caller that named no seed.",
+      "MAKE. Commit one registry generator (a hall, a maze, a cave, a scatter) into the live world in a single act — no stamp session is opened and none is left standing, so the step after this one is not blocked. `params` are overlaid onto the generator's OWN defaults, so naming one keeps the rest and omitting them entirely is a complete call. To name any param, read the schemas first: session_query with about=\"generators\" returns every generator's params, ranges and defaults. A wrong `generatorId` IS refused, with the list of real ones. A bad param is NOT: the generator runs arbitrary code, so a param it rejects, a defect in the generator itself and an invalid op it emitted all arrive the same way and all answer `failed` with the generator's own sentence — read it rather than assuming your params were wrong. `region` is world metres and defaults to the human's current cell selection; with neither, it refuses rather than guessing where to build. Like edit_apply, it is refused while the human has a stamp session open. Answers the new entity's id, the seed actually used and the region committed, so the result is reproducible by a caller that named no seed.",
   },
   {
     tool: "action_run",

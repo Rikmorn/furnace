@@ -43,6 +43,7 @@ import {
 } from "../../src/field-host/field-query.ts";
 import type {
   FieldEntityInfo,
+  FieldGeneratorInfo,
   SelectionInfo,
 } from "../../src/field-host/index.ts";
 import type { EntityArchetype } from "../../src/shared/catalog.ts";
@@ -147,6 +148,11 @@ type Harness = {
    *  what let the catalog lookup go untested for a whole review, since every record then
    *  measured at the fallback whatever the code did. A case that cares fills this. */
   catalog: Map<string, EntityArchetype>;
+  /** What `listGenerators()` would hand back. EMPTY by default and filled by the one case
+   *  that asks about it — the seam RELAYS this list, so a fixture here proves the relay and
+   *  nothing about the registry. The registry's real content is asserted at the HOST level,
+   *  where the projection is the facade's own. */
+  generators: FieldGeneratorInfo[];
 };
 
 /** A world with a big carved ROOM (floor near y = 0, air above) and, far away, a 32 m SHAFT
@@ -183,6 +189,7 @@ function harness(): { h: Harness; deps: QueryDeps } {
     footprints: new Map(),
     selection: null,
     catalog: new Map(),
+    generators: [],
   };
   const deps: QueryDeps = {
     substrate: {
@@ -198,6 +205,10 @@ function harness(): { h: Harness; deps: QueryDeps } {
     entities: () => h.entities,
     footprints: () => h.footprints,
     selection: () => h.selection,
+    // A THUNK ONTO THE HARNESS for `archetypeById`'s reason exactly — the real one re-derives
+    // per call because the entity catalog can be swapped under it, and a case that installed
+    // a fixed array here would be asserting against a dep shape the host does not have.
+    generators: () => h.generators,
   };
   return { h, deps };
 }
@@ -485,27 +496,25 @@ test("PIN: a floating prop reports no floor contact, and a resting one does not 
 
 // --- the rest of the entities arm -------------------------------------------
 
-test("entities are projected with their footprint, and `params` is deliberately dropped", () => {
+test("the LIST row is three fields — the fat ones are ABSENT, not merely unasserted", () => {
   const { h, deps } = harness();
   h.entities = [entityInfo(3, "hall")];
   h.footprints.set(3, { min: [0, 0, 0], max: [2, 2, 2] });
 
   const answer = entitiesArm(createQuery(deps).answer({ about: "entities" }));
+  // **THE WHOLE-OBJECT `toEqual` IS THE PIN, and it is the only shape of assertion that can
+  // hold this reshape (T5).** Asserting the three slim fields are PRESENT stays green over a
+  // row that also still carries `seed`, `region`, `frozen`, `baked` and `placed` — i.e. over
+  // the reshape not having happened at all. What the split bought is the absence, so the
+  // absence is what is asserted. `params` and `opSpan` were never here and ride the same
+  // match.
   expect(answer.entities).toEqual([
     {
       entityId: 3,
       generator: "hall",
-      seed: 7,
-      region: { min: [0, 0, 0], max: [4, 4, 4] },
-      frozen: false,
-      baked: false,
-      placed: [],
       footprint: { min: [0, 0, 0], max: [2, 2, 2] },
     },
   ]);
-  // `params` and `opSpan` are NOT in that object, and the whole-object `toEqual` above is
-  // what asserts it — a `not.toHaveProperty` pair would pass over a projection that had
-  // silently gained a third field.
 
   // An entity with NO footprint answers null rather than an invented box.
   h.footprints.clear();
@@ -513,14 +522,68 @@ test("entities are projected with their footprint, and `params` is deliberately 
   expect(bare.entities[0]?.footprint).toBeNull();
 });
 
-test("frozen and baked become BOOLEANS — core spells absence as absent", () => {
+test("`entityTotal` counts the committed entities — the honesty signal a bound would use", () => {
   const { h, deps } = harness();
-  h.entities = [{ ...entityInfo(4, "maze"), frozen: true, baked: true }];
+  expect(
+    entitiesArm(createQuery(deps).answer({ about: "entities" })).entityTotal,
+  ).toBe(0);
+
+  h.entities = [entityInfo(3, "hall"), entityInfo(5, "maze")];
   const answer = entitiesArm(createQuery(deps).answer({ about: "entities" }));
-  expect([answer.entities[0]?.frozen, answer.entities[0]?.baked]).toEqual([
-    true,
-    true,
-  ]);
+  // EQUAL TO THE LIST LENGTH, asserted as such rather than as the literal 2 — nothing is cut
+  // today, so the two agreeing IS the claim. The day they differ is the day a bound lands, and
+  // this case is what would then have to be rewritten deliberately.
+  expect(answer.entityTotal).toBe(answer.entities.length);
+  expect(answer.entityTotal).toBe(2);
+});
+
+test("the DETAIL arm carries what the list dropped — for ONE entity", () => {
+  const { h, deps } = harness();
+  h.entities = [
+    entityInfo(3, "hall"),
+    { ...entityInfo(4, "maze"), frozen: true, baked: true },
+  ];
+  h.footprints.set(4, { min: [0, 0, 0], max: [2, 2, 2] });
+
+  const answer = createQuery(deps).answer({ about: "entity", entityId: 4 });
+  if (answer.about !== "entity") throw new Error("expected the entity arm");
+  // A SUPERSET of the list row, matched whole: the three the list keeps plus the five it
+  // drops, and nothing else. `params` and `opSpan` are still refused — the projection argument
+  // that predates the split is unchanged by it.
+  expect(answer.entity).toEqual({
+    entityId: 4,
+    generator: "maze",
+    footprint: { min: [0, 0, 0], max: [2, 2, 2] },
+    seed: 7,
+    region: { min: [0, 0, 0], max: [4, 4, 4] },
+    // BOOLEANS where core spells absence as absent — and asserted on the entity that HAS
+    // them, so the conversion is visible rather than defaulting to false either way.
+    frozen: true,
+    baked: true,
+    placed: [],
+  });
+  // The id is ECHOED beside the record, so an answer is self-describing.
+  expect(answer.entityId).toBe(4);
+
+  // …and it answers about the entity ASKED FOR, not the first one. A `find` that ignored its
+  // predicate would pass every assertion above if entity 4 were alone in the list.
+  const first = createQuery(deps).answer({ about: "entity", entityId: 3 });
+  if (first.about !== "entity") throw new Error("expected the entity arm");
+  expect(first.entity?.generator).toBe("hall");
+  // The absent booleans on THIS one become false rather than undefined.
+  expect([first.entity?.frozen, first.entity?.baked]).toEqual([false, false]);
+});
+
+test("an unknown entityId answers null — a fact about the world, not a broken call", () => {
+  // THE RACE THE SPLIT CREATES, pinned: a caller lists, the human deletes a row, the caller
+  // asks about it. `null` says "no entity carries that id" and the echoed `entityId` says
+  // which — a throw here would reach the agent as `internal`, i.e. "the editor broke", for a
+  // question that has a true answer.
+  const { h, deps } = harness();
+  h.entities = [entityInfo(3, "hall")];
+  const answer = createQuery(deps).answer({ about: "entity", entityId: 41 });
+  if (answer.about !== "entity") throw new Error("expected the entity arm");
+  expect(answer).toEqual({ about: "entity", entityId: 41, entity: null });
 });
 
 test("an empty world answers empty lists with `truncated: false` — nothing is wrong", () => {
@@ -804,6 +867,55 @@ test("the selection arm answers the SPEC and the shape — never the cells", () 
   // grew one would fail here rather than at the token budget.
 });
 
+// --- the generators arm (T5) ------------------------------------------------
+
+test("the generators arm RELAYS the host's projection — it authors no second schema", () => {
+  const { h, deps } = harness();
+  const stub: FieldGeneratorInfo = {
+    id: "stub",
+    name: "Stub",
+    paramSchema: { type: "object", properties: { widget: { type: "number" } } },
+    defaults: { widget: 3 },
+    placesProps: false,
+    usesSeed: true,
+  };
+  h.generators = [stub];
+
+  const answer = createQuery(deps).answer({ about: "generators" });
+  if (answer.about !== "generators")
+    throw new Error("expected the generators arm");
+  // BY IDENTITY, which is the whole claim of a pass-through: the seam adds nothing and copies
+  // nothing, because the facade already `structuredClone`s per call. `toEqual` would stay green
+  // over a seam that rebuilt the record field by field — which is exactly where a member
+  // silently stops being forwarded (`session-mutation.test.ts` measured that failure).
+  expect(answer.generators[0]).toBe(stub);
+});
+
+test("the generators arm re-reads per call — a swapped catalog is not a photograph", () => {
+  // WHY THE DEP IS A CALL. `listGenerators()` folds the project's archetype ids into every
+  // `archetypeId` param, so the projection changes when `setEntityCatalog` runs. A dep held as
+  // an array would go on advertising archetypes the project no longer has.
+  const { h, deps } = harness();
+  const q = createQuery(deps);
+  expect(
+    (q.answer({ about: "generators" }) as { generators: unknown[] }).generators,
+  ).toEqual([]);
+  h.generators = [
+    {
+      id: "late",
+      name: "Late",
+      paramSchema: {},
+      defaults: {},
+      placesProps: true,
+      usesSeed: false,
+    },
+  ];
+  const after = q.answer({ about: "generators" });
+  if (after.about !== "generators")
+    throw new Error("expected the generators arm");
+  expect(after.generators.map((g) => g.id)).toEqual(["late"]);
+});
+
 test("no selection answers null, not an empty selection", () => {
   const { deps } = harness();
   const answer = createQuery(deps).answer({ about: "selection" });
@@ -826,6 +938,8 @@ test("the read WRITES NOTHING — the store, the log and the answer's boxes are 
   const undoBefore = h.log.undoStack.length;
   const q = createQuery(deps);
   q.answer({ about: "entities" });
+  q.answer({ about: "entity", entityId: 3 });
+  q.answer({ about: "generators" });
   q.answer({ about: "ray", origin: [0, 4, 0], dir: [0, -1, 0] });
   q.answer({ about: "selection" });
   // THE `readOnlyHint` THE DOOR ADVERTISES (T4c Task 6, `daemon/mcp.ts`'s `session_query`
@@ -878,9 +992,23 @@ test("the HOST's query member reaches the seam over the real substrate", () => {
   if (answer.about !== "entities") throw new Error("expected the entities arm");
   expect(answer.entities.map((e) => e.entityId)).toEqual([out.entityId]);
   expect(answer.entities[0]?.generator).toBe("hall");
+  expect(answer.entityTotal).toBe(1);
   // The footprint came off the host's own memo, so it is a real box rather than the null a
   // mis-wired dep would produce.
   expect(answer.entities[0]?.footprint).not.toBeNull();
+
+  // …and the DETAIL arm reaches the same record through the same dep, with the fields the
+  // list drops. `seed` is the one that matters at this level: the facade committed it, so a
+  // real number here says the detail arm read the LOG rather than a stub.
+  const detail = host.query({ about: "entity", entityId: out.entityId });
+  if (detail.about !== "entity") throw new Error("expected the entity arm");
+  expect(detail.entity?.generator).toBe("hall");
+  expect(typeof detail.entity?.seed).toBe("number");
+  expect(detail.entity?.region).toEqual({ min: [0, 0, 0], max: [8, 5, 8] });
+  // An id nothing carries is null even over the real host.
+  const missing = host.query({ about: "entity", entityId: 999_999 });
+  if (missing.about !== "entity") throw new Error("expected the entity arm");
+  expect(missing.entity).toBeNull();
 
   // The ray arm sees what `generate` carved: a hall's floor is under the region's centre.
   const ray = host.query({ about: "ray", origin: [4, 4, 4], dir: [0, -1, 0] });
@@ -893,4 +1021,66 @@ test("the HOST's query member reaches the seam over the real substrate", () => {
   if (selection.about !== "selection")
     throw new Error("expected the selection arm");
   expect(selection.selection).toBeNull();
+});
+
+test("the generators arm round-trips a REAL param schema off the real registry", () => {
+  // **THE PIN THE WHOLE ARM EXISTS FOR (T5).** The gap it closes is that an agent could NAME a
+  // generator and not read its params, so what has to be true is not "an answer arrived" but
+  // "a param an agent could actually pass came back with its rules attached". Asserted against
+  // a name READ OUT OF `packages/core/src/field/generators.ts` — a plausible-looking invented
+  // key would satisfy any presence check vacuously and pin nothing.
+  const host = createFieldHost();
+  const answer = host.query({ about: "generators" });
+  if (answer.about !== "generators")
+    throw new Error("expected the generators arm");
+
+  const byId = new Map(answer.generators.map((g) => [g.id, g]));
+  // The registry's own four, which is also what `generate`'s refusal lists.
+  expect([...byId.keys()].sort()).toEqual(["cave", "hall", "maze", "scatter"]);
+
+  const hall = byId.get("hall");
+  if (hall === undefined) throw new Error("expected the hall generator");
+  // `paramSchema` is JSON Schema, so the params are under `properties` — and `pillarSpacing`
+  // is a real HALL param with a real range. The RANGE is half the value of this arm: an agent
+  // that can read `minimum`/`maximum` can tune without a round trip per guess.
+  const properties = (
+    hall.paramSchema as { properties?: Record<string, unknown> }
+  ).properties;
+  const pillarSpacing = properties?.["pillarSpacing"] as
+    | Record<string, unknown>
+    | undefined;
+  expect(pillarSpacing).toBeDefined();
+  expect({
+    type: pillarSpacing?.["type"],
+    bounded:
+      typeof pillarSpacing?.["minimum"] === "number" &&
+      typeof pillarSpacing?.["maximum"] === "number",
+  }).toEqual({ type: "number", bounded: true });
+  // …and `defaults` describes the SAME params, key for key. That is what makes "omit params
+  // entirely and it still works" checkable rather than believed — a defaults record that had
+  // drifted from the schema would mean an agent reading one and being validated by the other.
+  const declared = new Set(Object.keys(properties ?? {}));
+  expect(
+    Object.keys(hall.defaults).filter((key) => !declared.has(key)),
+  ).toEqual([]);
+  expect(hall.defaults["pillarSpacing"]).toBeDefined();
+
+  // **THE KEY SET, EXACTLY — the price of relaying instead of projecting.** A seventh member
+  // added to `FieldGeneratorInfo` for the stamp form's sake would reach an agent without
+  // anybody deciding it should. This reds instead, and the decision gets made.
+  expect(Object.keys(hall).sort()).toEqual([
+    "defaults",
+    "id",
+    "name",
+    "paramSchema",
+    "placesProps",
+    "usesSeed",
+  ]);
+  // The two declarative booleans are the registry's own, not defaults: the hall is the ONE
+  // seedless generator and it places nothing.
+  expect({ usesSeed: hall.usesSeed, placesProps: hall.placesProps }).toEqual({
+    usesSeed: false,
+    placesProps: false,
+  });
+  expect(byId.get("scatter")?.placesProps).toBe(true);
 });

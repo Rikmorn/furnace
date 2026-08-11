@@ -495,6 +495,13 @@ export function createSessionAnswerers(
     // asks it to confirm. `SessionState` solves the same problem with a `ready` discriminant;
     // this method has no such arm and does not need one, since the seam converts the throw into
     // a typed refusal at the door.
+    //
+    // T5'S `generators` ARM IS THE ONE THAT COULD ARGUE WITH THAT and cannot reach it: the
+    // registry is core's static list, so a catalogue IS knowable without a loaded world — but
+    // not from HERE. This file is chrome, and `tests/frontend-no-engine-leakage.test.ts`
+    // fails a value import of `@furnace/core` or of anything under `field-host/` from it, so
+    // the only route to that list is the host method this row is missing. The throw is
+    // therefore right for all five arms, for four reasons and one different one.
     "session.query": (params: unknown): QueryAnswer => {
       const engine = host.current;
       if (engine === undefined) {
@@ -511,7 +518,7 @@ export function createSessionAnswerers(
       const req = params as SessionQueryRequest | undefined;
       if (req === undefined || typeof req.about !== "string") {
         throw new Error(
-          "session.query needs an `about` naming what to ask about — entities, ray or selection",
+          "session.query needs an `about` naming what to ask about — entities, entity, generators, ray or selection",
         );
       }
       return engine.query(req);

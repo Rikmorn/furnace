@@ -161,14 +161,16 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   expect(advertised().length).toBeLessThanOrEqual(10);
   // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
   // ceiling-of-ten exists because "every row a model must consider is paid for on every
-  // turn"; the descriptions are 7,082 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // turn"; the descriptions are 7,502 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
   // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
   // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
-  // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6 and is 1.157× now:
-  // the T4c review spent 1,078 bytes correcting four rows that described the door wrongly, so
-  // the ceiling admits a tenth row at the median length (870) and reds before one at
-  // `session_query`'s (1,266). That is the budget working, not slack running out. A TOTAL rather than a
-  // per-row cap, because `session_query`'s wall is the one length this door had to buy.
+  // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6, 1.157× after the
+  // T4c review's 1,078 bytes of corrections, and is 1.092× after T5's 420 — 690 bytes left,
+  // which is SHORTER THAN SIX OF THE NINE ROWS. The tenth-row headroom this comment used to
+  // claim is gone, and that is the budget working rather than slack running out: a tenth verb
+  // now has to be argued against the prose cap before the ceiling of ten is even reached.
+  // A TOTAL rather than a per-row cap, because `session_query`'s wall is the one length this
+  // door had to buy.
   const proseBytes = advertised().reduce(
     (sum, tool) => sum + Buffer.byteLength(tool.description ?? "", "utf8"),
     0,
@@ -360,6 +362,52 @@ test("every bound the document states is a bound dispatch enforces", () => {
   expect(rayArm.filter((d) => String(d).includes("zero vector"))).toHaveLength(
     1,
   );
+});
+
+test("session_query advertises FIVE arms, projected from the union dispatch runs", () => {
+  // **THE ARM T5 ADDED IS ADVERTISED WITHOUT ANYBODY WRITING A SCHEMA, which is the whole
+  // reason the generator catalogue rode this verb instead of a tenth tool.** The document is a
+  // PROJECTION of `spatialQuery`, so an arm added to that union appears here or the projection
+  // is broken. Read off the `oneOf` rather than out of the prose: the prose is what a human
+  // wrote and the `oneOf` is what a client renders a picker from.
+  const row = advertised().find((x) => x.name === "session_query");
+  const arms = (row?.inputSchema["oneOf"] ?? []) as Record<string, unknown>[];
+  const about = arms.map((arm) => {
+    const properties = arm["properties"] as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    return properties?.["about"]?.["const"];
+  });
+  expect(about).toEqual([
+    "entities",
+    "entity",
+    "generators",
+    "ray",
+    "selection",
+  ]);
+  // …and the ONE member the two new arms add between them is `entityId`, REQUIRED, which is
+  // what makes "list, then ask about one" a call an agent can compose from the document alone.
+  const entityArm = arms[1];
+  expect({
+    required: entityArm?.["required"],
+    type: (
+      entityArm?.["properties"] as Record<string, Record<string, unknown>>
+    )?.["entityId"]?.["type"],
+  }).toEqual({ required: ["about", "entityId"], type: "integer" });
+});
+
+test("the generate row points at the catalogue rather than calling it unreadable", () => {
+  // **A SENTENCE THAT WENT FALSE IN THE COMMIT THAT FALSIFIED IT (T5).** The row used to end
+  // its params advice with *"because the defaults are not currently readable through any
+  // tool"* — true when it was written, and an instruction to an agent to stop trying the
+  // moment `session_query {about:"generators"}` shipped. Pinned in both directions, because a
+  // stale sentence that tells a reader NOT to look is acted on rather than read past.
+  const row = (
+    advertised().find((x) => x.name === "generate")?.description ?? ""
+  ).replace(/\s+/g, " ");
+  expect(row).toContain("about=");
+  expect(row).toContain("generators");
+  expect(row).not.toContain("not currently readable");
 });
 
 test("the four prose hand-offs the earlier tasks named are in the rows that owe them", () => {

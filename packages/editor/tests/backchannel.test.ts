@@ -789,8 +789,20 @@ test("session.query REFUSES a bad arm before any tab is asked", async () => {
   // (the contamination this tranche already paid for once). `session.query RELAYS each arm`
   // above sends `dir: [0,-1,0]` and answers it, which is that half.
   //
-  // …and the two bare arms take nothing.
+  // …and the three bare arms take nothing.
   expect(await bad({ about: "entities", deep: true })).toBe("invalid-input");
+  expect(await bad({ about: "generators", verbose: true })).toBe(
+    "invalid-input",
+  );
+  // THE ENTITY ARM'S ONE MEMBER IS REQUIRED, because `{about:"entity"}` alone names no
+  // entity and there is no sensible default — "the selected one" would be the chrome's
+  // guess about a human's state, made by a daemon that cannot see it.
+  expect(await bad({ about: "entity" })).toBe("invalid-input");
+  // …and an id is an INTEGER. There is deliberately no lower bound (`session-handlers.ts`
+  // argues it): an id no entity carries is ANSWERED `null`, so a range here would split one
+  // question across two refusal shapes. 1.5 is not an id under any counter.
+  expect(await bad({ about: "entity", entityId: 1.5 })).toBe("invalid-input");
+  expect(await bad({ about: "entity", entityId: "3" })).toBe("invalid-input");
   // NOT ONE of those reached the tab — the whole point of validating at the door.
   expect(requestsTo(tab)).toEqual([]);
 });
