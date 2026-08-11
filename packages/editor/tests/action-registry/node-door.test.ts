@@ -46,7 +46,15 @@ const PKG = join(import.meta.dir, "..", "..");
  *  The child prints a COUNT rather than exiting silently, so "imported cleanly" and
  *  "imported cleanly and exported nothing" are distinguishable — a door that read only the
  *  exit code would pass on an empty module. `cwd` is the package root, so a bare specifier
- *  resolves the way the daemon will resolve it. */
+ *  resolves the way the daemon will resolve it.
+ *
+ *  **`String(...)`, NOT the bare number, and that is a fix rather than a flourish.**
+ *  `console.log` hands a NON-STRING argument to the runtime's inspector, which colourises it
+ *  whenever colour is forced — under `FORCE_COLOR` (set by some shells, and commonly by CI)
+ *  the child prints `\x1b[0m\x1b[33m39\x1b[0m` and the `Number(...)` below reads `NaN`, so all
+ *  three cases fail on an import that worked perfectly. A lone string is written through
+ *  untouched, which makes the child's stdout machine-readable BY CONSTRUCTION rather than by
+ *  the parent's environment happening to be quiet. */
 async function rowsSeenByABareRuntime(
   specifier: string,
   count = "m.ACTION_DESCRIPTORS.length",
@@ -55,7 +63,7 @@ async function rowsSeenByABareRuntime(
     [
       "bun",
       "-e",
-      `const m = await import(${JSON.stringify(specifier)}); console.log(${count});`,
+      `const m = await import(${JSON.stringify(specifier)}); console.log(String(${count}));`,
     ],
     { cwd: PKG, stdout: "pipe", stderr: "pipe" },
   );
