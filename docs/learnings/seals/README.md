@@ -12,6 +12,27 @@ was deleted. As-built architecture is distilled separately in `docs/reference/`
 (`dungeon-architecture.md`, `editor-architecture.md`, `core-modules.md`) — this directory
 is history, not current state.
 
+## Writing a seal
+
+What a seal must answer, on top of the four head fields in [Head conventions](#head-conventions)
+below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
+
+- **Sealed date, packages touched, and the counts** — the counts are COMPUTED from the
+  artifact, never typed, with the deriving command stated beside the number (`bun test` for
+  the suite line, a quoted `git diff --stat` range for the diff). A number nobody can
+  re-derive rots in place, and the seal is the last place anyone re-derives it.
+- **Any surface the slice ORPHANED** — name every export whose last consumer went away in
+  this slice. This is recorded to feed a later classification audit, **never to trigger
+  automatic deletion**. `@furnace/core` is a capability library for consumers we do not
+  know, so an orphaned name is a candidate for JUDGEMENT, not for the bin.
+- **"Did any file grow disproportionately this slice? Name it."** — answer it in the prose.
+  This is guidance, not a gate: nothing ratchets on the answer (D8, 2026-08-04 — guidance
+  over machinery for file size). The value is that the growth is *named* while whoever grew
+  it still remembers why.
+
+Then one index line, and nothing else in the index — the row points at the file, the
+content lives in the file.
+
 ## Index
 
 28 seals, ordered by **true slice sequence, oldest first** — the order the original

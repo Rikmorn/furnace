@@ -23,6 +23,8 @@ These are general defaults. Where they conflict with a committed engine conventi
 - Compounding errors are the biggest risk. Prioritise factual accuracy over agreeableness.
 - Do what was asked. If you think the scope should be larger, say so — don't silently expand it.
 - Before claiming work is done, verify it — at minimum a type check, ideally run the relevant tests. Match the verification to the scope of the change.
+- Numbers in tracked docs are computed from the artifact — state the deriving command beside the count; a typed number is a defect.
+- Before trusting that an assertion pins a behaviour, delete the line it pins and watch the test go red.
 
 ## Planning
 
@@ -42,8 +44,18 @@ From the placement-arc postmortem (`docs/learnings/2026-07-05-dungeon-placement-
   ownership gap — publicness should be a decision someone made, never an accident of
   file layout. (Stated 2026-08-05 during the foundations doors design; canonical form in
   `docs/reference/api-posture.md` §R8 enforcement.)
+- **Stance→check.** An architectural invariant (import direction, state ownership, module
+  boundaries) isn't landed until a check enforces it; prose in a reference doc is a
+  proposal. Hygiene stances (file size/growth) stay guidance by explicit ruling (D8,
+  2026-08-04): the seal asks, no machinery ratchets.
+- **New mode = new module.** A new interaction mode or subsystem is a new module against a
+  framework seam (action registry, gesture machine, facade), never a new region in an
+  existing file. The field-host reached 7.4K lines one region at a time; un-growing it took
+  four tranches.
 - **Deletion pass before addition pass.** When evolving existing API surface, list deletion candidates before listing additions. For every existing export in the affected area, ask "if we add the new thing, could we delete this?" Removing surface is a first-class option, not a fallback.
 - **Single source of truth as a forcing function.** Two ways to spell the same thing — sugar fields alongside explicit fields, two parallel mutators, derived state that's also user-settable — is a smell. Pick one path and delete the other. Parallel paths force conflict-resolution rules (throw / warn / clear / silent) that are pure cost.
+- **Parallel-subsystem reconciliation.** The rule above at subsystem scale, with a deadline. A new subsystem that parallels an existing concern (a second content model, registry, validation path) files its reconciliation decision — which wins, and when the loser dies — the day it is born. Scene vs the field op log cost a 24K-line deletion because this was filed two months late.
+- **Justify by scaling.** Design decisions justify at the meaningful upper-bound scale the project is headed to, not the scale it has; where a threshold exists ("fine below N chunks"), write the threshold down where the decision lives.
 - **Mine wrong proposals.** A rejected design idea usually surfaces a real constraint that a different shape can satisfy. Don't dismiss rejections; ask "what was that trying to solve?" and propose differently. Tranche A-2's construct-time sugar was wrong but exposed the constraint that the policy-factory namespace then satisfied cleanly.
 - **Hygiene tranches bias reductive; feature tranches still pass the overlap check.** Audit and clean-up tranches whose explicit goal is "tidy existing surface" default to removing things. Feature tranches that add capability should still pass each new primitive through "does this overlap with anything existing?" — and if yes, ship the new thing AND delete the old, or ship neither.
 
