@@ -87,15 +87,24 @@ order only determines *which* files see the pollution.
    `GlobalRegistrator.unregister()` as "the clean way" should re-read this paragraph
    first** — it was the first thing tried here and it was worse than the disease.
 
-**Current mitigation (convention, not enforced):** every DOM/happy-dom test lives
+**Current mitigation — ENFORCED since foundations T5 (2026-08-11) by
+`packages/editor/tests/harness-conventions.test.ts`:** every DOM/happy-dom test lives
 in a `tests/` SUBDIR (`tests/inspector/`, `tests/chrome/`), never bare `tests/`,
 so it sorts AFTER the top-level `*.gpu.test.ts` and the daemon HTTP suites in the
 file walk. **This works because of directory-files-before-subdirectory-files, not because
 of alphabetical order** — a claim this entry carried until 2026-08-04. The distinction
 matters for anyone reasoning about placement *within* a directory: that order is readdir
-order, not the file's name. The convention holds today but is fragile — it's a placement
-comment, not something enforced, and a new bare-`tests/` DOM file silently reintroduces
-finding 1 (now known to reach across package boundaries, not just editor's own suites).
+order, not the file's name.
+
+That scan lists the top level of `tests/` at runtime and flags any file reaching happy-dom —
+by the package specifier in either import form, or by importing `_register.ts` — naming the
+offending file. `tests/gpu-fixture-survives-dom.test.ts` is the one licensed registrant and
+is asserted BY NAME, so a second is a deliberate edit rather than a silent arrival; what buys
+it the licence is the targeted teardown in its `finally`, not its placement. **This closes the
+"a new bare-`tests/` DOM file silently reintroduces finding 1" half and nothing more** — the
+blast radius (which reaches across package boundaries, not just editor's own suites) is
+unchanged, and so is the underlying ordering dependency. A guard on where the file sits is not
+the environment isolation this section's last paragraph asks for.
 
 **The convention has a SECOND half nobody had written down, found 2026-07-31
 (F4.5b Task 3).** It also constrains where GPU tests may live: a `*.gpu.test.ts`
@@ -169,8 +178,10 @@ stay correct.
    and fast now. So is the `segmented-field` + `shell.test.tsx` pairing, which failed for
    the same reason. The `color-field`-in-front workaround above is obsolete.
 
-   **What is NOT closed** is the ordering dependency this section opens with: the subdir
-   convention (§1 and §2) is still unenforced, and the inspector directory's green was
+   **What is NOT closed** is the ordering dependency this section opens with. The subdir
+   convention (§1 and §2) is enforced since T5 — see the mitigation paragraph above — but
+   enforcing WHERE a DOM file sits does not remove the dependency on where it RUNS; the
+   inspector directory's green was
    itself order-dependent until Task 15 — measured, because it looked fine either way.
    Adding the nine imports moved no counts at all (85 pass / 0 fail / 180 asserts before
    and after), since bun happened to evaluate a DOM-safe file first; but the pair
@@ -183,8 +194,9 @@ half of finding 2 (see above) and proved, in one file, that a per-file targeted-
 teardown removes finding 1's blast radius for that file WITHOUT paying finding 3's
 `unregister()` cost. It did **not** apply that teardown to the package's existing DOM
 suites — `tests/chrome/*` and `tests/inspector/*` still register happy-dom and never clean
-up after themselves, which is exactly why the subdir convention still has to exist and
-still isn't enforced. Generalizing E1's teardown to every DOM-registering file is not a
+up after themselves, which is exactly why the subdir convention still has to exist. (It is
+enforced since T5; being enforced is not the same as being unnecessary, and this paragraph is
+the reason it is still needed.) Generalizing E1's teardown to every DOM-registering file is not a
 copy-paste of what E1 shipped, either: it hardcoded the three globals a repo-wide grep
 found load-bearing TODAY, and a chrome/inspector-wide version would need to re-derive that
 set (or capture/restore the full window property list, minus whatever in it turns out to
@@ -199,8 +211,11 @@ bigger than a single task.
 failure appears, or when the suite grows enough DOM tests that the subdir
 convention becomes unwieldy. Not urgent — the convention holds for now.
 
-**Reference:** `packages/editor/tests/inspector/_register.ts` (the happy-dom
-registration); `packages/editor/tests/chrome/keybindings-dom.test.ts` (an existing,
+**Reference:** `packages/editor/tests/harness-conventions.test.ts` (the scan that enforces the
+subdir convention, since T5); `packages/editor/tests/inspector/_register.ts` (the happy-dom
+registration); `packages/editor/tests/register-first.test.ts` (the sibling scan, which holds
+the POSITION of the registration line inside the two subdirectories rather than the placement
+of the file); `packages/editor/tests/chrome/keybindings-dom.test.ts` (an existing,
 independently-measured account of finding 1); `packages/editor/tests/gpu-fixture-survives-dom.test.ts`
 + `packages/core/tests/_helpers/gpu-fixture.ts` (Task E1's fix and proof for finding 2);
 placement comments in `tests/chrome/*`; surfaced in Slice 3.2.2 Tasks 5 and 7, re-measured
@@ -397,6 +412,16 @@ test file asserts on — the same remedy, and the same argument, that
 `tests/action-registry/node-door.test.ts` already uses for a different kind of process
 pollution. Nothing in `src/` changed to accommodate it.
 
+**ENFORCED since foundations T5 (2026-08-11)**, by the same
+`packages/editor/tests/harness-conventions.test.ts`: no file under `packages/editor/tests/`
+may name a `@modelcontextprotocol/sdk` specifier except `tests/_helpers/mcp-probe.ts`, which
+is asserted by name. `packages/editor/src/daemon/` is out of scope by construction rather than
+by exemption — `daemon/mcp.ts` mounts a real server and the scan does not walk `src/`. It was
+a convention held by discipline until then, and it held: T4c's seven gate runs are the
+evidence, in the section below. What it did NOT have was anything that would say so on the
+day someone imported the SDK straight into a test file, which is a one-line change with a
+3× bill attached.
+
 **Why it is filed rather than fixed.** The fix is either upstream (an SDK whose shape we do
 not control) or a change to how this repo gates: per-package `bun test` runs in separate
 processes (verified green — core 20.2 s, dungeon 11.3 s, editor 48.6 s, each alone), or
@@ -413,7 +438,8 @@ next section.)*
 
 **Reference:** `packages/editor/tests/_helpers/mcp-probe.ts` (the measurement and the
 eliminations, at source); `packages/editor/tests/action-registry/node-door.test.ts` (the
-`Bun.spawn` precedent).
+`Bun.spawn` precedent); `packages/editor/tests/harness-conventions.test.ts` (the scan that
+holds the containment, since T5).
 
 ### What foundations T4c actually hit — the prediction was right, the class was wrong
 

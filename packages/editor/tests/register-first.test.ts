@@ -49,6 +49,13 @@ import { join } from "node:path";
 // without the import re-poisons its directory and costs the suite 5× — here that is one
 // legible failure naming the file and the line to add.
 //
+// ITS SIBLING IS `harness-conventions.test.ts`, and the split between them is by SUBJECT:
+// that file holds where a DOM test FILE may sit (a `tests/` subdir, never the top level) and
+// the MCP SDK's spawn containment; this one holds where the registration LINE must sit inside
+// the two subdirectories that file sends them to. Neither rule is derivable from the other,
+// and both were "convention, not enforced" in
+// `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` until foundations T5.
+//
 // AND THE SCAN ITSELF HAS BEEN DEFEATED ONCE, which is the thing to read before trusting it:
 // its first `HARNESS` predicate required a one-line import, so `bunx biome format --write`
 // could silently exempt any file whose harness import grew past the line width. See that
