@@ -68,10 +68,17 @@ const toolPrefixes = (names: Set<string>): Set<string> =>
     [...names].filter((n) => n.includes("_")).map((n) => `${n.split("_")[0]}_`),
   );
 
-// MIGRATION (until Task 2): SKILL.md has no body prose yet, so `backticked()` returns []
-// and the three assertions below pass vacuously. When Task 2 lands prose, add a floor
-// assertion here (the `harness-conventions.test.ts` shape) so the extraction must prove
-// it is pulling real content.
+test("the skill's backtick scan is not reading an empty body", () => {
+  // Guards the three guards below, exactly as the tool-table assertion above guards
+  // itself: every one of them is a `toEqual([])` over a FILTERED list, so a `backticked()`
+  // that matched nothing — an emptied body, a fence style the regex stops seeing — turns
+  // all three green while checking no identifier at all. Stated as a floor rather than a
+  // count, for `harness-conventions.test.ts`'s reason: a count would be a number to
+  // correct on every edit to a markdown file, and nothing reads it. The floor sits far
+  // below what the body carries today and far above zero, so prose can be rewritten
+  // freely and only an emptied file reddens it.
+  expect(backticked(skillText()).length).toBeGreaterThan(5);
+});
 
 test("every action id the skill names is a real action", () => {
   const ids = new Set(ACTION_DESCRIPTORS.map((d) => d.id));
