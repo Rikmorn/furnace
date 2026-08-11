@@ -206,11 +206,14 @@ a design question about how the project keeps its own memory, it touches all thr
 and every attempt so far to handle it inside another tranche has produced a consolidation round
 instead of an answer — the last one bought 17 days.
 
-**Trigger to revisit:** at the next prune — i.e. the first time the register crosses the
-provisional ~150 / ~50 bar in `AGENTS.md` § Deferred work. Do this design pass **instead of** a
-fourth consolidation round; a fourth round buys another few weeks and answers nothing. Secondary
-trigger, if it fires first: the first session that catches itself re-deriving something the
-register already held.
+**Trigger to revisit — SCHEDULED by user ruling at the T5 review close (2026-08-11):** this
+session now runs after the 3b world-building-skill session and **before returning to the main
+epic**, paired with `infrastructure/build-cycle-gate-cost.md` into one tooling session covering
+doc strategy (organisation of files, tooling, guidance) AND build-cycle speed — the user's
+words: *"just moving a threshold number around isn't fixing anything."* The original triggers
+(the ~150/~50 bar crossing; a session catching itself re-deriving something the register held)
+stand only as escalations if the scheduled session somehow doesn't happen. Digest prepared:
+`docs/superpowers/report/2026-08-11-docs-strategy-digest.md` (gitignored, regenerable).
 
 **Reference:** `AGENTS.md` § "Deferred work — `docs/backlog/`" (the provisional bar and its
 pointer here) · `docs/backlog/README.md` (§ Pruning's three moves, § Two file shapes' no-re-merge

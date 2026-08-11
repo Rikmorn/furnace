@@ -19,9 +19,9 @@ find docs/backlog -name '*.md' -not -name 'README.md' | wc -l
 | `dungeon/` | 20 | the dungeon demo — traversal, generation, placement |
 | `native-runtime/` | 12 | the native shell, its JS surfaces, and platform support |
 | `testing-and-quality/` | 10 | test harness, benchmarking, visual regression |
-| `infrastructure/` | 5 | the `@furnace/tools` harness/CLI and repo plumbing |
+| `infrastructure/` | 6 | the `@furnace/tools` harness/CLI and repo plumbing |
 | `ai-agents/` | 2 | agent-facing surfaces |
-| **total** | **103** | |
+| **total** | **104** | |
 
 Counted 2026-08-11, at the foundations T5 register prune and re-run after the one entry filed on top of it. The per-dir number is the index granularity on purpose: entries are added and deleted continuously, so a per-entry index would be a constant write target that rots between sessions — the failure mode `AGENTS.md` names for append-only records. `ls docs/backlog/<topic>/` is the per-entry list, and it cannot go stale.
 
