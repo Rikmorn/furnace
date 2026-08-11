@@ -106,3 +106,13 @@ Correct is not the same as convincing.
   this" ever would.
 
 ## Growing this skill
+
+- **Build lessons go to `docs/learnings/` as dated entries, never appended here.**
+  `AGENTS.md` § Keeping docs current forbids a tracked doc that is a constant write
+  target: it grows without bound and rots in place. Everything above rests on
+  `docs/learnings/2026-08-11-agent-world-building-cycle-1.md`.
+- **A rule enters here only when a run showed an agent failing without it.** That gate,
+  not terseness, is why it is short.
+- A new generator, material or archetype needs **no edit** — the vocabulary is read at
+  runtime, not listed. A capability that retires a procedure does: a generator spanning
+  storeys would end the advice on hand-carving between levels.
