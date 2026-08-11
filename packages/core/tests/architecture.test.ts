@@ -156,8 +156,18 @@ test("underscore-prefixed exports stay out of public module indexes", async () =
   for await (const f of glob.scan({ cwd: SRC })) {
     const text = await Bun.file(join(SRC, f)).text();
     text.split("\n").forEach((lineText, i) => {
-      // Catches `_name,` inside export blocks and `export const _name`.
-      if (/^\s*_[A-Za-z]|export\s+(const|function|type)\s+_/.test(lineText)) {
+      // Three shapes: `_name,` on its own line inside a multi-line export
+      // block; a local `export const/function/type _name`; and a SINGLE-LINE
+      // `export { _name } from "…"` (or `export type { _Name }`), which the
+      // first two miss because the name is neither at line start nor after a
+      // declaration keyword. Found 2026-08-11 by sabotaging this pin during
+      // the T5 surface audit — the audit's whole `_`-leak argument leans on
+      // this test being the boundary, and in that shape it was not.
+      if (
+        /^\s*_[A-Za-z]|export\s+(const|function|type)\s+_|export\s+(?:type\s+)?\{[^}]*\b_[A-Za-z]/.test(
+          lineText,
+        )
+      ) {
         offenders.push(`  ${f}:${i + 1} → ${lineText.trim()}`);
       }
     });

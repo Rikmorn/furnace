@@ -44,7 +44,10 @@ renderer/camera/material/shader vocabulary at all — T5's deletion set. *[Amend
 2026-08-11, T5 opening: "deletion set" (here and in the closing paragraph) is
 superseded — the user retired the subtraction rule as too extreme; T5 runs a
 keep-by-default classification audit instead. Ruling and criteria:
-`docs/backlog/engine-architecture/core-zero-consumer-module-exports.md`.]*
+`docs/backlog/engine-architecture/core-zero-consumer-module-exports.md`.]* *[Citation
+re-pointed 2026-08-11, T5 Task 7: that entry is DELETED — T5's classification audit is its
+resolution. The keep-by-default principle is durable at `docs/learnings/seals/README.md`
+§Writing a seal; the audit's outcome lands in the T5 seal. Wording above unchanged.]*
 
 **Review + rulings:** independent reviewer MINORS-only — all clauses, fences,
 sabotages, and fourteen recomputed numbers exact; the one source minor (the wire

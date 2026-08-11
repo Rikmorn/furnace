@@ -5,13 +5,13 @@ import {
   defineService,
   getService,
   parseOrThrow,
-  resetServicesForTests,
   toJsonSchema,
   z,
 } from "./index.ts";
+import { _resetServicesForTests } from "./internal.ts";
 
 afterEach(() => {
-  resetServicesForTests();
+  _resetServicesForTests();
 });
 
 test("register/get round-trips an entry", () => {

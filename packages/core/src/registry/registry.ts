@@ -146,7 +146,15 @@ export function getService(name: string): ServiceDefinition["fn"] {
   return s.fn;
 }
 
-/** Tests only. */
-export function resetServicesForTests(): void {
+/**
+ * Empty the module-global service registry. Package-private (reached through
+ * `registry/internal.ts`, never the public index): the `services` singleton is
+ * process-global mutable state (pinned as such in `tests/architecture.test.ts`),
+ * so a suite that registers into it needs a way to hand the next one a clean
+ * slate. Consumers have no reason to reset a registry their own import-time
+ * `defineService` calls populate — which is why the row documenting this was
+ * always "Tests only." and why foundations T5 moved it off the public index.
+ */
+export function _resetServicesForTests(): void {
   services.reset();
 }

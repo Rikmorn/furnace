@@ -14,7 +14,6 @@ export {
   parseOrThrow,
   type Registry,
   type RegistryOptions,
-  resetServicesForTests,
   type ServiceDefinition,
   toJsonSchema,
 } from "./registry.ts";

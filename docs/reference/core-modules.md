@@ -51,11 +51,13 @@ The reference is "what the engine IS today." If it's stale, it's broken.
 
 ### Demoed in cookbook
 
-- `requestContext`, `onResize`, `Context` → `cookbook/camera`.
+- `requestContext`, `Context` → `cookbook/camera` (the `requestContext` call itself lives in
+  the shared `mountDemo` scaffolding, `packages/cookbook/src/shared/mount.ts`).
 
 ### Reference-only (no demo, by design)
 
 - `dispose` — every cookbook demo calls it implicitly on teardown; no dedicated demo.
+- `onResize` — the resize subscription. Cookbook demos reach it through `camera.bindToCanvas`, which subscribes internally, so no demo calls it directly. (Recorded 2026-08-11 by the T5 surface audit; this line previously sat in the "Demoed in cookbook" list above, which was false — `grep -rn "onResize" packages/cookbook/src` returns nothing.)
 - `isDisposed` — internal diagnostic; consumers rarely call it.
 - `getCurrentTextureView` — escape hatch for consumers writing their own render pass; cookbook demos go through `frame.render` instead.
 - `FurnaceError` / `FurnaceGpuError` — error types; surfaced by other surfaces' demos when failure-policy is exercised.
@@ -309,11 +311,11 @@ Live in `shader/internal.ts` — the consuming core modules (`material`, `post`,
 
 ### Demoed in cookbook
 
-- `create`, `source`, `toWgsl`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (the striped + plasma shaders share `hsv2rgb` from `chunks/color.wgsl` via `shader.source`, flattened by `toWgsl`).
+- `create`, `source`, `Shader`, `MaterialDescriptor (shader/bindings)` → `cookbook/shader` (the striped + plasma shaders share `hsv2rgb` from `chunks/color.wgsl` via `shader.source`). `toWgsl` is exercised there only INDIRECTLY — `create` flattens the graph itself, and the demo never calls `toWgsl` (verified 2026-08-11: `packages/cookbook/src/demos/shader/entry.ts` calls `shader.source` and `shader.create` only; the sole `toWgsl` mention in that demo is prose in `help.ts`). The public flattener stays public as the `ShaderSource` value-type's readable form — for consumers inspecting or caching final WGSL — and needs no demo of its own.
 - `unlit`, `normalColor` (engine-owned built-ins) → demoed via `material.create` across the cookbook (e.g. `cookbook/camera`, `cookbook/geometry`, `cookbook/render-target`).
 - `lit` (engine-owned built-in, multi-light Blinn-Phong + per-material `specular`) → `cookbook/lighting` (with directional/point/spot `Light`s + `Ambient` via `frame.render({ lights, ambient })`); `cookbook/shadows` reuses `lit` to show it receiving shadows transparently from a `Light.shadow`-carrying caster.
 - `unlitInstanced` (engine-owned built-in, per-instance tint via `mat.color * tint`) → `cookbook/instancing` (a grid of distinctly-tinted cubes in one draw call; the unlit path makes the tint read directly). `litInstanced` is the lit counterpart (same instance-attribute model + tint, with the uniform-scale precondition) — not separately demoed.
-- `textured`, `texturedLit` (engine-owned built-ins) → used by the hello-world **bowling scene** (`packages/hello-world/src/demos/bowling/scene.ts`), not the cookbook. `cookbook/textures` authors its own textured shader against the same `@group(1)` contract rather than using the built-ins.
+- `texturedLit` (engine-owned built-in) → used by the hello-world **bowling scene** (`packages/hello-world/src/demos/bowling/scene.ts:444`), not the cookbook. `cookbook/textures` authors its own textured shader against the same `@group(1)` contract rather than using the built-ins. `textured` is the unlit arm of the same pair and has **no consumer anywhere in the workspace** (verified 2026-08-11 by the T5 surface audit — the row previously claimed the bowling scene used both, which was false for `textured`). It stays public on family-symmetry grounds: an `unlit`/`lit` pair with one arm removed is a worse surface than an unused arm, and `cookbook/textures` teaches the same `@group(1)` contract by authoring it.
 - `sceneBinding`, `lightingHelpers`, `shadowHelpers` (public lighting/shadow fragments) → not yet cookbook-demoed; reference-only for consumers composing custom lit/shadow-receiving shaders. The engine's own `shader.lit`/`shader.texturedLit` compose `lightingHelpers` (which pulls in `shadowHelpers`) internally; `cookbook/shadows` exercises the *built-in* receive path rather than a custom composition.
 
 ---
@@ -804,10 +806,24 @@ editor's analyzer worker looks up.
 | `defineService` | `(name: string, def: ServiceDefinition) => void` | Register a named service a consumer project exposes to the editor — called at import time from the project's editor-extensions module (Branch A). Throws `FurnaceError` on duplicate (setup-loud). |
 | `getService` | `(name: string) => ServiceDefinition["fn"]` | Validated lookup: throws a `FurnaceError` NAMING the missing service (`registry: service "x" is not registered — is the project's editor-extensions module imported before use?`) instead of a downstream `TypeError`. The registry proves EXISTENCE; the contract TYPE stays structural at the consuming edge (the wire-twin rule). |
 | `ServiceDefinition` | `{ fn: (...args: never[]) => unknown }` | The registered shape — deliberately untyped beyond "a function". |
-| `resetServicesForTests` | `() => void` | Tests only. |
 | `JsonSchema` | `Record<string, unknown>` | A JSON Schema document (draft 2020-12), as produced by zod. |
 | `FurnaceMeta` | `{ kind?: string; unit?: string }` | The `furnace` VENDOR KEY a schema node may carry, written inside `.meta()` and hoisted to the node root by `toJsonSchema`. Added at foundations T4c so the key has one declaration instead of none: its writers are `field/generators.ts` (×4), `scatter.ts` and `cave.ts`, and its readers are the editor's inspector (control kind + unit suffix) and the MCP door shipping a generator's `paramSchema` to an agent. `.meta()` takes a wide record, so a misspelt member used to fail SILENTLY — spell every defining site `furnace: { … } satisfies FurnaceMeta`. Both members optional (`unit` annotates a node whose control its SHAPE already decides); `kind` is `string` rather than a union because the closed list of field kinds is the EDITOR's and this package cannot import it — the editor narrows from this type, not the reverse. |
 | `z` | re-export of zod | The zod instance the furnace registries validate with. Definition authors MUST build schemas from this re-export — schema objects cross registry boundaries, and mixing zod instances/versions breaks `instanceof`-based introspection. |
+
+### Internal (`_*`) — not for consumers
+
+Lives in `registry/internal.ts` — the package-private door, unreachable from a consumer
+because `packages/core/package.json`'s `exports` map publishes `index.ts` only. Added at
+foundations T5 (2026-08-11) by the core surface classification audit, which was the one
+`delete` verdict in 161 zero-consumer names: the export below was documented "Tests only."
+while sitting unprefixed in the public `registry/index.ts`, so it was not-for-consumers
+surface on the consumer side of the `_`-internal boundary. The resolution is the SEAM, not
+the prefix alone — the architecture test bans `_`-prefixed names in a public index, so
+`internal.ts` is where the name had to land.
+
+| Export | Used by |
+|---|---|
+| `_resetServicesForTests` | `() => void` — empties the module-global `services` registry (the one pinned in `tests/architecture.test.ts`'s global inventory). Sole caller: `registry/registry.test.ts`'s `afterEach`. Previously public as `resetServicesForTests`. |
 
 ### Reference-only (no demo, by design)
 
@@ -1569,5 +1585,6 @@ These appear in module source files but are NOT exported, OR are exported with a
 - Post's internal `_pipelineCache` (a facade in `post/pipeline-cache.ts` over `acquirePostPipeline` / `releasePostPipeline` on the per-ctx `ResourceManager`), `_resolvePassPipeline` + `_effectTeardown` (in `post/effect.ts`, used by `frame/render.ts` and `post/passes.ts`), `_ensureFullscreenVS` (in `post/fullscreen.ts`), `_effectPipelineHashKey` / `_buildEffectPipelineDescriptor` (in `post/pipeline.ts`), the transient-target pool `_acquirePoolTarget` / `_releasePoolTarget` / `_poolStats` (in `post/pool.ts`), and `_ensurePostSampler` (in `post/post-sampler.ts`). None re-exported from `post/index.ts`.
 - Frame's internal `_frameRenderInternals` in `frame/render.ts` — a bundle of `{ _ensureDepthTexture, _ensureCameraBuffer, _ensureMeshGroup0 }` consumed by `frame/render-to-texture.ts`. Not re-exported from `frame/index.ts`.
 - Mesh's internal `_recomputeModelIfDirty` in `mesh/mesh.ts`, called by `frame/render.ts` and `frame/render-to-texture.ts` per draw. Not re-exported from `mesh/index.ts`.
+- Registry's internal `_resetServicesForTests` (declared in `registry/registry.ts`, re-exported from `registry/internal.ts`), called by `registry/registry.test.ts` only. Demoted from the public index at foundations T5 — table above in `@furnace/core/registry`.
 
 These are accessed only by other core modules. If consumer code is reaching for one, that is a signal to either (a) export it as a documented public escape hatch or (b) extend the public API to cover the use case.
