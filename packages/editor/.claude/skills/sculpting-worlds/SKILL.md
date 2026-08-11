@@ -64,8 +64,45 @@ Verifying carefully is not verifying in the right places.
 
 ## Composing
 
+Correct is not the same as convincing.
+
+- **Contrast makes hierarchy.** A tall space reads as tall only if approached through a
+  low one. Vary height, width and density between neighbours.
+- **Vary the section along a passage.** A constant cross-section is the one thing the
+  human called boring; a square one reads as manufactured, not natural.
+- **A landmark must be useful** — something to navigate by: distinctive in shape, scale
+  or material, not decoration.
+- **Uniqueness by scarcity does not scale.** Two odd places make two landmarks; ten need
+  real differentiation. If you cannot tell two apart in a sentence, neither can the
+  player.
+- **Loops beat dead ends.** Two ways between two places turn backtracking into a circuit.
+- **Give districts different material.** The material change is what makes a transition
+  legible as one.
+- **Entrances and thresholds are moments.** Build the junction where one kind of space
+  breaks into another; don't let it fall out of the carve.
+- **Sightlines are opportunities, not guarantees.** A long clear view lets a player
+  orient; it does not make them.
+
 ## Ambition, and what to do when you hit a wall
 
+- "Build a world" means the substantial reading, not a demo room. **State the plan
+  first** so the human can dial it, then build it.
+- Improvising around a gap is right mid-build; **filing it by name afterwards is
+  required too** — an entry under `docs/backlog/<topic>/`, in the shape that directory's
+  README documents. The baseline improvised around three real gaps and filed none; that
+  is how a capability gap becomes folklore instead of work.
+- Say what you could not do, in plain words, in the report.
+
 ## Legibility to the human
+
+- Build on a **scratch world**, never one that matters.
+- Save under a name that says what it is.
+- Tell the human **where**, in world metres. They cannot see your coordinates.
+- Captures are proof, not navigation — take them at the end, of what you are claiming.
+- **Separate what you measured from what you concluded.** The baseline's report mixed
+  both with no marker between them: its measurements held up under independent check;
+  three conclusions were carried forward as facts, and two were later disproved. A
+  conclusion in a measurement's clothes costs its reader more than "I did not check
+  this" ever would.
 
 ## Growing this skill
