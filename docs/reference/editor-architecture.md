@@ -5798,11 +5798,16 @@ trigger). Mitigated in the same commit: every param has a default, so a params-f
 complete, and `generatorById` now names the registered ids in its refusal. The second is the
 zero-direction gap above.
 
-**The cull is stated.** `core-zero-consumer-module-exports` now carries the projected
-vocabulary — what the nine rows advertise and what they relay back — with the rule for T5
-written as subtraction: everything core exports that this list does not name is a deletion
-candidate. The largest single block it hands T5 is that the door projects no renderer, camera,
-material, shader, binding, post-effect, physics or mesh vocabulary at all.
+**The cull is stated — then re-ruled.** `core-zero-consumer-module-exports` carries the
+projected vocabulary — what the nine rows advertise and what they relay back. As written at
+T4c the entry framed T5's job as subtraction (everything the list does not name = a deletion
+candidate); the T5 opening discussion (2026-08-11) retired that rule as too extreme — core is
+a capability library for unknown consumers, and the door is one consumer, not the definition
+of the surface. T5 instead runs a keep-by-default classification audit (keep / cookbook debt /
+delete-with-a-per-name-argument); the ruling and criteria live in the entry. What the door's
+list still establishes: it projects no renderer, camera, material, shader, binding,
+post-effect, physics or mesh vocabulary at all — so for those names it is simply silent
+evidence, neither protection nor deletion warrant.
 
 ### 27.5 The T4c exit — eight clauses, the backlog walk, and the gate handoff (Task 7)
 

@@ -40,7 +40,11 @@ agent chip. The door grows to **nine tools ≤10**, every row projecting its own
 (NO_ARGUMENTS deleted), instructions rewritten at 1,970/2,048 B, the undo fence
 daemon-side (`FENCED_ACTIONS` — the chrome-side fence would have missed exactly the
 stale tabs that needed it). The cull statement is written: the door projects no
-renderer/camera/material/shader vocabulary at all — T5's deletion set.
+renderer/camera/material/shader vocabulary at all — T5's deletion set. *[Amended
+2026-08-11, T5 opening: "deletion set" (here and in the closing paragraph) is
+superseded — the user retired the subtraction rule as too extreme; T5 runs a
+keep-by-default classification audit instead. Ruling and criteria:
+`docs/backlog/engine-architecture/core-zero-consumer-module-exports.md`.]*
 
 **Review + rulings:** independent reviewer MINORS-only — all clauses, fences,
 sabotages, and fourteen recomputed numbers exact; the one source minor (the wire
