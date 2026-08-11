@@ -6,8 +6,9 @@
  *
  * WHAT THE BACKCHANNEL IS FOR, since the shape only reads as necessary once that is said:
  * the daemon cannot compute what an agent wants to know about a live editing session.
- * Every fact but the project root and the worlds on disk — selection, tool, gesture,
- * camera, stats, history — lives behind a mirror the CHROME holds, in the other bundle.
+ * Every fact but the project root and the worlds on disk — selection, armedness, the
+ * brush, camera, stats, history — lives behind a mirror the CHROME holds, in the other
+ * bundle.
  * So an agent-facing read is a QUESTION the daemon relays to the claimed connection and an
  * ANSWER it correlates back: the daemon is a relay with a correlation table, never a
  * reader. These two types are that protocol, and they are the whole of it.
