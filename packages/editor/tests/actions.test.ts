@@ -13,9 +13,10 @@
 import { afterEach, expect, type mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import type {
-  ActionResult,
-  RefusalClass,
+import {
+  type ActionResult,
+  type RefusalClass,
+  refused,
 } from "../src/action-registry/index.ts";
 import type { FieldEntityInfo } from "../src/field-host/index.ts";
 import {
@@ -733,16 +734,44 @@ test("the ids the status chip names are in the table", () => {
 test("a hand-off verb answers ok — the host's own refusal is not this action's verdict", async () => {
   // Most of the table is one call into the host or into a chrome funnel — the membership is
   // greppable (`run: handOff(`) and is deliberately not counted here or in `handOff`'s own
-  // note. `frameSelection` with
-  // nothing selected is the sharp case: the host says "nothing to frame" on its OWN channel,
-  // asynchronously, and a run that reported that as its verdict would be guessing at an
-  // answer it never waited for.
-  const ctx = makeCtx();
-  expect(await byId("view.frame").run(ctx)).toEqual({ ok: true });
+  // note. `session.rotate` is the sharp case: with no session the host says so on its OWN
+  // channel, asynchronously, and a run that reported that as its verdict would be guessing
+  // at an answer it never waited for.
+  //
+  // IT USED TO BE `view.frame`, and moving it is the point rather than a tidy-up: at
+  // foundations T5 that verb stopped reporting and started ANSWERING, so it is now the one
+  // table row that does NOT illustrate this claim — its host refusal IS its verdict, pinned
+  // two cases down. The claim itself is unchanged and still has thirteen members.
+  const ctx = makeCtx({ session: null });
+  expect(await byId("session.rotate").run(ctx)).toEqual({ ok: true });
   expect(
-    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).frameSelection.mock
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).rotateStamp.mock
       .calls.length,
   ).toBe(1);
+  expect(said()).toEqual([]);
+});
+
+test("view.frame hands the HOST's verdict back as its own — the one verb that answers", async () => {
+  // THE OTHER HALF OF THE RULE ABOVE, and the T4c gate walk's second finding
+  // (`view.frame` answered `{ok:true}` over a camera that had not moved, because
+  // `handOffToHost` discards what the effect returned). `CameraRig.frameSelection` now
+  // returns an `ActionResult` and `answeredByHost` passes it through UNTOUCHED — no second
+  // sentence, no re-classification, which is what "one author per rule" means here.
+  //
+  // A SPY, so what is pinned is the PASS-THROUGH. Whether a real host refuses on a real
+  // empty selection is `tests/field-host-camera.test.ts`', which has a selection to empty.
+  const ctx = makeCtx();
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  const verdict = refused(
+    "nothing selected to frame — pinned elsewhere",
+    "inert",
+  );
+  host.frameSelection.mockReturnValueOnce(verdict);
+  expect(await byId("view.frame").run(ctx)).toEqual(verdict);
+  // …and the ok arm, so the case is not passing on a def that refused everything.
+  expect(await byId("view.frame").run(ctx)).toEqual({ ok: true });
+  expect(host.frameSelection.mock.calls.length).toBe(2);
+  // The refusal is the CALLER's to say, and this caller is a test — nothing toasts from here.
   expect(said()).toEqual([]);
 });
 
@@ -861,15 +890,23 @@ test("the funnel gates, claims, checks, runs and SAYS — in that order", async 
   expect({ claims, result }).toEqual({
     claims: ["claimed"],
     // THE CANONICAL `"inert"`: the gate is open, the claim landed, and `enabled` is what
-    // refused — so the reason a caller gets is the label, and the class says which kind of
-    // reason a label is.
-    result: { ok: false, kind: "refused", message: "Undo", because: "inert" },
+    // refused — so the reason a caller gets is that row's `inertHint`, the ENABLING
+    // CONDITION as prose, and the class says which kind of reason it is. It was
+    // `"Undo"` — the LABEL — until foundations T5; see the hint sweep below for why that
+    // was a sentence for the wrong reader.
+    result: {
+      ok: false,
+      kind: "refused",
+      message: "nothing to undo — the field's op log is empty",
+      because: "inert",
+    },
   });
   expect(
     (ctx.host as unknown as ReturnType<typeof makeHostSpy>).undo,
   ).not.toHaveBeenCalled();
-  // INERT SAYS NOTHING, which is the existing three-way policy: the label already carries
-  // the reason on screen, so a toast would be a second wording of a sentence being read.
+  // INERT SAYS NOTHING, which is the existing three-way policy and did NOT move at T5: the
+  // greyed control's own label already carries the reason on screen, so a toast would be a
+  // second wording of a sentence being read. The hint is for whoever holds the Result.
   expect(said()).toEqual([]);
 });
 
@@ -1467,9 +1504,15 @@ test("every host-reaching verb REFUSES with no engine, in one class and one sent
 test("the host-verb list is COMPLETE — a fifteenth site reds this count", () => {
   // WHAT MAKES THE LITERAL ABOVE TRUSTWORTHY, and it is the instrument this file already
   // uses for rules about what the source may SAY (see `member.arm`'s one-caller scan). The
-  // two host-requiring seams are the only way a run may touch `ctx.host`, so counting their
-  // call sites counts the verbs that need covering: fourteen sites, nineteen ids, because
-  // `axisView` is one site instantiated six times.
+  // THREE host-requiring seams are the only way a run may touch `ctx.host`, so counting
+  // their call sites counts the verbs that need covering: fourteen sites, nineteen ids,
+  // because `axisView` is one site instantiated six times.
+  //
+  // THREE, not the two this comment was written over. `answeredByHost` arrived at
+  // foundations T5 for `view.frame`, whose host verb ANSWERS — and it is a seam rather than
+  // an inline `ctx.host === null` check in the row precisely so that this scan keeps
+  // counting it. A row resolving the host by hand would be a fifteenth site this test could
+  // not see, which is the failure mode it exists for.
   //
   // A PROXY, with the same limits that scan states: it counts spellings, not semantics. What
   // it catches is the case it is for — a new host-reaching verb added without a line in
@@ -1487,7 +1530,8 @@ test("the host-verb list is COMPLETE — a fifteenth site reds this count", () =
   const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   const sites =
     (code.match(/\bhandOffToHost\(/g)?.length ?? 0) +
-    (code.match(/\bokAfterHost\(/g)?.length ?? 0);
+    (code.match(/\bokAfterHost\(/g)?.length ?? 0) +
+    (code.match(/\bansweredByHost\(/g)?.length ?? 0);
   const AXIS_VIEW_IDS = 6;
   expect(sites).toBe(14);
   expect(HOST_VERBS.length).toBe(sites + AXIS_VIEW_IDS - 1);
@@ -1498,10 +1542,25 @@ test("the host-verb list is COMPLETE — a fifteenth site reds this count", () =
 test("a host-reaching verb with an engine still hands off and answers ok", () => {
   // THE OTHER HALF, because a guard that refused everything would pass the case above.
   // `makeCtx` supplies a host spy by default, so this is the ordinary path.
+  //
+  // ONE PER SEAM, since foundations T5 made three of them: a case on `view.frame` alone
+  // would have been a case on `answeredByHost` alone, and the two older seams — which is
+  // thirteen of the fourteen sites — would have had no positive path pinned here at all.
   const ctx = makeCtx();
-  return expect(byId("view.frame").run(ctx, undefined)).resolves.toEqual({
-    ok: true,
-  });
+  return Promise.all([
+    // `handOffToHost`
+    expect(byId("view.frameWorld").run(ctx, undefined)).resolves.toEqual({
+      ok: true,
+    }),
+    // `okAfterHost`
+    expect(byId("edit.duplicate").run(ctx, { entityId: 7 })).resolves.toEqual({
+      ok: true,
+    }),
+    // `answeredByHost` — ok only because the spy frames; the refusal arm is its own case.
+    expect(byId("view.frame").run(ctx, undefined)).resolves.toEqual({
+      ok: true,
+    }),
+  ]);
 });
 
 test("edit.delete raises NO confirm without an engine — the prompt would answer nobody", () => {
@@ -1559,4 +1618,112 @@ test("runNamedById reaches the real verb, gate and all", async () => {
   });
   // …and runs when nothing refuses it.
   expect(await runNamedById("view.frame", makeCtx())).toEqual({ ok: true });
+});
+
+// --- refusal legibility: the inert hint (T5 Task 1) --------------------------
+//
+// The T4c gate walk's own findings — the two it filed as backlog entries, both deleted by
+// the commit these cases arrive in, both recorded in
+// `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md`. An agent called
+// `action_run {id:"edit.grab",
+// input:{entityId:6040}}` and read `{ok:false, kind:"refused", message:"Move", because:
+// "inert"}` — a refusal naming neither the missing precondition nor a remedy. Reading it
+// found a SECOND cause underneath the first: the id in that very request was never
+// consulted, because `enabled` saw only the ctx.
+
+test("an INERT refusal carries the enabling CONDITION, not the verb's label", async () => {
+  // THE GATE WALK'S CASE, verbatim in shape: `edit.grab` on a ctx with nothing selected.
+  // The message used to be `def.label(ctx)` — "Move".
+  const answer = await runNamedById("edit.grab", makeCtx());
+  expect(answer).toEqual({
+    ok: false,
+    kind: "refused",
+    message:
+      "needs a selected stamp or an entityId in the input, and no live session",
+    because: "inert",
+  });
+  // NAMED EXPLICITLY, because the whole regression is a message that reads plausibly: a
+  // hint deleted from the row falls back to the label and every shape assertion above
+  // still passes. "Move" is what this case exists to keep out.
+  if (answer.ok) throw new Error("expected a refusal");
+  if (answer.kind !== "refused") throw new Error("expected refused");
+  expect(answer.message).not.toBe("Move");
+  // The display half did NOT move: inert is still silent, and the greyed control's own
+  // label is still the sentence a human reads.
+  expect(said()).toEqual([]);
+});
+
+test("EVERY def the empty ctx makes inert authors a hint — none falls back to its label", () => {
+  // MECHANICALLY DERIVED, not a list of ids: a row that grows a predicate without a hint
+  // is exactly the drift this guards, and a hardcoded roster would have to be edited by
+  // the same hand that forgot the hint.
+  //
+  // WHAT IT ACTUALLY PROVES, stated because the honest limit matters more than the
+  // number: `makeCtx()` is ONE ctx — no selection, no session, no world name, zero
+  // undo/redo depth, four registered generators — so this catches the defs that THAT ctx
+  // trips. It is not a proof about every predicate. A row whose `enabled` can answer
+  // false only on some other state (a busy world, a brush already on Smooth) is invisible
+  // here, and the rule that covers it is the one written on `ActionBehavior.inertHint`
+  // rather than this scan.
+  const ctx = makeCtx();
+  const inert = ACTIONS.filter((def) => !def.enabled(ctx));
+  // Not vacuous: an `enabled` that answered true everywhere would empty the list and pass.
+  expect(inert.length).toBeGreaterThan(0);
+  expect(
+    inert.filter((def) => def.inertHint === undefined).map((def) => def.id),
+  ).toEqual([]);
+  // A hint that IS the label is the fallback wearing a costume — same illegibility, one
+  // grep further away.
+  expect(
+    inert
+      .filter((def) => def.inertHint === def.label(ctx))
+      .map((def) => def.id),
+  ).toEqual([]);
+});
+
+test("`enabled` reads the INPUT — a named id is not refused inert before the run sees it", async () => {
+  // THE SECOND CAUSE, and the defect the walk's own request was standing on. `edit.grab`
+  // and `edit.duplicate` resolve `input?.entityId ?? ctx.selectedEntity?.entityId` in
+  // their bodies — "the id alone is enough" — while `enabled` knew only the ctx, so
+  // `refuseOrClaim` refused the request BEFORE the body that would have honoured it. The
+  // walk's exact call, with the walk's exact id.
+  const ctx = makeCtx();
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(await runNamedById("edit.grab", ctx, { entityId: 6040 })).toEqual({
+    ok: true,
+  });
+  // REACHED THE RUN, which is the claim — the verdict alone would also be satisfied by a
+  // funnel that answered ok without calling anything.
+  expect(host.beginMove.mock.calls).toEqual([[6040]]);
+
+  const dup = makeCtx();
+  const dupHost = dup.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(await runNamedById("edit.duplicate", dup, { entityId: 6041 })).toEqual(
+    {
+      ok: true,
+    },
+  );
+  expect(dupHost.duplicateEntity.mock.calls).toEqual([[6041]]);
+});
+
+test("edit.delete still refuses a named id it did not select — as `input`, inside the run", async () => {
+  // THE DELIBERATE ASYMMETRY, pinned so a later reader does not "fix" it into agreement
+  // with the two rows above. Delete's confirm prompt describes `ctx.selectedEntity` — it
+  // names the generator and counts the ops — so a named id that is not the selected one
+  // is answered inside the run, as `input`, with the instruction. Widening `enabled` here
+  // would only move that refusal later, not remove it.
+  const ctx = makeCtx({ selectedEntity: entity({ entityId: 12 }) });
+  expect(
+    whyRefused(await runNamedById("edit.delete", ctx, { entityId: 99 })),
+  ).toBe("input");
+  // And with NOTHING selected it is the ordinary inert refusal, hint and all — the id in
+  // the request does not reach `enabled` on this row.
+  const bare = await runNamedById("edit.delete", makeCtx(), { entityId: 99 });
+  expect(bare).toEqual({
+    ok: false,
+    kind: "refused",
+    message:
+      "needs a selected stamp and no live session — Delete confirms against the SELECTED stamp",
+    because: "inert",
+  });
 });

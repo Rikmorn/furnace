@@ -115,6 +115,15 @@
 // these paths ARE the contract, and they pass unmodified.
 import * as camera from "@furnace/core/camera";
 import type { Context } from "@furnace/core/gpu";
+// `./result.ts` DIRECTLY rather than the barrel, for `field-mutation.ts`' reason at its own
+// import of the same three names: `action-registry/index.ts` is zod-free today and is one
+// re-export away from not being, and this keeps the host's module graph unable to reach zod
+// through the edge at all. `tests/no-chrome-leakage.test.ts` holds the rule.
+import {
+  ACTION_OK,
+  type ActionResult,
+  refused,
+} from "../action-registry/result.ts";
 import { boxCentre } from "./box-edges.ts";
 import {
   dolly,
@@ -261,8 +270,21 @@ export type CameraRig = {
    *  from {@link frameOn} is the whole of that member's docblock. */
   centreOn(box: Box): void;
   /** `FieldHost.frameSelection` / the `F` key: fit to the selected entity's
-   *  footprint, else the cell selection's AABB, else refuse out loud. */
-  frameSelection(): void;
+   *  footprint, else the cell selection's AABB, else refuse.
+   *
+   *  IT ANSWERS RATHER THAN REPORTS, since foundations T5, and the caller says the
+   *  sentence. It used to call `reportToolError` itself and return `void`, so the
+   *  action funnel above it answered `{ok:true}` on a call that moved no camera —
+   *  the T4c gate walk's finding, recorded in
+   *  `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md`. There is only one
+   *  sentence and it is still written here, where the priority that produces it
+   *  lives; what moved is WHO SAYS IT, which is the only way both callers can be
+   *  honest without either doubling the toast or spelling the sentence twice.
+   *
+   *  {@link ActionResult} rather than a boolean because `field-mutation.ts` already
+   *  answers in that vocabulary and it carries the CLASS a caller branches on
+   *  (`"inert"` — change the state and ask again). */
+  frameSelection(): ActionResult;
   /** `FieldHost.frameWorld`: fit to everything built, with the ceiling lowered to
    *  the topmost solid sample. Places rather than AIMS — see {@link aimedByHand}. */
   frameWorld(): void;
@@ -475,16 +497,23 @@ export function createCameraRig(deps: CameraRigDeps): CameraRig {
     applyOrbit();
   };
 
-  const frameSelection = (): void => {
+  const frameSelection = (): ActionResult => {
     const box = frameTargetBox();
-    if (box === null) {
-      // Says so rather than doing nothing quietly. `F` swallows the key either
-      // way, so a silent refusal is indistinguishable from a broken binding —
-      // the same reason every other refused verb here reports.
-      deps.reportToolError("nothing selected to frame");
-      return;
-    }
+    if (box === null)
+      // ANSWERED, not reported — see the member's docblock. `F` swallows the key
+      // either way, so a silent refusal is still indistinguishable from a broken
+      // binding; what changed is that the caller holding this verdict is the one
+      // that decides where the sentence goes, and both of them say it.
+      //
+      // The sentence names both halves of `frameTargetBox`'s priority, because a
+      // caller that cannot see the screen has no other way to learn what would
+      // have satisfied it.
+      return refused(
+        "nothing selected to frame — select a stamp, or draw a cell selection",
+        "inert",
+      );
     frameOn(box);
+    return ACTION_OK;
   };
 
   const frameWorld = (): void => {

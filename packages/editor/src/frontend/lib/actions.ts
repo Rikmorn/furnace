@@ -421,10 +421,46 @@ type ActionBehavior<Id extends ActionId> = {
    *  dig". Contextual because the menu is where a user checks WHAT a verb will act on. */
   label: (ctx: ActionCtx) => string;
   /** Whether the verb can do anything right now. A disabled action greys its menu item
-   *  and swallows its key (the key is still CLAIMED — see the dispatcher). */
-  enabled: (ctx: ActionCtx) => boolean;
+   *  and swallows its key (the key is still CLAIMED — see the dispatcher).
+   *
+   *  IT SEES THE INPUT, since foundations T5, and the two verbs that read it are the reason.
+   *  `edit.duplicate` and `edit.grab` both declare *"the id alone is enough"* in their run
+   *  bodies (`input?.entityId ?? ctx.selectedEntity?.entityId`) while this predicate knew
+   *  only the ctx — so `refuseOrClaim` refused a named id BEFORE the body that would have
+   *  honoured it, and an agent could not grab an entity the human had not selected. Measured
+   *  at T5 Task 1 through the real funnel: `runNamedById("edit.grab", ctx, {entityId:6040})`
+   *  answered `refused("Move", "inert")` with the id in hand. Every other row ignores the
+   *  parameter, which is why it is optional rather than threaded.
+   *
+   *  METHOD SYNTAX, for {@link ActionBehavior.run}'s reason and not as a style choice: method
+   *  parameters are checked bivariantly, which is what lets a predicate declared against its
+   *  own narrow `InputOf<Id>` sit in a table typed against the wide {@link ActionInput}.
+   *
+   *  ONE CALLER PASSES IT — {@link refuseOrClaim}, which is the only site that both holds an
+   *  input and decides an action's fate. {@link controlVerdict} deliberately does not: it is
+   *  the DISPLAY projection, asked by surfaces that are drawing a menu item rather than
+   *  dispatching, and there is no input at that moment to have an opinion about. */
+  enabled(ctx: ActionCtx, input?: InputOf<Id>): boolean;
   /** For the menu's checkbox items (the view toggles). Absent = a plain item. */
   checked?: (ctx: ActionCtx) => boolean;
+  /** The sentence an INERT refusal carries, in place of the label — the enabling condition
+   *  as prose, addressed to a caller that cannot see the screen.
+   *
+   *  NOT {@link ActionDescriptor.hint}, and the two are for different readers rather than two
+   *  spellings of one thing. That one is a verb DESCRIPTION a chrome surface renders where it
+   *  has room (the shortcuts overlay's `what` column, ⌘K's keywords, the burger item's
+   *  `title`); this one is the FAILING FACT, and it is read only when `enabled` is false and
+   *  only by whoever holds the {@link ActionResult}. `edit.grab`'s are *"Grab the selected
+   *  stamp — the cursor moves its ghost in 0.5 m steps…"* and *"needs a selected stamp, or an
+   *  entityId in the input"*: one says what the verb is for, the other says why it just said
+   *  no.
+   *
+   *  ABSENT MEANS THE LABEL IS THE REASON, which keeps the 24 rows whose `enabled` is
+   *  `() => true` free of dead prose — they can never be inert — and preserves today's
+   *  behaviour for anything that grows a predicate without one. The rule this file holds
+   *  instead of a type: a predicate that can answer false carries one of these
+   *  (`tests/actions.test.ts` scans for it). */
+  inertHint?: string;
   /** DO IT, and answer for it. See {@link ActionResult} for which failures are this
    *  action's verdict and which belong to a channel below it. */
   run: (ctx: ActionCtx, input: InputOf<Id>) => Promise<ActionResult>;
@@ -462,8 +498,9 @@ type ActionBehaviors = { readonly [Id in ActionId]: ActionBehavior<Id> };
  *  reason to close it. */
 export type ActionDef = ActionDescriptor & {
   label: (ctx: ActionCtx) => string;
-  enabled: (ctx: ActionCtx) => boolean;
+  enabled(ctx: ActionCtx, input?: ActionInput): boolean;
   checked?: (ctx: ActionCtx) => boolean;
+  inertHint?: string;
   run(ctx: ActionCtx, input?: ActionInput): Promise<ActionResult>;
 };
 
@@ -502,15 +539,21 @@ export const ACTION_GROUPS: readonly { id: ActionGroup; title: string }[] = [
  *  when this file was written and has been wrong at every re-count since"; a second tally
  *  nothing checks would rot the same way, and it did — an earlier draft of this line said 30
  *  and `ACTION_OK`'s said 34 about the same set. The membership is greppable and that is the
- *  whole instruction: it is every `run: handOff(` in `BEHAVIORS`, and every `run:
- *  handOffToHost(` is the other set.
+ *  whole instruction: it is every `run: handOff(` in `BEHAVIORS`, and the host-requiring
+ *  sets are the other three seams — `handOffToHost`, `okAfterHost` and (since foundations
+ *  T5) {@link answeredByHost}.
  *
- *  It is not optimism. A host verb that refuses reports on the host's OWN channel
+ *  It is not optimism. A host verb that refuses MOSTLY reports on the host's OWN channel
  *  (`reportToolError` → `subscribeToolError` → a toast), later and asynchronously, and that
  *  refusal is not this action's verdict to give — see {@link ActionResult}'s module header
  *  for the three provenances and the rule that keeps them from doubling a toast. That
  *  argument covers a host that EXISTS and declines; it never covered a host that is not
- *  there, which is the gap {@link handOffToHost} closes. */
+ *  there, which is the gap {@link handOffToHost} closes.
+ *
+ *  MOSTLY, since foundations T5: `FieldHost.frameSelection` ANSWERS its refusal instead of
+ *  reporting it, and `view.frame` hands that verdict back through {@link answeredByHost}. So
+ *  the sentence above describes the host verbs that report, which is all of them but one —
+ *  and the exception is why there is a third seam rather than two. */
 const handOff =
   (effect: (ctx: ActionCtx) => void) =>
   (ctx: ActionCtx): Promise<ActionResult> => {
@@ -560,10 +603,15 @@ const NO_ENGINE = "the engine is not up yet — nothing has been done";
  * question when this was filed and is answered by reading them. `edit.reselect`,
  * `session.escape`, `view.frame`, `view.frameWorld` and the six axis views each carry a
  * comment saying why they stay live — a view verb needs no selection, Esc is never refused,
- * the host reports "nothing to frame" on its own channel — and every one of those arguments
- * is about a host that EXISTS and has nothing to do. None of them is an argument for
- * answering `ok` when there is no host to have nothing to do. They stay live and they
- * refuse honestly, which are not in tension.
+ * framing with nothing selected is a sentence worth saying rather than a greyed item — and
+ * every one of those arguments is about a host that EXISTS and has nothing to do. None of
+ * them is an argument for answering `ok` when there is no host to have nothing to do. They
+ * stay live and they refuse honestly, which are not in tension.
+ *
+ * THIS PAIR NOW COVERS THIRTEEN of the fourteen sites it was written over: `view.frame`
+ * moved to {@link answeredByHost} at foundations T5, because the host verb it calls ANSWERS
+ * rather than reports and this seam would have discarded that answer. Three seams, fourteen
+ * sites, and `tests/actions.test.ts` counts all three.
  */
 const handOffToHost =
   (effect: (host: FieldHost) => void) =>
@@ -585,6 +633,26 @@ const okAfterHost = (
   if (host === null) return Promise.resolve(refused(NO_ENGINE, "inert"));
   effect(host);
   return Promise.resolve(ACTION_OK);
+};
+
+/** The THIRD host seam (foundations T5), for the one shape the two above cannot serve: a host
+ *  verb that ANSWERS. Both of them discard what the effect returned and say `ACTION_OK`, which
+ *  is right for the thirteen sites whose host call is `void` and wrong for
+ *  `FieldHost.frameSelection`, whose refusal IS this action's verdict — re-deciding it here
+ *  would be a second author for one rule.
+ *
+ *  A SEAM RATHER THAN AN INLINE `ctx.host === null` CHECK IN THE ROW, which is what this
+ *  replaced while the fix was being written. The seams are the only way a run may touch
+ *  `ctx.host`, and `tests/actions.test.ts` counts their call sites to know that the no-engine
+ *  sweep's id list is complete. A row that resolved the host by hand would be invisible to
+ *  that scan and would put back, at one site, the per-site shape T4c removed from fourteen. */
+const answeredByHost = (
+  ctx: ActionCtx,
+  ask: (host: FieldHost) => ActionResult,
+): Promise<ActionResult> => {
+  const host = ctx.host;
+  if (host === null) return Promise.resolve(refused(NO_ENGINE, "inert"));
+  return Promise.resolve(ask(host));
 };
 
 // --- families ---------------------------------------------------------------
@@ -767,6 +835,7 @@ const BEHAVIORS: ActionBehaviors = {
     // New empties the host's world SYNCHRONOUSLY, so a New landing mid-save writes the
     // freshly-emptied world over the named target.
     enabled: (ctx) => !ctx.world.busy,
+    inertHint: "the world is busy — a save or a bake is still running",
     run: handOff((ctx) => ctx.run.world.reset()),
   },
   "world.open": {
@@ -777,6 +846,7 @@ const BEHAVIORS: ActionBehaviors = {
   "world.save": {
     label: () => "Save",
     enabled: (ctx) => !ctx.world.busy,
+    inertHint: "the world is busy — a save or a bake is still running",
     // ONE OF THE TWO THAT GENUINELY AWAIT. `save` used to be fired into the void
     // (`void write(...)` inside `useWorld`), so a rejection out of the upload became an
     // unhandled promise rejection and a caller could not tell a save from a refusal. The
@@ -815,6 +885,12 @@ const BEHAVIORS: ActionBehaviors = {
     // menu click away, and two surfaces disagreeing about whether the verb exists.
     enabled: (ctx) =>
       !ctx.world.busy && ctx.world.name !== null && ctx.session === null,
+    // THREE facts in one sentence because the predicate is a conjunction and this field is
+    // prose: the label above picks the most specific one for the human looking at the greyed
+    // item, and a caller that cannot see it is better served by the whole condition than by
+    // one clause chosen for it.
+    inertHint:
+      "needs a named world, no live stamp session, and no save or bake already running",
     run: (ctx) => ctx.run.world.bake(),
   },
   "world.makeDefault": {
@@ -823,6 +899,8 @@ const BEHAVIORS: ActionBehaviors = {
         ? "Make default — name the world first (⌘S)"
         : "Make default",
     enabled: (ctx) => ctx.world.name !== null,
+    inertHint:
+      "needs a named world — an untitled one has no saved copy to point at",
     // Shown only when the item is ENABLED (a disabled one has pointer-events-none), which
     // is the case this sentence is for: it distinguishes Make default from Bake, and the
     // label has no room for that.
@@ -851,12 +929,14 @@ const BEHAVIORS: ActionBehaviors = {
     label: (ctx) =>
       ctx.history.undoLabel === null ? "Undo" : `Undo ${ctx.history.undoLabel}`,
     enabled: (ctx) => (ctx.stats?.undoDepth ?? 0) > 0,
+    inertHint: "nothing to undo — the field's op log is empty",
     run: handOffToHost((host) => host.undo()),
   },
   "edit.redo": {
     label: (ctx) =>
       ctx.history.redoLabel === null ? "Redo" : `Redo ${ctx.history.redoLabel}`,
     enabled: (ctx) => (ctx.stats?.redoDepth ?? 0) > 0,
+    inertHint: "nothing to redo — nothing has been undone",
     run: handOffToHost((host) => host.redo()),
   },
   "edit.duplicate": {
@@ -864,7 +944,12 @@ const BEHAVIORS: ActionBehaviors = {
       ctx.selectedEntity === null
         ? "Duplicate"
         : `Duplicate ${entityName(ctx.selectedEntity)}`,
-    enabled: (ctx) => ctx.selectedEntity !== null,
+    // A NAMED ID IS ENOUGH, which is what the run body has always said and what this
+    // predicate did not know until foundations T5 — see {@link ActionBehavior.enabled}. The
+    // ctx clause stays for the chrome, which dispatches with no input at all.
+    enabled: (ctx, input) =>
+      input?.entityId !== undefined || ctx.selectedEntity !== null,
+    inertHint: "needs a selected stamp, or an entityId in the input",
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined)
@@ -879,7 +964,15 @@ const BEHAVIORS: ActionBehaviors = {
         : `Delete ${entityName(ctx.selectedEntity)}`,
     // Refused during a session: the session may BE the selected entity's reconfigure,
     // and deleting the entity under it cancels the session the user is still editing.
+    //
+    // DELIBERATELY ctx-ONLY, unlike Duplicate and Grab beside it, and the run body below is
+    // the argument: Delete confirms against `ctx.selectedEntity` because the prompt names the
+    // generator and counts the ops, and both come off the SELECTED entity. A named id that is
+    // not the selected one is refused inside the run, as `"input"`, with the instruction —
+    // which is the honest answer, and a wider predicate here would only move it later.
     enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
+    inertHint:
+      "needs a selected stamp and no live session — Delete confirms against the SELECTED stamp",
     run: (ctx, input) => {
       const entity = ctx.selectedEntity;
       if (entity === null) return Promise.resolve(refused(NO_ENTITY, "inert"));
@@ -936,8 +1029,17 @@ const BEHAVIORS: ActionBehaviors = {
         ? "Move"
         : `Move ${entityName(ctx.selectedEntity)}`,
     // No session, for `edit.delete`'s reason plus its own: `beginMove` REPLACES the live
-    // session, so a G during a reconfigure would discard the params being edited.
-    enabled: (ctx) => ctx.selectedEntity !== null && ctx.session === null,
+    // session, so a G during a reconfigure would discard the params being edited. That clause
+    // holds for a NAMED id too — the session it would replace is the human's either way.
+    //
+    // THE ENTITY CLAUSE READS THE INPUT (T5, and this row is the one the gate walk caught):
+    // `beginMove` needs the id and nothing else, so a caller that names one has supplied
+    // every fact the run wants.
+    enabled: (ctx, input) =>
+      (input?.entityId !== undefined || ctx.selectedEntity !== null) &&
+      ctx.session === null,
+    inertHint:
+      "needs a selected stamp or an entityId in the input, and no live session",
     run: (ctx, input) => {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined)
@@ -954,6 +1056,7 @@ const BEHAVIORS: ActionBehaviors = {
     // most recent thing, so it is never refused, but a named menu item over an empty
     // selection is a verb with no object.
     enabled: (ctx) => ctx.selection !== null,
+    inertHint: "no cells are selected — there is nothing to clear",
     run: handOffToHost((host) => host.clearSelection()),
   },
   "edit.reselect": {
@@ -1006,6 +1109,8 @@ const BEHAVIORS: ActionBehaviors = {
       return member === null ? "Stamp" : `Stamp ${member.name}`;
     },
     enabled: (ctx) => ctx.generators.length > 0,
+    inertHint:
+      "this project registers no generators — there is nothing to stamp",
     // THE EXEMPLAR of the input channel. The chrome dispatches with nothing and gets the
     // `S` family's cursor; a caller that names a generator opens that one instead, without
     // moving the cursor a human is reading off the status bar.
@@ -1024,6 +1129,7 @@ const BEHAVIORS: ActionBehaviors = {
   "tool.stampCycle": {
     label: () => "Next stamp",
     enabled: (ctx) => ctx.generators.length > 1,
+    inertHint: "needs at least two registered generators to cycle between",
     run: handOff((ctx) => {
       const current = stampMember(ctx);
       if (current === null) return;
@@ -1035,6 +1141,8 @@ const BEHAVIORS: ActionBehaviors = {
   "tool.swapEffect": {
     label: () => "Swap dig ↔ fill",
     enabled: (ctx) => ctx.tool.effect === "dig" || ctx.tool.effect === "fill",
+    inertHint:
+      "the brush is not on Dig or Fill — this swaps between those two and nothing else",
     run: handOff((ctx) =>
       ctx.run.armBrush(ctx.tool.effect === "dig" ? "fill" : "dig"),
     ),
@@ -1049,11 +1157,13 @@ const BEHAVIORS: ActionBehaviors = {
     // focused has no canvas listener to answer ⏎ — while the status bar advertises
     // "⏎ drop". `confirmSession` is the move-aware verb both keys route through.
     enabled: (ctx) => ctx.session !== null,
+    inertHint: "no live session — nothing to commit, apply or drop",
     run: handOffToHost((host) => host.confirmSession()),
   },
   "session.rotate": {
     label: () => "Rotate a quarter turn",
     enabled: (ctx) => ctx.session !== null,
+    inertHint: "no live session — there is no ghost to turn",
     run: handOffToHost((host) => host.rotateStamp()),
   },
   "session.escape": {
@@ -1078,10 +1188,22 @@ const BEHAVIORS: ActionBehaviors = {
   },
   "view.frame": {
     label: () => "Frame selection",
-    // The host reports "nothing to frame" itself, so this stays live with neither
-    // selection: a key that swallows the press and says nothing reads as broken.
+    // STILL LIVE with neither selection, and the T5 reading did not disturb that: a key
+    // that swallows the press and greys its menu item says nothing about WHY, and this
+    // verb's why is worth a sentence. What changed is that the sentence now travels as
+    // this verb's own verdict instead of only as a toast the caller cannot read.
+    //
+    // GATING IT ON THE CTX WAS THE OTHER CANDIDATE AND WAS DECLINED, twice over: the
+    // ctx pair (`selectedEntity`, `selection`) reproduces `frameTargetBox`'s priority
+    // only by agreement — a second copy of a rule the rig owns — and an inert refusal is
+    // SILENT, so a human pressing F with a palette focused would lose the sentence they
+    // get today.
     enabled: () => true,
-    run: handOffToHost((host) => host.frameSelection()),
+    // NOT `handOffToHost`, which discards what the host answered — the whole of the fix.
+    // The host's verdict IS this action's verdict here: `frameSelection` refuses with the
+    // class and the sentence already, and re-deciding either would be a second author for
+    // one rule. {@link answeredByHost} is that seam, and the ONLY row using it.
+    run: (ctx) => answeredByHost(ctx, (host) => host.frameSelection()),
   },
   "view.frameWorld": {
     label: () => "Frame world",
@@ -1655,16 +1777,27 @@ export function sayResult(result: ActionResult): void {
  *  `await`, so the claim lands in the listener's own turn (`chrome/keybindings-dom.test.ts`
  *  pins the microtask boundary).
  *
- *  The INERT case (`enabled` false, gate open) returns a refusal carrying the action's LABEL
- *  and says nothing, which is the existing three-way policy made answerable: those labels
- *  already state the reason on screen ("Bake — name the world first (⌘S)"), so a toast would
- *  be a second wording of a sentence the user is looking at — while a caller who cannot see
- *  the screen gets that same sentence as the message. This is the ONE place a label is still
- *  a reason, and it is the honest one. */
+ *  The INERT case (`enabled` false, gate open) says nothing out loud and answers with
+ *  {@link ActionBehavior.inertHint} — the ENABLING CONDITION — falling back to the action's
+ *  LABEL where no hint is authored. Silence is the existing three-way policy made
+ *  answerable: a disabled control's label already states the reason on screen ("Bake — name
+ *  the world first (⌘S)"), so a toast would be a second wording of a sentence the user is
+ *  looking at.
+ *
+ *  THE LABEL WAS THE WHOLE MESSAGE UNTIL FOUNDATIONS T5, and the T4c gate walk is what
+ *  retired it: an agent called `edit.grab` and read `{because:"inert", message:"Move"}`,
+ *  which names neither the missing precondition nor a remedy. The label is a good sentence
+ *  for a human looking at the greyed item it is written on and a poor one for the caller
+ *  holding the Result, so the hint is what that caller gets and the label stays the fallback
+ *  rather than the answer.
+ *
+ *  `enabled` IS ASKED WITH THE INPUT here and nowhere else — the gap the same walk found
+ *  underneath the sentence. See {@link ActionBehavior.enabled}. */
 function refuseOrClaim(
   def: ActionDef,
   ctx: ActionCtx,
   env: GateEnv,
+  input?: ActionInput,
   onClaim?: () => void,
 ): ActionResult | null {
   const verdict = gateAction(def, ctx, env);
@@ -1690,8 +1823,10 @@ function refuseOrClaim(
   onClaim?.();
   // `"inert"` — the canonical instance of it, and the one the class is named after: the gate
   // is OPEN and the verb still cannot act, because what it needs is not there. The sentence
-  // is the label for the reason the docblock above gives.
-  if (!def.enabled(ctx)) return refused(def.label(ctx), "inert");
+  // is the enabling condition for the reason the docblock above gives, and the label only
+  // where no row authored one.
+  if (!def.enabled(ctx, input))
+    return refused(def.inertHint ?? def.label(ctx), "inert");
   return null;
 }
 
@@ -1715,7 +1850,7 @@ export async function runAction(
   input?: ActionInput,
   onClaim?: () => void,
 ): Promise<ActionResult> {
-  const refusal = refuseOrClaim(def, ctx, env, onClaim);
+  const refusal = refuseOrClaim(def, ctx, env, input, onClaim);
   if (refusal !== null) return refusal;
   try {
     const result = await def.run(ctx, input);

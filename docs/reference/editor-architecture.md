@@ -1968,9 +1968,12 @@ cannot outlive the geometry it points at.
 
 Esc clears the entity selection when it is the most recently acquired capture (§17.4), and
 `F` (`view.frame` → `FieldHost.frameSelection`) frames the selected entity's footprint, else
-the cell selection's AABB, else reports "nothing selected to frame" — a FIXED priority rather
-than a recency rule, because an object selection names one thing and a cell selection names a
-volume. The two keys deliberately disagree about ordering, and that is the reason: `F` asks
+the cell selection's AABB, else refuses with "nothing selected to frame — select a stamp, or
+draw a cell selection" — a FIXED priority rather than a recency rule, because an object
+selection names one thing and a cell selection names a volume. Since T5 the rig ANSWERS that
+refusal (an `ActionResult`) rather than reporting it, and each of its two callers says the
+sentence on its own channel: the canvas `F` branch through `subscribeToolError`, `view.frame`
+as the verdict it hands back. The two keys deliberately disagree about ordering, and that is the reason: `F` asks
 "which of these is the subject?", Esc asks "what did you just do?".
 
 ### 17.3 Move, delete, duplicate — and a move IS a reconfigure session
@@ -3943,8 +3946,8 @@ every `refused` result and on the gate verdict that produces most of them: the `
 prose written for a toast and is free to be reworded, so the CLASS is the half a caller may
 branch on. Seven names — `modal`, `typing`, `looking`, `menuOnly`, `session` are the gate's;
 `inert` and `member` are raised past it. `inert` is the widest: it is `refuseOrClaim`'s own
-verdict when the gate is OPEN and `enabled` is false (the canonical instance, and the reason
-the label is still the sentence there), and it is also what a verb's own body answers when it
+verdict when the gate is OPEN and `enabled` is false (the canonical instance — the sentence
+there was the LABEL until T5 and is the row's `inertHint` now), and it is also what a verb's own body answers when it
 finds nothing to act on — no world name, no selected stamp, no engine, no generators. `member`
 is the one class about the REQUEST rather than the state: the member funnel takes an ID and
 resolves it against the family BEFORE gating, so an id nothing answers to is refused as a
@@ -4808,7 +4811,7 @@ that claimed it.
 | Clause | Verdict |
 | --- | --- |
 | **1. One funnel — no bare `member.arm` outside it** | **HOLDS.** `grep -rn "member\.arm" packages/editor/src` returns **one** call site, `frontend/lib/actions.ts` inside `runMember`; the other three hits in that directory are `member.armed`, a rendering field. Held by machine rather than by review: `tests/actions.test.ts` walks `src/` for `\bmember\.arm\(` and asserts the caller list is exactly `["frontend/lib/actions.ts"]` — the file, deliberately, not `[]`, which would pass just as happily with the funnel deleted. A second scan holds the asymmetry's other half (`clickGate` has one caller, the display seam). **The instrument's limits are stated where it lives**: a source scan is a proxy, blind to a caller spelling the receiver differently and — since definition and caller share a file — to a second caller added inside `actions.ts`. |
-| **2. Every refusal carries a machine-readable reason; no label fallback** | **HOLDS.** `GateVerdict`'s refusal arm is `{ ok: false; hint: string; spoken: boolean }` — `hint` is a non-nullable `string`, so the type makes a reasonless refusal unwriteable rather than discouraged, and `spoken` carries the display policy that the old `hint: string \| null` had been overloading. `refuseOrClaim` returns `refused(verdict.hint)` with no `?? def.label(ctx)` behind it; the grep finds the fallback only in the comment recording its removal. **One label survives and is not the fallback**: the INERT case (`!def.enabled(ctx)`) answers `refused(def.label(ctx))`, where the verb's own name IS the honest reason and no gate was consulted. |
+| **2. Every refusal carries a machine-readable reason; no label fallback** | **HOLDS.** `GateVerdict`'s refusal arm is `{ ok: false; hint: string; spoken: boolean }` — `hint` is a non-nullable `string`, so the type makes a reasonless refusal unwriteable rather than discouraged, and `spoken` carries the display policy that the old `hint: string \| null` had been overloading. `refuseOrClaim` returns `refused(verdict.hint)` with no `?? def.label(ctx)` behind it; the grep finds the fallback only in the comment recording its removal. **The one surviving label was retired at T5**: the INERT case (`!def.enabled(ctx, input)`) answered `refused(def.label(ctx))` — argued then as "the verb's own name IS the honest reason, and no gate was consulted" — and the T4c gate walk falsified it live, an agent reading `{because:"inert", message:"Move"}` off `edit.grab`. It now answers `refused(def.inertHint ?? def.label(ctx), "inert")`, where `inertHint` is the ENABLING CONDITION as prose. The label survives only as the fallback for rows whose `enabled` is `() => true` and can never be inert. |
 | **3. `confirmOpen` is computed truth for named callers** | **HOLDS FOR DISPATCH; one declared display exception.** Stated as PARTIAL rather than PASS on purpose: the clause says *named callers*, and `NAMED_RENDER` is literally a named caller carrying a hard-coded `false`. `namedDispatch(ctx)` builds `{ caller: "named", confirmOpen: ctx.isConfirmOpen() }` per call, and both dispatch funnels take it — `runNamed` and `runMember`. The constant `false` survives at exactly one env, `NAMED_RENDER`, which is not a dispatch env: `clickGate` → `controlVerdict` is the DISPLAY projection, and its modal-blindness is a decision with three arguments at source (a modal is an enforcement fact, `ToolRail`'s memo has no dep for a poll, and "display behaviour did not move" becomes a property rather than a coincidence). **One consequence is worth naming, and it is by design**: a control can render runnable while a dispatch of the same verb at that instant refuses. Invisible to a human (the modal's overlay) and correct for an agent (which is on the dispatch side). |
 | **4. sphere / box / capsule numerically validated at `assertOpValid` AND `parseOps`** | **HOLDS.** `assertShapeValid` (`core/src/field/ops.ts`) covers all three members — finite centres and endpoints, finite POSITIVE radii and half-extents, zero rejected with the negatives — behind an exhaustiveness guard, so a fourth shape fails to compile rather than silently validating as a box. Both paths reach it through ONE definition rather than two agreeing copies: `assertOpStructure` calls it, `assertOpValid` is `assertOpStructure` + the table legs, and `parseOps` runs `assertOpStructure` on **both** of its brush decode paths (the native `decodeBrushOp` and `upgradeLegacyDig`, so an F1-era bake gets the same pass). That relation is what makes the load predicate a SUBSET of the commit predicate, so an op the editor could commit can never fail to load. |
 | **5. An invalid op in a group means nothing applies** | **HOLDS as stated — and read the boundary of what it states.** All three committing paths run validate-the-whole-list-then-apply: `logApplyGroup`, `commitGenerator` and the reconfigure span builder. Pass 1 reads no store state, so a mid-list rejection leaves store, `log.ops`, both stacks and `nextId` untouched — and since T4a it NAMES the rejection: `field op group: ops[N] — <predicate message>` where the caller wrote the list, `commitGenerator: generator "<id>" — …` / `reconfigureGenerator: generator "<id>" — …` where nobody did and an index would address nothing openable, each with the original on `cause`. **What it does not cover, on any of the three:** an op that VALIDATES and then throws out of the applier strands earlier ops' writes with no entry describing them. That is a store-rollback design decision, not a validation gap; it is the residue the group-apply backlog entry was narrowed to and it stands open. |
@@ -5382,7 +5385,8 @@ that, and dropping it degrades search while every other test stays green. Pinned
 that reason.
 
 **The 14 silent-ok host bodies are closed.** `handOffToHost`/`okAfterHost` replaced
-`ctx.host?.`, refusing `inert` when the engine is not up — T4b's member-arm fix one door over,
+`ctx.host?.` (joined at T5 by a third seam, `answeredByHost`, for the one host verb that
+ANSWERS), refusing `inert` when the engine is not up — T4b's member-arm fix one door over,
 with the precondition stated at the effect rather than in the funnel (a body reaching
 `ctx.run` needs no host, so a blanket guard would refuse it for a fact about a different
 family). The five deliberate `enabled: () => true` stances were KEPT: each argues about a host

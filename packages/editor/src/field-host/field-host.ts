@@ -1094,15 +1094,20 @@ export type FieldHost = {
    *  {@link frameWorld}.
    *
    *  With neither selected it moves no camera and pushes no
-   *  {@link subscribeCameraPose} — it reports through {@link subscribeToolError}
-   *  instead. Framing "everything" would be a different verb, and one that flies
-   *  the user somewhere they did not ask to go; refusing SILENTLY would be
-   *  indistinguishable from a broken key, since `F` swallows the press anyway.
+   *  {@link subscribeCameraPose} — it ANSWERS a `"inert"` refusal naming both
+   *  halves of that priority. Framing "everything" would be a different verb, and
+   *  one that flies the user somewhere they did not ask to go; refusing SILENTLY
+   *  would be indistinguishable from a broken key, since `F` swallows the press
+   *  anyway — so the two callers each report the sentence on their own channel
+   *  (the canvas `F` branch through {@link subscribeToolError}, the action funnel
+   *  as the verdict it hands back). It reported through {@link subscribeToolError}
+   *  ITSELF until foundations T5, which left `action_run {id:"view.frame"}`
+   *  answering `{ok:true}` over a camera that had not moved.
    *
    *  A CUT, not a tween — the editor has no camera animation, and this shares
    *  that stance with every other camera path (see the class comment on the
    *  camera verbs in the implementation). */
-  frameSelection(): void;
+  frameSelection(): ActionResult;
   /** Frames the WHOLE WORLD — the verb {@link frameSelection}'s docblock says
    *  "framing everything would be a different verb". This is that verb, added at
    *  the F4.5 holistic gate because `Open` left the camera wherever it already
@@ -3554,7 +3559,14 @@ export function createFieldHost(deps?: {
     if (k === "f" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       e.stopPropagation();
-      cameraRig.frameSelection();
+      // THIS BRANCH IS THE ONE THAT REPORTS, because it is the one with no verdict
+      // to hand anybody: the canvas claims the press with `stopPropagation`, so the
+      // window listener's `view.frame` never runs and nothing above this reads a
+      // Result. The action funnel is the other caller and says the same sentence its
+      // own way (`frontend/lib/actions.ts`), which is why the rig answers instead of
+      // reporting — one sentence, two channels, never two toasts.
+      const verdict = cameraRig.frameSelection();
+      if (!verdict.ok) tool.reportError(verdict.message);
       return;
     }
     // [ / ] step the brush radius (literally the same verb as the wheel's brush

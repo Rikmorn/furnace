@@ -564,6 +564,46 @@ test.skipIf(!bunWebGpuAvailable())(
 );
 
 test.skipIf(!bunWebGpuAvailable())(
+  "F with NEITHER selection says the sentence on the canvas's own channel",
+  async () => {
+    // THE HUMAN HALF of foundations T5's refusal move, and the reason the rig was
+    // allowed to stop reporting. `CameraRig.frameSelection` now ANSWERS an `inert`
+    // refusal instead of calling `reportToolError` itself (so `view.frame` can hand
+    // a real verdict to an agent — the T4c walk had it answering `{ok:true}` over a
+    // camera that had not moved), and each of its TWO callers says the sentence on
+    // its own channel. This is the caller with nowhere else to put it: the branch
+    // claims the press with `stopPropagation`, so the window listener's `view.frame`
+    // never runs and nothing above `onKeyDown` reads a Result. Without this line a
+    // human pressing F over an empty selection gets a swallowed key and silence,
+    // which is indistinguishable from a broken binding.
+    //
+    // ONE sentence, ONE channel, exactly once — a rig that both answered and
+    // reported would toast twice here, which is what the length assertion holds.
+    const f = await cameraFixture();
+    const errors: string[] = [];
+    f.host.subscribeToolError((m) => errors.push(m));
+    try {
+      f.key("f");
+
+      expect(errors).toEqual([
+        "nothing selected to frame — select a stamp, or draw a cell selection",
+      ]);
+      // …and the press is STILL claimed, unchanged: the branch acts on F whether or
+      // not it framed anything, which is the case the ownership test above pins.
+      expect(f.claimed).toEqual({ preventDefault: 1, stopPropagation: 1 });
+
+      // With something to frame, the same key says NOTHING — the sentence is the
+      // refusal's, not the verb's.
+      f.host.selectEntity(f.entityId);
+      f.key("f");
+      expect(errors.length).toBe(1);
+    } finally {
+      f.teardown();
+    }
+  },
+);
+
+test.skipIf(!bunWebGpuAvailable())(
   "F prefers the selected ENTITY when both selections stand at once",
   async () => {
     const f = await cameraFixture();

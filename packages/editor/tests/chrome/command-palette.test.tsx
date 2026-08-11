@@ -13,6 +13,7 @@ import "../inspector/_register.ts";
 // actions are live and some are not, so the disabled-row cases are not asserting a state
 // the whole table happens to be in.
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { ACTION_OK } from "../../src/action-registry/index.ts";
 import type { StampSession } from "../../src/field-host/index.ts";
 import { EditorContext } from "../../src/frontend/components/editor-context.ts";
 import { Shell } from "../../src/frontend/components/shell/Shell.tsx";
@@ -570,6 +571,10 @@ test("the palette CLOSES before the action runs", async () => {
 	const seen: boolean[] = [];
 	stub.calls.frameSelection.mockImplementation(() => {
 		seen.push(paletteInput() !== null);
+		// The verdict still has to come back: `view.frame` hands what the host answered
+		// straight on, so an implementation returning nothing would make the dispatch
+		// answer `failed` and toast over the case this is actually about.
+		return ACTION_OK;
 	});
 	await renderShell(stub);
 	pressCommandK();

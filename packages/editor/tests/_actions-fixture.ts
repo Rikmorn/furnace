@@ -5,7 +5,7 @@
 // case in it, which is why running the dispatch suite alone used to report the table
 // suite's cases too.
 import { mock } from "bun:test";
-import { ACTION_OK } from "../src/action-registry/index.ts";
+import { ACTION_OK, type ActionResult } from "../src/action-registry/index.ts";
 import type { FieldHost } from "../src/field-host/index.ts";
 import type { ActionCtx } from "../src/frontend/lib/actions.ts";
 
@@ -15,11 +15,29 @@ import type { ActionCtx } from "../src/frontend/lib/actions.ts";
  *  made `world.save` resolve to `undefined` and `sayResult` throw on it. */
 const wrote = () => mock(() => Promise.resolve(ACTION_OK));
 
-/** The FOURTEEN host verbs the action table runs (`grep -o 'ctx\.host?\.[a-zA-Z]*'
- *  src/frontend/lib/actions.ts | sort -u`), plus `isLooking`, which no `run` calls — the
- *  window dispatcher polls it per keypress to build `GateEnv.looking`. Every one of them,
- *  and NOTHING else. Both halves are load-bearing, and foundations T3b2 found this list
- *  failing both.
+/** `frameSelection`'s spy, and it is `wrote`'s reason one verb over — synchronously, since
+ *  foundations T5. The host's framing verb ANSWERS its refusal rather than reporting it, and
+ *  `view.frame` hands that verdict back as its own, so a bare `mock()` resolving to
+ *  `undefined` is a lie the `as unknown as FieldHost` cast hides and the funnel then reads:
+ *  `runAction` dereferenced `result.ok` and answered `failed` at five call sites.
+ *
+ *  IT FRAMES BY DEFAULT. A case that wants the empty-selection refusal sets it
+ *  (`host.frameSelection.mockReturnValue(refused(…, "inert"))`), which is also the only thing
+ *  a spy can pin here — WHETHER a real host refuses on a real empty selection is
+ *  `tests/field-host-camera.test.ts`', against a host that has a selection to be empty. */
+const framed = () => mock((): ActionResult => ACTION_OK);
+
+/** The FOURTEEN host verbs the action table runs, plus `isLooking`, which no `run` calls —
+ *  the window dispatcher polls it per keypress to build `GateEnv.looking`. Every one of
+ *  them, and NOTHING else. Both halves are load-bearing, and foundations T3b2 found this
+ *  list failing both.
+ *
+ *  DERIVED BY `grep -o "host\.[a-zA-Z]*(" packages/editor/src/frontend/lib/actions.ts |
+ *  sort -u`, which returns these fifteen and is a REPLACEMENT: this line used to cite
+ *  `grep -o 'ctx\.host?\.[a-zA-Z]*'`, and T4c is what retired it — the three host seams
+ *  bind the host to a local `host` before calling it, so that pattern now matches only the
+ *  two places `actions.ts` QUOTES the old shape in prose. A citation that returns the wrong
+ *  answer is worse than none: it invites a reader to re-derive the list and get two names.
  *
  *  A MISSING verb makes its action untestable through `run`: the spy is cast to `FieldHost`,
  *  so an absent key is `undefined` at the call and `ctx.host?.frameWorld()` throws instead of
@@ -46,7 +64,7 @@ export function makeHostSpy() {
     deleteEntity: mock(),
     duplicateEntity: mock(),
     beginMove: mock(),
-    frameSelection: mock(),
+    frameSelection: framed(),
     frameWorld: mock(),
     startStamp: mock(),
     confirmSession: mock(),

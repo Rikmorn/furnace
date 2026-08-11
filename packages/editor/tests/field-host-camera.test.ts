@@ -218,7 +218,7 @@ test("`cameraPose()` answers what the seam last published — one orbit, two rea
 
 // --- frameSelection ---------------------------------------------------------
 
-test("frameSelection with nothing selected moves no camera, pushes no pose, and SAYS so", () => {
+test("frameSelection with nothing selected moves no camera, pushes no pose, and ANSWERS the refusal", () => {
   const { host, poses } = poseProbe();
   loadHall(host);
   const errors: string[] = [];
@@ -226,15 +226,46 @@ test("frameSelection with nothing selected moves no camera, pushes no pose, and 
   const eyeBefore = readCameraEye(host);
   const pushes = poses.length;
 
-  host.frameSelection();
+  const verdict = host.frameSelection();
 
   expect(readCameraEye(host)).toEqual(eyeBefore);
   // A no-op that still published would repaint the triad for nothing, and would
   // hide a framing that silently framed the world origin.
   expect(poses.length).toBe(pushes);
-  // `F` swallows the key whether or not it frames anything, so a silent refusal
-  // reads as a dead binding.
-  expect(errors.at(-1)).toContain("nothing selected");
+  // ANSWERS RATHER THAN REPORTS, since foundations T5 — the T4c gate walk found
+  // `action_run {id:"view.frame"}` returning `{ok:true}` over a camera that had
+  // not moved, because the rig reported on its own channel and the action funnel
+  // above it never saw a verdict to hand back. `F` still swallows the key whether
+  // or not it frames anything, so the sentence is still said out loud; what moved
+  // is WHO says it, and the two callers each do it on their own channel (the
+  // canvas `F` branch below, `view.frame` as the verdict it returns).
+  expect(verdict).toEqual({
+    ok: false,
+    kind: "refused",
+    // BOTH HALVES of `frameTargetBox`'s priority, because a caller that cannot see
+    // the screen has no other way to learn what would have satisfied it.
+    message:
+      "nothing selected to frame — select a stamp, or draw a cell selection",
+    because: "inert",
+  });
+  // …and NOTHING went out on the host's own channel from here. This is the half a
+  // pin on the message alone would miss: a rig that both answered and reported
+  // would double the toast at the `F` key, where the caller reports too. That the
+  // canvas `F` branch DOES still report is `field-host-camera.gpu.test.ts`' — the
+  // keydown listener only exists on a canvas that took `init`.
+  expect(errors).toEqual([]);
+});
+
+test("frameSelection ANSWERS ok when there is something to frame", () => {
+  // The refusal arm above is only half a claim — a rig that refused unconditionally
+  // would pass it and would still be broken. Framing itself (the fit arithmetic, the
+  // preserved viewing angle) is the next case's; this pins only the VERDICT, which is
+  // what `view.frame` hands its caller.
+  const { host } = poseProbe();
+  const { entityId } = loadHall(host);
+  host.selectEntity(entityId);
+
+  expect(host.frameSelection()).toEqual({ ok: true });
 });
 
 test("frameSelection fits the SELECTED entity's footprint and keeps the viewing angle", () => {

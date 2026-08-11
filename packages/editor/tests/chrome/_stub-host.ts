@@ -30,6 +30,7 @@
 // shell layout). A second copy would go stale against the real FieldHost independently
 // of this one.
 import { mock } from "bun:test";
+import { ACTION_OK } from "../../src/action-registry/index.ts";
 import { withArchetypeOptions } from "../../src/field-host/field-placements.ts";
 import type {
   CameraPose,
@@ -324,7 +325,10 @@ export function makeStubHost(
     duplicateEntity: mock(),
     dismissDrift: mock(),
     frameChunks: mock(),
-    frameSelection: mock(),
+    // ANSWERS, since foundations T5 — `FieldHost.frameSelection` returns an `ActionResult`
+    // and `view.frame` hands it back as its own verdict, so a bare `mock()` would make every
+    // palette/menu dispatch of that verb answer `failed` under the cast.
+    frameSelection: mock(() => ACTION_OK),
     frameWorld: mock(),
     snapView: mock(),
     // The capture verb answers a FIXED 2×1 red-then-blue PNG-shaped payload — the
