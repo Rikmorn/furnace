@@ -68,6 +68,30 @@ This package **owns no generators**. `hall`, `maze`, `cave` and `scatter` are `@
 - **Cross-engine rule (load-bearing)**: **the BROWSER bakes and uploads** — JSC vs V8 diverge on transcendental `Math`; never regenerate placement cross-engine (`docs/learnings/2026-07-06-cross-engine-placement-determinism.md`). The committed default world is a `bun` bake and is sound: the field path is integer/lattice work, and the divergence class that rule guards against was placement transcendentals in the retired region world.
 - **Three DATA catalogs** are this package's contract with the editor, all under `catalog/` and all served by `serve.ts`'s `/catalog/*` route: `materials.json`, `entities.json`, `agent.json`. Data, never code — a project without one simply leaves that feature off.
 
+## What the catalog ships
+
+`materials.json` and `entities.json` are short, complete lists, not partial examples. Today:
+
+**Material classes** (`catalog/materials.json`):
+
+| id | name | kind | notes |
+| --- | --- | --- | --- |
+| 0 | rock | organic | |
+| 1 | dirt | organic | |
+| 2 | moss-stone | organic | |
+| 3 | masonry | kit | carries a kit-piece color set (panel/floor/trim/collar) for the kit skinner |
+
+**Prop archetypes** (`catalog/entities.json`):
+
+| id | name | meshes | scatters onto |
+| --- | --- | --- | --- |
+| rock | Rock | 3 | floor |
+| stalagmite | Stalagmite | 2 | floor |
+
+Mesh counts verified via `python3 -c "import json;[print(a['id'], len(a['meshes'])) for a in json.load(open('packages/dungeon/catalog/entities.json'))['archetypes']]"` → `rock 3`, `stalagmite 2`.
+
+An archetype's mesh count is the ceiling on a scatter's variant count: asking `scatter` for more variants than the archetype has meshes bakes a world that throws when the game loads it. Detail: `docs/backlog/engine-architecture/scatter-variants-not-bound-to-archetype.md`.
+
 ## Epic 3 doctrine
 
 Editor-time generation may use search-class algorithms — a human with reroll, caps, and curation tools absorbs failure. Runtime generation is restricted to construction-guaranteed or degrade-never-fail vocabularies via generator entities; the guarantee class is an explicit setup-loud field on the socket contract.
