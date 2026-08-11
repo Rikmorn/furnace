@@ -1,6 +1,11 @@
-// The committed-entities list: one row per generator entity in log order, fed
+// The committed-entities list: one row per generator entity, NEWEST FIRST, fed
 // by the shell provider's host.listEntities() mirror (F4.5a Task 10 — it used to
-// be the panel's). Clicking a row SELECTS its entity and expands an inline
+// be the panel's). The order is this file's (see `newestFirst`) and is stated in
+// the section header's tooltip, because until foundations T5 it was the host's log
+// order by accident and nothing on screen said so — the T4c gate walk's own
+// finding: an agent generated a cave into the shared session and the human could
+// not answer "which of these is the one that just landed?".
+// Clicking a row SELECTS its entity and expands an inline
 // READ-ONLY params <dl>; clicking again collapses it and leaves the selection
 // standing. F3a added the smart-object verbs beside it: Open starts a
 // reconfigure session (the same staged form a fresh stamp gets), then
@@ -108,7 +113,7 @@ import {
 	Snowflake,
 	Trash2,
 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FieldEntityInfo } from "../../../field-host/index.ts"; // type-only: erased
 // The committed-entity policy vocabulary: one blocked-reason rule per row verb,
 // plus the param renderer the provider's push guard also compares through. A
@@ -135,6 +140,48 @@ import { ActionTip, ReasonTip } from "../ui/tips.tsx";
 
 /** `opSpan` is [firstOpId, lastOpId] inclusive (commitGenerator). */
 const opCount = (e: FieldEntityInfo): number => e.opSpan[1] - e.opSpan[0] + 1;
+
+/** The row order — DESCENDING entity id, newest first — and the ONE place it is decided.
+ *
+ *  WHY IT EXISTS. The host hands `listEntities()` back in log order, so the list was
+ *  already sorted oldest-first, by accident rather than by contract, and nothing on screen
+ *  said so. The T4c gate walk is what that cost: an agent generated a cave into the shared
+ *  session and the human could not answer "which of these is the one that just landed?"
+ *  — the single most natural question after watching a collaborator add something. An
+ *  order nobody stated is an order nobody can rely on, which is why the answer is a stated
+ *  contract ({@link ORDER_HINT}, on the section header) and not just a `.sort`.
+ *
+ *  WHY DESCENDING. That gate-walk question is "what just landed", and the newest row
+ *  belongs where the eye starts. It costs the oldest stamp its stable position at the top
+ *  — accepted, because "the first thing I ever made" is not a question anyone asks of a
+ *  layers panel.
+ *
+ *  WHY THE ID IS A SOUND KEY, precisely. `entityId` is minted from the op log's `nextId`
+ *  (`core/src/field/generators.ts`'s `commitGenerator`), a counter created at 1 and only
+ *  ever incremented, so ids are strictly monotonic in COMMIT ORDER and the highest one is
+ *  the newest. What they are NOT is a per-entity sequence: the counter is SHARED with the
+ *  ops, so brush work between two stamps leaves gaps and entity #3 is not the third stamp.
+ *  {@link ORDER_HINT} is worded to claim the first and refuse the second.
+ *
+ *  WHY HERE rather than in `useFieldEntities`. That hook has four readers and the other
+ *  three (`SessionCard`, `ToolStrip`, `useActionContext`) do `entities.find(...)` — they do
+ *  not care about order and must not silently acquire a promise about it. Sorting in the
+ *  hook would also put the order two files away from the header that states it, which is
+ *  the drift the statement exists to prevent.
+ *
+ *  A COPY, never in place: the argument is the shell provider's latched mirror, held by
+ *  those same three readers, and `Array.prototype.sort` mutates its receiver. */
+const newestFirst = (
+	entities: readonly FieldEntityInfo[],
+): readonly FieldEntityInfo[] =>
+	[...entities].sort((a, b) => b.entityId - a.entityId);
+
+/** The order, as a promise on the header. Two sentences because the fact has a trap in it:
+ *  the first states what the sort does, and the second refuses the reading a monotonic id
+ *  invites — see {@link newestFirst} for why the shared counter makes "entity #3 is the
+ *  third stamp" false. */
+const ORDER_HINT =
+	"newest first — the top row is the stamp committed most recently. Rows are ordered by entity id, which the op log stamps in commit order; an id is not a count of stamps, because brush ops draw from the same counter and leave gaps.";
 
 /** The row's one-line record, `·`-joined: the recipe (generator, seed, span
  *  size) plus, for a stamp that PLACED something, each archetype it placed and
@@ -375,6 +422,10 @@ export function EntitiesList(props: {
 	onSever: (id: number) => void;
 }) {
 	const { entities, selectedId, driftedIds } = props;
+	// The ROWS, in this file's stated order (see `newestFirst`). Memoised on the prop, so a
+	// re-render the entity list did not cause — a selection arriving, a row expanding —
+	// re-uses the same array rather than re-sorting the world's whole stamp list.
+	const rows = useMemo(() => newestFirst(entities), [entities]);
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const selectedRow = useRef<HTMLDivElement | null>(null);
 	// The two-axis keyboard model, shared with the flags and history grids — see
@@ -387,12 +438,15 @@ export function EntitiesList(props: {
 	// so arrowing is that same write on a keyboard rather than a new concept. It costs one
 	// host call per press, and that is the right trade because `selectEntity` is CHEAP and
 	// REVERSIBLE — it draws the footprint box and nothing else. The DOM order of the stops
-	// is the render order of `entities`, so the index IS the entity and no id has to be
-	// threaded through the markup to find it again.
+	// is the render order of `rows`, which is `newestFirst` and not the prop's own order —
+	// so arrowing DOWN walks backwards in time, and the stop's index says nothing about
+	// which stamp it is.
 	const grid = useRowGrid((rowId) => {
-		// BY NAME. `useRowGrid`'s own docblock carries the measured defect the id closes;
-		// the short version is that the expanded-params row is a row too, so counting stops
-		// makes `entities[i]` address the wrong stamp the moment anything lands in it.
+		// BY NAME, which the sort makes load-bearing twice over. `useRowGrid`'s own docblock
+		// carries the measured defect the id closes; the short version is that the
+		// expanded-params row is a row too, so counting stops addresses the wrong stamp the
+		// moment anything lands in it — and `props.entities[i]` was never the row at index i
+		// anyway once this file started ordering its own rows.
 		//
 		// The null check is FIRST and is not decoration: `Number(null)` is 0, so folding it
 		// into the `Number.isInteger` guard would turn "a row that names nothing" into
@@ -422,10 +476,14 @@ export function EntitiesList(props: {
 	// Keyed on the SELECTION alone, deliberately. Adding `entities` would re-scroll
 	// on every entity tick — a commit elsewhere, a freeze on another row, a ⌘Z —
 	// and each one would throw away wherever the user had scrolled this palette to.
-	// What that costs is the case where a row MOVES under a standing selection
-	// (only a delete above it can do that, and only by one row), which is a far
-	// smaller loss than yanking the scroll position out from under someone
-	// mid-read.
+	// What that costs is the case where a row MOVES under a standing selection, and
+	// `newestFirst` WIDENED that case rather than leaving it where it was: under log
+	// order a commit appended to the bottom and displaced nothing, while newest-first
+	// puts every new stamp at the TOP and pushes every row below it down by one. So a
+	// delete above the selection is no longer the only mover — a commit is one too, and
+	// it is the commoner event. Still the right trade, and for the unchanged reason: a
+	// row that slid one line is a far smaller loss than yanking the scroll position out
+	// from under someone mid-read, and the row is still on screen either way.
 	useEffect(() => {
 		if (selectedId === null) return;
 		selectedRow.current?.scrollIntoView({ block: "nearest" });
@@ -434,6 +492,11 @@ export function EntitiesList(props: {
 	return (
 		<CollapsibleSection
 			title={`Entities (${entities.length})`}
+			// The order, as a CONTRACT rather than an accident of how the host walks its log
+			// — the half of the T4c finding a `.sort` alone would not have fixed. On the
+			// header because that is the one element present whether the section is open or
+			// shut, and it documents the list rather than any row in it.
+			titleHint={ORDER_HINT}
 			// INHERITED from when this was reference context inside FieldPanel, and
 			// now questionable rather than obviously right: D-14 just made it the
 			// layers panel, and a layers panel that starts closed hides the READ half
@@ -462,7 +525,7 @@ export function EntitiesList(props: {
 					columns={COLUMNS}
 					className="flex flex-col gap-0.5"
 				>
-					{entities.map((e) => {
+					{rows.map((e) => {
 						const expanded = e.entityId === expandedId;
 						const baked = e.baked === true;
 						const frozen = e.frozen === true;

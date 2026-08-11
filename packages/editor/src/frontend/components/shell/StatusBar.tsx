@@ -11,13 +11,19 @@
 // `host.subscribeStats` beside it would be a mirror of a per-rAF push with nothing in
 // front of it.
 //
+// It is also, since T5, the only surface in the chrome that says WHERE anything is in world
+// coordinates: the selection chip carries the location. `centreOf` holds that argument,
+// including what this bar deliberately CANNOT say — the camera's own pivot does not reach
+// the chrome at all. The T4c gate walk is why it says anything: an agent named a cave in
+// metres and the human had no numbers of their own to answer with.
+//
 // What the keymap line SAYS — and whether it is warning about something — is decided next
 // door in `status-keymap.ts`: pure, React-free, and tested directly. What is left here is
 // rendering it.
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useSyncExternalStore } from "react";
-import type { FieldStats } from "../../../field-host/index.ts"; // type-only: erased
+import type { FieldStats, SelectionInfo } from "../../../field-host/index.ts"; // type-only: erased
 import { useActionContext } from "../../hooks/useActionContext.tsx";
 import {
 	useFieldHostState,
@@ -59,6 +65,56 @@ const grouped = (n: number): string => n.toLocaleString();
  *  a readout whose whole question is "how heavy has this got?". Rounding lives here,
  *  once, rather than at each call site. */
 const ms = (n: number): string => `${grouped(Math.round(n))} ms`;
+
+/** The selection's world box — `SelectionInfo.aabb` with its `null` taken off, so the two
+ *  readouts below can say what they need and the ONE null check stays at the chip. */
+type WorldBox = NonNullable<SelectionInfo["aabb"]>;
+
+/** A world coordinate, to ONE decimal.
+ *
+ *  THE POINT OF THIS WHOLE READOUT (T5 Task 2, from the T4c gate walk): the agent reported
+ *  a cave at "x 4–7, y 11.5–14, z 11.5–15.5" and the chrome showed no position anywhere, so
+ *  the two collaborators could not exchange a location. These are the same axes and the same
+ *  metres `session_query` answers in — for `about: "selection"` it is literally this box
+ *  (`field-host/field-query.ts` hands back `copyBoxOrNull(info.aabb)`), so a number read off
+ *  this bar and a number in the agent's answer are comparable without conversion.
+ *
+ *  ONE decimal is a legibility choice with a stated cost: the field quantizes to 0.25 m, so
+ *  4.25 renders "4.3" and the readout can be up to 5 cm off. That is the right trade for a
+ *  bar whose job is "am I near the thing the agent named" — the agent's own coordinates
+ *  arrive as ranges — and it is why the exact spec is still a `session_query` away. */
+const metres = (n: number): string => n.toFixed(1);
+
+/** The box's centre, as one point — what the chip puts on the bar.
+ *
+ *  THE CENTRE RATHER THAN THE BOX, and rather than the camera, and both halves are honest
+ *  answers to something this readout could not have. The camera's PIVOT is what the backlog
+ *  entry asked for and the chrome cannot see it: `CameraPose` is `{yaw, pitch}` — orientation
+ *  only — and `CameraRig.orbit()`, which does carry the pivot, is deliberately not a
+ *  `FieldHost` member (its own docblock refuses widening the pose, because that shape is
+ *  published on the wire as `SessionState.camera`). So this is the nearest thing the chrome
+ *  already holds, and it is nearer than it sounds. `generate` defaults its region to exactly
+ *  this box (`shared/wire.ts`'s `GenerateRequest.region`: "Omitted = the current cell
+ *  selection's box"), so it names where an agent's next stamp would land. And `view.frame`
+ *  pivots to exactly this point when no ENTITY is selected: `CameraRig.frameTargetBox`
+ *  prefers a selected entity's footprint and otherwise falls back to `selectionBox`, which is
+ *  the same `selectionAabb` derivation the chip reads — and `frameOn` routes through
+ *  `camera-control.ts`'s `frameBox`, whose `target` is `boxCentre(box)`. (Frame also pulls
+ *  the DISTANCE in; only the pivot claim is made here.)
+ *
+ *  ONE point on a 28 px bar, six numbers in the popover: the `ops` chip's split exactly (the
+ *  handle is the number everyone reads, the explainers live one click away), and the reason
+ *  is the same — this bar carries a glyph and a number per chip, and a full box is six.
+ *
+ *  Indices spelled out rather than mapped: `min`/`max` are TUPLES, and a literal index reads
+ *  as `number` where a loop variable would come back `number | undefined` under
+ *  `noUncheckedIndexedAccess` and buy three guards for nothing. */
+const centreOf = (box: WorldBox): string =>
+	[
+		metres((box.min[0] + box.max[0]) / 2),
+		metres((box.min[1] + box.max[1]) / 2),
+		metres((box.min[2] + box.max[2]) / 2),
+	].join(" ");
 
 /** The keymap line, in its own component so only IT re-renders: the session context pushes
  *  a clone on every nudge and every preview — pointer rate while a move is live — and the
@@ -131,7 +187,8 @@ function ErrorChip() {
 	);
 }
 
-/** The cell-selection chip, with the verbs the Field panel's footer used to hold.
+/** The cell-selection chip: how much is selected, WHERE it is, and the verbs the Field
+ *  panel's footer used to hold.
  *
  *  On the STATUS BAR rather than in a palette, and the reason is the count: "how much
  *  is selected" is a live readout of what the next masked op will hit, and it lived at
@@ -140,41 +197,91 @@ function ErrorChip() {
  *  are what a reader of that number wants to do about it, and a popover is what keeps
  *  a 28 px bar from growing two more buttons.
  *
+ *  T5 puts the LOCATION on the same chip rather than beside it, because it is the same
+ *  object: a second chip would need the same presence rule spelled twice and would say
+ *  "here is a place" about a selection the chip next door is already naming. See
+ *  {@link centreOf} for what the point is, why it is the selection's and not the camera's,
+ *  and why the box's six numbers stay in the popover.
+ *
  *  Absent with nothing selected. Unlike Reselect — which matters exactly when there is
  *  no selection — the CHIP is a readout, and a chip reading "sel 0 cells" on every
  *  boot is a permanent affordance for a state with nothing to say. Reselect stays
  *  reachable from the Edit menu, which is where a verb with no visible object belongs.
+ *  The location inherits that absence, which is honest for a different reason: with no
+ *  selection standing the chrome holds no world point at all, so there is nothing it
+ *  could truthfully put there.
  */
 function SelectionChip() {
 	const { selection } = useFieldSelection();
 	if (selection === null) return null;
-	const { count, truncated, displayed } = selection;
+	const { count, truncated, displayed, aabb } = selection;
 	const cells = `${count} cell${count === 1 ? "" : "s"}`;
+	// `aabb` is genuinely nullable on a live selection — a spec that materializes to no
+	// cells has no box — so the location is DROPPED rather than rendered as zeros, which
+	// would be a coordinate the user could read out to an agent.
+	const at = aabb === null ? null : centreOf(aabb);
 	return (
 		<ChipPopover
-			label={`${cells} selected — clear or reselect`}
+			// The location rides the accessible NAME too. The chips' own convention is that
+			// the sentence cannot be the visible text — and an `aria-label` that named only
+			// the count would HIDE the coordinates from the readers who have no other way to
+			// reach them, since a name replaces the content it labels rather than adding to it.
+			label={
+				at === null
+					? `${cells} selected — clear or reselect`
+					: `${cells} selected at ${at} — clear or reselect`
+			}
 			body={
-				<SelectionVerbs truncated={truncated} count={count} shown={displayed} />
+				<SelectionVerbs
+					truncated={truncated}
+					count={count}
+					shown={displayed}
+					box={aabb}
+				/>
 			}
 		>
-			{`sel ${cells}`}
+			{at === null ? `sel ${cells}` : `sel ${cells} · at ${at}`}
 		</ChipPopover>
 	);
 }
 
-/** The chip's body: what is limiting this selection, and the two verbs for it. */
+/** The chip's body: where this selection IS, what is limiting it, and the two verbs for it. */
 function SelectionVerbs({
 	truncated,
 	count,
 	shown,
+	box,
 }: {
 	truncated: boolean;
 	count: number;
 	shown: number | undefined;
+	/** The selection's world box, or `null` when it materializes to no cells. */
+	box: WorldBox | null;
 }) {
 	const ctx = useActionContext();
 	return (
 		<>
+			{/* The extents, per axis, in the phrasing the AGENT uses — "x 4.0 – 7.0" is the
+			    shape its own answers come in, so the two can be compared by eye rather than
+			    reconciled. This is the half of the location the bar has no room for; the chip
+			    carries the centre. */}
+			{box !== null && (
+				<dl className="space-y-0.5">
+					{(
+						[
+							["x", box.min[0], box.max[0]],
+							["y", box.min[1], box.max[1]],
+							["z", box.min[2], box.max[2]],
+						] as const
+					).map(([axis, lo, hi]) => (
+						<DetailRow
+							key={axis}
+							label={axis}
+							value={`${metres(lo)} – ${metres(hi)}`}
+						/>
+					))}
+				</dl>
+			)}
 			{/* Two limits a selection can be under, and they are DIFFERENT things — the
 			    first is about what was SELECTED, the second only about what is DRAWN.
 			    Said in full here rather than compressed into the chip, which has one line

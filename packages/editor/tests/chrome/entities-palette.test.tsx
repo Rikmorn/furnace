@@ -395,6 +395,51 @@ test("each row's verbs address ITS OWN entity in a multi-row list", () => {
 	expect(stub.calls.setEntityFrozen.mock.calls.at(-1)).toEqual([7, false]);
 });
 
+// --- foundations T5: the row order is a stated contract ---------------------
+//
+// The T4c gate walk's own finding, live: an agent generated a cave into the shared session
+// and the human could not tell which row it was. The list displayed in whatever order the
+// host's log walk happened to produce, and nothing on screen said so — so "which is the one
+// that just landed?" had no answer. TWO tests, because the fix has two halves and either
+// alone leaves the failure: the SORT, and the STATEMENT of it.
+
+/** The ids of the rendered rows, top to bottom, off the row element's own `data-row-id` —
+ *  the same handle the roving grid addresses a row by, so this reads the list's order
+ *  rather than any one verb's labelling convention. */
+const renderedIds = (): number[] =>
+	[...document.querySelectorAll<HTMLElement>('[role="row"][data-row-id]')].map(
+		(row) => Number(row.dataset["rowId"]),
+	);
+
+test("the list orders rows newest first, over a fixture in neither order", () => {
+	const stub = makeStubHost();
+	// SHUFFLED ON PURPOSE — 3, 1, 4, 2 is neither ascending nor descending, so this cannot
+	// pass against a list that was never sorted. A fixture handed over already in log order
+	// would let the assertion hold with the sort deleted, which is exactly the vacuous shape
+	// this repo has been bitten by.
+	showEntities(stub, [BAKED, ENTITY, SCATTER, FROZEN]);
+	expect(renderedIds()).toEqual([4, 3, 2, 1]);
+});
+
+test("the header STATES that order, without claiming an id is a stamp count", async () => {
+	const stub = makeStubHost();
+	showEntities(stub, [ENTITY, FROZEN]);
+	// The section trigger, not the title span inside it: the trigger is the focusable
+	// element, and opening on FOCUS is the half of D-25 a `title` never had.
+	const header = screen.getByRole("button", { name: /^Entities \(2\)/ });
+	act(() => {
+		fireEvent.focus(header);
+	});
+	const tip = await screen.findByRole("tooltip");
+	// BOTH halves of the sentence, because the fact has a trap in it. Entity ids come from
+	// the op log's SHARED id counter (core's `commitGenerator` reads `log.nextId`), so they
+	// are monotonic in commit order — "newest first" is true — while brush ops draw from
+	// the same counter, so "entity #3 is the third stamp" is false. A header promising the
+	// second would be worse than one promising nothing.
+	expect(tip.textContent).toContain("newest first");
+	expect(tip.textContent).toContain("not a count of stamps");
+});
+
 // Every row verb states its reason the same way, which is a convention that had to
 // be EXTENDED rather than invented: Open and delete shipped with reasons in the
 // accessible name while freeze and bake were bare `disabled` with a tooltip that still
@@ -689,7 +734,10 @@ test("the entity-selection seam styles the row — the read half, from the viewp
 	act(() => {
 		stub.fire.entitySelection(7);
 	});
-	expect(currentFlags()).toEqual([null, "true"]);
+	// FIRST, because the list renders newest first (T5) and 7 is the higher id — the
+	// position is asserted rather than a membership test, so a selection that lit the
+	// wrong row would still fail.
+	expect(currentFlags()).toEqual(["true", null]);
 
 	// Deselecting (a click on bare terrain) clears it again.
 	act(() => {
@@ -953,6 +1001,8 @@ test("a world switch that changes ONLY a param still re-renders the expanded row
 // true of a one-row list, and "↑ moved the focus" is unfalsifiable when the element it
 // moved from and the element it moved to are the same one.
 
+/** Three stamps. They RENDER newest first (T5), so `stops()[0]` is entity 9 and
+ *  `stops()[2]` is entity 1 — every positional assertion below reads in that order. */
 const THREE: FieldEntityInfo[] = [
 	ENTITY,
 	{ ...ENTITY, entityId: 5 },
@@ -1016,7 +1066,8 @@ test("↑/↓ move the stop, the focus and the HOST selection together", () => {
 		fireEvent.keyDown(grid(), { key: "ArrowUp" });
 	});
 	expect(document.activeElement === stops()[0]).toBe(true);
-	expect(stub.calls.selectEntity.mock.calls.at(-1)).toEqual([1]);
+	// The TOP row, which is the NEWEST stamp since T5 — ↑ walks forward in time, not back.
+	expect(stub.calls.selectEntity.mock.calls.at(-1)).toEqual([9]);
 });
 
 test("→ enters the ROW's own verb cluster, and ← walks back out of it", () => {
@@ -1291,7 +1342,9 @@ test("an EXPANDED row adds no stop, and the params row names no entity", () => {
 	const ids = Array.from(
 		grid().querySelectorAll<HTMLElement>('[role="row"]'),
 	).map((r) => r.dataset["rowId"] ?? null);
-	expect(ids).toEqual(["1", null, "5", "9"]);
+	// Newest first (T5), so the expanded row is entity 9 at the TOP and its nameless
+	// params row is the second entry rather than a trailing one.
+	expect(ids).toEqual(["9", null, "5", "1"]);
 });
 
 // IMPORTANT 3. Replacing `button:not([disabled])` with `button` left all 79 tests across

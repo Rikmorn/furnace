@@ -5217,13 +5217,17 @@ test("the selection chip appears with a selection, counts it, and goes with it",
 	act(() => {
 		stub.fire.selection(selectionOf({ count: 12 }));
 	});
-	expect(screen.getByText("sel 12 cells")).toBeTruthy();
-	expect(selectionChip("12 cells selected — clear or reselect")).toBeTruthy();
+	// The box rides the same chip since T5, so the count is no longer the whole text —
+	// see the location test below for what the coordinates are and where they come from.
+	expect(screen.getByText("sel 12 cells · at 0.5 0.5 0.5")).toBeTruthy();
+	expect(
+		selectionChip("12 cells selected at 0.5 0.5 0.5 — clear or reselect"),
+	).toBeTruthy();
 
 	act(() => {
 		stub.fire.selection(selectionOf({ count: 1 }));
 	});
-	expect(screen.getByText("sel 1 cell")).toBeTruthy();
+	expect(screen.getByText("sel 1 cell · at 0.5 0.5 0.5")).toBeTruthy();
 
 	act(() => {
 		stub.fire.selection(null);
@@ -5240,7 +5244,9 @@ test("the chip's popover runs Clear and Reselect through the action table", asyn
 	});
 
 	act(() => {
-		fireEvent.click(selectionChip("12 cells selected — clear or reselect"));
+		fireEvent.click(
+			selectionChip("12 cells selected at 0.5 0.5 0.5 — clear or reselect"),
+		);
 	});
 	// The labels are the REGISTRY's — the Edit menu renders the same two from the same
 	// table, so the popover cannot offer a verb the menu does not.
@@ -5324,6 +5330,76 @@ test("the chip says which of TWO limits it is under, and they are different limi
 	});
 	expect(screen.getByText(/showing 65,536 of 196,392 cells/)).toBeTruthy();
 	expect(screen.queryByText(/flood truncated/) === null).toBe(true);
+});
+
+// --- foundations T5: the bar says WHERE ---------------------------------------
+//
+// The T4c gate walk's second finding, and the user's own: the agent reported a cave at
+// "x 4–7, y 11.5–14, z 11.5–15.5" and the chrome showed no position anywhere, so the two
+// collaborators could not exchange a location. The readout is the SELECTION's box and not
+// the camera's pivot, which is a stated limit rather than an oversight — `CameraPose` is
+// `{yaw, pitch}` and the pivot is not a `FieldHost` member at all (see `centreOf` in
+// StatusBar.tsx). What makes the selection the right stand-in is that `session_query`
+// answers `about: "selection"` with THIS box, `generate` defaults its region to it, and
+// `view.frame` pivots the camera to its centre.
+//
+// The two helpers these use — `statusChip` and `rowValue` — are declared just below with
+// the stats-chip tests; a test body runs after the whole module has evaluated.
+
+/** The gate walk's own cave, as the agent reported it. The fixture is that sentence, so
+ *  the assertions below read as the exchange that failed. */
+const CAVE_BOX: NonNullable<SelectionInfo["aabb"]> = {
+	min: [4, 11.5, 11.5],
+	max: [7, 14, 15.5],
+};
+
+test("the chip says WHERE the selection is, in the agent's own coordinates", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// Nothing selected, nothing claimed. Honest rather than incidental: with no selection
+	// standing the chrome holds no world point it could truthfully put here.
+	expect(screen.queryByText(/ at /) === null).toBe(true);
+
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 240, aabb: CAVE_BOX }));
+	});
+	// The CENTRE, to ONE decimal. `y` is the assertion that earns the fixture: the midpoint
+	// is 12.75, so this pins the rounding and not merely the arithmetic.
+	expect(screen.getByText("sel 240 cells · at 5.5 12.8 13.5")).toBeTruthy();
+	// …and in the accessible NAME too. A name REPLACES the content it labels rather than
+	// adding to it, so a chip that named only the count would hide the coordinates from
+	// exactly the readers with no other route to them.
+	const chip = statusChip(
+		"240 cells selected at 5.5 12.8 13.5 — clear or reselect",
+	);
+
+	// The EXTENTS, per axis, in the shape the agent's own answer comes in — the six
+	// numbers the 28 px bar has no room for, one click away, exactly as the op-cost
+	// meter's five explainers sit behind the `ops` handle.
+	act(() => {
+		fireEvent.click(chip);
+	});
+	expect([rowValue("x"), rowValue("y"), rowValue("z")]).toEqual([
+		"4.0 – 7.0",
+		"11.5 – 14.0",
+		"11.5 – 15.5",
+	]);
+});
+
+test("a selection with no box claims no location, rather than reading 0 0 0", async () => {
+	fetch404();
+	const stub = makeStubHost();
+	await renderShell(stub);
+	// `aabb` is genuinely nullable on a live selection — a spec that materializes to no
+	// cells has no box. Rendering the origin there would be a coordinate a user could read
+	// out to an agent, which is worse than saying nothing.
+	act(() => {
+		stub.fire.selection(selectionOf({ count: 0, aabb: null }));
+	});
+	expect(screen.getByText("sel 0 cells")).toBeTruthy();
+	expect(statusChip("0 cells selected — clear or reselect")).toBeTruthy();
+	expect(screen.queryByText(/ at /) === null).toBe(true);
 });
 
 // --- (c9c) the stats chips: ops + analyzer detail popovers (D-19) ------------

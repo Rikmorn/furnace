@@ -1944,6 +1944,16 @@ half of the sync. A row click calls `host.selectEntity` (the write half) and tog
 read-only params `<dl>`; the id coming back down the seam styles the row with
 `aria-current`, and a `scrollIntoView({ block: "nearest" })` keyed on the SELECTION ALONE
 brings a viewport-made selection to a row that may be scrolled out of view.
+**The rows are ordered NEWEST FIRST** (foundations T5), by descending `entityId` — core mints
+those from the op log's monotonic counter, so the highest is the most recent commit. The order
+is decided in `field/EntitiesList.tsx` (`newestFirst`) rather than in `useFieldEntities`, whose
+other three readers do `.find` lookups and must not silently acquire a promise about order, and
+it is **stated in the section header's tooltip** (`ORDER_HINT`) so it is a contract rather than
+an accident of how the host walks its log. The statement is worded to refuse one reading: the id
+counter is SHARED with the ops, so "newest first" is true while "entity #3 is the third stamp"
+is false. Both halves came from the T4c gate walk, where an agent generated a cave into the
+shared session and the human could not tell which row it was.
+
 `field/EntitiesList.tsx` carries the row verb set — Open, freeze / unfreeze, bake ("sever"),
 delete, each through one `RowVerb` component that owns the wrapper a disabled button needs
 (a disabled button swallows the pointer events a `title` wants, so the reason rides the
@@ -2378,6 +2388,19 @@ bitset and a missing chunk reads unselected, which is correct. **Region selectio
 honest AABB box**: a region IS its box. When the cap bites, `SelectionInfo.displayed` says so
 rather than the display silently under-reporting, and the status bar's selection chip carries the
 sentence along with Clear / Reselect.
+
+**That chip is also the chrome's only WORLD-SPACE readout** (foundations T5): it puts the
+selection box's centre on the bar to one decimal (`sel 240 cells · at 5.5 12.8 13.5`, and in the
+chip's accessible name) and the per-axis extents in its popover, in the phrasing an agent's own
+answer uses. Same axes and metres `session_query` reports — `about: "selection"` hands back this
+very box — so a number read off the bar and a number in an agent's answer are comparable without
+conversion. It is the selection's box and **not the camera's pivot**, which is a stated limit:
+`CameraPose` is `{yaw, pitch}`, `CameraRig.orbit()` is deliberately not a `FieldHost` member (its
+docblock refuses widening the pose, a shape published as `SessionState.camera`), and the chrome's
+pose latch guards on orientation precisely so a target-only move does not re-render at frame rate.
+The argument, and what the bar therefore cannot say, lives once at `centreOf` in `StatusBar.tsx`.
+It came from the same T4c gate walk: the agent named a cave in metres and the human had no numbers
+of their own to answer with.
 
 ### 17.8 The tool rail, the top strip, the session strip
 
