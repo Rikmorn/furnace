@@ -59,6 +59,7 @@ Dates marked `*` below are extraction-filed, not real seal dates.
 | 2026-08-08 | [Foundations T3d — the facade, finished · T3 CLOSES](2026-08-08-foundations-t3d-facade-finish.md) — *carries the objectives-audit rulings* | editor |
 | 2026-08-09 | [Foundations T4a — the honest substrate](2026-08-09-foundations-t4a-honest-substrate.md) — *user visual gate deferred to T4 close by ruling* | editor, core |
 | 2026-08-09 | [Foundations T4b — claim, backchannel, mount](2026-08-09-foundations-t4b-claim-backchannel-mount.md) — *the agent door opens, reads only; clause 5 walked live; MSAA-removal ruling* | editor |
+| 2026-08-11 | [Foundations T4c — verbs, eyes, and the gate · T4 CLOSES](2026-08-11-foundations-t4c-verbs-eyes-gate.md) — *gate 1 walked+measured; gate 2 waived to daily use by ruling — NOT a passed visual gate* | editor, core, cookbook |
 
 **On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
 frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
