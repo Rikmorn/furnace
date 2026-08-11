@@ -119,7 +119,7 @@ const entityOpOf = (log: OpLog, entityId: number): EntityOp => {
 };
 
 /** The entity-record scan a consumer does today (there is no public reader —
- *  `docs/backlog/engine-architecture/field-entity-record-reader.md`). */
+ *  `docs/backlog/engine-architecture/field-read-surface-gaps.md`, §"no public reader"). */
 const findEntity = (
   log: OpLog,
   entityId: number,

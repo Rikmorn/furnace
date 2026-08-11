@@ -78,4 +78,4 @@ deliberately dropped.
 per-field/cross-field split in its TSDoc), `packages/core/src/field/scatter.ts` (the
 `scaleMin`/`scaleMax` pair), `packages/core/src/field/generators.ts` (door offset fit, door
 lane clearance, `kitClassId`), `docs/reference/editor-architecture.md` §9.3/§9.5 (what the
-form can and cannot render), sibling `component-schemas.md`.
+form can and cannot render), sibling `unbuilt-tier-2-modules.md` §Behaviour contract.

@@ -431,6 +431,6 @@ density-derived shells.
   (per-archetype `anchor`, above) and left the sizing half as an authoring choice: to make a prop
   block, scale it up or give it a base-origin mesh with `anchor: "base"`. An engine-side override
   (a `mesh` collision kind, or forced blocking) is the escalation path, unbuilt —
-  `docs/backlog/engine-architecture/catalog-collision-escalation.md`. Walk-gate coverage:
+  `docs/backlog/engine-architecture/catalog-collision-schema.md` §Catalog collision escalation. Walk-gate coverage:
   `tests/field-placements.gpu.test.ts` (the rock test records the 0.56/0.77 climb thresholds; the
   stalagmite test blocks at scale 2, and a ray probe pins its base-anchored top).

@@ -938,7 +938,7 @@ Nothing stayed on either side. Plus one disposition that was owed rather than op
   peers is a naming decision with no code consequence whose only spelling would make two
   sibling modules value-import a third for a literal; that is a deletion-pass question and it
   is left to the prune tranche, declared at source — and, since the T3d Task 6 review,
-  written down: `docs/backlog/editor-and-tooling/field-host-prune-tranche.md` collects all
+  written down: `docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune tranche" collects all
   EIGHT in-source "prune tranche" declarations plus three items that had no record anywhere,
   because eight deferrals with no durable entry is what AGENTS.md's backlog rule exists to
   prevent. **`AXIS_COLOR` did NOT stay**: one reader,

@@ -10,6 +10,11 @@ share the "a real post driver finally lands / profiling surfaces a cost" family 
 triggers. Sections keep their original order: render-graph → multi-pass-effects status →
 node-graph editor → effect-input composability → bind-group cache → first-frame compile hitch.
 
+**Absorbed at T5 (2026-08-11):** *Effect variants, quality tiers, and fallback/degradation*,
+last section. It is the post-effect library's own shape question — how one effect ships more
+than one implementation and picks between them — and it sits below the render-graph tier this
+tracker already fences above T2, so it belongs here rather than standing alone.
+
 ## Post: runtime render-graph / FrameGraph (T3)
 
 Stage 2 (Visual Fidelity epic) ships **T2** — a managed, *linear*, declarative
@@ -150,3 +155,54 @@ A fix would pre-warm the likely pipeline variants asynchronously at create time 
 **Trigger to revisit:** first user/Safari report of a first-bloom-frame hitch in the bowling or cookbook demo; OR when a consumer pattern creates built-in multi-pass effects mid-interaction (not at scene setup). Until then the amortised one-time cost is acceptable.
 
 **Reference:** `packages/core/src/post/effect.ts` (`_resolvePassPipeline`, the sync get-or-build + the `// MIGRATION`-style comment on lazy compile), `packages/core/src/post/bloom.ts` (the ~12-pass effect once 2b-5 lands), the Stage 2b plan task 2b-2.
+
+
+
+## Effect variants, quality tiers, and fallback/degradation
+
+Surfaced in the Stage 2 (Visual Fidelity epic) brainstorm (2026-06-06) while picking a
+default tonemap operator. The user's observation: as the effect/shader library grows,
+**"one canonical implementation per effect" stops holding** — variants proliferate, each
+balancing quality against wildly varying performance, and we have no story yet for
+*selecting* among them, *falling back* when a feature is missing, or *degrading* under a
+frame budget. This is a distinct axis from any single effect; capture it before it's
+re-derived per effect.
+
+### The established patterns (general knowledge — not verified this session)
+
+- **Quality tiers / presets** — a small enum (low/med/high/ultra) selecting per-effect
+  parameters: bloom mip-count, MSAA off/4×, cheap-vs-fitted tonemap, shadow map size, etc.
+  Cf. Unity Quality Settings, Unreal scalability `.ini`. Furnace's existing small
+  parameterizations (the tonemap operator enum, bloom's mip-count/intensity) are the seeds.
+- **Feature-detection fallbacks** — query adapter limits/features, pick a variant that the
+  device supports. Furnace **already does this once** (feature-detects the missing
+  `getCompilationInfo` on bun-webgpu). A systematic version would centralize "which variant
+  for this adapter."
+- **Shader permutations / ubershaders** — `#define`-driven variant compilation vs a single
+  branchy shader. Couples to shader composition (`shader-substrate-follow-ons.md` §Shader composition / Stage 2.5 landed
+  the `ShaderSource` core) — `#define`/permutation generation is a deferred follow-on that
+  would ride the same composition machinery.
+- **Dynamic degradation** — drop effects or scale resolution when over the frame budget
+  (dynamic resolution, effect auto-disable). Needs the frame-timing furnace already collects
+  (`stats.gpu.*`) plus a policy.
+
+### Concrete first deferred entries (the seeds)
+
+- **Tonemap operators ACES (Narkowicz) + AgX.** Stage 2 ships **Khronos PBR Neutral
+  (default) + Reinhard (baseline)** behind a `ToneMapOperator` enum built so adding an
+  operator is a trivial WGSL-fn + enum-arm addition. ACES and AgX are held back here.
+  AgX additionally needs its full wrapper verified (log2 range constants) and a
+  Rec.2020↔Rec.709 working-space reconciliation before shipping (a real porting risk —
+  see the Stage 2 tonemap research). These are the first "same effect, more variants"
+  instances.
+
+**Trigger to revisit:** ≥2 viable implementations of the *same* effect competing on
+quality/perf and needing a selection mechanism; **or** a target device that forces
+degradation/fallback; **or** the tonemap enum wanting ACES/AgX added (smallest first
+mover — could be handled inline if it's just two more enum arms, but the *selection /
+tier* framing is what this entry guards). Do **not** build the variant/tier/fallback
+*system* until one of these is real — the per-effect parameterizations (enums, counts)
+are the right *small* shape until then.
+
+**Reference:** `shader-substrate-follow-ons.md` §Shader composition (composition core landed; permutation/`#define` gen would be a follow-on),
+`frame-surface-gaps.md` §Render-state completeness (MSAA off/4× as a tier axis).

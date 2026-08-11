@@ -80,7 +80,8 @@
 // below needs a branch of its own. Naming the model in the STATE is what this
 // extraction can honestly do; `ViewportGesture` stays the 1-D CONTRACT because
 // changing it is a presentation decision with chrome consequences, and that half
-// stays filed (`docs/backlog/editor-and-tooling/segment-is-a-modifier-wearing-a-tool-costume.md`).
+// stays filed (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md`, §"Segment
+// reads as a fifth brush, but it is a modifier on the other four").
 import * as field from "@furnace/core/field";
 import * as geometry from "@furnace/core/geometry";
 import type * as material from "@furnace/core/material";

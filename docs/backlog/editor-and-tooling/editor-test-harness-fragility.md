@@ -8,6 +8,11 @@ process by ~3×. Merged so there is **one place to check whenever a test-orderin
 environment failure appears in `packages/editor/tests/`**. Sections keep their original
 content.
 
+**Absorbed at T5 (2026-08-11):** the last two sections — *`stubDaemon`'s `loadable` should be
+the default* and *`RADIUS_MIN` / `RADIUS_MAX` / `HOLLOW_MIN_M` are pinned by nothing*. Both
+are about what the harness assumes rather than what it can reach: one a stub default that
+makes every test opt in to the normal case, one a set of constants no test pins.
+
 ## bun test single-process fragility: DOM (happy-dom) vs GPU tests interleave badly
 
 **Context.** `bun test` runs every file the invocation covers in ONE shared process.
@@ -566,3 +571,132 @@ baseline-relative one is a claim about the machine, which drifts with it and can
 upgrade / a move to change the gate command / MCP coverage the transcript shape cannot express).
 Add one clause: **a SECOND contamination class of the synchronous kind**, which is the premise
 (5) rests on and the only one of the five that a single new finding could knock out.
+
+
+## `stubDaemon`'s `loadable` should be the default, not an opt-in
+
+`tests/chrome/world-drawer.test.tsx` fakes the daemon with a local `stubDaemon(worlds, opts)`.
+Until the F4.5 holistic gate its `field.load` answered `{}` — a body that does not decode, so
+`loadWorldInto` throws on `res.chunks.map` and returns `failed`. Every Open case in the file
+asserts `inputFor("field.load")`, the REQUEST, which is recorded before the throw, so all of
+them pass over a load that never landed. That is fine for what they test (the gate, the
+filter, the confirm) and it is not fine for anything AFTER the load.
+
+Ruling 5's automatic frame is exactly such an assertion, so the gate round added a
+`loadable?: boolean` option that swaps in the smallest v2 world that decodes, and used it on
+the two new cases. It was added opt-in rather than flipped because flipping the default
+changes what the file's other thirty cases exercise, in the same commit that added one — and
+the docblock on the option says, in bold, that **it should not stay opt-in**.
+
+### Context
+
+The end state is `loadable: true` by default with an explicit `loadable: false` on the cases
+that genuinely want the failing load. As it stands the next person to add an assertion that
+runs after the load gets a pass or a fail for the wrong reason — the load silently did not
+happen — and will not have read the docblock first, because nothing makes them.
+
+Not done in the fix round that filed this: 32 `stubDaemon` call sites in one file, each of
+which has to be re-read to decide whether it wants the decode or the failure, is a
+test-semantics change of its own size and not a comment fix.
+
+The flip is mechanical but not blind. Two things to check per site: whether the case asserts
+anything downstream of `loadWorldInto`'s outcome (those are the ones that change meaning),
+and whether `stub.calls.loadWorld` / `frameWorld` counts appear anywhere that a now-succeeding
+load would move.
+
+### Trigger to revisit
+
+The next time someone adds an assertion to this file that runs AFTER the load — that is the
+case the current default silently answers wrong. A second `loadable: true` call site is the
+same signal.
+
+### Reference
+
+- `packages/editor/tests/chrome/world-drawer.test.tsx` — `stubDaemon`'s `loadable` docblock
+  (the self-declared trap), the `field.load` branch that reads it, and the two cases that pass
+  it today (the ruling-5 frame pair at the end of the file).
+- `packages/editor/src/frontend/lib/world-actions.ts` — `loadWorldInto`, whose `chunks.map`
+  is what throws on the `{}` body.
+- `packages/editor/src/frontend/hooks/useWorld.tsx` — the Open handler, which returns early
+  unless the outcome is `loaded`; this is the branch the default currently skips.
+
+## `RADIUS_MIN` / `RADIUS_MAX` / `HOLLOW_MIN_M` are pinned by nothing
+
+The three brush clamps moved to `packages/editor/src/shared/field-limits.ts` in foundations
+T3b2 Task 5, so the host's clamp and the strip's control bound are now ONE number. No test
+notices when that number changes.
+
+### Context
+
+**Measured, not assumed** (`bun test packages/editor/tests`, 1439 pass / 0 fail at the
+committed state of T3b2 Task 5):
+
+| sabotage | result |
+| --- | --- |
+| `RADIUS_MIN` `0.25` → `0.75` | 1439 pass / 0 fail |
+| `RADIUS_MAX` `4` → `9` | 1439 pass / 0 fail |
+| `HOLLOW_MIN_M` `0.5` → `1.5` | 1439 pass / 0 fail |
+
+Nothing reddens. `tests/chrome/tool-strip.test.tsx` reaches the radius slider by its
+accessible name (`getByLabelText("brush radius")`) and drives it, but never asserts its `min`
+or `max`; the hollow field's `min` is likewise unasserted.
+
+**THE MOVE DID NOT MAKE THIS WORSE — it made it strictly better, and an earlier draft of this
+entry had that backwards.** Before Task 5 there were TWO unpinned copies of each number, one
+in `field-host.ts` (the clamp's home then; `field-tool.ts` since T3d) and one in
+`tool-params.tsx`, with nothing comparing them: a drift in
+either was both unpinned AND able to put the control out of step with the clamp. There is now
+ONE copy. Consolidating **removed** a possible failure (the two disagreeing) and left the
+pre-existing one (nobody notices the single number moved) exactly as it was. Do not read this
+entry as a regression the task introduced.
+
+What remains is worth guarding anyway: `RADIUS_MAX` is the largest brush the editor offers and
+`HOLLOW_MIN_M` is the floor a typed thickness is clamped up to on blur, and both reach a user
+as a native control's own bound.
+
+**Why Task 5 did not add the pin.** Not because its brief put the chrome suites off limits —
+that brief forbade *reshaping* existing assertions, and adding a new case is not a reshape.
+The honest reason is scope: the gap is pre-existing, it is not an instance of the drift class
+that task's thesis was about (there is no second copy to drift from), and the task was already
+carrying six table conversions plus eight carry-forwards.
+
+The pin belongs beside the existing pair in `tests/chrome/tool-strip.test.tsx`, and should
+follow the shape `tests/shared/action-table.test.ts`' three-limits case already documents: a
+VALUE assertion in the shared test cannot catch a re-hardcoded literal, so the coupling is
+held by a RENDERED assertion — read `min`/`max` off the control and compare against the
+literal `0.25` / `4` / `0.5`, deliberately not against the imported constant, since a pin that
+reads the constant makes the number agree with itself.
+
+### Trigger to revisit
+
+Any of:
+
+- **The next task that opens `tests/chrome/tool-strip.test.tsx`** for its own reasons — the
+  pin is three assertions and belongs in that commit rather than its own.
+
+  > **This clause FIRED at foundations T3c and was consciously not taken (2026-08-07).** T3c
+  > Task 1 (commit `d34374d3`) opened that file for a real reason — the material-swatch case became a `toEqual`
+  > over a `toMatchObject` when `setTool` widened to a patch, because the ABSENCE of an
+  > `effect` field is the claim. The pin was not added with it. The reason is a gate rule
+  > rather than a judgement about the pin: the tranche's docs-and-gate task carried a suite
+  > count pinned at 2905/1/0 as its own success criterion, and three new assertions move it,
+  > so adding them there would have been a silent change to the number the tranche was
+  > verified against. The clause stands, and the next opener that is not gate-frozen should
+  > take it.
+- **Either bound changes**, for any product reason. The change itself is the moment to add
+  the guard that would have shown it.
+- **A fourth clamp meets `field-limits.ts`' bar** and moves down. The file's header states
+  the bar; it does not yet state that a moved limit wants a rendered pin, and the third one
+  arriving is when that becomes worth writing.
+
+### Reference
+
+- `packages/editor/src/shared/field-limits.ts` — the three constants and the bar for adding
+  one.
+- `packages/editor/src/field-host/field-tool.ts` — `clampRadius`, and the `hollow` floor in
+  `clampTool` (both now there).
+- `packages/editor/src/frontend/components/shell/tool-params.tsx` — the radius range input's
+  `min`/`max` and the hollow field's `min`, which are where a user meets them.
+- `packages/editor/tests/shared/action-table.test.ts` — *"the three host limits reach the
+  chrome as VALUES, not as prose"*, for the value-pin / rendered-pin pairing this should
+  follow.

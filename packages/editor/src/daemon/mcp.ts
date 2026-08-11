@@ -447,7 +447,8 @@ const advertise = (command: string, schema: z.ZodType): Tool["inputSchema"] => {
  * would be worthless the first time it did.
  *
  * NOT A LOCATOR RE-THROW, and the standing trigger was checked rather than assumed. The
- * `locator-rethrow-primitive-respelled-six-ways` entry fires on a seventh
+ * `core-internal-structure-debt.md` §"One locator re-throw, spelled six times"
+ * entry fires on a seventh
  * catch-and-re-throw-under-a-locator site, and names "T4b/T4c adding locators on the MCP
  * verb boundary" as a second trigger. This edge does neither: it CONVERTS a throw into a
  * value (a tool result an agent reads) rather than re-throwing one, and it adds no locator —

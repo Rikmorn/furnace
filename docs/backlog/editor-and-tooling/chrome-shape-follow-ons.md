@@ -22,7 +22,7 @@ editor-architecture states it precisely, and the cycle trigger has not fired (th
 edges are `import type` or import nothing). (2) The entry's stated COST — `Segmented`'s
 optional `hint` throwing outside a `TooltipProvider` — is untouched, because it is a Radix
 runtime requirement that travels with `ActionTip` wherever the file sits. It is now its own
-entry: `segmented-hint-throws-outside-a-tooltip-provider.md`.
+entry: `editor-chrome-authoring-gaps.md` §"`Segmented`'s optional `hint` throws when there is no `TooltipProvider` above it".
 
 The house position they all sit against: `.claude/rules/clean-code.md` § Cognitive Load —
 *tolerate duplication until the third occurrence* — and the F4.5 chrome's own pattern, which
@@ -229,3 +229,280 @@ take then — the provider stack already exists and `WorldProvider` is the natur
 `docs/reference/editor-architecture.md` §16.8.
 
 ---
+
+## Absorbed at T5 (2026-08-11)
+
+Four more of the same kind, filed between the F4.5 seal and T5: a provider the design
+promised to collapse and which grew instead, and three things written twice. They keep
+their Context, *Trigger to revisit* and *Reference* as written.
+
+
+## The chrome provider the design promised to collapse grew instead
+
+Recorded as a MISS by user ruling at the T3 objectives audit (2026-08-08) — not
+scheduled work. The foundations design said the view-model layer "collapses … the
+chrome's 870-line 11-context provider"; the as-built went the other way:
+`useFieldHostState.tsx` was 878 lines before T3b1, 1,075 after it (ten contexts became
+per-consumer latches, but five values were FORCED into provider-held cells), and
+1,093 at T3d's head — **25% larger than when the programme started**, while every other
+number in the editor shrank.
+
+### Context
+
+The growth is not waste — §21.3 documents the shape honestly (latches + the forced
+cells + two shell-held seams), and T3b2 retired two cells when the tool seam converted.
+But the design's stated payoff inverted and no exit clause ever measured it. The honest
+framing: the LATCH conversion was the real goal (cadence isolation, achieved); the line
+count was a proxy that failed. Whether a real collapse is worth doing is an open
+question, not an obligation.
+
+### Trigger to revisit
+
+- A third forced cell appears (the current five were each individually justified; six
+  starts to look like the mechanism fighting the architecture).
+- Chrome performance work that touches render cadence — the latch layer is where it
+  lives.
+
+### Reference
+
+- `packages/editor/src/frontend/hooks/useFieldHostState.tsx`;
+  `docs/reference/editor-architecture.md` §21.3.
+
+## `Palette.tsx` holds two captured-pointer gestures and wants one hook
+
+The palette's header DRAG and its corner RESIZE are the same gesture written twice. Every
+member of the first has a twin in the second, and two of them are byte-identical modulo the
+ref name:
+
+| move | resize | how close |
+| --- | --- | --- |
+| `type Drag` | `type Resize` | same head (`pointerId`, `fromX`, `fromY`), different payload |
+| `onPointerDown` | `onHandleDown` | same `e.button !== 0` guard, same capture, same "measure once" |
+| `endDrag` | `endResize` | **identical** apart from `drag`/`resize` |
+| `onPointerMove` | `onHandleMove` | same `pointerId` match, same `e.buttons === 0` brace |
+| `onGripKeyDown` | `onHandleKeyDown` | same meta/ctrl/alt guard, same ⇧ step, same `preventDefault` |
+| `NUDGE_KEYS` | `RESIZE_KEYS` | same four keys, different vector names |
+
+The candidate is a `useCapturedGesture<T>(ref)` owning the ref, the pointerdown capture, the
+`pointerId` match, the `buttons === 0` brace and the four release paths — leaving each
+gesture only what differs: what it measures at pointerdown, and what it does with a delta.
+
+### Context
+
+Raised in the F4.5c fix round's quality review and deferred there on purpose, for two
+reasons stated rather than assumed.
+
+**It is the SECOND occurrence, not the third.** `.claude/rules/clean-code.md` § Cognitive
+Load tolerates duplication until the third, and says explicitly that "if you find yourself
+reaching for an abstraction with only two call sites, prefer waiting for a third to confirm
+the shape". Five call-site pairs is a lot of surface to move on a guess about what the third
+gesture will need.
+
+**The timing was wrong.** The extraction would have landed in the same commit as three
+behavioural fixes to those exact handlers (per-axis writes, a render-time size projection, a
+dock guard), immediately before a seal. Mechanism risk on top of a behaviour change, in the
+one file whose gestures nothing else can substitute for.
+
+The named cost of NOT extracting — that the second copy shipped without the first copy's
+tests — is closed. That round added the handle's four missing guard cases
+(`shell.test.tsx`, "the resize handle refuses every gesture the header drag refuses" and
+"…claims the bare arrows and NOTHING else"), each written after the guard was verified
+deletable with the suite still green. So the duplication now costs reading, not coverage.
+
+One nuance a hook has to preserve: the two gestures are NOT symmetric in what they cache.
+The move measures bounds once and the palette cannot change size under it; the resize
+deliberately caches its START SIZE because the palette really is changing size under the
+pointer, and re-reading per event would compound rounding into a drift. A hook that owned
+"measure at pointerdown" generically would have to keep that distinction at the call site.
+
+### Trigger to revisit
+
+**A third captured pointer gesture appears in the chrome** — anything that calls
+`setPointerCapture` and carries state between pointermoves. That is `clean-code.md`'s own
+threshold, and it is the first point at which the shape is confirmed by three users rather
+than guessed from two.
+
+Also worth taking if `Palette.tsx` is being substantially rewritten for another reason: it is
+past 500 lines, and roughly half of that is the two gestures.
+
+### Reference
+
+- `packages/editor/src/frontend/components/shell/Palette.tsx` — the five pairs above; `Drag`
+  and `Resize` at the top, the handlers in the component body.
+- `packages/editor/tests/chrome/shell.test.tsx` — the guard cases for both copies, which a
+  hook would have to keep passing unchanged: the header's at "a drag that loses its pointer
+  capture stops, instead of following the cursor", the handle's at "the resize handle refuses
+  every gesture the header drag refuses".
+- `.claude/rules/clean-code.md` § Cognitive Load — "tolerate duplication until the third
+  occurrence".
+
+## The status line spells ten keycaps the action registry already derives
+
+`src/shared/action-table.ts` carries each row's status line as literal clauses — `"⌫ delete"`,
+`"R rotate ¼"`, `"Esc clears"`, the `"⏎ "` lead-in. Ten of them lead with a cap that
+`src/action-registry/keys.ts`' `keycap()` derives independently from the binding row. Edit a
+binding and the menu, the tooltip and the shortcuts overlay all follow; the status bar does
+not.
+
+### Context
+
+Foundations T3b2 Task 5 was asked to adjudicate this and reached verdict **(ii): a real
+duplication of an owned fact**, not prose legitimately spelling its own keys. The verdict is
+written into `action-table.ts` beside the `text()` helper; this entry is the deferred half.
+
+**Measured at T3b2 Task 5 head** by walking `EFFECT_ROWS` (plus `deriveModifierParts`) +
+`GESTURE_ROWS` (both `statusLine` and `readoutLine`) + both `TRANSIENT_STATUS` entries, and
+matching each clause's lead token against every `keycap(d.keys)` in `ACTION_DESCRIPTORS`.
+Re-run it rather than trusting these numbers.
+
+**THE COUNTING RULE, because "distinct clause" is ambiguous and a first pass got it wrong:** one
+entry per clause **as the table writes it** — a text fragment is its text, and a slot is its
+lead-in plus the slot NAME, so a slot counts once however many values it can take. **38
+occurrences, 27 distinct.** (Expanding `sessionSteer` to the two values `SESSION_STEER` can give
+it would read 28; the first pass published 26, which is wrong under either rule — it collapsed
+`sessionSteer` and `segmentMeasure` into one entry because both are slots with no lead-in.)
+
+| lead cap | distinct clauses | the action that also derives it |
+| --- | --- | --- |
+| `Esc` | 4 — `Esc clears` · `Esc drops the point` · `Esc cancels` · the `Esc ` lead-in | `session.escape` |
+| `⏎` | 1 — the `⏎ ` lead-in | `session.confirm` |
+| `⌫` | 1 — `⌫ delete` | `edit.delete` |
+| `G` | 1 — `G grab` | `edit.grab` |
+| `F` | 1 — `F frame` | `view.frame` |
+| `R` | 1 — `R rotate ¼` | `session.rotate` |
+| `X` | 1 — `X swap` | `tool.swapEffect` |
+
+(`Esc clears` is ONE distinct clause carried by three gesture rows — box, material and void —
+which is why the occurrence count is higher than the distinct one.)
+
+Ten of 27 distinct clauses. The other seventeen are NOT duplications and must not be swept in
+with them: `LMB …` and `click ×2 …` name a mouse gesture rather than a key, and `[ ] radius`,
+`⇧ smooth`, `⌃ dig` / `⌃ fill`, `← → ↑ ↓ nudge` and `drag ghost move` are canvas-owned keys
+the registry does not carry at all. That split is exactly what the retired non-derivation
+decision got half right (editor-architecture §22.2): it claimed the whole line was
+canvas-owned vocabulary, and half of it is.
+
+**Why T3b2 did not close it.** `keycap()` lives in `src/action-registry/`, which sits ABOVE
+`src/shared/`. A value import from the floor into the registry reverses the editor's one-way
+import arrow and `tests/no-chrome-leakage.test.ts` refuses it. Inverting a layer to
+deduplicate ten single characters is the wrong trade.
+
+### The shape that would close it, and what it costs
+
+Give `StatusFragment` a third kind that names an ACTION ID and lets the CHROME resolve the
+cap — `{ kind: "keycap", action: ToolActionId, gives: "delete" }`, rendered by the adapter as
+`${capOf(byId(action))} ${gives}`. The arrow stays correct: the table already holds action
+ids it cannot resolve (`FamilyRow.arm` / `.cycle`), and `tests/shared/action-table.test.ts`
+already pins that they resolve in the registry.
+
+The cost is the reason it is filed rather than done. `StatusFragment`'s own TSDoc makes the
+two-kind count its whole claim — *"TWO kinds, and the count is the model's whole claim … There
+is no third shape — no conditionals, no nesting, no formatting directives — which is what
+makes a row's line readable as prose in the source."* A third kind is a deliberate retreat
+from that, and it wants its own deletion pass: `ToolActionId` would have to widen past the
+seven tool verbs to reach `edit.delete` / `view.frame` / `session.*`, which is most of the
+registry arriving in the floor's type vocabulary. There may be a better answer (moving the
+BINDING rows to `shared/` and leaving only the schemas above, for instance) and this entry
+should not prejudge it.
+
+### Trigger to revisit
+
+Any of:
+
+- **A binding in the table above changes its keycap** — the seven actions listed are the
+  exposure, and `session.escape` is the one with four clauses riding on it.
+- **A new status clause is written naming a key that HAS a binding.** Adding an eleventh is
+  the moment the cost of not deciding lands on someone.
+- **`action-registry/`'s layer is revisited** for any other reason — the MCP projection
+  (T4/T5 of the foundations program) is the likely one, and moving the binding rows is only
+  cheap while there is one consumer.
+
+### Reference
+
+- `packages/editor/src/shared/action-table.ts` — the verdict, beside `text()`; `EFFECT_ROWS`,
+  `GESTURE_ROWS`, `TRANSIENT_STATUS` are the clauses.
+- `packages/editor/src/action-registry/keys.ts` — `keycap()` and `NAMED_CAPS`.
+- `packages/editor/src/action-registry/descriptors.ts` — the seven bindings.
+- `packages/editor/tests/no-chrome-leakage.test.ts` — the arrow that forbids the direct fix.
+- `docs/reference/editor-architecture.md` §22.2 — the full-derivation decision this is the
+  residue of.
+
+## `sameTool` and `toolsEqual` are one predicate written twice, and `shared/` can hold it
+
+`field-host/field-tool.ts`'s `sameTool` (`field-host.ts`'s until T3d) and
+`frontend/lib/field-host-mirrors.ts`'s
+`toolsEqual` are the same function. As of foundations T3b2 Task 6 their `sameMask`/
+`masksEqual` halves are byte-identical including the comment, and the two outer functions
+differ only in style. Nothing pins that they agree.
+
+### Context
+
+The standing justification is that the chrome may not take a VALUE edge to `field-host.ts`
+(the barrel carries core, and a second core in the chrome bundle is what
+`tests/frontend-no-engine-leakage.test.ts` exists to prevent). That is true and it is why
+the comparator cannot live in `field-host/` — but it answers a narrower question than it
+appears to, because it says nothing about the third option.
+
+**`shared/` can hold it.** `FieldTool` is a plain structural type whose only non-inline
+member, `BrushEffect`, already lives in `shared/field-brush.ts`. `shared/` is exactly where
+Task 5 of this same slice put `HOLLOW_MIN_M`, `RADIUS_MIN` and `RADIUS_MAX`, for exactly
+this reason, and the layer arrow (`frontend/ → field-host/ → shared/`) makes it importable
+by both sides by construction.
+
+### Why it was not done at T3b2
+
+Second occurrence, so tolerate-until-three applies, and the duplication is the SAFE kind:
+both copies carry the destructure `satisfies Record<string, never>` backstop, so a new
+`FieldTool` field fails to compile in both places at once. What the backstop does NOT cover
+is a comparison someone DELETES from one copy — that is now pinned per-field on the host
+side (`tests/field-host-headless.test.ts`, "the value guard lets a change to any ONE
+compared field through") and per-field on the chrome side
+(`tests/field-host-mirrors.test.ts`), which is the cheaper half of the same protection.
+
+The stakes did rise at T3b2: `sameTool` now gates a PUBLISH, so a weakened host-side compare
+means the chrome is never told the brush changed, where before a weakened chrome-side
+compare only cost a re-render.
+
+### What moving it would mean
+
+`FieldTool` itself would want to move to `shared/` with it, or the shared module would
+type-import it from `field-host/` — which reverses nothing (a type import is erased) but is
+worth deciding deliberately rather than by accident. Deleting one copy is the point; keeping
+two behind a shared third would be worse than today.
+
+### Trigger to revisit
+
+A third copy appearing, `FieldTool` gaining a field (which is when both backstops fire and
+somebody edits both files anyway), or any tranche already moving type surface into `shared/`.
+
+#### The third clause FIRED at foundations T3c Task 5 (2026-08-07), and was still declined
+
+The tool registry landed as a NEW floor module (`src/shared/tool-registry.ts`), so a tranche
+really did move type surface into `shared/`. Two things kept the comparator where it is:
+
+- **The type surface that moved was not `FieldTool`'s.** The new module declares its own
+  four types and type-imports `MaterialTable` and `ParamId`; it neither carries `FieldTool`
+  nor makes carrying it any cheaper. The trigger clause was written to catch "someone is
+  already in `shared/` deciding where `FieldTool` lives" — nobody was.
+- Both backstops still hold and the per-field pins on both sides still hold, so the
+  duplication is still the SAFE kind this entry describes.
+
+**A first draft of this note claimed the move needs a test edit. It does not**, and the
+correction matters because the false claim would have made the work look more expensive than
+it is: `tests/field-host-mirrors.test.ts:33` imports `toolsEqual` BY NAME from
+`frontend/lib/field-host-mirrors.ts`, so `export { toolsEqual } from "../../shared/…"` there
+satisfies it with zero test edits and ONE implementation. That is also not what this entry
+calls *"worse than today"* — that phrase is about keeping TWO implementations behind a shared
+third, and a re-export is one implementation plus an alias. Cost is not the blocker; the
+blocker is that nobody was making the `FieldTool` placement decision.
+
+**Sharpened trigger, replacing the third clause:** a tranche that moves `FieldTool` itself
+into `shared/`. A new floor module on its own is no longer enough — T3c proved that clause
+fires without buying anything.
+
+### Reference
+
+- `packages/editor/src/field-host/field-tool.ts` — `sameMask` / `sameTool` (now there)
+- `packages/editor/src/frontend/lib/field-host-mirrors.ts` — `masksEqual` / `toolsEqual`
+- `packages/editor/src/shared/field-limits.ts` — the Task 5 precedent
+- `docs/reference/editor-architecture.md` §22.8, "Two comparators, deliberately"

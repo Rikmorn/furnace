@@ -86,7 +86,8 @@ function stubDaemon(
 		 *  on the cases that genuinely want the failure — otherwise the next person to add
 		 *  an assertion AFTER the load gets a pass or a fail for the wrong reason and will
 		 *  not have read this docblock first. FILED, with the per-site checks the flip
-		 *  needs: `docs/backlog/editor-and-tooling/world-drawer-stub-loadable-should-be-the-default.md`. */
+		 *  needs: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`,
+		 *  §"`stubDaemon`'s `loadable` should be the default, not an opt-in". */
 		loadable?: boolean;
 	} = {},
 ) {

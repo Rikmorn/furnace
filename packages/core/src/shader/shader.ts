@@ -154,7 +154,8 @@ export function create<L extends LayoutSchema = LayoutSchema>(
 
 /**
  * Fetch WGSL from `url` and compile it. Does **not** resolve `// @include`
- * (deferred — see `shader-preprocessor.md`) and does not cache by URL (the
+ * (deferred — see `shader-substrate-follow-ons.md` §"Shader composition") and
+ * does not cache by URL (the
  * browser HTTP-caches the bytes; reuse the returned handle to dedup). Setup-loud.
  *
  * Pass `opts.layout` to declare the shader's `@group(1)` uniform-buffer schema

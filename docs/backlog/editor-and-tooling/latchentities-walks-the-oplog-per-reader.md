@@ -19,7 +19,7 @@ exactly the class the four named assumptions are watched for.
 
 - Entity counts or op-log depth grow past toy scale (any F5 "scale" work).
 - A public entity-record reader lands
-  (`docs/backlog/engine-architecture/field-entity-record-reader.md`) — the fix likely
+  (`docs/backlog/engine-architecture/field-read-surface-gaps.md` §no public reader for a generator entity record by id) — the fix likely
   rides it (snapshot or memoized entity list at the notify site).
 
 ## Reference

@@ -35,7 +35,7 @@ The live descendants, if either want returns: live preview against the FIELD is 
 `FieldHost` reconfigure session (`editor-architecture.md` §13, §17.3), and a hierarchy over
 generator entities — a different object model — would start from the entities palette
 (§17.2/§17.7). The general transform-hierarchy question stays open as
-`engine-architecture/transform-hierarchy-helpers.md`.
+`engine-architecture/unbuilt-tier-2-modules.md` §Transform-hierarchy helpers.
 
 (Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel
 speed-trim; `field-host/camera-control.ts` `flyLook`/`flyMove`.)
@@ -210,3 +210,116 @@ during M5B" keep their own triggers.
 
 - As-built M5A/M5B architecture: the sections describing it were deleted from `docs/reference/editor-architecture.md` when the surface was (F4.5a chrome, T2 daemon + core); git history is the record. What stands today: §9 (the inspector module, which survived intact) and §16–§18 (the overlay cockpit that replaced the rest).
 - SOTA research (picking, gizmo math, form-engine): `docs/research/2026-06-11-editor-m5-inspector-sota.md`
+
+## Viewport pointer gestures that are not press-drag-release (absorbed at T5, 2026-08-11)
+
+Two gestures in the viewport that do not behave the way every sibling gesture does. Filed
+long after M5B but they are the same surface this file tracks, so they live here.
+
+
+### A box selection is two clicks, not a press-drag-release
+
+The `box` cell-selection gesture sets its anchor on the pointer PRESS and takes its second
+corner on a separate later press. `onPointerUp` has no region branch at all, so
+press-drag-release — the gesture every other tool in the category uses for a box — does
+nothing. The `material` and `void` floods are one click each, which is right for them.
+
+This is a GESTURE-ergonomics item, not a feedback one. The feedback half is closed: F4.5b
+Task 13 made a flood selection draw one translucent cube per selected cell (surface-first,
+capped at `SELECTION_DISPLAY_CAP = 65 536`) instead of an AABB outline the camera is standing
+inside, and F4.5b Tasks 8–9 made the box gesture SAY what it is — the status keymap line
+reads `click ×2 spans a region` and an un-anchored corner draws a cross at the cursor. The
+mechanism underneath is untouched.
+
+#### Context
+
+Carried out of two gate sets that both landed on the same finding — the F2b gate's
+"selection feedback overhaul" (item 1) and the F3a gate's "box/wand selection behaves oddly"
+(item 3) — and re-filed at the F4.5 seal when those sets were consumed into the charter.
+F4.5b deliberately made the two-click mechanism LEGIBLE rather than changing it: changing a
+selection gesture immediately before a stage gate would have added mechanism risk the charter
+never priced.
+
+The shape, if it is taken: a press that arms the anchor, a move that previews the region
+(the live snapped-region preview already exists), and a release that either completes the
+region or — under a threshold, exactly like `DRAG_THRESHOLD_PX` on the pointer tool — falls
+back to leaving the anchor armed so the existing two-click flow still works. Both mechanisms
+can coexist; the cost of the drag one is that the canvas is also where a camera orbit lives,
+so the arbitration has to be written down (`field-host/field-pick.ts` is the precedent for
+that kind of ordering).
+
+#### Trigger to revisit
+
+**The first gate complaint about selection after F4.5.** The F4.5 holistic gate walked box
+select as part of its spine and passed without raising it, which is evidence the legibility
+work bought enough — but it is one user on one walk, and this item was raised at two previous
+gates by the same user.
+
+#### Reference
+
+- `packages/editor/src/field-host/field-selection.ts` — `boxAnchor`, which stayed in
+  `field-host.ts` deliberately at foundations T3c because by EDGES it is the selection
+  overlay's rather than the gesture cluster's — and then left WITH the selection cluster at
+  T3d, which is that reasoning cashed out. **The press branch and the `onPointerUp` that has no region case both
+  MOVED** to `packages/editor/src/field-host/field-machine.ts` (T3c, 2026-08-07): the four
+  pointer handlers in `field-host.ts` are delegates now, and the anchor reaches the machine as
+  the `setBoxAnchor` / `boxCorner` deps. So this change is a two-module edit today — grep by
+  name, not by line.
+- `packages/editor/src/field-host/viewport-cursor.ts` — the `cross` mark an un-anchored
+  corner draws; `shell/status-keymap.ts` for the line that names the gesture.
+- `packages/editor/src/field-host/field-pick.ts` — the press/threshold/drag arbitration the
+  pointer tool already uses, and the precedent this would follow.
+- `docs/reference/editor-architecture.md` §12 (selection as a tool class), §17.1 (the pointer's
+  press arbitration), §17.7 (cell-level selection display).
+
+### A CREATE session's ghost cannot be dragged — only a committed entity can
+
+`FieldHost.beginMove` takes an `entityId`, and `pointerPress` arms a drag only on the
+ALREADY-SELECTED committed entity. So the region of a live CREATE session — the stamp that
+has not been committed yet, which is the thing the original finding was filed against — moves
+only by the arrow keys or by the session card's d-pad inside its Advanced disclosure. Its
+initial position comes from the two region-draw clicks and nothing after that is
+mouse-driven.
+
+#### Context
+
+The F3a gate's finding was "the nudge buttons aren't great, i think it should be mouse
+driven". F4.5b Task 5 built the mouse-driven half for COMMITTED entities and it is a
+complete mechanism: press the selected entity, travel past `DRAG_THRESHOLD_PX` and it becomes
+a move; `G` grabs it with no button held; the gizmo's arms constrain it to one axis; `R`
+turns it; `⏎` drops it; `Esc` reverts. A move IS a reconfigure session, so nothing reaches
+the op log until the drop and a cancelled move costs nothing. The arithmetic in
+`field-host/field-move.ts` is anchored rather than incremental, so a cursor returned to the
+press point returns the region exactly.
+
+None of that is reachable from a CREATE session, and the asymmetry is the item: two ways to
+position a region depending on whether it has been committed yet.
+
+The work is smaller than it looks and the reason it was not done is scope rather than
+difficulty — `field-move.ts` is pure and takes a region, not an entity; what a CREATE session
+lacks is the ARBITRATION (a press inside a live ghost has to beat the region-draw click that
+the same press currently means) and a decision about what `Esc` does mid-drag when the
+session itself is also cancellable.
+
+#### Trigger to revisit
+
+**The next time region positioning is worked at all** — or the first gate complaint about
+placing a stamp. It should not be taken as an isolated item: it wants deciding together with
+the *A box selection is two clicks, not a press-drag-release* section, since both are the same question about what a press
+inside the canvas means while something is armed.
+
+#### Reference
+
+- `packages/editor/src/field-host/field-move.ts` — pure, anchored, already region-shaped.
+- **Paths corrected 2026-08-07 (foundations T3c).** `beginMove`, `nudgeStampRegion` and the
+  pending-stamp region-draw arm are no longer in `field-host.ts`: they live in
+  `packages/editor/src/field-host/field-machine.ts`, together with the whole session/gesture
+  state this entry would have to change. `pointerPress` DID stay in `field-host.ts` through
+  T3c — and at T3d became what it always was: it is `picking.press` in
+  `packages/editor/src/field-host/field-picking.ts`, and the machine still calls it as a
+  dep. Grep by name — the extraction opened a
+  ~1,000-line hole and every line number below it drifted by a different amount.
+- `packages/editor/src/frontend/components/shell/session-card/AdvancedSection.tsx` — the d-pad
+  that is the current answer.
+- `docs/reference/editor-architecture.md` §17.3 (move as a reconfigure session), §17.8 (the
+  pending-stamp arm and region-draw entry).

@@ -577,7 +577,7 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   (`fill-tool-solid-volume-surprise.md`) was resolved in F2b — stamps + hollow fill +
   the filled kit ghost (§12). The F2b gate's deferred remainder was consumed into the F4.5
   stage and is discharged except for one item, now its own entry:
-  `docs/backlog/editor-and-tooling/box-select-is-two-clicks-not-a-drag.md`.
+  `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md` §"A box selection is two clicks, not a press-drag-release".
 - **Remesh worker** (`frontend/field-worker.ts` + `field-host/field-protocol.ts` /
   `field-host/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
@@ -783,7 +783,7 @@ F2b stamp-session machinery end to end.
 - **Deferred UX set** — mouse-driven region move, an in-viewport pointer/select tool, and
   box/wand selection feel. All three were taken by the F4.5 stage: the pointer tool and the
   committed-entity move shipped (§17.1, §17.3), and what is still owed is two entries —
-  `create-session-ghost-cannot-be-dragged.md` and `box-select-is-two-clicks-not-a-drag.md`.
+  `editor-M5B-viewport-interaction.md` §"A CREATE session's ghost cannot be dragged" and `editor-M5B-viewport-interaction.md` §"A box selection is two clicks, not a press-drag-release".
 
 ## 14. One Field F3b — scatter authoring, placed props, and two tools of its own (sealed 2026-07-25)
 
@@ -1064,7 +1064,7 @@ mind.
   stays excluded: a higher chunk reads down into the dirty one only at its own bottom row,
   i.e. only when it is already a 26-neighbour. The halo's sufficiency for the BOUNDED probes
   is lattice-dependent and filed:
-  `docs/backlog/editor-and-tooling/analyzer-reanalysis-halo-cellsize-coupling.md`.
+  `docs/backlog/editor-and-tooling/field-host-internals.md` §"Analyzer re-analysis halo assumes every bounded probe reach stays under one chunk".
 - **Serialized dispatch, and it is load-bearing.** `self.onmessage` re-enters per message
   regardless of whether the previous one settled, and `verify` suspends twice (the bundle
   import, then inside `analyzerVerify`, which awaits `createWorld` BEFORE reading the store).
@@ -2720,7 +2720,7 @@ prop, and that one import was the only edge reaching out of the control library 
 chrome — which D-24's scope claim (`components/ui/` is the one place a raw control may be
 written) depends on not existing.
 
-**What that bought, stated precisely, because it is less than "`ui/` is now a leaf".** The move relocated the trio's edges into the library rather than removing them: `ui/tips.tsx` has FOUR outward edges (`../../hooks/useRovingList.tsx`, `../../lib/actions.ts`, `../../lib/notify-store.ts`, `../../lib/cn.ts`) where every other file under `ui/` has exactly one (`cn.ts`), so `ui/`'s transitive closure is unchanged. What it removed is the edge pointing at `components/` — the one a reader follows when asking whether the control library may be depended on. No cycle exists: `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and `actions.ts`'s edges back into `components/` and `hooks/` are all `import type`. The `byId` edge is the one to watch — the only value import into `ui/` that is not `cn` — and a future VALUE import in `actions.ts` reaching anything under `ui/` is what would close the loop. One cost of the old back-edge also survives the move untouched: `Segmented`'s optional `hint` still throws outside a `TooltipProvider`, tracked in `docs/backlog/editor-and-tooling/segmented-hint-throws-outside-a-tooltip-provider.md`.
+**What that bought, stated precisely, because it is less than "`ui/` is now a leaf".** The move relocated the trio's edges into the library rather than removing them: `ui/tips.tsx` has FOUR outward edges (`../../hooks/useRovingList.tsx`, `../../lib/actions.ts`, `../../lib/notify-store.ts`, `../../lib/cn.ts`) where every other file under `ui/` has exactly one (`cn.ts`), so `ui/`'s transitive closure is unchanged. What it removed is the edge pointing at `components/` — the one a reader follows when asking whether the control library may be depended on. No cycle exists: `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and `actions.ts`'s edges back into `components/` and `hooks/` are all `import type`. The `byId` edge is the one to watch — the only value import into `ui/` that is not `cn` — and a future VALUE import in `actions.ts` reaching anything under `ui/` is what would close the loop. One cost of the old back-edge also survives the move untouched: `Segmented`'s optional `hint` still throws outside a `TooltipProvider`, tracked in `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` §"`Segmented`'s optional `hint` throws when there is no `TooltipProvider` above it".
 
 The wrappers are a PAIR and
 which one a control gets is decided by ONE fact — can the user reach it?
@@ -3625,7 +3625,7 @@ a drifted copy would not merely misdescribe the clamp but make the control refus
 host accepts. `HOLLOW_STEP_M` went the other way and was **deleted** rather than moved: it was
 `LATTICE` spelled again, and the hollow field now reads the lattice directly. **Nothing pins
 the three** — sabotaging each reddens no test in the package (measured) — which is filed at
-`docs/backlog/editor-and-tooling/the-brush-clamp-bounds-are-pinned-by-nothing.md`.
+`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` §"`RADIUS_MIN` / `RADIUS_MAX` / `HOLLOW_MIN_M` are pinned by nothing".
 
 **Measured, not assumed:** Tailwind v4's automatic source detection **does** scan
 `src/shared/`. With `STRIP_PARAMS_MIN`'s four container-query classes present only in
@@ -4020,7 +4020,7 @@ status bar's keymap line, whose clauses spell their own keys as row text (`⌫ d
 cap `keycap()` also derives. It is a real duplication, measured and adjudicated rather than
 assumed, and it is open because `keycap()` lives ABOVE the floor those rows sit on — closing it
 would reverse the import arrow. §22.7 and
-`docs/backlog/editor-and-tooling/status-line-keycaps-restate-the-registry.md`.
+`docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"The status line spells ten keycaps the action registry already derives".
 
 ### 22.7 As built — the six become derivations (Task 5)
 
@@ -4103,7 +4103,7 @@ member ref (caught by ten cases across the package), and the session verbs swapp
 adapter.
 
 **Two residues were adjudicated rather than closed**, both filed:
-`status-line-keycaps-restate-the-registry.md` (the status line's own keycap clauses, measured
+`chrome-shape-follow-ons.md` §"The status line spells ten keycaps the action registry already derives" (the status line's own keycap clauses, measured
 and stated once in §22.6 — a real duplication, but `keycap()` lives ABOVE the floor and the
 fix that keeps the arrow costs `StatusFragment`'s two-kind model) and
 `family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reached the host directly and
@@ -4153,7 +4153,7 @@ this duplication is the safe kind: both carry the destructure `satisfies Record<
 never>` backstop, so a new `FieldTool` field fails to compile in both places at once. What
 the backstop cannot catch — a comparison someone DELETES from one copy — is covered per-field
 on both sides instead. The move is filed:
-`docs/backlog/editor-and-tooling/one-tool-comparator-in-shared.md`.
+`docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"`sameTool` and `toolsEqual` are one predicate written twice".
 
 **What the chrome lost.** Six cells became four (`gesture`, `flags`, `filters`, `verifying`);
 three shell-held seams became two (`toolError`, `flags`); ten per-consumer latches became
@@ -4185,7 +4185,7 @@ which is the change stated as data.
    can paint. It is not the right PRESENTATION: a control that is permanently dead should
    say so rather than absorb clicks in silence, and that is a visible-affordance question
    for the surfaces, not for this seam. Filed rather than built here —
-   `docs/backlog/editor-and-tooling/brush-controls-inert-without-an-engine.md`.
+   `docs/backlog/editor-and-tooling/chrome-legibility-gaps.md` §"The brush controls are permanently inert with no engine".
 3. **Every `setTool` that changes something reaches every reader.** That is the point; it is
    also the delta with the widest surface, since it puts a push on a path that had none.
 
@@ -4530,7 +4530,7 @@ exclusive five-member list, `ToolStrip` still compensates at render time, and `a
 still walks a one-dimensional ring over two-dimensional state. Changing the type is a
 chrome-visible decision with consequences for the keyboard ring, the flyout and `armedIndex` —
 a MOVE task is the wrong place to change a contract
-(`docs/backlog/editor-and-tooling/segment-is-a-modifier-wearing-a-tool-costume.md`, whose
+(`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` §"Segment reads as a fifth brush, but it is a modifier on the other four", whose
 state half T3c closed and whose presentation half it did not).
 
 ### 23.7 The T3 exit, measured at T3c
@@ -4744,7 +4744,7 @@ each at source with the words "prune tranche" — **eight sites across six files
 Task-6 review found there was no `docs/backlog/` entry for any of them, plus three more items
 (the `boxCorners` move, `field-host.ts`'s tombstone density, the `~N lines` hint staleness)
 with no record at all. That is now
-`docs/backlog/editor-and-tooling/field-host-prune-tranche.md`, which lists the eight sites so
+`docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune tranche", which lists the eight sites so
 the two records cannot drift, and carries one shape the code-quality review surfaced:
 `field-world.ts`' seven pure-read verbs need `{ substrate }` and nothing else, so a
 world-lifetime / chunk-geometry split is available at 16 deps + 1 dep. Not taken — ~150 lines
@@ -4778,7 +4778,7 @@ put three findings to the user; the rulings are decisions of record:
   ~870-line chrome provider would collapse; `useFieldHostState.tsx` is 1,093 lines at
   head — the latch conversion (the real goal, achieved — §21.3) grew the file it was
   supposed to shrink. Not scheduled as work; recorded at
-  `docs/backlog/editor-and-tooling/usefieldhoststate-collapse-inverted.md`.
+  `docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"The chrome provider the design promised to collapse grew instead".
 - **The typed `furnace.*` vendor-key namespace rides T4.** Built at T1b, deleted at T2
   as a scene orphan, never re-typed — a silent regression against the schema-boundary
   design. Ruling: re-filed for T4, where the JSON-Schema projection gives the type its
@@ -4844,15 +4844,17 @@ that claimed it.
 rather than from memory.** Two DELETED — `family-member-picks-bypass-the-dispatch-funnel.md`
 (Task 1) and `field-brush-shape-numeric-validation.md` (Task 3). Two NARROWED rather than
 closed, each retitled to its residue and re-measured at head:
-`oplog-parse-numeric-interior-validation.md` is now "`parseOps` cannot resolve a class id —
+`field-reconfigure-and-parse-edges.md` §"`parseOps` cannot resolve a class id" is now that —
 it has no `MaterialTable`" (the half the seam genuinely cannot answer without a table it does
 not take), and `oplog-group-apply-is-not-a-transaction.md` is now "Pass 2 of a group apply
 does not roll the store back" (clause 5's stated boundary). **THREE FILED**, all surfaced
 mid-tranche and left as findings rather than absorbed:
-`field-artifact-four-codecs-one-file.md` (four serialization formats in one file, found while
-working in `artifact.ts`), `locator-rethrow-primitive-respelled-six-ways.md` (the
+`core-internal-structure-debt.md` §"`field/artifact.ts` is four codecs in one file"
+(four serialization formats in one file, found while working in `artifact.ts`), the same
+file's §"One locator re-throw, spelled six times" (the
 catch-and-relocate convention Task 5 generalised exists as six hand-written copies, already
-diverging) and `reconfigure-empty-evaluation-leg-unheld.md` (Task 5 pinned one of the two
+diverging) and `field-reconfigure-and-parse-edges.md`
+§"`reconfigureGenerator`'s empty-evaluation leg" (Task 5 pinned one of the two
 failure classes `reconfigureGenerator`'s `@throws` names, not both). AGENTS.md asks that
 end-of-tranche surfaced findings be summarised so the user can decide follow-ups; this is that
 list, and it stood at one until the count was taken from the diff.
@@ -5172,7 +5174,8 @@ timer instead of telling it the daemon is gone; unreachable today, live the day 
 a restart). **Three appended to** rather than duplicated:
 `editor-test-harness-fragility.md` (the SDK's per-process cost, the eliminations, and the three
 programme-level fixes), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
-parameters), and `locator-rethrow-primitive-respelled-six-ways.md`, whose standing trigger was
+parameters), and `core-internal-structure-debt.md`
+§"One locator re-throw, spelled six times", whose standing trigger was
 **checked and did not fire** — the MCP edge converts a throw into a value rather than
 re-throwing one and adds no locator, so it is still six sites, with T4c's mutation verbs named
 as the clause's remaining live half. **One re-cited**: `world-verb-follow-ons.md`'s
@@ -5554,10 +5557,13 @@ review's observation that they capture only the store, taken because the caps an
 truncation arithmetic are the logic most worth asserting exactly, and they were reachable only
 through a 2 100-record fixture. `field-capture.ts`'s `capturePixels` is the precedent and its
 docblock the argument. `lint` takes its `tolerance`, so the contact rule is assertable at more
-than the editor's one cell size. **The entity list is still unbounded** where the prop scan is
-capped twice — a payload-size risk rather than a frame-budget one, whose fix is a shape
-decision rather than a slice; filed with its trigger at
-`docs/backlog/editor-and-tooling/session-query-entities-list-is-unbounded.md`.
+than the editor's one cell size. **The entity list was still unbounded at T4c** where the prop
+scan is capped twice — a payload-size risk rather than a frame-budget one, whose fix was a
+shape decision rather than a slice. It was filed at the time and is now **closed**: T5 split
+`{about:"entities"}` down to id + generator + footprint with a top-level `entityTotal`, and
+added an `{about:"entity", entityId}` arm carrying what the fat row carried, for one entity.
+The split IS the size answer — no numeric cap was added anywhere, because a cap would need a
+measurement nobody has taken.
 
 ### 27.3 What is armed, who is here, and one Esc (Task 5)
 
@@ -5820,18 +5826,28 @@ edge's throw.
 **Two gaps recorded rather than closed.** `generate` advertises `params` as a free-form object
 because that is what `dispatch` enforces, and an agent has no route to a generator's
 `paramSchema` — `listGenerators` is a `FieldHost` method and reaching it is a seam plus a tenth
-tool, not an advertisement (`agent-cannot-read-generator-params`, with the gate walk as its
-trigger). Mitigated in the same commit: every param has a default, so a params-free call is
-complete, and `generatorById` now names the registered ids in its refusal. The second is the
-zero-direction gap above.
+tool, not an advertisement (filed at T4c as `agent-cannot-read-generator-params`, with the gate
+walk as its trigger). Mitigated in the same commit: every param has a default, so a params-free
+call is complete, and `generatorById` now names the registered ids in its refusal. The second is
+the zero-direction gap above. **The first gap is since closed** — T5 gave `session_query` an
+`{about:"generators"}` arm relaying `FieldHost.listGenerators()` (id, name, param schema,
+defaults, `placesProps`, `usesSeed`), which is the read this paragraph says the agent lacked; a
+tenth tool stayed declined.
 
-**The cull is stated — then re-ruled.** `core-zero-consumer-module-exports` carries the
+**The cull is stated — then re-ruled.** `core-zero-consumer-module-exports` carried the
 projected vocabulary — what the nine rows advertise and what they relay back. As written at
 T4c the entry framed T5's job as subtraction (everything the list does not name = a deletion
 candidate); the T5 opening discussion (2026-08-11) retired that rule as too extreme — core is
 a capability library for unknown consumers, and the door is one consumer, not the definition
-of the surface. T5 instead runs a keep-by-default classification audit (keep / cookbook debt /
-delete-with-a-per-name-argument); the ruling and criteria live in the entry. What the door's
+of the surface. T5 instead ran a keep-by-default classification audit (keep / cookbook debt /
+delete-with-a-per-name-argument). The ruling's durable statement is
+`docs/learnings/seals/README.md` §Writing a seal — an orphaned name is "a candidate for
+JUDGEMENT, not for the bin", recorded "to feed a later classification audit, **never to trigger
+automatic deletion**" — and T5 Task 7's audit is its resolution: 418 exported names, 161
+zero-consumer, **150 keep / 10 cookbook-debt / 1 delete**, with the surviving debt at
+`docs/backlog/engine-architecture/cookbook-debt-kcc-collision-events-shader-composition.md`
+and the outcome recorded at `docs/reference/core-modules.md`. The entry itself is closed and
+deleted, its job done. What the door's
 list still establishes: it projects no renderer, camera, material, shader, binding,
 post-effect, physics or mesh vocabulary at all — so for those names it is simply silent
 evidence, neither protection nor deletion warrant.
@@ -5874,11 +5890,11 @@ declared order) when the mechanism is `stack.pop()` over seven. All four are cor
    them is a host seam plus a tenth tool rather than an advertisement. Mitigated in the same
    commit — every param has a default, so a params-free call is complete, and `generatorById`
    names the registered ids in its refusal — so the world an agent builds on defaults alone
-   is a real world. **This is the one place clause 1's "builds a world" story is thinner than
-   it reads.** Filed with the walk itself as the trigger:
-   `docs/backlog/editor-and-tooling/agent-cannot-read-generator-params.md`. If the driving
-   agent reached for a param it could not name, that entry becomes a slice; if it built on
-   defaults, the gap is theoretical.
+   is a real world. **This was the one place clause 1's "builds a world" story was thinner than
+   it read.** Filed with the walk itself as the trigger — and **closed at T5** before the walk
+   adjudicated it: `session_query` gained an `{about:"generators"}` arm relaying every
+   generator's id, name, param schema, defaults, `placesProps` and `usesSeed`, so an agent can
+   now read the params it composes with.
 2. **Nobody has measured a daemon that has actually served MCP traffic.** The SDK's measured
    per-process cost was removed from the TEST process by moving construction into a spawned
    probe; the production daemon still constructs a `Server` and a transport **per POST**
@@ -5911,7 +5927,7 @@ declared order) when the mechanism is `stack.pop()` over seven. All four are cor
    meet, changing no behaviour — "branch on `ready` first" is correct either way.
 6. **The advisor, the studio rig and the capture share one light setup, so near-camera rock
    photographs white.** Not a defect and not new: the F4.5 gate accepted it as a tuning note
-   on a rig that works (`studio-key-light-blows-out-near-camera-geometry.md`). What IS new is
+   on a rig that works (`editor-seams-and-preview-deferrals.md` §"The studio key light blows out geometry close to the camera"). What IS new is
    that the capture borrows that rig deliberately, so an agent now sees it too and may report
    it as a world defect. The cheap mitigation costs nothing and is a caller-side choice:
    capture from a named axis view rather than `user` when the subject is close.

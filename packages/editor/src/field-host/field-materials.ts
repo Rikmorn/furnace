@@ -118,7 +118,8 @@
 // per-class material cache produces a silently empty viewport plus one
 // `console.warn` per chunk, because `remeshOne`'s `try` swallows it — no test
 // could catch it, and no user would get an error. That is filed as
-// `docs/backlog/editor/remesh-swallows-render-setup-failures.md`; it needs a
+// `docs/backlog/editor-and-tooling/field-host-internals.md`
+// §"`remeshOne` swallows GPU setup failures"; it needs a
 // design decision about which failures a remesh may swallow, which is why it is
 // a backlog entry and not an inline fix. Three probes, all against the whole
 // editor suite (1469/0 at head):

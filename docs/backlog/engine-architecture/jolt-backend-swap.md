@@ -60,4 +60,4 @@ When triggered, resolve these before committing to the swap (detailed in `docs/r
 
 - ADR: `docs/reference/adr/0001-physics-two-track-architecture.md` (Decision 6–7, Consequences, Resolved 2026-06-01)
 - Research: `docs/research/rapier-vs-jolt-threading-debuggability.md` (this evaluation), `docs/research/cpu-physics-backend-comparison.md` (the original Rapier-vs-Jolt comparison)
-- Related: `cpu-authoritative-gameplay-physics.md` (deferred determinism/networking remainder), `gpu-resident-physics.md` (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)
+- Related: `physics-tracks.md` §CPU-authoritative physics (deferred determinism/networking remainder), `physics-tracks.md` §GPU-resident physics (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)

@@ -1070,7 +1070,8 @@ function updateEntityOp(
  * must compare `log.undoStack.length` across the call, or check the entity's
  * prior `frozen` state (today that means scanning `log.ops` yourself; there is
  * no public reader for an entity record by id —
- * `docs/backlog/engine-architecture/field-entity-record-reader.md`) — ⌘Z after a
+ * `docs/backlog/engine-architecture/field-read-surface-gaps.md`, §"no public
+ * reader") — ⌘Z after a
  * redundant call undoes whatever came before it, which is correct but is not
  * what such a prompt would be promising.
  *

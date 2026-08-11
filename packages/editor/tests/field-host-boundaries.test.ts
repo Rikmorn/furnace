@@ -189,7 +189,8 @@ test("the facade assembles every seam module, and nothing else assembles any", (
  *  side — three accent constants kept in `field-host.ts` specifically so that "two sibling
  *  modules value-import a third for a literal" would not happen — and left choosing an owner
  *  among peers to the prune tranche
- *  (`docs/backlog/editor-and-tooling/field-host-prune-tranche.md`). This row is that
+ *  (`docs/backlog/editor-and-tooling/field-host-internals.md`, §"The `field-host/`
+ *  prune tranche"). This row is that
  *  deferral's one live instance. Resolving it means moving the record to a shared point, not
  *  weakening this line.
  *
