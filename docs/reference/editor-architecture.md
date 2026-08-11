@@ -5938,11 +5938,61 @@ so the door's "exactly one zod in the tree" premise rests on the workspace zod s
 range — **re-run the single-instance check on any zod bump**, because a workspace zod outside
 it gets the SDK a second copy plus a peer warning; (b) `ToolDefinition.build` was deferred
 WHOLE on the two-bundle constraint (§23.4), and with it the programme's own success criterion
-*"adding a tool touches the tool module + registration only"* — which is finally TESTABLE now
-that the real tool set exists, and is T5's to judge; (c) `ServiceDefinition` is `{ fn }` with
+*"adding a tool touches the tool module + registration only"* — **judged at foundations T5, and
+the question turned out to be MALFORMED; the ruling is the block below**; (c) `ServiceDefinition` is `{ fn }` with
 no schema field, so the programme's "service schemas arrive via the session handshake" has
 nothing to carry them — and it is now moot rather than pending, because what shipped projects
 COMMAND schemas and there is no handshake.
+
+**Fact (b), RULED at foundations T5 (2026-08-11) — and the substance of the ruling is that the
+question CONFLATES TWO REGISTRIES.** `ToolDefinition` / `ToolId` (`src/shared/tool-registry.ts`)
+is the **interaction-tool** registry, the one §23.4 is about: `ToolId` is `"brush" | "segment"`,
+**n = 2**, both `defineTool` calls sit inside the declaring file, and exactly two commits have
+ever touched it. That is the population `build` was deferred FROM. The nine MCP tools are a
+different table — `ToolRow` / `TOOLS` in `src/daemon/mcp.ts` (§27.4) — living in a third bundle
+graph, the daemon on Node. And §23.4's constraint is the **chrome vs `/engine.js`** split
+specifically: `build` for `segment` is `createSegmentBrush`, a value in
+`field-host/field-segment.ts` whose value edge to `@furnace/core/field` runs through
+`field-ghost.ts`, so a row carrying it can only be WRITTEN where the chrome can never read it.
+**That constraint does not reach `mcp.ts` at all.** So the nine-tool evidence is real evidence
+about the door and none whatever about `build`; reading it as a verdict on `build` is the trap,
+and the reason this ruling leads with the conflation rather than with a number.
+
+**On the DOOR population the criterion is PARTIAL — and PARTIAL whether or not tests and docs
+are counted, so the counting choice changes nothing.** A tenth row over an ALREADY-EXISTING
+daemon command genuinely is registration-only: the row plus its pin in `tests/mcp.test.ts`
+(which restates the table independently rather than importing it, deliberately), with
+`advertise()` deriving the advertised schema from the command's own zod document. As EXECUTED,
+though, the six rows of `d5eb5ef4` arrived with **ten non-comment source files** — `mcp.ts`
+itself plus nine others, **five of them in `@furnace/core`** — and it is the SOURCE files that
+disqualify it, which is why excluding tests and docs cannot rescue the verdict. *(Computed, not
+counted by eye: `git show --name-only --format="" d5eb5ef4 | grep -E "^packages/[a-z-]+/src/" |
+grep -v "\.test\."` returns 13, of which `field-host/field-query.ts`, `shared/capture.ts` and
+`shared/wire.ts` have zero non-comment changed lines.)* **The recurring extra files are
+schema-projection metadata pushed back onto the command schemas** — `.describe()`, `.meta()` and
+strictness on `daemon/session-handlers.ts`, `daemon/op-schema.ts` and
+`action-registry/schemas.ts` — **not a missing builder.** That last clause is the useful part of
+this ruling for anyone who ever revisits it: the abstraction that would pay here is "a command
+declares its agent-facing prose beside its schema", which is not what `build` was.
+
+**On the population `build` was deferred from, the criterion is UNTESTABLE at n = 2** — nothing
+was ever added to that registry, so nothing ever measured the cost of adding.
+
+**Disposition: the deferred `ToolDefinition.build` is RETIRED — and the reason matters, because
+it is NOT "the criterion holds".** It is retired because the criterion was never testable on
+that population, and because §23.4's two-bundle constraint is unchanged and still binding: the
+same argument, at the same strength, for the same reason it was made. §23.4 — and the docblock
+in `tool-registry.ts` it summarises, which works the two rejected ways out through in more
+detail than this document does — is the durable tracked home for that argument, so retiring the
+deferred item costs a POINTER and not a fact. `ToolDefinition.build` is NOT built: it was fenced
+from being built in T5 regardless of the verdict, and the day a third interaction tool arrives
+the argument is read off §23.4 rather than re-derived. **No backlog entry is filed**, on purpose:
+the fact now lives here, where a reader of the door's as-built meets it, and an entry filed
+under `build`'s name would file the door's real cost against the wrong mechanism.
+
+**One thing the T5 review must RATIFY rather than assume:** the T5 plan offered a binary — the
+criterion holds, so retire the deferral; or it does not, so file the gap — and this ruling picks
+a third shape that was not on the menu.
 
 **The backlog walk — every entry the planning digest named, with a verdict. Twenty rows, and
 every component is derived from the artifact rather than counted by eye:** **nine** resolved

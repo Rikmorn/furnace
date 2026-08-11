@@ -297,8 +297,8 @@ goes quiet the helper blocks INSIDE the read, indefinitely as far as its own log
 concerned — the parameter bounds only how many further reads it will attempt, never the
 one it is sitting in.
 
-What hides this today is the daemon's SSE heartbeat (`HEARTBEAT_MS = 15_000`,
-`daemon/events.ts:5`): every 15 s a `: ping` frame wakes the read, the predicate fails, and
+What hides this today is the daemon's SSE heartbeat (`HEARTBEAT_MS = 15_000` in
+`daemon/events.ts`): every 15 s a `: ping` frame wakes the read, the predicate fails, and
 the now-expired deadline throws. So the failure mode is not a hang but a ~15 s failure
 whose message ("SSE timeout; buffer so far:") names an 8 s timeout — which is precisely how
 the flake above got mis-attributed once already. Two consequences worth naming: any test
@@ -337,8 +337,11 @@ Two corrections to what this entry first claimed, both worth remembering:
 - **DI was never the whole answer.** `requestVoidCast` returns at its `!ctx` guard BEFORE
   it sends anything, so the binding constraint on host-side coverage is the **GPU
   context** — and that harness already existed (`core/tests/_helpers/gpu-fixture.ts` +
-  `installMockResizeObserver` + rAF/canvas shims), already used by the sibling
-  `preview-host.gpu.test.ts` in the same directory. The first revision of this entry
+  `installMockResizeObserver` + rAF/canvas shims), already used by sibling GPU tests in the
+  same directory; it is now the pattern EVERY `*.gpu.test.ts` at the top level of
+  `packages/editor/tests/` follows. *(This bullet named `preview-host.gpu.test.ts` as the
+  sibling until T5, 2026-08-11 — that file was deleted in `b71d033e` along with the rest of
+  the world-assembly surface, so the citation had been pointing at nothing.)* The first revision of this entry
   blamed the seam for an uncovered `markDirtyWithNeighbors` guard; wrong diagnosis, and
   that guard is now covered.
 - **What forced the seam anyway** is that a job posted to a `Worker` spawned from the
@@ -368,8 +371,8 @@ than this one turned out to be.
 
 **Reference:** `packages/editor/tests/field-host-void-cast.gpu.test.ts` (the harness, and
 its comments on why the worker is injected); `packages/editor/src/field-host/field-host.ts`
-(`createFieldHost`'s `deps` parameter); `packages/editor/tests/preview-host.gpu.test.ts`
-(prior art for the GPU fixture).
+(`createFieldHost`'s `deps` parameter); any sibling `packages/editor/tests/*.gpu.test.ts` for
+the GPU-fixture pattern — `field-host-pointer.gpu.test.ts` is a plain one.
 
 ## Constructing an MCP SDK object triples the rest of the `bun test` process
 
@@ -428,7 +431,8 @@ processes (verified green — core 20.2 s, dungeon 11.3 s, editor 48.6 s, each a
 `bun test --isolate` (**not** usable today: 32 fails, since the GPU fixtures depend on
 shared process state), or making the core wall-clock budgets calibrate against a
 per-process baseline instead of an absolute ceiling. All three are program-level decisions
-about the gate.
+about the gate — **and all three are ruled in the last section of this file**, which is where
+that question now lives.
 
 **Trigger to revisit:** an SDK upgrade — re-measure the table first, since a v2 SDK may not
 have this at all; OR any move to change the repo's gate command, which should settle this at
@@ -488,4 +492,77 @@ per-file isolation cannot contain an async leak any better than it contains a sy
 and the three remedies listed above (per-package runs, `--isolate`, calibrated budgets) address
 only the synchronous half. An unsettled promise crosses a file boundary that even `--isolate`
 would not close if the timer outlived the isolate. Nothing here proposes a fix; it is context
-for whoever settles the gate question.
+for the gate question, which the section below settles.
+
+### The gate question, RULED at foundations T5 (2026-08-11) — the root whole-workspace run stays
+
+**This is a RECOMMENDATION carried to the T5 review for the user to ratify, not a decision
+already taken.** The three options under "Why it is filed rather than fixed" are program-level
+calls about how this repo gates and no task gets to make one; what follows is the argument for
+changing nothing, with the evidence under each part, so that ratifying it is cheap and
+overturning it is possible.
+
+**1. KEEP the root whole-workspace `bun test`.** The containment is structural rather than
+fragile, and the section above is the load test that says so — every T4c gate that recorded a
+wall clock landed inside the band, against a suite that grew by 144 cases, because a fresh
+runtime cannot be polluted by its parent. That
+evidence is not restated here; it is the entire reason this ruling can be "change nothing"
+instead of "hope".
+
+**2. The stance is MACHINERY now, and that is what turns "it held" into "it will hold".**
+Through T4c the containment was held by discipline. Since T5 it is held by
+`packages/editor/tests/harness-conventions.test.ts`, whose second case — *"no test file imports
+the MCP SDK — every SDK object is built in a spawn child"* — walks `packages/editor/tests/` and
+asserts that the set of files naming an `@modelcontextprotocol/sdk` specifier is EXACTLY
+`_helpers/mcp-probe.ts`. A gate change argued on "the convention might slip one day" no longer
+has that premise available to it.
+
+**3. Per-package runs STAY as the documented DIAGNOSTIC fallback — and are not a candidate
+gate.** Re-measured at T5 rather than carried from the 2026-08-09 figures above; each command
+run alone from the repo root, at branch head `0fd37ad7`:
+
+| Command | Result | Wall clock |
+| --- | --- | --- |
+| `bun test packages/core` | 1401 pass / 1 skip / 0 fail, 210 files | **20.06 s** |
+| `bun test packages/dungeon` | 62 pass / 0 fail, 15 files | **11.52 s** |
+| `bun test packages/editor` | 1752 pass / 0 fail, 144 files | **37.99 s** |
+| *(sum of the three)* | *3215 pass, 369 files* | *69.57 s* |
+| `bun test` (root, same session) | 3218 pass / 1 skip / 0 fail, 371 files | **71.66 s** |
+
+All green. Two facts fall out, and the second is why the fallback is not a gate:
+
+- **Splitting buys no wall clock.** 69.57 s of per-package runs against 71.66 s for the one
+  root run is a wash — three process startups pay back whatever the split saves, which is
+  exactly what you would expect once the pollution a split would avoid is already contained.
+  *(Measured on a machine also running concurrent agent sessions, so read these five figures as
+  comparable to EACH OTHER, not as absolute numbers against the ~64 s quiet-machine baseline
+  above. The root run's 71.66 s sits just over T4c's 54.2–68.2 s band on a suite 17 cases
+  larger, and nowhere near the ~90 s tripwire.)*
+- **The three commands do not cover the workspace, and the entry has been spelling them as if
+  they did.** 369 files against the root run's 371, 3215 tests against 3218: the missing two are
+  `packages/cookbook/tests/demos.test.ts` and `packages/hello-world/tests/triangle-shader.test.ts`
+  (`bun test packages/hello-world packages/cookbook` → 3 pass across 2 files, 50 ms; the sixth
+  package, `packages/tools`, has no test files at all). Adopting the three-command form as the
+  gate would silently drop two packages. As a diagnostic — "is this failure a cross-package
+  interaction or not?" — the three are the right three; as a gate they owe a fourth command.
+
+**4. `bun test --isolate` stays recorded NOT USABLE** on the measurement above — 32 fails,
+because the GPU fixtures depend on shared process state. **Deliberately NOT re-probed at T5**:
+nothing since has touched the fixtures' relationship to process state, so a re-run costs
+minutes and can only reproduce the same number.
+
+**5. Baseline-relative wall-clock budgets are DECLINED.** They exist to stop one contamination
+class dragging `@furnace/core`'s absolute ceilings, and that class is contained; this file
+records no second instance of it, which is the premise the decline rests on and the thing to
+re-check before overturning it. Meanwhile the class that DID bite at T4c is untouched by all
+three options — an unsettled `ask()` promise outliving its file and rejecting 30 s later inside
+a stranger crosses a boundary that per-package runs, `--isolate` and calibrated budgets all
+leave open, for the reason the paragraph directly above gives: a timer can outlive an isolate.
+That stays per-site discipline. Calibrating would also cost something real that is easy to miss
+— an absolute ceiling is a claim about the ENGINE, which a reader can argue with; a
+baseline-relative one is a claim about the machine, which drifts with it and can never fail.
+
+**What would reopen this.** The trigger above is unchanged and is still the right one (SDK
+upgrade / a move to change the gate command / MCP coverage the transcript shape cannot express).
+Add one clause: **a SECOND contamination class of the synchronous kind**, which is the premise
+(5) rests on and the only one of the five that a single new finding could knock out.
