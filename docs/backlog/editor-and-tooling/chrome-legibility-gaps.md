@@ -208,8 +208,9 @@ population to design onboarding against.
 
 - `packages/editor/src/frontend/components/shell/ShortcutsDialog.tsx` — the reference surface
   that exists; `shell/CommandPalette.tsx` — the by-name route.
-- `packages/editor/src/frontend/lib/actions.ts` — every action's one-sentence `hint`, which is
-  authored content a usage surface could reuse rather than re-write.
+- `packages/editor/src/action-registry/descriptors.ts` — the authored one-sentence `hint`s
+  (optional member; 27 of the 39 rows carry one), which is authored content a usage surface
+  could reuse rather than re-write.
 - `docs/reference/editor-architecture.md` §18.5 (the palette and the overlay), §18.4 (what the
   chrome already says at the point of refusal).
 - `packages/editor/PRODUCT.md` — "capability per pixel"; a permanent help surface has to earn
