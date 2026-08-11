@@ -4,7 +4,7 @@ Tracker for the places where the editor chrome **knows something the user cannot
 Each section is one previously standalone entry, keeping its Context, *Trigger to revisit*
 and *Reference* as written.
 
-They are merged because they are four instances of one failure, not four features: state
+They are merged because they are instances of one failure, not separate features: state
 that is live but invisible (a running session whose card is scrolled out of view), a refusal
 whose reason is withheld (a greyed command-palette row), a control that is permanently inert
 and says nothing about why (the brush controls with no engine), and no answer anywhere to
@@ -12,6 +12,9 @@ and says nothing about why (the brush controls with no engine), and no answer an
 one, the chrome has the information and does not show it — so they are decided the same way,
 and reading them together is how you notice they want one legibility pass rather than four
 patches.
+
+**Added at foundations T5 (2026-08-11):** *the Entities section starts collapsed* — filed
+new, from the same walk that produced the newest-first order.
 
 Distinct from `editor-chrome-authoring-gaps.md`, which tracks chrome that is *wrong*
 (a component that throws, a field that mis-handles its schema type). Nothing here is
@@ -211,3 +214,49 @@ population to design onboarding against.
   chrome already says at the point of refusal).
 - `packages/editor/PRODUCT.md` — "capability per pixel"; a permanent help surface has to earn
   its space against that.
+
+## The Entities section starts collapsed, so the newest row is one extra click away
+
+Filed at foundations T5 (2026-08-11), from the task that gave the list its order. The T4c
+gate walk's finding was that an agent generated a cave into the shared session and the human
+could not find it; T5 answered the *ordering* half — `EntitiesList` sorts newest first and
+says so in the section header's tooltip. The remaining click is this: the section renders
+with `defaultOpen={false}`, so the row that just landed is behind a disclosure the reader has
+to open, and a viewport pick writes a selection into a list nobody can see.
+
+### Context
+
+`packages/editor/src/frontend/components/field/EntitiesList.tsx` passes
+`defaultOpen={false}` to `CollapsibleSection`. The comment on it is honest about the state of
+the question: the default is INHERITED from when this list was reference context inside the
+deleted `FieldPanel`, and D-14 has since made it the LAYERS panel — a layers panel that
+starts shut hides the read half of the bidirectional selection sync
+(`subscribeEntitySelection`), so picking something in the viewport visibly does nothing.
+
+**Why it is not a one-line fix.** Opening it by default costs vertical space in the controls
+column permanently, for every world including an empty one, and the palette is the user's to
+size (§18.8). That is a layout decision with a cost, which is the condition
+`AGENTS.md`'s inline-fix threshold fails on. The honest options are at least three: open by
+default; open when the list is non-empty; or persist the open state per project alongside the
+rest of the workspace blob (today it is per-mount, no persistence).
+
+**The deferral had no durable home until now**, which is why this section exists rather than
+just the comment. The comment defers to "the palette-layout pass (Task 8)" — F4.5b Task 8,
+which shipped 2026-08-01 and did not touch this file. A source comment pointing at a trigger
+that has already fired and passed is the exact shape `field-host-internals.md` §"The
+`field-host/` prune tranche" was created to stop.
+
+### Trigger to revisit
+
+The next editor-UX / palette-layout pass, or the first time a second person uses the editor
+and cannot find what they just made.
+
+### Reference
+
+- `packages/editor/src/frontend/components/field/EntitiesList.tsx` (`defaultOpen`, and the
+  comment that carries the inherited-default argument);
+  `packages/editor/src/frontend/components/CollapsibleSection.tsx`.
+- `docs/backlog/editor-and-tooling/entity-list-has-no-legible-order.md` — the sibling half of
+  the same gate finding, narrowed at T5.
+- `docs/reference/editor-architecture.md` §28 (the T5 as-built), §18.8 (palettes the user can
+  size — the space this default would spend).

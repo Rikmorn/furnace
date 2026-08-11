@@ -1611,6 +1611,50 @@ makes it checkable rather than what makes it go away. **The read side does not
 behave this way** — §2.7's second bullet: seven of `analyzer`'s ten inbound reads became
 CALLS on the way out and left the map entirely, because a call is not an edge here.
 
+### 5.8 What this register does NOT measure — the import graph, measured for the first time at T5
+
+**"Zero remain cluster-to-cluster" is about WHO WRITES WHOSE STATE.** §5.7's residual is the
+59 standing MUTATION edges of this register, all of which now cross a module line. It says
+nothing about who IMPORTS whom, and until foundations T5 (2026-08-11) nothing in this repo
+had measured that at all — the two are easy to conflate because the zero is quotable and the
+word "cluster-to-cluster" does not say which graph it is counting.
+
+**Measured, at `packages/editor`:**
+
+```
+bun -e 'const {readdirSync,readFileSync}=require("node:fs");
+  const D="src/field-host", f=readdirSync(D).filter(n=>n.endsWith(".ts"));
+  const S=new Set(f.filter(n=>/^export (?:type|interface) \w*Deps\b/m.test(readFileSync(`${D}/${n}`,"utf8"))));
+  for (const n of [...S].sort()) for (const m of readFileSync(`${D}/${n}`,"utf8")
+    .matchAll(/^(?:import|export)\s+([^;]*?)from\s+"\.\/([^"]+)";/gm))
+    if (S.has(m[2])) console.log(/^type\b/.test(m[1].trim())?"TYPE ":"VALUE", n, "→", m[2], m[1].trim());'
+```
+
+46 files, **21 seam modules** (a module declaring its own `*Deps` record — the same roster
+`editor-architecture.md` §21.5 tables), and **six seam→seam import edges stand: five
+type-only and ONE value.**
+
+| Edge | Kind |
+| --- | --- |
+| `field-capture.ts → field-camera-rig.ts { EDITOR_PROJECTION }` | **VALUE** |
+| `field-capture.ts → field-render.ts { FrameComposition }` | type-only |
+| `field-entities.ts → field-targeting.ts { CursorRay }` | type-only |
+| `field-picking.ts → field-machine.ts { PendingMovePress }` | type-only |
+| `field-picking.ts → field-targeting.ts { CursorRay }` | type-only |
+| `field-tool.ts → field-targeting.ts { CursorRay }` | type-only |
+
+The five type-only edges are erased at runtime and carry no unassembled call, which is why
+`packages/editor/tests/field-host-boundaries.test.ts` — the check T5 put behind this
+mechanism — exempts them and asserts the VALUE set as an exact standing list rather than as
+a boolean. **The one value edge is §2.10's own deferral in its single live instance**:
+`EDITOR_PROJECTION` is a frozen `as const` of three numbers, the same "two sibling modules
+value-import a third for a literal" shape §2.10 kept the three accent constants in
+`field-host.ts` to avoid. It is recorded here and **not ruled** — choosing an owner among
+peers is the prune tranche's call
+(`docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune
+tranche"), and resolving it means moving the record to a shared point, not weakening the
+check.
+
 ---
 
 ## 6. Cluster detail
@@ -3214,10 +3258,12 @@ collapse the same way into `selectionBox()`.
     edge 2026-08-07**: the writes are `beginLook`/`endLook`, this cluster's own verbs. The
     re-homing that deleted the edge is what later carried it out of the file
   - `unbindCamera` (mutated by `lifecycle`) — 2 sites: `ret.dispose`, `ret.init` — the
-    dispose half SPLIT in two on `field-materials.ts`'s precedent (`unbind()` at 3677 inside
-    the context guard, `release()` at 3714 outside it)
+    dispose half SPLIT in two on `field-materials.ts`'s precedent (`cameraRig.unbind()`
+    inside the context guard, `cameraRig.release()` outside it). *(Cited by line number until
+    T5's citation sweep; both had already drifted ~250 lines at master, and `field-host.ts`
+    moves every tranche, so they are symbols now.)*
 
-**Public members (5):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking`, `cameraPose` — all five delegate now; `frameChunks` keeps `chunkSetBox` (`world`'s) on this side and hands the box to `cameraRig.centreOn`. **`cameraPose` arrived at foundations T4b** (`cameraPose: cameraRig.pose`, `field-host.ts:4020`) and is a POLL beside the subscription rather than a second channel: the pose moves between renders, so a surface that DRAWS it takes `subscribeCameraPose` and a caller answering a question asked at an arbitrary moment — the agent backchannel's `session.state` — takes this. It is also what keeps the pose seam's one-subscriber rule (`tests/chrome/shell.test.tsx`) true, which both mirror-shaped alternatives would have broken
+**Public members (5):** `frameChunks`, `cameraAimedByHand`, `subscribeCameraPose`, `isLooking`, `cameraPose` — all five delegate now; `frameChunks` keeps `chunkSetBox` (`world`'s) on this side and hands the box to `cameraRig.centreOn`. **`cameraPose` arrived at foundations T4b** (`cameraPose: cameraRig.pose` in the facade literal — cited by line number until T5's citation sweep, where it had drifted twice) and is a POLL beside the subscription rather than a second channel: the pose moves between renders, so a surface that DRAWS it takes `subscribeCameraPose` and a caller answering a question asked at an arbitrary moment — the agent backchannel's `session.state` — takes this. It is also what keeps the pose seam's one-subscriber rule (`tests/chrome/shell.test.tsx`) true, which both mirror-shaped alternatives would have broken
 
 ### Cluster: render — **EXTRACTED 2026-08-08** (`field-render.ts`, foundations T3d Task 3)
 

@@ -1492,7 +1492,11 @@ function familyMembers(
         id: g.id,
         label: g.name,
         // A generator's own hint is its ROLE, which nothing in the registry carries per
-        // generator — `FieldGeneratorInfo` has id/name/paramSchema/defaults/placesProps.
+        // generator — `FieldGeneratorInfo` has id/name/paramSchema/defaults/placesProps/
+        // usesSeed, and none of the six is a role. (`usesSeed` was missing from this list
+        // before foundations T5; the six are the exact key set
+        // `tests/field-host/query.test.ts` pins, since the same record is what
+        // `session_query {about:"generators"}` hands an agent.)
         // What IS true of every one of them, and is the fact a first-time user needs, is
         // what picking it DOES — and since F4.5b Task 9 that is TWO answers, so the hint
         // gives both. The flyout is the one surface the user is looking at at the moment

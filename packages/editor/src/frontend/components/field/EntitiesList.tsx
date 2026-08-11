@@ -501,11 +501,17 @@ export function EntitiesList(props: {
 			// now questionable rather than obviously right: D-14 just made it the
 			// layers panel, and a layers panel that starts closed hides the READ half
 			// of the selection sync — pick something in the viewport and nothing
-			// visibly happens until you open a section. Left closed for this task
-			// because the answer belongs with the palette-layout pass (Task 8), which
-			// decides what the controls column opens on and is where a default that
-			// costs vertical space has to be paid for. Open-state stays per-mount
-			// either way: no persistence.
+			// visibly happens until you open a section. Left closed because the answer
+			// is a layout decision with a permanent cost — vertical space in the
+			// controls column, for every world including an empty one — with at least
+			// three shapes (always open / open when non-empty / persist per project).
+			// Open-state stays per-mount either way: no persistence.
+			//
+			// The named deferral used to be "the palette-layout pass (Task 8)". That
+			// trigger FIRED and passed (F4.5b Task 8, 2026-08-01) without touching this
+			// file, so at foundations T5 it moved to a durable entry:
+			// `docs/backlog/editor-and-tooling/chrome-legibility-gaps.md`
+			// §"The Entities section starts collapsed".
 			defaultOpen={false}
 		>
 			{entities.length === 0 ? (

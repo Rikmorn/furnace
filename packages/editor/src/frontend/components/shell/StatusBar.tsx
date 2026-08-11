@@ -1,10 +1,12 @@
 // The shell's status bar: 28 px, opaque, fixed height — the other half of the canvas
 // cell's inset budget (see TopBar).
 //
-// It carries six things: the viewport keymap (left), the engine/error report, the ⚠
+// It carries seven things: the viewport keymap (left), the engine/error report, the ⚠
 // chip that summons the message log, the agent-presence chip (T4c), the long-job readout,
-// and the live host chips
-// (right). The chips come from `useFieldHostState`, which IS this file's subscription to
+// the SELECTION chip (whose location half is T5's) and the live host chips
+// (right). This read "six" and omitted the selection chip from its own enumeration until
+// T5's citation sweep — a miscount that predates the location work below.
+// The chips come from `useFieldHostState`, which IS this file's subscription to
 // `subscribeStats` since T3b1 Task 7 — a per-consumer latch, carrying the value-equality
 // guard that keeps an idle field from re-rendering the chrome 60×/s. What must not appear
 // here is a SECOND, hand-rolled one: the guard lives in the hook, and a raw
