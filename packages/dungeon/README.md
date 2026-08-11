@@ -70,7 +70,7 @@ This package **owns no generators**. `hall`, `maze`, `cave` and `scatter` are `@
 
 ## What the catalog ships
 
-`materials.json` and `entities.json` are short, complete lists, not partial examples. Today:
+All three are short, complete lists, not partial examples. Today:
 
 **Material classes** (`catalog/materials.json`):
 
@@ -88,7 +88,9 @@ This package **owns no generators**. `hall`, `maze`, `cave` and `scatter` are `@
 | rock | Rock | 3 | floor |
 | stalagmite | Stalagmite | 2 | floor |
 
-Mesh counts verified via `python3 -c "import json;[print(a['id'], len(a['meshes'])) for a in json.load(open('packages/dungeon/catalog/entities.json'))['archetypes']]"` → `rock 3`, `stalagmite 2`.
+Mesh counts verified via `bun -e 'for (const a of (await Bun.file("packages/dungeon/catalog/entities.json").json()).archetypes) console.log(a.id + " " + a.meshes.length)'` (from the repo root) → `rock 3`, `stalagmite 2`.
+
+**Agent profile** (`catalog/agent.json`) — one object, not a list: capsule `radius` 0.3 m / `halfHeight` 0.6 m, `stepHeight` 0.4, `climbCeiling` 0.7, `clearance` 1.8, `slopeLimitDeg` 55, `skin` 0.08. Everything the advisor and the mover are parameterized on comes from here, single-sourced through `walkability.ts`'s `AGENT`. The one derived number worth naming: the `narrow` flag's bar is free width below `2·radius + skin` = **0.68 m** — verified via `bun -e 'const a = await Bun.file("packages/dungeon/catalog/agent.json").json(); console.log((2 * a.capsule.radius + a.skin).toFixed(2))'` (from the repo root) → `0.68`. Widen the capsule and every corner in every world is re-judged.
 
 An archetype's mesh count is the ceiling on a scatter's variant count: asking `scatter` for more variants than the archetype has meshes bakes a world that throws when the game loads it. Detail: `docs/backlog/engine-architecture/scatter-variants-not-bound-to-archetype.md`.
 

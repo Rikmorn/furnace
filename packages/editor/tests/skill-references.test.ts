@@ -1,23 +1,34 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FIELD_GENERATORS } from "@furnace/core/field";
+import {
+  DEFAULT_CELL_SIZE,
+  FIELD_GENERATORS,
+  MAZE_PITCH_CELLS,
+} from "@furnace/core/field";
 import { ACTION_DESCRIPTORS } from "../src/action-registry/index.ts";
 
 // The skill names a small number of identifiers on purpose — the vocabulary itself is READ at
 // runtime (`session_query {about:"generators"}`, the catalog files) rather than listed, so a
 // fifth generator needs no edit here. What this guards is the residue: the ids the skill DOES
-// spell. A renamed action or a retired generator rots them silently, because nothing else in
-// the repo reads a markdown file for identifiers.
+// spell, and the handful of NUMBERS it calls unrotting. A renamed action, a retired generator
+// or a re-dialled constant rots them silently, because nothing else in the repo reads a
+// markdown file for identifiers.
 const SKILL = join(
   import.meta.dir,
   "../.claude/skills/sculpting-worlds/SKILL.md",
 );
 const MCP = join(import.meta.dir, "../src/daemon/mcp.ts");
+/** The dungeon's agent profile — the ONE cross-package read in this file, and it is here
+ *  because the skill spells this path and quotes a number computed from it. Importing the
+ *  dungeon's `AGENT` instead would make the editor's test suite depend on a demo package's
+ *  source; reading the JSON the skill names depends only on the artifact the skill cites. */
+const AGENT_PROFILE = join(import.meta.dir, "../../dungeon/catalog/agent.json");
 
 const skillText = (): string => readFileSync(SKILL, "utf8");
 
-/** Every `backticked` token in the skill — the only place an identifier may appear. */
+/** Every `backticked` token in the skill. Most identifiers live here; generator ids are the
+ *  exception and are read out of PROSE by {@link generatorPossessives}. */
 const backticked = (text: string): string[] =>
   [...text.matchAll(/`([^`\n]+)`/g)].map((m) => {
     // Boundary cast: the pattern's one capturing group has no alternation or `?`, so a
@@ -105,12 +116,166 @@ test("every tool name the skill names is a real tool", () => {
   expect(named.filter((t) => !tools.has(t))).toEqual([]);
 });
 
-test("every generator id the skill names is registered", () => {
+/** One registered generator's JSON-Schema document, read for the two facts the skill states
+ *  about it: which params it has, and what unit each of them is in. */
+type ParamsDocument = {
+  properties?: Record<string, { furnace?: { unit?: string } }>;
+};
+
+const paramsOf = (id: string): ParamsDocument["properties"] => {
+  // Boundary cast: `GeneratorDef.paramSchema` is typed `Record<string, unknown>` because core
+  // carries a JSON Schema as plain data, and TS cannot know the document's own shape. The
+  // invariant is the JSON Schema specification plus `registry/registry.ts`'s `toJsonSchema`,
+  // which hoists the `furnace` bag to each property's node root.
+  const doc = FIELD_GENERATORS.find((g) => g.id === id)?.paramSchema as
+    | ParamsDocument
+    | undefined;
+  return doc?.properties;
+};
+
+/** Generator ids AS THE SKILL'S PROSE NAMES THEM: an unbackticked possessive immediately
+ *  before a backticked param — `A hall's ⁠`width`⁠`, `The scatter generator's ⁠`variants`⁠`.
+ *
+ *  CANDIDACY COMES FROM THE SKILL'S GRAMMAR, NEVER FROM THE REGISTRY, and that inversion is
+ *  the whole repair. The first cut of this file filtered backticked tokens through a literal
+ *  `["hall","maze","cave","scatter"]` — the one place it departed from its own "derived from
+ *  the registry" rule, and it could not fail twice over: the skill backticks no generator id
+ *  at all, so the filter matched `[]`, and even fully populated a filter keyed on today's ids
+ *  is BLIND TO A RETIREMENT, because a retired id leaves the registry and the filter at the
+ *  same instant. Reading candidates out of the prose leaves the registry free to be the thing
+ *  they are CHECKED against, which is the only arrangement in which a retirement reds.
+ *
+ *  RESIDUAL GAP, stated as the tool-prefix filter above states its own: a generator named in
+ *  prose with no possessive and no adjacent param (`the cave generator`, a bare mention) has
+ *  no grammar to key on and is not seen here. The bare-backtick half of the case below covers
+ *  the other common spelling; between them the two catch what the skill actually writes. */
+const generatorPossessives = (text: string): [string, string][] =>
+  [...text.matchAll(/([a-z][a-zA-Z-]*)(?: generator)?'s `(\w+)`/g)].map((m) => {
+    // Boundary cast: both groups are mandatory given a match (no alternation/`?` on either).
+    return [m[1] as string, m[2] as string];
+  });
+
+/** Backticked bare words the skill spells that are NOT identifiers. Growing this set is the
+ *  deliberate act of saying "I checked this one" — `mcp.test.ts`'s keyword-inventory rule,
+ *  pointed at prose. */
+const PROSE_WORDS = new Set(["failed"]);
+
+test("the skill names no generator the registry has lost, and invents no param", () => {
   const ids = new Set(FIELD_GENERATORS.map((g) => g.id));
-  const named = backticked(skillText()).filter((t) =>
-    ["hall", "maze", "cave", "scatter"].includes(t),
+  const everyParam = new Set(
+    FIELD_GENERATORS.flatMap((g) => Object.keys(paramsOf(g.id) ?? {})),
   );
-  expect(named.filter((t) => !ids.has(t))).toEqual([]);
+  const text = skillText();
+  const pairs = generatorPossessives(text);
+  const spell = ([g, p]: [string, string]): string => `${g}'s \`${p}\``;
+  expect({
+    // WHAT WAS READ, ASSERTED BEFORE WHAT WAS FOUND, for the reason `mcp.test.ts`'s node walk
+    // states: every list below is a `toEqual([])` over a FILTERED set, so a prose rewrite that
+    // stopped using this grammar would turn all three green while checking nothing. A FIXED
+    // floor rather than `FIELD_GENERATORS.length`, because the skill's own rule is that a
+    // fifth generator needs no edit to the markdown — five pairs sit above it today.
+    grammarStillReads: pairs.length >= 4,
+    // A RETIREMENT. The skill says `a scatter's \`minSpacing\``; drop `scatter` from
+    // `FIELD_GENERATORS` and this is the line that reds.
+    unregistered: pairs.filter(([g]) => !ids.has(g)).map(spell),
+    // …and a param attached to the WRONG generator, which is the same sentence going stale
+    // from the other end (a param moved between defs, or renamed under one of them).
+    wrongOwner: pairs
+      .filter(([g, p]) => ids.has(g) && !(p in (paramsOf(g) ?? {})))
+      .map(spell),
+    // AN INVENTION. Every bare alphabetic token the skill backticks has to resolve to a
+    // registered generator id, a registered param, or a word listed above as prose. This is
+    // the half that catches `\`spiral\`` dropped into a sentence — the sabotage the previous
+    // cut of this test sailed through. Bare-alphabetic ON PURPOSE: it is exactly the shape a
+    // generator or param id takes, and it excludes the paths, tool names, action ids and
+    // expressions the skill also backticks, each of which has its own case in this file.
+    unresolved: backticked(text).filter(
+      (t) =>
+        /^[a-z][a-zA-Z]*$/.test(t) &&
+        !ids.has(t) &&
+        !everyParam.has(t) &&
+        !PROSE_WORDS.has(t),
+    ),
+  }).toEqual({
+    grammarStillReads: true,
+    unregistered: [],
+    wrongOwner: [],
+    unresolved: [],
+  });
+});
+
+/** Words as `wc -w` counts them: maximal runs of non-whitespace. */
+const wordCount = (text: string): number =>
+  text.split(/\s+/).filter((w) => w !== "").length;
+
+/** THE SKILL'S DISCOVERY BUDGET, on `mcp.test.ts`'s argument for the tool prose exactly: a
+ *  skill body is loaded whole into a context window the moment its description matches, so
+ *  every word is paid for on the turn it fires. The review that set this asked whether the
+ *  file should split into `SKILL.md` + a reference and answered no — CUT instead, and pin the
+ *  result, because an unpinned budget is a budget nobody meets twice.
+ *
+ *  1,100 was 1.16× head at the cut (948 words, `wc -w` on the file) — 152 words left. The
+ *  count is deliberately NOT restated as an equality: prose gets rewritten, and a test that
+ *  reds on every rewrite is a number to correct rather than a budget to argue against. */
+const WORD_BUDGET = 1100;
+
+test("the skill fits the word budget the review cut it to", () => {
+  const words = wordCount(skillText());
+  expect(
+    { overBudget: words > WORD_BUDGET },
+    `${words} words against a ${WORD_BUDGET}-word budget`,
+  ).toEqual({ overBudget: false });
+});
+
+/** The dungeon's agent profile, as the skill's walkable-width bar reads it. */
+type AgentProfile = { capsule: { radius: number }; skin: number };
+
+test("the numbers the skill calls unrotting are the numbers the sources hold", () => {
+  const text = skillText();
+  // Boundary cast: `JSON.parse` answers `any`; the invariant is the committed catalog file,
+  // whose shape `packages/dungeon/src/agent/walkability.ts` also depends on.
+  const profile = JSON.parse(
+    readFileSync(AGENT_PROFILE, "utf8"),
+  ) as AgentProfile;
+  // `2·radius + skin`, the skill's own spelling, computed rather than typed — and rounded to
+  // the two decimals the prose quotes, because 0.6 + 0.08 is not 0.68 in binary floating
+  // point and a test that compared raw would be pinning IEEE 754 rather than the catalog.
+  const freeWidth = (2 * profile.capsule.radius + profile.skin).toFixed(2);
+  const unitOf = (id: string, param: string): string | undefined =>
+    paramsOf(id)?.[param]?.furnace?.unit;
+  expect({
+    // Each of these is a source value LOOKED FOR IN THE PROSE, not a literal restated beside
+    // a literal: re-dial the constant and the sentence stops being found, which is the defect
+    // this case exists to catch. A number typed into a tracked doc is what got through the
+    // review that ordered these pins.
+    fieldCell: text.includes(`**${DEFAULT_CELL_SIZE} m**`),
+    walkableWidth: text.includes(`**${freeWidth} m**`),
+    // THE MAZE PITCH IS PINNED IN COARSE CELLS, WHICH IS AS FAR AS THE PUBLIC SURFACE REACHES.
+    // The skill says a maze cell is 2.5 m; that is `MAZE_PITCH_CELLS` × the 0.5 m coarse cell,
+    // and the coarse cell (`CELL` in `core/src/field/generators.ts`) is module-private, as are
+    // the door standard's `DOOR_W_CELLS`/`DOOR_H_CELLS` and the `+2` shell in the hall's
+    // evaluate. So a change to PASSAGE_CELLS reds here and a change to CELL does not — stated
+    // rather than papered over, because a guard trusted for more than it holds is worse than
+    // none.
+    mazePitchCells: MAZE_PITCH_CELLS,
+    // THE PER-GENERATOR UNITS, which is the structural half of the same bullet ("units differ
+    // per generator; the schema states them"). Read off `furnace.unit` at each property's node
+    // root — the display suffix the editor's form renders and the agent's registry read
+    // relays. A def that re-based a param from cells to metres would leave the skill's
+    // sentence a lie and nothing else in the repo would notice.
+    units: [
+      unitOf("hall", "width"),
+      unitOf("hall", "height"),
+      unitOf("hall", "depth"),
+      unitOf("cave", "chamberRadius"),
+      unitOf("scatter", "minSpacing"),
+    ],
+  }).toEqual({
+    fieldCell: true,
+    walkableWidth: true,
+    mazePitchCells: 5,
+    units: ["cells", "cells", "cells", "m", "m"],
+  });
 });
 
 test("the frontmatter declares a name and a description", () => {

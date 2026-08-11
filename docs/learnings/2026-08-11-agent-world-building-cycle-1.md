@@ -95,7 +95,9 @@ measurement:
 
 ## The measurement
 
-The project's walkability advisor, run offline over the saved world:
+The project's walkability advisor, run offline over the saved world — `bun
+scripts/measure-analyze.ts` from `packages/dungeon`, which analyses the generated cave
+configs and every **local** v2 field world under `worlds/`:
 
 | Measure | Result |
 |---|---|
@@ -104,10 +106,32 @@ The project's walkability advisor, run offline over the saved world:
 | Project bar | ~15 candidates, ~0 pits per world |
 | Flood coverage | 7,119 of 7,342 flags reached; 223 unreachable; **0 never-visited** |
 
+Where each number sits in that output: the per-world block (`── local field world "red-1"
+──`) carries the flood counts on its `ALL` row and the candidate counts on its
+`DEFAULT-VISIBLE` row; the closing `── P-F4-3b bar ──` restates the world as one summary
+line. **The `0 never-visited` is not printed at all** — `reachable` counts `unreachable !==
+true`, merging `false` with `undefined`, so the tri-state split (7,119 / 223 / 0) is a
+separate read over the same store.
+
+**And the summary line carries no `seeds usable/given` column.** The 12-config walked
+matrix has one; the committed-world rows do not. Read on its own, that line cannot tell *the
+flood reached everything* from *the flood seeded nothing* — a world with no usable seed
+prints `0 pit region(s)` for the same reason a clean world does, because `markUnreachable`
+and `detectPits` both skip it. The per-world block above is where the check lives: `red-1`
+reports `seeds: 1/1 usable`.
+
 **All 16 candidates are `narrow`.** Twelve sit in the lower level and the descents. Four
 stack vertically at x ≈ 8.5, z ≈ −6 across y −9.00 to −9.75 — **one per elbow of the
 spiral descent, which is exactly where the human wedged.** The bar for `narrow` is 0.68 m
 of free width.
+
+## The artifact that is not there
+
+The world was saved locally as `red-1` under `packages/dungeon/worlds/`. It is **not in the
+repo**: `packages/dungeon/.gitignore` excludes `worlds/*` apart from `index.json` and
+`default`. So the table above is one machine's scratch bake, nobody else can re-run the
+command against it, and cycle 2 has nothing to diff — **a cycle designed as a before/after
+kept no committed before.**
 
 ## The conclusion that matters most
 
