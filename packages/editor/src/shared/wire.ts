@@ -355,6 +355,15 @@ export type SessionQueryRequest =
       /** The human's current cell selection — its replayable spec, its size and its box.
        *  **Never its cells**; the answer's own docblock argues why. */
       about: "selection";
+    }
+  | {
+      /** The walkability advisor's findings — what the chrome's flag panel reads,
+       *  relayed unfiltered: kind, severity, world position, the unreachable tag
+       *  (ABSENT = the reachability flood has not visited it, which is not the same
+       *  fact as reachable) and any mover-verified verdict. Candidate and pit rows
+       *  only, capped; info-band findings arrive as counts. `pending` > 0 means the
+       *  advisor still owes passes and the findings trail the latest edits. */
+      about: "flags";
     };
 
 /**

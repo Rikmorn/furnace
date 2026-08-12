@@ -44,7 +44,7 @@
 // easy lie.** Its answer comes off `FieldHost.listGenerators()`, which is plain JSON the
 // chrome already reads for the stamp form (`SessionCard.tsx`) — so that arm COULD have lived
 // above the line. What puts it here is the DISPATCH rather than the data: one `about` union
-// answered by one exhaustive switch, in the module the union's other four arms are already
+// answered by one exhaustive switch, in the module the union's other arms are already
 // answered in. A chrome-side fifth branch would split one verb's answer across two layers and
 // disable the `never` guard that catches a sixth.
 //
@@ -96,6 +96,8 @@ import * as field from "@furnace/core/field";
 import type { EntityArchetype } from "../shared/catalog.ts";
 import { DEFAULT_PROBE_M, MAX_PROBE_M } from "../shared/field-limits.ts";
 import type { SessionQueryRequest } from "../shared/wire.ts";
+import type { VerifyVerdictWire } from "./analyzer-protocol.ts";
+import type { FlagCount } from "./field-flags.ts";
 import type {
   FieldEntityInfo,
   FieldGeneratorInfo,
@@ -145,13 +147,15 @@ type Box = { min: Vec3T; max: Vec3T };
 const MAX_QUERY_PROPS = 2048;
 
 /**
- * How many rows either lint list may carry.
+ * How many rows either lint list — and, since the flags arm, the advisor's finding list —
+ * may carry.
  *
- * ONE NUMBER FOR BOTH, because they are one kind of thing: a list a caller READS, not a
- * dataset it processes. Past a couple of dozen floating props or interpenetrating pairs the
- * finding is "this placement is systematically wrong" rather than "fix these", and the remedy
- * is to change the generator's params rather than to walk rows. Thirty-two rows is ~3 KB of
- * the answer, which is as much as a lint list can be and still be read.
+ * ONE NUMBER FOR ALL THREE, because they are one kind of thing: a list a caller READS, not a
+ * dataset it processes. Past a couple of dozen floating props, interpenetrating pairs or
+ * walkability findings the finding is "this is systematically wrong" rather than "fix these",
+ * and the remedy is to change the generator's params (or open the advisor's panel) rather
+ * than to walk rows. Thirty-two rows is ~3 KB of the answer, which is as much as such a list
+ * can be and still be read.
  *
  * Separate from {@link MAX_QUERY_PROPS} because the two bound different things — that one is
  * a COST ceiling on work done, this is a SIZE ceiling on what is said about it — and a single
@@ -313,6 +317,23 @@ export type SelectionFact = {
   aabb: Box | null;
 };
 
+/** One advisor finding as an agent reads it — a PROJECTION of {@link FlagRow}, not a
+ *  pass-through: the row's `key` is the chrome's hand-back handle and the agent has no
+ *  verb that takes one, and the raw `chunk` names a lattice unit with no agent verb
+ *  either. `tests/field-host/query.test.ts` pins the exact key set. */
+export type FlagFinding = {
+  kind: field.FlagKind;
+  severity: field.FlagSeverity;
+  /** The anchor cell's floor-surface corner, world metres — the advisor's own `world`. */
+  at: Vec3T;
+  cell: Vec3T;
+  /** ABSENT when no reachability flood has visited this finding (the mixed-vintage
+   *  steady state of a per-chunk advisor). Absence is "unknown", never "reachable". */
+  unreachable?: boolean;
+  /** The stage-2 mover's outcome, when one was taken on this finding. */
+  verdict?: VerifyVerdictWire["outcome"];
+};
+
 /** What {@link Query.answer} hands back — one arm per `about`, discriminated by it, so a
  *  caller branches on the same word it asked with. */
 export type QueryAnswer =
@@ -381,12 +402,38 @@ export type QueryAnswer =
       maxDist: number;
       hit: RayHit | null;
     }
-  | { about: "selection"; selection: SelectionFact | null };
+  | { about: "selection"; selection: SelectionFact | null }
+  | {
+      about: "flags";
+      /** Every finding the advisor holds (deduped), whatever `findings` was cut to. */
+      total: number;
+      byKindSeverity: FlagCount[];
+      /** Candidate-severity rows only (a pit IS a candidate, so pits are here), in key
+       *  order, capped at {@link MAX_REPORTED}. Info-band findings are counted above,
+       *  never rowed — past the cap the remedy is the advisor's panel, not more rows. */
+      findings: FlagFinding[];
+      truncated: boolean;
+      /**
+       * Advisor passes still owed an answer. Non-zero means these findings trail the
+       * latest edits — re-ask once it settles.
+       *
+       * **ZERO IS TWO STATES AND THIS MEMBER CANNOT TELL THEM APART**, which is worth
+       * saying because the honest reading of `{total: 0, pending: 0}` is not "the world
+       * is clean". `field-analyzer.ts`'s `analyzerPendingCount` answers 0 whenever no
+       * agent profile is in hand — the advisor is OFF, not settled — and a project with
+       * no `catalog/agent.json` is in that state permanently. So zero means "nothing is
+       * owed", which covers both "everything has been looked at" and "nothing ever will
+       * be". A caller that needs to distinguish them has to ask about the profile, which
+       * this arm deliberately does not carry: the flags answer is about findings, and a
+       * second freshness fact bolted here would be a projection of a different subsystem.
+       */
+      pending: number;
+    };
 
-/** What this read needs from the rest of the host. FIVE members, every one a read. */
+/** What this read needs from the rest of the host. SIX members, every one a read. */
 export type QueryDeps = {
   /** `store` for the probes and the cell size, `log` for the placements, `archetypeById` for
-   *  each record's collision primitive. */
+   *  each record's collision primitive, `flagStore` for the advisor's findings. */
   substrate: HostSubstrate;
   /** The committed entities (`field-entities.ts`'s `list`) — clones, with their `placed`
    *  attribution already done in one pass. */
@@ -408,9 +455,12 @@ export type QueryDeps = {
    *  event). A held array would advertise a project's archetypes to an agent after the
    *  project stopped having them. */
   generators(): FieldGeneratorInfo[];
+  /** Advisor passes still owed an answer — `Analyzer.pendingCount`, the flags answer's
+   *  freshness anchor. A call: the counter moves with every pass. */
+  analyzerPending(): number;
 };
 
-/** The read: one verb, five questions. */
+/** The read: one verb, six questions. */
 export type Query = {
   /**
    * Answer one question. Nothing below writes to the store, the log or the undo
@@ -786,6 +836,34 @@ export function createQuery(deps: QueryDeps): Query {
     };
   };
 
+  const flagsAnswer = (): QueryAnswer => {
+    const rows = substrate.flagStore.rows();
+    // total + byKindSeverity come off summary() — the one spelling of the tally — and
+    // both are unfiltered there; only its `visible` is chip-shaped.
+    const s = substrate.flagStore.summary();
+    const actionable = rows.filter((r) => r.flag.severity === "candidate");
+    const findings = actionable.slice(0, MAX_REPORTED).map((r) => {
+      const f = r.flag;
+      const row: FlagFinding = {
+        kind: f.kind,
+        severity: f.severity,
+        at: [f.world[0], f.world[1], f.world[2]],
+        cell: [f.cell[0], f.cell[1], f.cell[2]],
+      };
+      if (f.unreachable !== undefined) row.unreachable = f.unreachable;
+      if (r.verdict !== undefined) row.verdict = r.verdict.outcome;
+      return row;
+    });
+    return {
+      about: "flags",
+      total: s.total,
+      byKindSeverity: s.byKindSeverity,
+      findings,
+      truncated: actionable.length > MAX_REPORTED,
+      pending: deps.analyzerPending(),
+    };
+  };
+
   return {
     /**
      * A `switch` WITH AN EXHAUSTIVENESS GUARD, not an if-chain ending in a catch-all — and
@@ -826,6 +904,8 @@ export function createQuery(deps: QueryDeps): Query {
           return rayAnswer(req);
         case "selection":
           return selectionAnswer();
+        case "flags":
+          return flagsAnswer();
         default: {
           const _never: never = req;
           // Unreachable while the switch is exhaustive; the binding above is the compile-time

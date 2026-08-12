@@ -75,6 +75,7 @@ export type { PlacedArchetype } from "./field-placements.ts";
 export type {
   EntityFact,
   EntitySummary,
+  FlagFinding,
   FloatingProp,
   PropOverlap,
   PropRef,

@@ -3785,6 +3785,8 @@ export function createFieldHost(deps?: {
     // The SAME projection the panel gets, for that reason exactly — and a call
     // rather than an array, because the catalog can be swapped under it.
     generators: listGeneratorInfos,
+    // The advisor's own counter, relayed — the flags answer's freshness anchor.
+    analyzerPending: advisor.pendingCount,
   });
 
   // --- the LIFECYCLE cluster: DECLARED FACADE-RESIDENT, foundations T3d -----

@@ -20,15 +20,24 @@
 // exactly the entity spans and placement records it means.
 import { expect, test } from "bun:test";
 import {
+  type ChunkKey,
   createFieldStore,
   createOpLog,
+  type FieldFlag,
   type FieldOp,
   type FieldStore,
+  type FlagKind,
+  type FlagSeverity,
   logApply,
   type MaterialTable,
   type OpLog,
   type PlacementRecord,
 } from "@furnace/core/field";
+import type { VerifyVerdictWire } from "../../src/field-host/analyzer-protocol.ts";
+import {
+  createFlagStore,
+  type FlagStore,
+} from "../../src/field-host/field-flags.ts";
 import { createFieldHost } from "../../src/field-host/field-host.ts";
 import {
   boxOverlap,
@@ -153,7 +162,39 @@ type Harness = {
    *  nothing about the registry. The registry's real content is asserted at the HOST level,
    *  where the projection is the facade's own. */
   generators: FieldGeneratorInfo[];
+  /** The advisor's presentation store, REAL rather than stubbed — it is pure and
+   *  GPU-free, so the flags arm can be driven through the same `applyFlags` the worker's
+   *  response lands through. */
+  flagStore: FlagStore;
+  /** What `Analyzer.pendingCount()` would answer. */
+  pending: number;
 };
+
+/** One flag, `world` derived from `cell` — a trimmed copy of `field-flags.test.ts`'s own,
+ *  this suite's accepted fixture pattern (cf. the `TABLE` docblock's "fourteenth trimmed
+ *  copy"). */
+const flagAt = (
+  kind: FlagKind,
+  severity: FlagSeverity,
+  cell: [number, number, number],
+  chunk: ChunkKey,
+  unreachable?: boolean,
+): FieldFlag => ({
+  kind,
+  severity,
+  cell,
+  world: [cell[0] * 0.25, cell[1] * 0.25, cell[2] * 0.25],
+  chunk,
+  ...(unreachable === undefined ? {} : { unreachable }),
+});
+
+const flagVerdict = (
+  outcome: VerifyVerdictWire["outcome"],
+): VerifyVerdictWire => ({
+  outcome,
+  lanes: [],
+  ms: 1,
+});
 
 /** A world with a big carved ROOM (floor near y = 0, air above) and, far away, a 32 m SHAFT
  *  — the one fixture in which a downward probe can run out of reach and answer `null`. */
@@ -190,6 +231,8 @@ function harness(): { h: Harness; deps: QueryDeps } {
     selection: null,
     catalog: new Map(),
     generators: [],
+    flagStore: createFlagStore(),
+    pending: 0,
   };
   const deps: QueryDeps = {
     substrate: {
@@ -199,7 +242,11 @@ function harness(): { h: Harness; deps: QueryDeps } {
       // (`archetypeById` is a call because `setEntityCatalog` REBUILDS the map) and, here,
       // what lets a case install one.
       archetypeById: () => h.catalog,
-      // The seam reads exactly three substrate members. Modelling the other thirteen would
+      // The REAL store rather than a stub: it is pure and GPU-free, and the flags arm's
+      // whole claim is about what `rows()` reports beside what the filters admit — which a
+      // hand-written stub would restate rather than exercise.
+      flagStore: h.flagStore,
+      // The seam reads exactly four substrate members. Modelling the other twelve would
       // go stale against a record this module never touches (`mutation.test.ts`' rule).
     } as unknown as QueryDeps["substrate"],
     entities: () => h.entities,
@@ -209,6 +256,7 @@ function harness(): { h: Harness; deps: QueryDeps } {
     // per call because the entity catalog can be swapped under it, and a case that installed
     // a fixed array here would be asserting against a dep shape the host does not have.
     generators: () => h.generators,
+    analyzerPending: () => h.pending,
   };
   return { h, deps };
 }
@@ -924,6 +972,69 @@ test("no selection answers null, not an empty selection", () => {
   expect(answer.selection).toBeNull();
 });
 
+// --- the flags arm ----------------------------------------------------------
+
+test("flags arm: candidate+pit rows, info as counts, tri-state unreachable, pending relayed", () => {
+  const { h, deps } = harness();
+  const narrow = flagAt("narrow", "candidate", [1, 0, 0], "0,0,0");
+  const info = flagAt("low-clearance", "info", [2, 0, 0], "0,0,0");
+  const demoted = flagAt("narrow", "candidate", [3, 0, 0], "0,0,0", true);
+  const pit = flagAt("pit", "candidate", [9, 0, 0], "1,0,0");
+  h.flagStore.applyFlags(
+    [{ key: "0,0,0", flags: [narrow, info, demoted] }],
+    [pit],
+  );
+  h.flagStore.setVerdict(narrow, flagVerdict("trapped"));
+  h.pending = 2;
+  const a = createQuery(deps).answer({ about: "flags" });
+  if (a.about !== "flags") throw new Error("wrong arm");
+  expect(a.total).toBe(4);
+  expect(a.pending).toBe(2);
+  expect(a.byKindSeverity).toEqual([
+    { kind: "low-clearance", severity: "info", count: 1 },
+    { kind: "narrow", severity: "candidate", count: 2 },
+    { kind: "pit", severity: "candidate", count: 1 },
+  ]);
+  // Candidate-severity rows only (pits carry candidate), in key order; info never rowed.
+  expect(a.findings.map((f) => f.kind)).toEqual(["narrow", "narrow", "pit"]);
+  expect(a.truncated).toBe(false);
+  // Tri-state honesty: absent means "no flood has visited", never "reachable".
+  expect(a.findings[0]?.unreachable).toBeUndefined();
+  expect(a.findings[1]?.unreachable).toBe(true);
+  // The verdict is projected to its outcome.
+  expect(a.findings[0]?.verdict).toBe("trapped");
+  // World metres relayed from the advisor's own `world` (floor surface of the cell).
+  expect(a.findings[0]?.at).toEqual([0.25, 0, 0]);
+  // THE KEY-SET PIN (the generators-arm precedent): a new member on a finding row must
+  // red here so it gets decided, not inherited.
+  expect(Object.keys(a.findings[2] ?? {}).sort()).toEqual([
+    "at",
+    "cell",
+    "kind",
+    "severity",
+  ]);
+  expect(Object.keys(a.findings[1] ?? {}).sort()).toEqual([
+    "at",
+    "cell",
+    "kind",
+    "severity",
+    "unreachable",
+  ]);
+});
+
+test("flags arm caps its rows and says so", () => {
+  const { h, deps } = harness();
+  const many = Array.from({ length: 40 }, (_, i) =>
+    flagAt("narrow", "candidate", [i, 0, 0], "0,0,0"),
+  );
+  h.flagStore.applyFlags([{ key: "0,0,0", flags: many }]);
+  const a = createQuery(deps).answer({ about: "flags" });
+  if (a.about !== "flags") throw new Error("wrong arm");
+  expect(a.total).toBe(40);
+  expect(a.findings.length).toBe(32);
+  expect(a.truncated).toBe(true);
+});
+
 // --- read-only, and copies --------------------------------------------------
 
 test("the read WRITES NOTHING — the store, the log and the answer's boxes are all safe", () => {
@@ -942,6 +1053,7 @@ test("the read WRITES NOTHING — the store, the log and the answer's boxes are 
   q.answer({ about: "generators" });
   q.answer({ about: "ray", origin: [0, 4, 0], dir: [0, -1, 0] });
   q.answer({ about: "selection" });
+  q.answer({ about: "flags" });
   // THE `readOnlyHint` THE DOOR ADVERTISES (T4c Task 6, `daemon/mcp.ts`'s `session_query`
   // row), EARNED here. Nothing on any of the three paths touches the store, the log or the
   // undo stacks — the annotation is a HINT by specification, so this is the only thing that
@@ -1021,6 +1133,18 @@ test("the HOST's query member reaches the seam over the real substrate", () => {
   if (selection.about !== "selection")
     throw new Error("expected the selection arm");
   expect(selection.selection).toBeNull();
+
+  // And the flags arm reaches the REAL `substrate.flagStore`, which the seam-level cases
+  // cannot say anything about: their substrate is a four-member literal behind a cast, so a
+  // dep wired to the wrong store would still be green up there. WHAT THIS DOES NOT PIN is the
+  // `analyzerPending` wiring — a fresh host has no agent profile, so `pendingCount()` answers
+  // 0 and so would any stub. Pinning that needs a profile installed and a chunk dirtied; it is
+  // named here rather than implied, because an arm listed in this walk reads as fully wired.
+  const flags = host.query({ about: "flags" });
+  if (flags.about !== "flags") throw new Error("expected the flags arm");
+  expect(flags.total).toBe(0);
+  expect(flags.findings).toEqual([]);
+  expect(flags.truncated).toBe(false);
 });
 
 test("the generators arm round-trips a REAL param schema off the real registry", () => {
