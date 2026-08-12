@@ -33,28 +33,12 @@ Counted 2026-08-11, at the foundations T5 register prune and re-run after each e
 - **Don't put in-progress work here:** that's `TaskCreate`'s job — within-session only.
 - **Scan on entry:** when starting new work, scan the relevant subdirectory for items that just became actionable, and promote them out.
 
-## Pruning — three moves, and nothing is lost
+## Pruning and file shape
 
-Ruled at foundations T5 (2026-08-11). A prune is **keep-by-default**; it has exactly three moves, and deletion is not one of them:
-
-- **Promote** — the trigger fired. Take the work; delete the entry in the commit that resolves it.
-- **Consolidate** — merge same-theme entries into one tracker (below). Nothing is dropped, only relocated.
-- **Close with a disposition** — only for an entry that **directly contradicts current direction**, and only with its live residual re-filed as a narrower entry first. Where a disposition is unclear, KEEP.
-
-"No consumer", "nobody has looked at it in a year" and "the file count is high" are **not** grounds for deletion. The same reasoning governs the engine's own surface — see `docs/learnings/seals/README.md` §Writing a seal: an orphaned name is "a candidate for JUDGEMENT, not for the bin".
-
-**The size bar that triggers a prune is provisional.** It lives in `AGENTS.md` § "Deferred work" (~150 entries / ~50 per topic dir as of 2026-08-11) and it is a holding number, not settled policy: the register grows at roughly +2 net entries/day, so any fixed count is re-crossed within weeks of the prune that satisfied it. Whether a file count is the right instrument at all is an open design question — filed as `infrastructure/docs-registers-findability.md`, which is where the numbers get re-derived. Don't re-dial them in `AGENTS.md`.
-
-## Two file shapes
-
-**A single entry** — one deferral, one file, the shape below.
-
-**A merged tracker** — one theme, one file, one `##` section per absorbed entry, each keeping its own Context / *Trigger to revisit* / *Reference*. This is the dominant shape in the two large dirs and it is deliberate: entries that are decided together, and read together, belong in one file. Rules that have held across three consolidation rounds:
-
-- A merge needs a **theme nameable in a phrase**. "These are all small" and "these are all in `field/`" are not themes; a module counts only when the module *is* the concern.
-- **Already-merged trackers are not re-merged** into each other — that produces 700–1,000-line documents and destroys the findability the merge exists to buy. They absorb small siblings instead.
-- A tracker's intro says **what was absorbed and when**, so the file's own contents stay checkable.
-- **Re-point every reference in the same commit as the deletion that stranded it** — grep the whole repo, not just `*.md`: source comments cite backlog entries too. `docs/learnings/seals/**` is dated history and is left alone.
+Both now live in `docs/reference/docs-system.md` — §8 for pruning (the three moves,
+keep-by-default, `consumer:`-marked entries untouchable, and why the merged-tracker shape is
+retired) and §2 for the unit rule. Don't restate them here; a second copy is a second thing
+to rot.
 
 ## Entry shape
 
