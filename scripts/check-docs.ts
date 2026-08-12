@@ -2,6 +2,8 @@
 // Canon for what these enforce: docs/reference/docs-system.md.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseFrontmatter, validateBacklogEntry } from "./docs-frontmatter.ts";
+import { checkIndex } from "./docs-index.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export type Violation = {
@@ -102,6 +104,32 @@ export function collectLiveRegisterFiles(): string[] {
   return out.sort();
 }
 
+/** Backlog entries must parse and satisfy the entry schema. `docs/backlog/README.md` is
+ *  the generated index, not an entry, so it is exempt. */
+export function checkBacklogFrontmatter(
+  file: string,
+  text: string,
+): Violation[] {
+  if (!file.startsWith("docs/backlog/") || file === "docs/backlog/README.md")
+    return [];
+  const fm = parseFrontmatter(text);
+  if (!fm)
+    return [
+      {
+        file,
+        line: 1,
+        kind: "no-frontmatter",
+        detail: "entry has no frontmatter",
+      },
+    ];
+  return validateBacklogEntry(fm).map((detail) => ({
+    file,
+    line: 1,
+    kind: "frontmatter-schema",
+    detail,
+  }));
+}
+
 if (import.meta.main) {
   const violations: Violation[] = [];
   for (const f of collectLiveRegisterFiles()) {
@@ -110,7 +138,17 @@ if (import.meta.main) {
       ...scanDeadPaths(f, text),
       ...scanFileLineCitations(f, text),
       ...checkDeriveMarkers(f, text),
+      ...checkBacklogFrontmatter(f, text),
     );
+  }
+  const indexDrift = checkIndex();
+  if (indexDrift) {
+    violations.push({
+      file: "docs/backlog/README.md",
+      line: 1,
+      kind: "index-stale",
+      detail: indexDrift,
+    });
   }
   if (violations.length > 0) {
     for (const v of violations)

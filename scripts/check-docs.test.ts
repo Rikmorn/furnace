@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  checkBacklogFrontmatter,
   checkDeriveMarkers,
   collectLiveRegisterFiles,
   scanDeadPaths,
@@ -122,5 +123,34 @@ describe("collectLiveRegisterFiles", () => {
     expect(files.some((f) => f.startsWith("docs/reference/"))).toBe(true);
     expect(files.some((f) => f.startsWith("docs/learnings/"))).toBe(false);
     expect(files.some((f) => f.startsWith("docs/superpowers/"))).toBe(false);
+  });
+});
+
+describe("checkBacklogFrontmatter", () => {
+  const entry = "docs/backlog/topic/a.md";
+  test("passes a valid entry", () => {
+    expect(
+      checkBacklogFrontmatter(entry, "---\nsummary: s\n---\n\n# A"),
+    ).toEqual([]);
+  });
+  test("flags an entry with no frontmatter", () => {
+    expect(checkBacklogFrontmatter(entry, "# A")[0]?.kind).toBe(
+      "no-frontmatter",
+    );
+  });
+  test("flags a schema violation", () => {
+    const v = checkBacklogFrontmatter(
+      entry,
+      "---\nsummary: s\nstatus: parked\n---\n",
+    );
+    expect(v[0]?.kind).toBe("frontmatter-schema");
+  });
+  test("exempts the generated index", () => {
+    expect(
+      checkBacklogFrontmatter("docs/backlog/README.md", "# Backlog index"),
+    ).toEqual([]);
+  });
+  test("ignores files outside the backlog", () => {
+    expect(checkBacklogFrontmatter("docs/reference/x.md", "# X")).toEqual([]);
   });
 });

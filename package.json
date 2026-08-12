@@ -20,6 +20,7 @@
     "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/hello-world typecheck && bun run --cwd packages/cookbook typecheck && bun run --cwd packages/editor typecheck && bun run --cwd packages/dungeon typecheck",
     "test": "bun test",
     "check": "biome check && bun run --cwd packages/core check:tsdoc && bun scripts/check-docs.ts",
+    "docs:index": "bun scripts/docs-index.ts --write",
     "clean": "rm -rf dist packages/*/dist packages/*/crates/target packages/*/.furnace/shell/target packages/*/plugins/*/pkg packages/*/plugins/*/target"
   },
   "devDependencies": {
