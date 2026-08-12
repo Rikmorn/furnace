@@ -99,7 +99,7 @@ false positives.
 value inline, wrap it so the check can re-derive it:
 
 Live backlog entries, re-derived by `bun run check` on every run:
-<!-- derive: find docs/backlog -name '*.md' -not -name README.md | wc -l | tr -d ' ' -->121<!-- /derive -->
+<!-- derive: find docs/backlog -name '*.md' -not -name README.md | wc -l | tr -d ' ' -->120<!-- /derive -->
 
 The command runs at repo root and must be **deterministic** — sorted, stable output, no
 timestamps, no network. The recorded value and the command's output are compared after

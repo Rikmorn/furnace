@@ -1,5 +1,5 @@
 ---
-summary: a box op whose faces land exactly on the sample lattice writes no samples and still answers ok
+summary: a box fill whose faces land exactly on the sample lattice writes nothing into already-solid cells and still answers ok
 consumer: door-set
 ---
 
@@ -8,13 +8,33 @@ consumer: door-set
 Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated and accepted at
 that cycle's review the same day.
 
-Sample writes are gated on a STRICT `sdf > 0` (`applyOp`'s fill and paint legs, and
-`applySmooth`, all in `packages/core/src/field/ops.ts`), and a box's SDF is
-`halfExtents[a] - |p[a] - center[a]|` (`shapeSdf`'s box branch).
-A sample lying exactly ON a box face therefore scores 0 and is excluded. Both faces are
-exclusive, so a box whose extent along an axis is a whole number of cells AND whose faces
-land on the sample lattice contains **no samples on that axis at all** — the op writes
-nothing, and still answers `{"ok": true}`.
+A box's SDF is `halfExtents[a] - |p[a] - center[a]|` (`shapeSdf`'s box branch), so a sample
+lying exactly ON a box face scores **0**. A box whose extent along an axis is a whole number
+of cells AND whose faces land on the sample lattice therefore has every sample on that axis
+sitting at `sdf == 0` — and at `sdf == 0` the write predicates in `applyOp`
+(`packages/core/src/field/ops.ts`) decline, so the op writes nothing and still answers
+`{"ok": true}`.
+
+**The write gates, per leg — re-derived from source 2026-08-12.** The entry originally said
+all writes are gated on a strict `sdf > 0`. That is true of only some of them, and the
+difference matters to anyone fixing this:
+
+| leg | predicate at `sdf == 0` | writes? |
+| --- | --- | --- |
+| `fill` density | `writeD = nd < d`, and `nd = clampInt8(-0 × DENSITY_SCALE) = 0` | only if the cell is currently air (`d > 0`) — **not** against already-solid density |
+| `fill` material | `writeM = sdf > 0 && …` | never — this one IS the strict test |
+| `paint` | `if (sdf <= 0 \|\| d >= 0) continue` | never — strict test |
+| `dig` | `nd = clampInt8(0)`, then `if (nd <= d) continue` | yes, on a solid cell (`d < 0`) — dig is **not** gated on `sdf > 0` at all |
+
+So the measured "writes nothing" outcome is the conjunction of two different refusals, not
+one: the material write refuses because it tests `sdf > 0` strictly, and the density write
+refuses because `0 < d` is false against a floor that is already solid. **The defect is
+therefore narrower than the title suggests** — a lattice-aligned fill into AIR does write
+(a zero-density surface). The repro below fills against an existing floor, which is the
+case that silently does nothing.
+
+`applySmooth` is a separate function and its behaviour at `sdf == 0` has NOT been
+re-derived; the original entry asserted it and that assertion is unverified.
 
 Measured in that run, at the default 0.25 m cell: a fill with
 `center [20.25, 2.125, 14]`, `halfExtents [0.5, 0.125, 0.5]` — i.e. y spanning exactly

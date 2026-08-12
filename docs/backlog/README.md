@@ -68,9 +68,8 @@ work item that reads it — those entries are protected from consolidation.
 - [wire-contracts-are-hand-mirrored](editor-and-tooling/wire-contracts-are-hand-mirrored.md) — three of the four daemon↔chrome contracts are declared twice and kept in step by hand — `WorldRow`'s only guard is a comment saying "grep both"
 - [world-verb-follow-ons](editor-and-tooling/world-verb-follow-ons.md) — the `world.*` family's edges — a tracked-precheck failure that refuses the save instead of escalating into the overwrite confirm, name-commit cue gaps, an unbootable `legacy` kind
 
-## engine-architecture (39)
+## engine-architecture (38)
 
-- [box-op-write-gate-attribution](engine-architecture/box-op-write-gate-attribution.md) — the sibling lattice-box entry blames the wrong write gate: a box fill's density write is gated on `nd < d`, not on `sdf > 0`
 - [catalog-collision-schema](engine-architecture/catalog-collision-schema.md) — catalog `collision` schema: whether `collisionExtentY` survives `collisionCenter`, and whether the box-only kind should escalate to a mesh kind
 - [cave-generator-topology-richness](engine-architecture/cave-generator-topology-richness.md) — richer cave-generator topology dials so a stamped cave reads as a web of caves rather than one tunnel
 - [cookbook-debt-kcc-collision-events-shader-composition](engine-architecture/cookbook-debt-kcc-collision-events-shader-composition.md) — cookbook debt against one-demo-per-Tier-1-feature: ten Tier-1 names with no demo and no recorded decision, plus KCC, collision events and shader composition
@@ -88,7 +87,7 @@ work item that reads it — those entries are protected from consolidation.
 - [input-module-pass](engine-architecture/input-module-pass.md) — deferred `@furnace/core/input` work: per-ctx scoping instead of a module singleton, pointer lock and relative motion, configurable `preventDefault`, stuck-key recovery
 - [jolt-backend-swap](engine-architecture/jolt-backend-swap.md) — swapping the physics backend to Jolt, or exposing backend choice, for single-scene multicore and ghost-free mesh collision
 - [kit-lattice-excludes-a-walkable-stair](engine-architecture/kit-lattice-excludes-a-walkable-stair.md) — the 0.5 m kit lattice and the agent's 0.4 m step height do not overlap, so no kit-class stair is walkable
-- [lattice-aligned-box-op-writes-nothing](engine-architecture/lattice-aligned-box-op-writes-nothing.md) — a box op whose faces land exactly on the sample lattice writes no samples and still answers ok → door-set
+- [lattice-aligned-box-op-writes-nothing](engine-architecture/lattice-aligned-box-op-writes-nothing.md) — a box fill whose faces land exactly on the sample lattice writes nothing into already-solid cells and still answers ok → door-set
 - [lighting-and-shading-capability-gaps](engine-architecture/lighting-and-shading-capability-gaps.md) — what the shipped Blinn-Phong forward path cannot express: PBR, area/IES lights, cookies, ambient authoring sugar, many-light scaling, fog modes
 - [multi-context-and-worker-gpu](engine-architecture/multi-context-and-worker-gpu.md) — more than one `gpu.Context`: an OffscreenCanvas worker context, and what a resource created against one device may do against another
 - [oplog-entry-assembly-duplicated-three-ways](engine-architecture/oplog-entry-assembly-duplicated-three-ways.md) — three hand-rolled copies of "apply a list, build one `ops` log entry" — rule of three met, the helper's shape still a design question
@@ -142,7 +141,7 @@ work item that reads it — those entries are protected from consolidation.
 - [mitata-microbenchmarks](testing-and-quality/mitata-microbenchmarks.md) — adopt mitata as a hot-loop microbenchmark harness once there are hot loops worth measuring
 - [record-draw-non-finite-coverage](testing-and-quality/record-draw-non-finite-coverage.md) — the NaN/Infinity arm of `_recordDraw`'s finite-triangles guard has no test — only the negative-value arm is covered
 - [resize-cascade-test-coverage](testing-and-quality/resize-cascade-test-coverage.md) — no regression test for canvas-resize-between-renders-then-dispose, the scenario that would catch a cascade callback capturing a stale texture entry
-- [root-scripts-have-no-typecheck-lane](testing-and-quality/root-scripts-have-no-typecheck-lane.md) — root `scripts/` belongs to no tsconfig, so `bun run typecheck` never sees the docs-system scripts
+- [root-scripts-have-no-typecheck-lane](testing-and-quality/root-scripts-have-no-typecheck-lane.md) — nothing in `bun run typecheck` invokes the root tsconfig, so root `scripts/` is never type-checked by the gate
 - [suppressed-non-null-assertions-survive-the-error-gate](testing-and-quality/suppressed-non-null-assertions-survive-the-error-gate.md) — 20 `biome-ignore`d non-null assertions in core scene GPU tests were never in the warning count the noNonNullAssertion escalation swept, and the suppression path stays open
 - [svelte-formatting-prettier-or-biome-upgrade](testing-and-quality/svelte-formatting-prettier-or-biome-upgrade.md) — `.svelte` files go unformatted because biome's support is partial — needs Prettier or a biome upgrade before Svelte content grows
 - [test-mock-context-helper](testing-and-quality/test-mock-context-helper.md) — 8 test files build fake contexts with an `as Context` cast that silently swallows every new `InternalState` field — wants a typed `createTestContext()` helper
