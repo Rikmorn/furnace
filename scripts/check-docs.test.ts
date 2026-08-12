@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { WorkItem } from "./check-docs";
 import {
   checkBacklogFrontmatter,
   checkDeriveMarkers,
+  checkWorkRegister,
   collectLiveRegisterFiles,
   scanDeadPaths,
   scanFileLineCitations,
@@ -152,5 +154,97 @@ describe("checkBacklogFrontmatter", () => {
   });
   test("ignores files outside the backlog", () => {
     expect(checkBacklogFrontmatter("docs/reference/x.md", "# X")).toEqual([]);
+  });
+});
+
+describe("checkWorkRegister", () => {
+  const slice = (slug: string, fm: Record<string, string>): WorkItem => ({
+    slug,
+    kind: "slice",
+    file: `docs/work/${slug}.md`,
+    fm,
+  });
+  const epic = (slug: string, fm: Record<string, string>): WorkItem => ({
+    slug,
+    kind: "epic",
+    file: `docs/work/${slug}/README.md`,
+    fm,
+  });
+
+  test("accepts a register with one next", () => {
+    expect(
+      checkWorkRegister([
+        slice("a", { status: "next", summary: "a" }),
+        slice("b", { status: "queued", summary: "b" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("flags two items holding next", () => {
+    const v = checkWorkRegister([
+      slice("a", { status: "next", summary: "a" }),
+      slice("b", { status: "next", summary: "b" }),
+    ]);
+    expect(v.map((x) => x.kind)).toContain("work-multiple-next");
+  });
+
+  test("accepts an after: pointing at a sibling that exists", () => {
+    expect(
+      checkWorkRegister([
+        slice("a", { status: "queued", summary: "a" }),
+        slice("b", { status: "queued", summary: "b", after: "a" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("flags a dangling after:", () => {
+    const v = checkWorkRegister([
+      slice("b", { status: "queued", summary: "b", after: "ghost" }),
+    ]);
+    expect(v[0]?.kind).toBe("work-dangling-after");
+    expect(v[0]?.detail).toContain("ghost");
+  });
+
+  test("an after: may name an epic", () => {
+    expect(
+      checkWorkRegister([
+        epic("e", { status: "queued", summary: "e" }),
+        slice("s", { status: "queued", summary: "s", after: "e" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("validates a slice against the slice schema", () => {
+    const v = checkWorkRegister([slice("a", { status: "queued" })]);
+    expect(v[0]?.kind).toBe("frontmatter-schema");
+    expect(v[0]?.detail).toContain("summary");
+  });
+
+  test("validates an epic against the epic schema — next is not an epic status", () => {
+    const v = checkWorkRegister([epic("e", { status: "next", summary: "e" })]);
+    expect(v[0]?.kind).toBe("frontmatter-schema");
+    expect(v[0]?.detail).toContain("status");
+  });
+
+  test("an in-flight epic needs at least one unsealed child", () => {
+    const v = checkWorkRegister([
+      epic("e", { status: "in-flight", summary: "e" }),
+    ]);
+    expect(v[0]?.kind).toBe("work-epic-no-children");
+  });
+
+  test("an in-flight epic whose only child is queued is fine — the gated case", () => {
+    expect(
+      checkWorkRegister([
+        epic("e", { status: "in-flight", summary: "e" }),
+        {
+          slug: "c",
+          kind: "slice",
+          file: "docs/work/e/c.md",
+          epic: "e",
+          fm: { status: "queued", summary: "c" },
+        },
+      ]),
+    ).toEqual([]);
   });
 });

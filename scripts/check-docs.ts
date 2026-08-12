@@ -2,7 +2,11 @@
 // Canon for what these enforce: docs/reference/docs-system.md.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter, validateBacklogEntry } from "./docs-frontmatter.ts";
+import {
+  parseFrontmatter,
+  validateBacklogEntry,
+  validateWorkFile,
+} from "./docs-frontmatter.ts";
 import { checkIndex } from "./docs-index.ts";
 
 export const ROOT = join(import.meta.dir, "..");
@@ -130,6 +134,102 @@ export function checkBacklogFrontmatter(
   }));
 }
 
+/** A parsed `docs/work/` record. A directory is an epic (its record is `README.md`); a
+ *  `.md` file is a slice. Containment IS the parent edge — `epic` is derived from the
+ *  path, never declared, so it cannot dangle. */
+export type WorkItem = {
+  slug: string;
+  kind: "epic" | "slice";
+  file: string;
+  epic?: string | undefined;
+  fm: Record<string, string>;
+};
+
+const WORK = "docs/work";
+
+export function collectWorkItems(): WorkItem[] {
+  const out: WorkItem[] = [];
+  if (!existsSync(join(ROOT, WORK))) return out;
+  const read = (rel: string) =>
+    parseFrontmatter(readFileSync(join(ROOT, rel), "utf8")) ?? {};
+  for (const e of readdirSync(join(ROOT, WORK), { withFileTypes: true })) {
+    if (e.isDirectory()) {
+      const file = `${WORK}/${e.name}/README.md`;
+      out.push({
+        slug: e.name,
+        kind: "epic",
+        file,
+        fm: existsSync(join(ROOT, file)) ? read(file) : {},
+      });
+      for (const child of readdirSync(join(ROOT, WORK, e.name))) {
+        if (!child.endsWith(".md") || child === "README.md") continue;
+        out.push({
+          slug: child.replace(/\.md$/, ""),
+          kind: "slice",
+          file: `${WORK}/${e.name}/${child}`,
+          epic: e.name,
+          fm: read(`${WORK}/${e.name}/${child}`),
+        });
+      }
+    } else if (e.name.endsWith(".md")) {
+      out.push({
+        slug: e.name.replace(/\.md$/, ""),
+        kind: "slice",
+        file: `${WORK}/${e.name}`,
+        fm: read(`${WORK}/${e.name}`),
+      });
+    }
+  }
+  return out;
+}
+
+export function checkWorkRegister(items: readonly WorkItem[]): Violation[] {
+  const out: Violation[] = [];
+  const slugs = new Set(items.map((i) => i.slug));
+
+  for (const i of items) {
+    for (const detail of validateWorkFile(i.fm, i.kind)) {
+      out.push({ file: i.file, line: 1, kind: "frontmatter-schema", detail });
+    }
+    const after = i.fm["after"];
+    if (after !== undefined && !slugs.has(after)) {
+      out.push({
+        file: i.file,
+        line: 1,
+        kind: "work-dangling-after",
+        detail: `after: ${after} names no work item`,
+      });
+    }
+  }
+
+  const next = items.filter((i) => i.fm["status"] === "next");
+  if (next.length > 1) {
+    out.push({
+      file: WORK,
+      line: 1,
+      kind: "work-multiple-next",
+      detail: `${next.length} items hold next (${next.map((i) => i.slug).join(", ")}); at most one may`,
+    });
+  }
+
+  // An in-flight epic must still own work. Deliberately the WEAK form: a child that is
+  // merely `queued` counts, because an epic whose last slice is gated behind another
+  // work item is legitimately in-flight with nothing running.
+  for (const e of items.filter(
+    (i) => i.kind === "epic" && i.fm["status"] === "in-flight",
+  )) {
+    if (!items.some((i) => i.kind === "slice" && i.epic === e.slug)) {
+      out.push({
+        file: e.file,
+        line: 1,
+        kind: "work-epic-no-children",
+        detail: "epic is in-flight but owns no slice",
+      });
+    }
+  }
+  return out;
+}
+
 if (import.meta.main) {
   const violations: Violation[] = [];
   for (const f of collectLiveRegisterFiles()) {
@@ -141,6 +241,7 @@ if (import.meta.main) {
       ...checkBacklogFrontmatter(f, text),
     );
   }
+  violations.push(...checkWorkRegister(collectWorkItems()));
   const indexDrift = checkIndex();
   if (indexDrift) {
     violations.push({
