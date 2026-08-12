@@ -1,3 +1,8 @@
+---
+summary: charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument
+consumer: docs-system
+---
+
 # Keeping a growing body of markdown findable — the register needs a design, not a number
 
 **Context.** `AGENTS.md` § "Deferred work — `docs/backlog/`" has carried a size bar since the

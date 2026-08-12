@@ -1,3 +1,7 @@
+---
+summary: two `@furnace/tools` deferrals: the `furnace.config.json` schema, and the Bun ↔ wasm-bindgen wrapper generator's maintenance surface
+---
+
 # Harness (`@furnace/tools`) follow-ons — config schema + the wasm-bindgen generator
 
 The two deferred items that belong to the CLI/harness rather than the editor: the

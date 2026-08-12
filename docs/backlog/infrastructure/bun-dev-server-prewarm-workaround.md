@@ -1,3 +1,7 @@
+---
+summary: cookbook's dev server prewarms every route to dodge a Safari first-click failure in Bun 1.3.14 — revert it on the next Bun bump
+---
+
 # Bun dev-server prewarm workaround — remove on Bun upgrade
 
 `packages/cookbook/serve.ts` includes a `Promise.all(...)` prewarm that fetches every route at server startup. It works around a Safari-only first-click navigation failure caused by Bun 1.3.14's lazy `HTMLBundle` compile racing with the HMR client's blob-URL `<script>` injection. See [`docs/learnings/safari-bun-dev-server-first-click.md`](../../learnings/safari-bun-dev-server-first-click.md).

@@ -1,3 +1,7 @@
+---
+summary: the docs file:line citation check cannot see bare `:N` continuation refs, so a whole class of line citations rots unflagged
+---
+
 # Bare `:N` continuation refs escape the file:line check
 
 Filed 2026-08-12 during the docs-system rung-1 triage, which fixed 103 flagged `file.ts:N`

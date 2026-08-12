@@ -1,3 +1,7 @@
+---
+summary: publishing `@furnace/tools` and `@furnace/core` to npm: release flow, `dist/tools/` staging, and the biome-style per-platform binary migration
+---
+
 # npm publish & distribution
 
 Tracker for the deferred npm-publish / distribution work for the shippable packages

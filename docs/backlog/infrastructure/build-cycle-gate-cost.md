@@ -1,3 +1,7 @@
+---
+summary: every commit pays the full check + typecheck + suite gate and the cost compounds per task — build-cycle speed wants a design pass
+---
+
 # The gate is ~80 s per commit, and every task pays it — build-cycle speed wants a design pass
 
 Filed at the T5 review close (2026-08-11), from the user's ruling note: *"I would also like

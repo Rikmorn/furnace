@@ -1,3 +1,7 @@
+---
+summary: world-building cycle bakes stay local and gitignored by owner ruling, so a cycle's run numbers cannot be re-derived off the authoring machine
+---
+
 # Skill-cycle worlds have no durable home — run numbers rest on one machine's scratch bake
 
 Cycle 1 of the sculpting-worlds skill named the gap from the inside: the RED
