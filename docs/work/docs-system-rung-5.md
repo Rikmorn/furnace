@@ -1,6 +1,6 @@
 ---
 status: queued
-summary: rung 5 — un-merge the merged trackers, split editor-architecture.md, trim AGENTS.md §Deferred work
+summary: rung 5 — un-merge the merged trackers, split editor-architecture.md, trim AGENTS.md §Deferred work, and finish the genre contracts for reference/learnings/research
 ---
 
 # Docs system, rung 5 — the motion the checks were landed to protect
@@ -56,6 +56,36 @@ what makes summaries unwriteable and what concentrates citation rot, and it must
 directory sharding — sharding a directory of merged trackers relocates the wrong unit. See
 `docs/backlog/infrastructure/engine-architecture-topic-dir-wants-sharding.md`, which records
 that ordering.
+
+## Genre completion — APPROVED SCOPE (owner ruling, 2026-08-13)
+
+Rungs 1–4 gave backlog and work full contracts; reference/learnings/research got thin ones,
+and the corpus violates the thin ones that exist. Designed with the owner in the tooling
+session's follow-up and approved as rung-5 scope — planning inherits this, no re-brainstorm:
+
+1. **Learnings TRIAGE, not a rename pass.** The undated files are mostly misfiled genres:
+   recipe/known-issue docs making present-tense claims from inside the check-exempt history
+   shelf (path-liveness exemption is granted by folder but earned by genre — a live claim in
+   `learnings/` escapes the checks; that hole closes here). Date the true events (birth date
+   from git history), REHOME the live facts into `docs/reference/` where they enter the
+   checked set. Filename contract `YYYY-MM-DD-<slug>.md` thereafter, pattern-checked.
+2. **Seals:** one-line `summary:` frontmatter, backfilled FROM the existing README index rows
+   (reversing the drift direction); seals README index becomes generated + `--check`ed — the
+   repo's last hand-maintained per-entry index. Planning input:
+   `docs/backlog/infrastructure/seal-entries-are-growing-into-essays.md` (three candidates,
+   no ruling — if seals get a bound it is a drift alarm, never a budget, per canon §7).
+3. **Research:** filename contract `YYYY-MM-DD-<slug>.md`, dated *directories* allowed for
+   multi-file research (legalises the two existing ones, each carrying a README.md); each doc
+   ends with what it FED (decision/spec/reference); pattern-checked, content stays exempt.
+4. **Reference:** canon states the three kinds (as-builts / contracts / consumer patterns)
+   and loose naming; NO kind-subdirectories (reference paths are the repo's most-cited
+   strings; churn buys nothing at 13 files) — revisit flat-vs-sharded past ~20 top-level
+   files, threshold stated in canon. `verified:` stamps go LIVE with the editor-architecture
+   split (sitrep's freshness block is their consumer). The split creates `reference/editor/`,
+   the first subsystem directory.
+5. **The boundary test** enters the rules file and canon: **true now → reference · happened →
+   learnings/research · to do → backlog · doing → work.** Every misfiling above violates
+   that one line; it is the keystone if anything else gets cut.
 
 ## Provenance
 
