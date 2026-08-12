@@ -1,3 +1,7 @@
+---
+summary: the uncaptured-error GPU tests guard every assertion behind an error-count check, so on a sync-throw backend they pass green having asserted nothing
+---
+
 # Uncaptured-error tests silently pass on sync-throw backends
 
 The integration tests at `packages/core/src/stats/uncaptured-errors.gpu.test.ts` and `packages/core/src/gpu/uncaptured-error.gpu.test.ts` use the same pattern: trigger an invalid pipeline, wait ~30ms, then guard assertions on `if (snapshot(ctx).gpu.uncapturedErrors > 0)`.

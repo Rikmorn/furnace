@@ -1,3 +1,7 @@
+---
+summary: `.svelte` files go unformatted because biome's support is partial — needs Prettier or a biome upgrade before Svelte content grows
+---
+
 # Svelte formatting (Prettier or biome upgrade)
 
 Biome 2.x has partial `.svelte` support; the ecosystem standard is Prettier + the Svelte plugin. Currently `.svelte` files are not in biome's `files.includes` list, so they go unformatted. Acceptable for one ~25-line component; not at scale.

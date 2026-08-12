@@ -1,3 +1,7 @@
+---
+summary: convention call: whether `Object.keys` over an exhaustive `Record` becomes a third documented compiler-bypass class in the typescript rules
+---
+
 # typescript.md — a third documented compiler-bypass class? (`Object.keys` on an exhaustive `Record`)
 
 **Context.** `.claude/rules/typescript.md` documents intentional compiler-bypass

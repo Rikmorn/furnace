@@ -1,3 +1,7 @@
+---
+summary: no regression test for canvas-resize-between-renders-then-dispose, the scenario that would catch a cascade callback capturing a stale texture entry
+---
+
 # Resize + cascade interaction has no regression test
 
 Tranche B's cascade callbacks for `frame.render`'s depth texture and `post.intermediate`'s ping-pong textures both read the *current* per-ctx entry at dispose time, not a closure-captured entry from first allocation. This is correct — the reallocation path inside each `_ensure*` function destroys the previous entry inline, so the cascade only ever sees the live entry.

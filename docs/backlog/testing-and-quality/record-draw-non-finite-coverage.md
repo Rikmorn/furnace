@@ -1,3 +1,7 @@
+---
+summary: the NaN/Infinity arm of `_recordDraw`'s finite-triangles guard has no test — only the negative-value arm is covered
+---
+
 # `_recordDraw` guard: NaN/Infinity coverage gap
 
 Surfaced during Tranche C T6+T7 code review. The guard in `packages/core/src/stats/internal.ts` (`_recordDraw`) is:

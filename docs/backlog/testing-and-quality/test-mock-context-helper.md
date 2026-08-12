@@ -1,3 +1,7 @@
+---
+summary: 8 test files build fake contexts with an `as Context` cast that silently swallows every new `InternalState` field — wants a typed `createTestContext()` helper
+---
+
 # Test mock Context construction: `as Context` cast pattern across 8 test files
 
 *Testing-hygiene candidate. Surfaced during Resource Manager Stage 1 (learning #4).*

@@ -1,3 +1,7 @@
+---
+summary: 20 `biome-ignore`d non-null assertions in core scene GPU tests were never in the warning count the noNonNullAssertion escalation swept, and the suppression path stays open
+---
+
 # 20 `biome-ignore`d non-null assertions survive the noNonNullAssertion error gate
 
 **Context.** The 2026-07-25 hygiene pass cleared all 136 `lint/style/noNonNullAssertion`

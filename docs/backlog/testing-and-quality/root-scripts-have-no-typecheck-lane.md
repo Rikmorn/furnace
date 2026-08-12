@@ -1,3 +1,7 @@
+---
+summary: root `scripts/` belongs to no tsconfig, so `bun run typecheck` never sees the docs-system scripts
+---
+
 # Root `scripts/` is in no typecheck target
 
 Filed 2026-08-12 during the docs-system slice, which created the root `scripts/` directory

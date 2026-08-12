@@ -1,3 +1,7 @@
+---
+summary: nothing in the suite pushes one resource-pool slot past the 16-bit generation-counter wrap, so the overflow warn and wrap semantics go unexercised
+---
+
 # Pool stress test: in-suite gen-overflow exercise
 
 *Testing-hygiene candidate. Surfaced during RM-3 brainstorm (2026-05-28).*

@@ -1,3 +1,7 @@
+---
+summary: a Playwright pixel-snapshot harness for the browser render path, plus the reference-image comparison that rides on it
+---
+
 # Visual regression testing
 
 Tracker for the deferred visual-regression testing work: a Playwright pixel-snapshot

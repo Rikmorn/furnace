@@ -1,3 +1,7 @@
+---
+summary: adopt mitata as a hot-loop microbenchmark harness once there are hot loops worth measuring
+---
+
 # mitata microbenchmarks
 
 Add `mitata` as a hot-loop microbenchmark harness once we have hot loops worth measuring (transform updates, ECS systems, etc.). Not relevant for the current single-triangle surface.
