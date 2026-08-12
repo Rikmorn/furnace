@@ -227,12 +227,13 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * model picks a tool by reading names and first sentences, and every row it must consider is
  * paid for on every turn; the tranche sized the door at ten and spent nine, which is why
  * `session.query` is ONE parameterized read rather than five (`shared/wire.ts` argues that
- * trade at the type, and T5 grew it from three arms to five without touching this table). The
+ * trade at the type; T5 grew it from three arms to five and cycle 2 to six, neither touching
+ * this table). The
  * remaining slot is deliberately unspent — the next verb that wants it has to be worth more
  * than the room it takes.
  *
  * **AND THE ROW COUNT IS THE SMALLER HALF OF THAT BUDGET, so the prose is capped too.** These
- * nine descriptions are 7,502 bytes on the wire — over three and a half times
+ * nine descriptions are 7,865 bytes on the wire — nearly four times
  * {@link MCP_INSTRUCTIONS}'s pinned 2 KB, riding the same `tools/list` — so capping the
  * discovery blurb and not the rows would be budgeting the cheaper surface and calling it
  * discipline. `tests/mcp.test.ts` pins the total at 8,192. It was 6,004 bytes and 1.36× head

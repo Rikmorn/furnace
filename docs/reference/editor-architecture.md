@@ -5465,13 +5465,14 @@ description (§27.4), because a tool that says "ask me about contact" without sa
 contact MEANS hands an agent a boolean it cannot calibrate, which would leave "ask this, don't
 squint" worth nothing to the only reader it is addressed to.
 
-**ONE tool, parameterized on `about`** — `entities`, `ray`, `selection` at T4c, and **five
-since T5** (`entity` and `generators` joined; §28). Three tools would
+**ONE tool, parameterized on `about`** — `entities`, `ray`, `selection` at T4c, **five
+since T5** (`entity` and `generators` joined; §28), and **six since sculpting-worlds cycle
+2** (`flags`, the walkability advisor's findings; §28.2). Three tools would
 have spent a third of the door's remaining room (a hard ceiling of ten, a planned set of
 nine) on one concern. A `z.discriminatedUnion` is what makes a bad request report against the
 arm it MEANT rather than "no union arm matched", which for three arms is the difference
 between a fixable message and a riddle — and the trade got BETTER as the arms grew, which is
-the test of whether it was a trade or a rationalisation: five questions, still one row, the
+the test of whether it was a trade or a rationalisation: six questions, still one row, the
 tenth slot still unspent.
 
 **It lives in `field-host/field-query.ts`, and the placement was decided rather than
@@ -5755,9 +5756,10 @@ the door wrongly — `edit_apply`'s unconditional *"a bad batch changes nothing"
 live-session refusal neither write verb mentioned, `generate`'s *"a bad param is refused"* when
 it answers `failed`, and `session_interrupt` advertising a retired fixed ladder over a
 recency stack. That left **1.157×**, which still admitted a tenth row at the median length
-(870). **T5 spent 420 more and that headroom is gone** — head is **7,502 / 8,192**, 1.092×,
-with **690 bytes left, shorter than six of the nine rows**, so the PROSE CAP is now the
-binding constraint on a tenth tool before the ceiling of ten is (§28 measures both).
+(870). **T5 spent 420 more and that headroom is gone** — 7,502 / 8,192 at T5, 1.092×, with
+690 bytes left. **Cycle 2's flags arm spent 363 more**: head is **7,865 / 8,192**, 1.042×,
+with **327 bytes left, shorter than seven of the nine rows**, so the PROSE CAP is now the
+binding constraint on a tenth tool before the ceiling of ten is (§28.2 measures both).
 A TOTAL rather than a per-row cap, because
 `session_query`'s row genuinely is a wall and it is the one length this door had to buy. The projected schemas (6,312 bytes, over half of it `edit_apply`'s op
 vocabulary) ride the same response and are deliberately uncapped — they are
@@ -5894,7 +5896,7 @@ and this table is where a reader looks for it.
 | **3. `generate` leaves no ghost** | **HOLDS.** It calls `field.commitGenerator` directly — what `commitStampSession` calls at the END of the interactive path — and touches session state at no point, so there is no state for it to leak. This is the clause with the most immediate consequence for clause 1: a session left standing refuses `world.bake` (whose `enabled` requires `ctx.session === null`) and every family key with it, so a ghost here would kill the gate script one step later. | `bun test packages/editor/tests/field-host/mutation.test.ts -t "leaves NO stamp session"`. |
 | **4. Capture matches the viewport (lights + overlays) at a chosen pose without touching the human's camera** | **HOLDS, and the pose half is the pin that mattered.** The capture composes through the same `field-render.ts` `compose` the live frame uses, with the same `sceneLights()` and the same line batches, into an off-screen texture — so "matches the viewport" is a shared code path rather than a resemblance. A named pose derives a camera and **mutates no input**: the rig is asserted byte-identical after a posed capture. Overlays default on and `overlays: false` removes exactly the line passes. | `bun test packages/editor/tests/field-capture.gpu.test.ts` — *"capturePixels: LIT — the ONLY variable is the light list"*, *"OVERLAYS — the line passes are there, and `overlays:false` removes exactly them"*, *"captureScene: THE COLLABORATION CONSTRAINT — a posed capture leaves the rig byte-identical"*. Pure half: `bun test packages/editor/tests/field-host/field-capture.test.ts`. |
 | **5. Contact/floating answered geometrically** | **HOLDS for props, and the asymmetry is a decision rather than a gap.** A prop is IN CONTACT when a ray cast straight down from the centre of its proxy box's BASE finds a solid sample within one cell size — a function of the prop's own box and nothing else, so no camera and no ordering enters the answer. **Entities are deliberately NOT contact-probed**: a carver's footprint is a volume of air it removed, so a downward probe from its base hits the rock under the floor it just made and reports contact for every hall ever dug. The rule is carried verbatim into the advertised tool description, which is where a caller reads it. Both lists are exceptions rather than rosters, both capped, and `truncated` is what keeps an empty list honest. | `bun test packages/editor/tests/field-host/query.test.ts` — *"PIN: a deliberately-overlapping pair reports its overlap"*, *"PIN: a floating prop reports no floor contact, and a resting one does not appear"*, *"the read WRITES NOTHING"*. Door half: `bun test packages/editor/tests/session-query.test.ts`. |
-| **6. The door advertises real schemas per row, ≤10 tools, instructions ≤2KB, no false `readOnlyHint`** | **HOLDS on all four, measured.** **Nine** rows against a ceiling of ten, the tenth deliberately unspent. Every row's document is `z.toJSONSchema` over the command's own zod, resolved at door CONSTRUCTION — so a row naming a command the registry lacks is a startup failure, which is what makes `unknown-command` structurally unreachable (§6). `MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048, and the row descriptions (**7,082 bytes** at T4c; **7,502** at T5's head, still under) are pinned too, at 8,192, because budgeting only the cheaper surface would have been discipline in name. `readOnlyHint: true` on the five reads; the four writes carry no `annotations` object at all, the specification's default for an absent hint already being "not read-only". **Three rules the document cannot state** (a zero direction vector, a fenced action id, a stray key on an action row's `input`) are enumerated in the probe so a fourth arriving unlisted shows up. | `bun test packages/editor/tests/mcp.test.ts` — 17 cases through a real SDK client in a spawned runtime, including *"tools/list advertises the nine, with readOnlyHint per ROW"*, *"the advertised documents say nothing this suite cannot read — and no tuple lies about its length"* and *"every bound the document states is a bound dispatch enforces"*. |
+| **6. The door advertises real schemas per row, ≤10 tools, instructions ≤2KB, no false `readOnlyHint`** | **HOLDS on all four, measured.** **Nine** rows against a ceiling of ten, the tenth deliberately unspent. Every row's document is `z.toJSONSchema` over the command's own zod, resolved at door CONSTRUCTION — so a row naming a command the registry lacks is a startup failure, which is what makes `unknown-command` structurally unreachable (§6). `MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048, and the row descriptions (**7,082 bytes** at T4c; **7,502** at T5; **7,865** at cycle 2's head, still under) are pinned too, at 8,192, because budgeting only the cheaper surface would have been discipline in name. `readOnlyHint: true` on the five reads; the four writes carry no `annotations` object at all, the specification's default for an absent hint already being "not read-only". **Three rules the document cannot state** (a zero direction vector, a fenced action id, a stray key on an action row's `input`) are enumerated in the probe so a fourth arriving unlisted shows up. | `bun test packages/editor/tests/mcp.test.ts` — **19 cases** at cycle 2's head (17 when this row was written; the count is that command's own output) through a real SDK client in a spawned runtime, including *"tools/list advertises the nine, with readOnlyHint per ROW"*, *"the advertised documents say nothing this suite cannot read — and no tuple lies about its length"* and *"every bound the document states is a bound dispatch enforces"*. |
 | **7. The donor entry is GONE with items 3/4 dispositioned** | **HOLDS.** `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` is deleted. Item 1 (inbound MCP) shipped across T4b + T4c; item 2 (`viewport.capture`) shipped at T4c Task 2; **item 3 (the embedded agent) is DROPPED** with the supersession recorded below and in this commit's message; **item 4 (outbound editor→LLM) is re-filed** at `docs/backlog/editor-and-tooling/outbound-llm-editor-features.md` with a trigger that can fire. Every citation was re-pointed in the same commit — and the honest statement is that the NAME survives its file on purpose, never as a live path. | `test ! -f docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` proves the deletion. Then `grep -rn "editor-ai-integration-milestone" docs packages/*/README.md --exclude-dir=superpowers` — **11 hits, and it deliberately does NOT return nothing.** (The `--exclude-dir` is load-bearing rather than tidy: `docs/superpowers/` is gitignored plan scaffolding and adds 14 more hits that are nobody's to maintain.) Every one of the 11 is one of three kinds, and the counts are the check: **five in this document** (§19, §26.3, and §27.5 ×3 — recording what was deleted and where its contents went); **four former-home annotations** (`read-only-chrome-for-an-unclaimed-session.md` ×2, which quotes the claim policy the donor was the only home for, `editor-backend-architecture.md`, and `outbound-llm-editor-features.md`'s provenance line); and **two dated records keeping their original wording** (`docs/research/2026-07-06-editor-cockpit-audit.md`, `docs/learnings/seals/2026-07-06-pre-3.2-package-record.md`). A twelfth hit, or any hit presenting it as a live register, is the failure. |
 | **8. MSAA is gone from the editor and the claim re-keys on world switch** | **HOLDS, and the two halves are unrelated warm-ups that shared a commit.** The editor's context is `sampleCount: 1` at the single site that requests one; `init` takes the canvas and nothing else; the View popover's AA switch, `ViewState.sampleCount`, `setSampleCount` and the `FieldCanvas` wrapper that existed only to read it are all deleted. **`packages/core` is untouched** — the engine keeps MSAA and hello-world still uses it; only the editor gave it up. The claim now re-keys: `useSessionClaim` owns the authored world, releases and re-claims on every change, and a REFUSED re-key releases what the tab left rather than holding a stale key. | `grep -rn "sampleCount" packages/editor/src` returns **9** lines and exactly **one** of them is code — `field-host.ts`'s `requestContext(canvas, { sampleCount: 1 })`; the other eight are the comments that record why the switch went, which is the intended residue rather than leftovers. The same grep over `packages/core/src` returns **65** lines, which is clause 8's other half stated as a measurement: core kept MSAA and only the editor gave it up. Claim: `bun test packages/editor/tests/chrome/session-claim.test.tsx` — *"loading a world RE-KEYS the claim"*, *"a REFUSED re-claim releases the world this tab left, then offers the steal"*, *"a LOST tab does not claim its way back in by switching worlds"*. |
 
@@ -6218,10 +6220,14 @@ would be the D-12 violation that file exists to expose; and no host verb moves t
 a world POINT (`frameChunks` takes `ChunkKey[]` and `shared/` exposes no chunk size, so the
 chrome cannot even derive one). Either blocker alone is sufficient.
 
-### 28.2 The read learns two questions — `session_query` at five arms (Task 3)
+### 28.2 The read learns two questions — `session_query` at five arms, then six (Task 3)
 
 `session.query` grows from three `about` arms to five, and the two T4c filings it closes turn
-out to be one change.
+out to be one change. **Sculpting-worlds cycle 2 took it to six** — `{about:"flags"}`, the
+walkability advisor's findings — on this section's own pattern, and the arm-growth arc is
+therefore **3 → 5 → 6**. That sixth arm is recorded at the end of this section rather than in
+a tranche section of its own, because it changed nothing about the shape argued here: one
+zod literal, one switch branch the `never` guard demanded, and no new tool.
 
 **`{about:"generators"}` relays `FieldHost.listGenerators()`** — every generator's `id`,
 `name`, `paramSchema`, `defaults`, `placesProps` and `usesSeed`. An agent could NAME a
@@ -6267,19 +6273,57 @@ derivation. **The advertised PROSE is the half a person still writes**, and it i
 task's 420 bytes went — `session_query`'s row teaching the two new arms, and `generate`'s
 pointing at the catalogue that now exists.
 
-**Measured at head, not typed:**
+**Measured at head, not typed** (head = cycle 2's, `240ecfb9`; T5's own figure for the row
+prose was 7,502 B and is kept below so the arc is readable):
 
 | Budget | Head | Pin | Command |
 | --- | ---: | ---: | --- |
 | `MCP_INSTRUCTIONS` | **1,970 B** | 2,048 | `bun test packages/editor/tests/mcp.test.ts` |
-| the nine row descriptions | **7,502 B** | 8,192 | same file, *"tools/list advertises the nine"* |
+| the nine row descriptions | **7,865 B** (7,502 at T5) | 8,192 | same file, *"tools/list advertises the nine"* |
 | advertised rows | **9** | ≤ 10 | same case, asserted as an inventory AND as a bound |
 
-**690 bytes remain, which is shorter than six of the nine rows** — so the PROSE CAP has
+**327 bytes remain, which is shorter than seven of the nine rows** — so the PROSE CAP has
 become the binding constraint on a tenth tool BEFORE the ceiling of ten is. The docblock's
-older claim that the budget "admits a tenth row at the median length (870)" is now false
+older claim that the budget "admits a tenth row at the median length (870)" went false at T5
 (7,502 + 870 = 8,372, which reds) and is corrected at source in both places rather than
-quietly dropped, because it is the number a later task would reason from.
+quietly dropped, because it is the number a later task would reason from. At cycle 2's head
+only `project_get` (214 B) and `world_list` (255 B) are shorter than the remaining headroom,
+and both are verbs with no arms to describe.
+
+**The sixth arm — `{about:"flags"}` (sculpting-worlds cycle 2).** The advisor's findings,
+relayed as the agent reads them: `total` and `byKindSeverity` over every deduped finding,
+`findings` rows for the CANDIDATE severity band only (a pit carries `candidate`, so pits are
+rowed) capped at `MAX_REPORTED` with `truncated` beside them, and `pending`. Four decisions
+are worth the sentences:
+
+- **Unfiltered, deliberately.** It reads a new `FlagStore.rows()` and NOT `summary().visible`,
+  because `visible` answers what the HUMAN's filter chips admit and the chips default `info`
+  and `unreachable` OFF — an agent answered through that lens would silently lose whatever
+  the human had hidden. The dedupe and the verdict join are `rowByKey`'s own, so a row read
+  here and a row resolved by key cannot disagree.
+- **`unreachable` is TRI-STATE and stays that way on the wire.** ABSENT means no reachability
+  flood has visited the finding — the mixed-vintage steady state of a per-chunk advisor beside
+  a whole-world pass, and the permanent state of every pit. Absence is "unknown", never
+  "reachable"; collapsing it to a boolean would have been a false negative wearing a tag's
+  clothes.
+- **`pending` is the freshness anchor, and the backlog entry's premise was wrong.**
+  `docs/backlog/editor-and-tooling/analyzer-flags-cannot-reach-the-agent.md` (deleted in the
+  landing commit) assumed flags are computed at BAKE time and the answer must name what it is
+  stale against. The as-built advisor is LIVE — per-chunk passes on density writes, a
+  whole-world pass after `ANALYZER_IDLE_MS` of idle — so there is no bake to be stale against.
+  What is honest is `Analyzer.pendingCount()`: passes still owed an answer. **Its zero is two
+  states** and the answer cannot separate them: `analyzerPendingCount` returns 0 whenever no
+  agent profile is in hand, so a project without `catalog/agent.json` reads `{total: 0,
+  pending: 0}` forever. That is documented at the member rather than papered over, and the
+  arm deliberately does not carry a second freshness fact about a different subsystem.
+- **The `never` guard collected a second time.** The switch in `field-query.ts` failed the
+  build before the arm had a branch — the same mechanism T5 recorded, re-proven by sabotage
+  at cycle 2's gate (comment the branch out → `tsc` reds at the `never` binding; restore →
+  clean).
+
+The door cost 363 B of the 690 that remained, and `tests/mcp.test.ts`'s projected-arm list
+(five → six) is where a human had to agree the arm should be advertised — the projection
+itself needed no schema written.
 
 ### 28.3 The guidance becomes tracked, and two stances get checks (Tasks 4–5)
 
@@ -6512,7 +6556,7 @@ stated honestly is worth more than a HOLDS a reviewer disproves in one command.
 | Clause | Verdict | Evidence |
 | --- | --- | --- |
 | **1. All six gate filings resolved smallest-honest or narrowed to their explicitly-untaken rungs — none silent** | **HOLDS, with one filing HALF closed and saying so.** *(The clause's "six gate filings" is the plan's phrase for the whole set; strictly, four are the walk's own findings and two — `agent-cannot-read-generator-params`, `session-query-entities-list-is-unbounded` — were filed by T4c tasks 6 and 4. All six were in scope and all six are resolved.)* Four DELETED (`inert-refusals-answer-with-their-label`, `view-frame-without-selection-frames-something-unstated`, `agent-cannot-read-generator-params`, `session-query-entities-list-is-unbounded`), two NARROWED in place. `entity-list-has-no-legible-order` keeps only the presence half (creation-time grouping, "added since your last look"), which needs attribution state the chrome does not have. **`where-am-i-position-legibility` is the half-closed one**: what shipped is the SELECTION's world box, not the camera's pivot, because `CameraPose` is `{yaw, pitch}` and `CameraRig.orbit()`'s docblock refuses widening it (that shape is published as `SessionState.camera`) — both routes were stop conditions, so the entry was narrowed to name them rather than closed. The go-to affordance is likewise narrowed with both of its blockers named. | `git diff --diff-filter=D --name-only 2e2b01cd..HEAD -- docs/backlog/editor-and-tooling/` lists the four deletions among its rows. The two survivors each open with a **What shipped** section: `docs/backlog/editor-and-tooling/entity-list-has-no-legible-order.md`, `where-am-i-position-legibility.md`. Behaviour: `bun test packages/editor/tests/chrome/entities-palette.test.tsx packages/editor/tests/chrome/shell.test.tsx packages/editor/tests/actions.test.ts` → 253 pass. |
-| **2. An agent can read generator params through `session_query`; the entity answer is list/detail-shaped with an honest total; the door is still nine tools and instructions ≤ 2,048 B** | **HOLDS on all four, measured.** Five `about` arms on one row; `entities` slim + `entityTotal`, `entity {entityId}` in full answering `null` for an unknown id; `generators` relaying the host's own projection with its key set pinned. Nine rows, 1,970 / 2,048 B of instructions, 7,502 / 8,192 B of row prose. | `bun test packages/editor/tests/field-host/query.test.ts packages/editor/tests/session-query.test.ts packages/editor/tests/mcp.test.ts` → 53 pass, including *"the generators arm RELAYS the host's projection — it authors no second schema"*, *"the DETAIL arm carries what the list dropped — for ONE entity"*, *"an unknown entityId answers null"*, *"`entityTotal` counts the committed entities"* and *"tools/list advertises the nine, with readOnlyHint per ROW"* (which carries both byte pins). |
+| **2. An agent can read generator params through `session_query`; the entity answer is list/detail-shaped with an honest total; the door is still nine tools and instructions ≤ 2,048 B** | **HOLDS on all four, measured.** Five `about` arms on one row (**six since cycle 2**, §28.2); `entities` slim + `entityTotal`, `entity {entityId}` in full answering `null` for an unknown id; `generators` relaying the host's own projection with its key set pinned. Nine rows, 1,970 / 2,048 B of instructions, 7,502 / 8,192 B of row prose **at T5's exit — 7,865 at cycle 2's head, still under**. | `bun test packages/editor/tests/field-host/query.test.ts packages/editor/tests/session-query.test.ts packages/editor/tests/mcp.test.ts` → 53 pass, including *"the generators arm RELAYS the host's projection — it authors no second schema"*, *"the DETAIL arm carries what the list dropped — for ONE entity"*, *"an unknown entityId answers null"*, *"`entityTotal` counts the committed entities"* and *"tools/list advertises the nine, with readOnlyHint per ROW"* (which carries both byte pins). |
 | **3. The guidance is tracked: four §Design rules + two §Discipline lines + the seal section + the `tranche-review` skill; and the two enforceable stances have checks** | **HOLDS.** | `git diff 2e2b01cd..HEAD -- .claude/rules/working-standards.md` shows six added bullets, four under §Design and two under §Discipline. `grep -n "^## Writing a seal" docs/learnings/seals/README.md`; `test -f .claude/skills/tranche-review/SKILL.md`. Checks: `bun test packages/editor/tests/field-host-boundaries.test.ts packages/editor/tests/harness-conventions.test.ts` → 6 pass. |
 | **4. The gate question is RULED in the harness entry with evidence** | **HOLDS, as a RECOMMENDATION for the review to ratify** — which is the honest verdict, because no task gets to decide how the repo gates. Five numbered parts, each with its measurement; the new finding (the per-package fallback does not cover the workspace) is what disqualifies it as a candidate gate. | `grep -n "The gate question, RULED at foundations T5" docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`. Re-measure: `bun test packages/hello-world packages/cookbook` → 3 pass across 2 files, the two the three-command form drops. |
 | **5. `ToolDefinition.build` is judged against the nine-tool evidence table and dispositioned** | **HOLDS, and the judgement is that the question was MALFORMED.** Two registries were being conflated; PARTIAL on the door population, UNTESTABLE at n = 2 on `build`'s own; the deferred item is RETIRED on §23.4 still binding rather than on the criterion holding. **Flagged for ratification: this is a third shape the plan's binary did not offer.** No entry filed, on purpose. | §27.5 fact (b) and the ruling block under it. `grep -n "ToolId =" packages/editor/src/shared/tool-registry.ts` → `"brush" \| "segment"`; `grep -c "^defineTool(" packages/editor/src/shared/tool-registry.ts` → 2, the whole population. |
