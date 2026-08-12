@@ -1,6 +1,6 @@
 // `bun run sitrep` — the owner's board, computed from docs/work/ and the backlog
 // frontmatter. Nothing is committed; the board cannot disagree with the store because it
-// IS the store. Canon: docs/reference/docs-system.md §5 and §6.
+// IS the store. Canon: docs/reference/docs-system.md §1 (projection) and §5 (work register).
 import { collectWorkItems, type WorkItem } from "./check-docs.ts";
 import { collectEntries, type IndexEntry } from "./docs-index.ts";
 

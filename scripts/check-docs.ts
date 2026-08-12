@@ -24,6 +24,16 @@ const PATH_RE =
 // A path immediately followed by ` (gone)` (optionally closing a backtick) is a
 // deliberate dead citation — the register records that something was deleted.
 const GONE = /^`? \(gone\)/;
+// `git show <rev>:<path>` is commit-pinned — checked against history, not the working
+// tree. Exempts the pinned path ALONE, not its whole line: an unrelated dead path sitting
+// beside a git-show citation must still fail.
+const GIT_SHOW = /git show [0-9A-Za-z_~^-]+[:^](?:[A-Za-z0-9_./-]+)?/g;
+
+const gitShowSpans = (line: string): [number, number][] =>
+  [...line.matchAll(GIT_SHOW)].map((m) => [
+    m.index ?? 0,
+    (m.index ?? 0) + m[0].length,
+  ]);
 
 export function scanDeadPaths(
   file: string,
@@ -32,10 +42,12 @@ export function scanDeadPaths(
 ): Violation[] {
   const out: Violation[] = [];
   text.split("\n").forEach((line, i) => {
-    if (/git show [0-9a-f]+[:^]/.test(line)) return; // commit-pinned, checked against history not the tree
+    const pinned = gitShowSpans(line);
     for (const m of line.matchAll(PATH_RE)) {
       const p = m[0];
-      if (GONE.test(line.slice((m.index ?? 0) + p.length))) continue;
+      const at = m.index ?? 0;
+      if (pinned.some(([s, e]) => at >= s && at < e)) continue;
+      if (GONE.test(line.slice(at + p.length))) continue;
       if (!exists(p))
         out.push({ file, line: i + 1, kind: "dead-path", detail: p });
     }
@@ -91,7 +103,7 @@ export function checkDeriveMarkers(file: string, text: string): Violation[] {
   return out;
 }
 
-const LIVE_REGISTERS = ["docs/backlog", "docs/reference", "docs/work"]; // docs/work lands in Task 10
+const LIVE_REGISTERS = ["docs/backlog", "docs/reference", "docs/work"];
 
 export function collectLiveRegisterFiles(): string[] {
   const out: string[] = [];

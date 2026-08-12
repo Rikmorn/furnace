@@ -27,8 +27,10 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun test` — run all tests
 - `bun test path/to/file.test.ts` — run a single test file
 - `bun test -t "name"` — run tests matching a name pattern
-- `bun run check` — biome lint + format check
-- `bun run typecheck` — type-check core + hello-world
+- `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
+- `bun run typecheck` — type-check the five package lanes (core, hello-world, cookbook, editor, dungeon)
+- `bun run sitrep` — the owner's board, projected from `docs/work/`
+- `bun run docs:index` — regenerate `docs/backlog/README.md` (generated; `bun run check` fails on drift)
 - `bun run hello-world:dev` — hello-world in the browser
 - `bun run hello-world:dev:native` — hello-world in the native window (macOS Tahoe 26+)
 - `bun run edit` (in `packages/hello-world`) — open the editor on hello-world
@@ -138,7 +140,7 @@ Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation 
 - **Changed a public export's behaviour (new throws, new edge cases, changed contract)?** Update its TSDoc. The `bun run check:tsdoc` check catches *missing* TSDoc but not *stale* TSDoc — semantic drift is a review concern. See `docs/reference/tsdoc-conventions.md`.
 - **Materialized a new design or changed an existing one?** Update the relevant `docs/reference/*.md` to reflect the new reality. The reference is "how the project IS today" — if it's stale, it's broken.
 - **Renamed a file, moved a directory, changed a path that other files mention?** Grep for the old path before committing. Stale path references rot silently because nothing tests them.
-- **Never point a tracked doc at `docs/superpowers/`.** Everything under `docs/superpowers/` (specs, plans, archive) is **gitignored** — local design/plan scaffolding that goes stale the moment it's referenced and that other clones don't even have. Tracked docs (`docs/reference/`, `docs/backlog/`, `AGENTS.md`, `README.md`) must cite **facts in `docs/reference/`** (or the source files themselves), never a `docs/superpowers/...` path. `docs/reference/` is where we document how things are; if a decision or design from a superpowers spec needs to be citable, promote the fact into `docs/reference/` and cite that. A `grep -rn "docs/superpowers/" docs/reference docs/backlog docs/learnings` should return nothing (this rule, in `AGENTS.md`, is the only place the path is named on purpose).
+- **Never point a tracked doc at `docs/superpowers/`.** Everything under `docs/superpowers/` (specs, plans, archive) is **gitignored** — local design/plan scaffolding that goes stale the moment it's referenced and that other clones don't even have. Tracked docs (`docs/reference/`, `docs/backlog/`, `AGENTS.md`, `README.md`) must cite **facts in `docs/reference/`** (or the source files themselves), never a `docs/superpowers/...` path. `docs/reference/` is where we document how things are; if a decision or design from a superpowers spec needs to be citable, promote the fact into `docs/reference/` and cite that. The ban is on **citing a scaffolding file**; naming the directory to state the rule is fine, and three tracked files do (here, `.claude/rules/docs-authoring.md`, and `docs/reference/docs-system.md` §2/§6 — the canon). So the check is the narrower `grep -rnE "docs/superpowers/[a-z]+/" docs/reference docs/backlog docs/learnings docs/work .claude`, which must return nothing.
 - **Tried an approach and walked away?** Capture the lesson in `docs/learnings/<topic>.md` so the next person doesn't retry it.
 - **Writing or updating API docs?** Read the implementation source to verify behaviour — don't synthesise from existing reference docs (`core-modules.md`, ADRs, sibling TSDoc), which can be stale or aspirational. Grep the function body for `throw new`, `console.warn`, early-return guards, etc. The code is authoritative; reference docs are summaries that decay. When the reference disagrees with the source, the source wins — and update the reference in the same change. Tranche A-1 caught several `core-modules.md` rows that mis-described actual behaviour (e.g. `stats.measure` no-invoke conditions) only because the TSDoc work read each implementation directly.
 - **MIGRATION (until X) comment convention** (added 2026-05-28 from RM Stage 1 learnings #6). For multi-session migrations, mark TSDoc lines and inline comments that will become stale at a specific future point with a `// MIGRATION (until <session/tranche>):` prefix. Example: `// MIGRATION (until Session 3): Material refcount not yet wired; this slot's userCount is always 0`. The grep `grep -rn "MIGRATION (until" packages/` at the named session boundary surfaces all comments to revisit. Prevents the predictable rot pattern where mid-migration scaffolding comments survive past their relevance window.
@@ -156,8 +158,11 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `dungeon-architecture.md` — as-built dungeon: game loop, traversal/collision (voxel-proxy bridge), the generator library, the bake/load pipeline, invariants, testing posture
   - `packaging-and-distribution.md` — what we ship to consumers
   - `editor-architecture.md` — as-built M3+M4+M5A+M5B editor: daemon, project-first bundling, command registry, document session, SSE change feed + file watching, error contract, chrome, config namespacing; M5A inspector module (SchemaForm, kind→renderer registry, live-preview seam, multi-select, echo suppression); M5B viewport interaction (orbit camera, GPU picking, AABB highlight, translate gizmo, drag-scrub, echo-guard, revertSettings)
+  - `field-host-clusters.md` — the editor field-host's cluster map (the un-growing of the 7.4K-line host)
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
   - `fixed-step-interpolation.md` — engine posture + consumer recipe for interpolating between fixed-step ticks
-- `docs/backlog/` — deferred work register (one file per entry, grouped by topic).
+  - `docs-system.md` — the docs system itself: genres, values rule, statuses, the work register, scaffolding lifecycle, prose-pin taxonomy, pruning, checks
+- `docs/backlog/` — deferred work register (one file per entry, grouped by topic); `README.md` is GENERATED (`bun run docs:index`).
+- `docs/work/` — the live work register (epic = directory, slice = file); `bun run sitrep` projects the board.
 - `docs/learnings/` — post-mortems and "what we tried" notes; `seals/` is the chronological slice/epic seal record — one file per seal plus an index.
 - `docs/research/` — pre-decision research that fed canonical docs.

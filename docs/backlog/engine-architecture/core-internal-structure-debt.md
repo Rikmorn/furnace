@@ -1,5 +1,5 @@
 ---
-summary: core files whose internal shape is wrong (a 1370-line four-codec `field/artifact.ts` and siblings) — fix on the next substantial touch rather than extend
+summary: core files whose internal shape is wrong (a four-codec `field/artifact.ts` past 1.3K lines, and siblings) — fix on the next substantial touch rather than extend
 ---
 
 # Core internal structure debt

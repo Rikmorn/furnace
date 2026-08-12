@@ -10,7 +10,9 @@ import {
 } from "./check-docs";
 
 const exists = (p: string) =>
-  ["packages/core/src/index.ts", "docs/reference/docs-system.md"].includes(p);
+  ["packages/core/src/field/ops.ts", "docs/reference/docs-system.md"].includes(
+    p,
+  );
 
 describe("scanDeadPaths", () => {
   test("flags a cited path that does not exist", () => {
@@ -30,7 +32,7 @@ describe("scanDeadPaths", () => {
   });
   test("passes a cited path that exists", () => {
     expect(
-      scanDeadPaths("f.md", "see `packages/core/src/index.ts`", exists),
+      scanDeadPaths("f.md", "see `packages/core/src/field/ops.ts`", exists),
     ).toEqual([]);
   });
   test("exempts the `(gone)` marker", () => {
@@ -49,6 +51,26 @@ describe("scanDeadPaths", () => {
         "recover with `git show abc123:docs/backlog/old-entry.md`",
         exists,
       ),
+    ).toEqual([]);
+  });
+  test("exempts the PINNED path only, not the rest of its line", () => {
+    const v = scanDeadPaths(
+      "f.md",
+      "`git show abc123:docs/backlog/old.md` replaced `packages/core/src/dead.ts`",
+      exists,
+    );
+    expect(v).toEqual([
+      {
+        file: "f.md",
+        line: 1,
+        kind: "dead-path",
+        detail: "packages/core/src/dead.ts",
+      },
+    ]);
+  });
+  test("exempts a non-lowercase-hex revision (HEAD, a tag, a branch)", () => {
+    expect(
+      scanDeadPaths("f.md", "`git show HEAD:docs/backlog/old.md`", exists),
     ).toEqual([]);
   });
   test("ignores template placeholders (angle brackets break the path regex)", () => {

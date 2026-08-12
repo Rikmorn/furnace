@@ -44,7 +44,10 @@ Present tense, no history. One subsystem per file; a file that accumulates sever
 subsystems splits into a directory of per-subsystem files plus a generated index.
 
 - **Unit:** one subsystem.
-- **Frontmatter:** none required. Optional `verified: <date>` freshness stamp.
+- **Frontmatter:** none required. A `verified: <date>` freshness stamp is **designed but not
+  yet live** — no doc carries one, no schema accepts one, and nothing reads one. It lands
+  with a consumer or not at all (an index with no consumer and no check that exercises it is
+  the failure shape this system exists to avoid).
 - **Lifecycle:** never deleted, continuously corrected. When the reference disagrees with
   the source, the source wins and the reference is fixed in the same change.
 
@@ -257,7 +260,7 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
 | derive markers re-run and diffed | typed-count drift | fail |
 | frontmatter schema per genre (zod) | contract violations | fail |
 | generated-index diff | index rot | fail |
-| work-register consistency — at most one `next`, `after:` targets exist, epic status agrees with its children | a board that lies | fail |
+| work-register consistency — at most one `next`, `after:` targets exist, an `in-flight` epic still owns a slice | a board that lies | fail |
 
 **Scope rules.**
 
@@ -274,6 +277,9 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
   the file with a line number appended. Line numbers rot silently while the claim around
   them stays true, which is the worst failure shape: the reader trusts the sentence and
   lands somewhere unrelated.
+
+**Also not checked:** `after:` cycles (only that the target exists), and `consumer:` against
+the live work register (it is a free string). Both are small additions when they earn it.
 
 **What is not checked, and why.** Semantic claim rot — a sentence that is well-formed,
 cites live paths, and is simply no longer true — is not mechanically detectable, and is an

@@ -3,6 +3,11 @@
 Write-time rules for every tracked doc. Canon with rationale, schemas, and lifecycle:
 `docs/reference/docs-system.md`. Checks: `scripts/check-docs.ts` (in `bun run check`).
 
+"Checked." below means checked **in the live registers** — `docs/backlog/`,
+`docs/reference/`, `docs/work/`. The rules bind every tracked doc; the scanner only reaches
+those three, so everywhere else (`docs/learnings/`, `AGENTS.md`, `.claude/`, package
+READMEs) they are yours to hold.
+
 - **One record per file.** Never merge entries into tracker files; merged views are
   generated only. Directories shard by topic when crowded.
 - **Backlog entries carry frontmatter:** `summary:` (one line, feeds the generated

@@ -1,13 +1,14 @@
 # Seals — the chronological slice/epic seal record
 
 This directory holds the repo's chronological slice/epic seal record: one file per seal,
-plus this index. It replaces `docs/learnings/seal-log.md`, a single append-only file that
+plus this index. It replaces `docs/learnings/seal-log.md` (gone), a single append-only file that
 was originally extracted VERBATIM from `AGENTS.md`'s per-package bullets on 2026-07-06
 (post-Slice-3.1 hygiene) — those bullets had grown to ~50 KB of history loaded into every
 agent session, so `AGENTS.md` kept only CURRENT-STATE summaries + pointers and the full
 record moved to `seal-log.md`. By 2026-08-03 that single file had itself grown to 115 KB,
 the same failure mode one level up: a single doc that is a constant write target bloats no
-matter where it lives. It was split into the 26 per-seal files below, and `seal-log.md`
+matter where it lives. It was split into 26 per-seal files (the index below has grown
+since), and `seal-log.md`
 was deleted. As-built architecture is distilled separately in `docs/reference/`
 (`dungeon-architecture.md`, `editor-architecture.md`, `core-modules.md`) — this directory
 is history, not current state.
