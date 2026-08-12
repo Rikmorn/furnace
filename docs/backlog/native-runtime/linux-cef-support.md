@@ -1,3 +1,7 @@
+---
+summary: no Linux native host — GTK WebKit's WebGPU is weak and the workable path (CEF) pulls a whole Chromium runtime in as a build dependency
+---
+
 # Linux / cef support
 
 Native host is currently macOS-only (milestone 1 shipped macOS; Windows is its own backlog entry below). Linux deferred because GTK WebKit's WebGPU support is weak — the workable path is `cef` (Chromium Embedded Framework), which pulls a heavy Chromium runtime as a build dependency.

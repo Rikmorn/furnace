@@ -1,3 +1,7 @@
+---
+summary: the `.app` bundle is only ad-hoc signed, so Gatekeeper refuses it on any machine but the build one — wants a real codesign + notarization chain
+---
+
 # Mac app code signing & notarization
 
 Mac builds today are signed only by cargo's linker auto ad-hoc stamp on the Mach-O. The `.app` bundle itself is missing `Contents/_CodeSignature/CodeResources`, so `spctl` rejects it as malformed ("no resources but signature indicates they must be present"). On the build machine the app runs fine because locally-created files don't carry `com.apple.quarantine`; on any other Mac the bundle picks up quarantine on transfer and Gatekeeper refuses to launch it, surfacing as `LSOpenURLsWithCompletionHandler() failed with error -10810` (`kLSUnknownErr`).

@@ -1,3 +1,7 @@
+---
+summary: the plugin mechanism is settled (Rust crates compiled to wasm) but the `Plugin` trait, payload schemas, lifecycle hooks, and JS IPC contract are unspecified
+---
+
 # Plugin API Spec
 
 The native-shell distribution design (Plugin Model section) establishes that plugins are Rust crates compiled to wasm running inside the JS layer (chosen over the Tauri-style Rust-in-runtime model to preserve cross-platform reach). The plugin *mechanism* is decided; the full `Plugin` trait shape, payload schemas, async patterns, lifecycle hooks, and JS-side IPC contract are deliberately deferred. Tauri's `command!` macro is a strong precedent to crib from.

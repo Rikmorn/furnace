@@ -1,3 +1,7 @@
+---
+summary: iOS and Android native targets, gated on WebGPU-in-WebView maturity and on each platform needing its own runtime backend
+---
+
 # iOS / Android native implementation
 
 Spec lists iOS and Android as long-term targets but explicitly gates them on WebGPU-in-WebView maturity. iOS Safari WebGPU support is partial and behind a feature flag in current shipping releases; Android WebView (Chromium-based) is further along but still needs validation. Each platform also needs its own runtime backend (UIView/UIViewController orchestration on iOS; native View + Activity lifecycle on Android), which is more invasive than the cross-platform-wry pattern macOS/Windows share.

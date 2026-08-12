@@ -1,3 +1,7 @@
+---
+summary: `console.log` from inside the native WebView never reaches host stdout, so every manual verification needs Safari Web Inspector open
+---
+
 # WebView `console.log` bridge to host stdout
 
 Today `console.log`/`warn`/`error` calls from JS running inside the WKWebView don't reach the host process's stdout. The runtime enables `with_devtools(true)` and has an error-capture init script that turns *uncaught* errors into a red body overlay, but ordinary `console.log` is invisible unless you attach Safari Web Inspector (Develop menu → [machine] → app entry). Every plugin/feature verification step (e.g. confirming the Phase 4 wasm log line "demo-wasm: 2 + 3 = 5") currently requires Safari to be open. The plan's instruction to "check Console.app for the wasm log" was misleading — Console.app catches WKWebView errors/warnings via unified logging, not arbitrary `console.log` calls.
