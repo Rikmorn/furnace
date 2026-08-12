@@ -1,3 +1,7 @@
+---
+summary: four small T3 fold-ins planned, never executed and never recorded as dropped — a naked-cast comment, chip primitives, a duplicated world-name regex, a wire type test
+---
+
 # The four T3 fold-ins that dropped between plan and exit
 
 The T3 tranche plan named four small fold-ins; none was executed and none was recorded as

@@ -1,3 +1,7 @@
+---
+summary: `latchEntities` walks the whole op log once per reader — up to four whole-world walks where the old provider did one
+---
+
 # `latchEntities` walks the whole op log once per reader
 
 An accepted cost with a "revisit if" that had no entry — filed at the T3 objectives

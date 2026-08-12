@@ -1,3 +1,7 @@
+---
+summary: the `world.*` family's edges — a tracked-precheck failure that refuses the save instead of escalating into the overwrite confirm, name-commit cue gaps, an unbootable `legacy` kind
+---
+
 # The world verbs — the follow-on set
 
 Three entries about the `world.*` family's edges. Two were consolidated at the F4.5 seal

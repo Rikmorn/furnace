@@ -1,3 +1,7 @@
+---
+summary: the editor's boundary items — the project-first `editor-extensions` seam, the preview panel and render-path fidelity deferrals, the worker's unguarded generator evaluate
+---
+
 # Editor seams, contracts, and preview-fidelity deferrals
 
 Tracker for the editor's BOUNDARY items: the project-first `editor-extensions` seam

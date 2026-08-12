@@ -1,3 +1,7 @@
+---
+summary: viewport and hierarchy work fenced out of the M5B editor milestone — gizmo-controller extraction, non-drag pointer gestures, and two items closed by the scene deletion
+---
+
 # Editor — remaining deferred viewport and hierarchy work
 
 ## Context

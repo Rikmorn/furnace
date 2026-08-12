@@ -1,3 +1,7 @@
+---
+summary: the agent door bills one round trip per ray, and `project_get` answers a filesystem path — so a remote agent cannot read the project catalog at all
+---
+
 # The door charges per question, and one answer assumes the caller shares its filesystem
 
 Filed at sculpting-worlds cycle 2's review (2026-08-12), from that cycle's E1 monastery run.

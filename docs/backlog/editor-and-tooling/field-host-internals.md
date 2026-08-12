@@ -1,3 +1,7 @@
+---
+summary: how `field-host/` is built inside — `remeshOne` swallowing GPU setup failures, eight in-source deferrals, an analyzer re-analysis halo resting on an unstated precondition
+---
+
 # Field-host internals
 
 Tracker for `packages/editor/src/field-host/`'s **own internals** — findings about how the

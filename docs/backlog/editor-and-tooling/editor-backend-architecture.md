@@ -1,3 +1,7 @@
+---
+summary: decision history for the editor as a fourth furnace pillar — MCP-first capability layer, local daemon by default, artifact-as-interchange dual mode
+---
+
 # Editor backend as fourth pillar
 
 > **As-built reference:** the M3+M4 editor is now documented as the canonical "how it IS today" at **`docs/reference/editor-architecture.md`** (daemon, two-target bundling, command table, SSE events, error contract, chrome, config namespacing). **This file is decision history** — the *why* behind that reality; for *what runs*, read the reference.

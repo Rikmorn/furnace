@@ -1,3 +1,7 @@
+---
+summary: the UI cases screen-space projection does not cover — per-pixel-occluded in-scene UI, an SDF font atlas, and the browser tech that would collapse the design space
+---
+
 # In-scene UI and text rendering — deferred primitives + emerging-tech watch
 
 Tracker for the three UI-rendering items left open by the UI Foundation milestone. All

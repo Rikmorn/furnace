@@ -1,3 +1,7 @@
+---
+summary: places where the editor chrome knows something the user cannot see — an off-screen live session, an unexplained refusal, a permanently inert control, no onboarding
+---
+
 # Chrome legibility gaps
 
 Tracker for the places where the editor chrome **knows something the user cannot see**.

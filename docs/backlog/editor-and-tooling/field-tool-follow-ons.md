@@ -1,3 +1,7 @@
+---
+summary: deferred gaps in the field editing tools — props drawn as collision proxies, stamp-session and reconfigure divergences, the segment brush, the void cast's worker monopoly
+---
+
 # Field tool follow-ons — props, stamp sessions, the segment brush, the void cast
 
 Tracker for the field-editor tool items deferred out of F2b/F3a/F3b: each is a known

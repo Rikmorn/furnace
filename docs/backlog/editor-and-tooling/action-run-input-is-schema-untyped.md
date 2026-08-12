@@ -1,3 +1,7 @@
+---
+summary: `action_run` declares an empty input schema, so MCP clients stringify object args and an agent cannot name — or bake — a world
+---
+
 # `action_run`'s `input` is schema-untyped, and objects do not survive the client
 
 Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated and accepted at

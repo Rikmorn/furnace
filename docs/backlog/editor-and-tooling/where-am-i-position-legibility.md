@@ -1,3 +1,7 @@
+---
+summary: the status bar names the selection's position now, but the camera's own pivot is still unreadable and nothing goes to a coordinate
+---
+
 # The CAMERA's own position is still unreadable, and there is still no go-to-coordinates
 
 Filed at the T4c gate walk (2026-08-11) — the user's own finding, live. **Narrowed at

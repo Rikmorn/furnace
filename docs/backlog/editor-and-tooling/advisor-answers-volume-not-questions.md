@@ -1,3 +1,8 @@
+---
+summary: the walkability advisor's flags answer has no filter or rollup, relays a kind that can never be actionable, and seeds reachability only from `playerStart`
+consumer: door-set
+---
+
 # The advisor answers volume, not questions — and one of its kinds can never be actionable
 
 Filed at sculpting-worlds cycle 2's review (2026-08-12) from that cycle's E1 monastery run
@@ -76,10 +81,10 @@ world's own answer was unavailable through no fault of the world.
 `about="connected", points: [[…],[…]]` → *"these N points are/aren't one component"* is the
 shape the world-builder actually wants, and it is a small wrapper over machinery that already
 accepts the argument. **This is the item whose classification the owner's cycle-2 ruling got
-wrong** (it was listed among "CORE/engine surface"); recording the correction here so cycle-3
-planning does not scope a core change that is already built.
+wrong** (it was listed among "CORE/engine surface"); recording the correction here so
+`door-set` planning does not scope a core change that is already built.
 
-**Trigger to revisit:** **cycle-3 planning takes these as its E0-equivalent** (ruled by the
+**Trigger to revisit:** **`door-set` planning takes these as its E0-equivalent** (ruled by the
 owner at cycle 2's close, 2026-08-12; §2 PROMOTED into that set at review, on the confirmed
 cave-mouth candidates above). Sooner if any consumer other than the chrome's panel reads
 flags.

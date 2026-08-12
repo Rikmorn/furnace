@@ -1,3 +1,7 @@
+---
+summary: the entities list is newest-first now, but still cannot say which stamps arrived since you last looked, or who added them
+---
+
 # The entity list has no "what changed since I looked away" affordance
 
 Filed at the T4c gate walk (2026-08-11) — the user's own finding, live. **Narrowed at

@@ -1,3 +1,7 @@
+---
+summary: the other arrow — the editor itself calling a model over a selection, and the provider-location, key-management and context-packaging decisions that needs
+---
+
 # Outbound — the editor calls an LLM ("make this material look wet")
 
 **Re-filed 2026-08-10 at foundations T4c Task 7**, out of

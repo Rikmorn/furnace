@@ -1,3 +1,7 @@
+---
+summary: three of the four daemon↔chrome contracts are declared twice and kept in step by hand — `WorldRow`'s only guard is a comment saying "grep both"
+---
+
 # Three of the four daemon↔chrome contracts are still hand-mirrored
 
 Foundations T4b Task 3 added `packages/editor/src/shared/wire.ts` — the **first** boundary type

@@ -1,3 +1,7 @@
+---
+summary: fourteen editor capabilities adjudicated together at the F4.5 sweep and deferred — resize handles, multi-select, camera bookmarks, walk mode, autosave, mirror, per-prop editing
+---
+
 # The F4.5 capability sweep's deferred column
 
 The F4.5 charter's capability sweep (2026-07-29) adjudicated every editor capability the

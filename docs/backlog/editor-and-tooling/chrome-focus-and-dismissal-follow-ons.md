@@ -1,3 +1,7 @@
+---
+summary: where editor keyboard focus lands when a surface closes, and which surface owns a key while several are open — five follow-ons to the F4.5c focus seam
+---
+
 # Chrome focus and dismissal — the follow-on set
 
 Five entries about the same mechanism, consolidated at the F4.5 seal (2026-08-03) because

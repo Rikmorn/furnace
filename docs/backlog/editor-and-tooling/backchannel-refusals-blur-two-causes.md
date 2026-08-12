@@ -1,3 +1,7 @@
+---
+summary: the backchannel reports a chrome refusal and a daemon fault under one `internal` code, and a shutdown leaves a pending ask to its timeout
+---
+
 # The backchannel's refusals blur two causes at the lifetime edges
 
 > **Narrowed at T4c Task 3 (2026-08-10), not closed — and item 1's trigger did NOT fire the

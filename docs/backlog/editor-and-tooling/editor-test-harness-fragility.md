@@ -1,3 +1,7 @@
+---
+summary: what the editor's `bun test` harness cannot do deterministically — happy-dom/GPU/daemon collisions in one shared process, a flaky daemon test, coverage the worker seam still hides
+---
+
 # Editor test harness — fragility and coverage reach
 
 Tracker for what the editor's `bun test` harness cannot currently do deterministically or

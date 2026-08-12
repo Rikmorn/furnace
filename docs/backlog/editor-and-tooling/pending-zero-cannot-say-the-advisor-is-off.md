@@ -1,3 +1,7 @@
+---
+summary: the flags answer's `pending: 0` conflates "the advisor settled" with "the advisor never ran", and nothing pins the counter's wire
+---
+
 # `pending: 0` cannot say the advisor is off — the flags answer's freshness anchor has two debts
 
 Found at sculpting-worlds cycle 2's E0 (2026-08-12), which gave `session_query

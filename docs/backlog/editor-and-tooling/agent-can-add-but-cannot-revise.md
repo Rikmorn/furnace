@@ -1,3 +1,7 @@
+---
+summary: the agent door grew a read half and a write half but never a revise half — no select, no delete, no camera aim, no spawn control
+---
+
 # An agent can add to a world but cannot revise one
 
 **Context.** Measured 2026-08-11 during the first agent world-building probe, from both

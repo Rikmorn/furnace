@@ -1,3 +1,7 @@
+---
+summary: a second editor tab that has not claimed the session is a full editor the agent cannot see — read-only is a per-control design pass, not a flag
+---
+
 # A chrome that has not claimed the session is not read-only — it is a full editor nobody can reach
 
 The session-claim policy, settled at the foundations programme design (2026-08-04), reads:

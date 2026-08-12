@@ -1,3 +1,7 @@
+---
+summary: editor chrome that is wrong rather than merely missing — inspector fields that mis-handle their schema type, palette focus, readouts that go stale
+---
+
 # Editor chrome — authoring gaps and inspector defects
 
 Tracker for the editor CHROME items: verbs the daemon exposes but the React surface does

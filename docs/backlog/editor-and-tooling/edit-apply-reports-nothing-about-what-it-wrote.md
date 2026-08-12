@@ -1,3 +1,8 @@
+---
+summary: `edit_apply` answers a bare ok, so a brush op that changed zero samples is indistinguishable from one that worked
+consumer: door-set
+---
+
 # `edit_apply` reports nothing about what it wrote
 
 Filed at sculpting-worlds cycle 2's review (2026-08-12), from that cycle's E1 monastery run.
@@ -28,7 +33,7 @@ the second of the two candidate fixes the lattice-aligned entry names. The first
 whose bounds enclose no sample — is core-only and would close the specific defect without
 closing this entry.
 
-**Trigger to revisit:** **cycle-3 planning takes this as its E0-equivalent** (ruled by the
+**Trigger to revisit:** **`door-set` planning takes this as its E0-equivalent** (ruled by the
 owner at cycle 2's close, 2026-08-12). Sooner if `edit_apply`'s response shape is revisited for
 any other reason, or the next time an author reports a brush op that "did nothing".
 

@@ -1,3 +1,7 @@
+---
+summary: editor chrome that works but whose shape is a bet — the action gate still inside `lib/actions.ts`, a counter riding the context, helpers awaiting a third occurrence
+---
+
 # Chrome shape — the extraction follow-on set
 
 Four entries consolidated at the F4.5 seal (2026-08-03); **three remain.** None is a defect:
