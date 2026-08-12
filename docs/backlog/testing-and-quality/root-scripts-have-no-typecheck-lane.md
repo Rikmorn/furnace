@@ -35,9 +35,23 @@ Adding `include` to the **root** tsconfig instead would be the wrong move: it cu
 everything, so naming an include narrows it repo-wide.
 
 **Side-finding worth carrying to the build-speed slice:** one root project run type-checks the
-entire repo in 8.4 s, against 27.3 s for the five sequential package lanes. They are not
-equivalent — the package configs differ (jsx, types, paths) — but a 3× gap on the same
-compiler is a lead worth pulling.
+entire repo in ~8 s, against ~27 s for the five sequential package lanes — a 3× gap on the
+same compiler.
+
+**Correction 2026-08-13 (measured at the docs-system review, superseding this entry's own
+first framing).** The lanes are not merely comparable, they are **redundant**. Only three
+packages have a `tsconfig.json` at all (`ls packages/*/tsconfig.json` — core, cookbook,
+editor), and each of the three is `extends` + `include` with **no `compilerOptions` key**, so
+every lane inherits the root options by construction and cannot differ from them. The other
+two lanes (`hello-world`, `dungeon`) have no config, so their `bunx tsc --noEmit` resolves the
+root one — meaning `bun run typecheck` runs the whole-repo check **twice** and calls it two
+lanes. The earlier claim in this entry that "the package configs differ (jsx, types, paths)"
+was wrong; it was reasoned from the lanes existing rather than from reading them.
+
+One caveat before anyone deletes lanes: the root project has no `include`, so it globs
+everything outside `**/dist` and `**/target` — which pulls in gitignored scaffolding
+(`find docs/superpowers -name '*.ts' -o -name '*.mjs' | wc -l` is non-zero today). The gate's
+file set is therefore **clone-dependent**, and that wants fixing in the same change.
 
 ## Trigger to revisit
 
