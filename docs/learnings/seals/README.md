@@ -91,6 +91,7 @@ Dates marked `*` below are extraction-filed, not real seal dates.
 | 2026-08-11 | [Foundations T4c — verbs, eyes, and the gate · T4 CLOSES](2026-08-11-foundations-t4c-verbs-eyes-gate.md) — *gate 1 walked+measured; gate 2 waived to daily use by ruling — NOT a passed visual gate* | editor, core, cookbook |
 | 2026-08-11 | [Foundations T5 — polish, guidance, and the register · THE PROGRAMME CLOSES](2026-08-11-foundations-t5-polish-guidance-register.md) — *live Chromium walk; Safari waived to daily use; audit 150/10/1 keep-by-default; register 169→101, one closure; four ratifications at close* | core, editor |
 | 2026-08-12 | [Sculpting worlds · cycle 1 — aim and judgement, not discipline](2026-08-12-sculpting-worlds-cycle-1.md) — *RED baseline owner-walked; skill 948 words + registry-checked guardrail; review 20/0/2, no fifth false fact; the skill itself unused until cycle 2* | dungeon, editor |
+| 2026-08-12 | [Sculpting worlds · cycle 2 — the skill held, and material is what makes a place](2026-08-12-sculpting-worlds-cycle-2.md) — *first real use, 3 sessions; 58/80 calls, 5 places, owner-walked blind; material beats a 2.4× width contrast; low-clearance 0-on-walkable-ground in all 12 worlds; §Composing 1 keep / 2 rewrite / 1 strike; register 109→117* | dungeon, editor |
 
 **On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
 frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
