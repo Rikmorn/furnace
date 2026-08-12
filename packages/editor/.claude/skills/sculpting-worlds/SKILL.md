@@ -13,6 +13,9 @@ Driving the furnace editor to build convincing 3-D worlds.
 - The generator registry: read it **before you plan**, not when a param throws.
 - Material classes and prop archetypes are **project files** — `catalog/materials.json`
   and `catalog/entities.json`, under the path `project_get` returns.
+- **The generator's SOURCE is part of the box.** Where the schema is silent on behaviour —
+  where a cave's mouths sit — read the generator. One run spent eight door calls hunting a
+  floor its source states.
 
 ## Facts that do not rot
 
@@ -41,6 +44,9 @@ Verifying carefully is not verifying in the right places.
   checks that two stamps' doorways line up.
 - **A ray cast from inside solid returns distance 0**, so you cannot probe a void before
   you have carved it. Build the descent first, then probe outward from inside it.
+- **Never defer verification to a tool you have not confirmed is usable.** A run pushed
+  ~66 hand-computed ops trusting an advisor to catch the arithmetic, then could not filter
+  its 2,541 findings; every op was one cell low. That is not verifying.
 
 ## Known traps
 
@@ -63,20 +69,23 @@ Verifying carefully is not verifying in the right places.
 
 Correct is not the same as convincing.
 
-- **Contrast makes hierarchy.** A tall space reads as tall only if approached through a
-  low one. Vary height, width and density between neighbours.
+- **Material is what makes a place a place.** Walked: two sharing a material read as one
+  whatever their dimensions — a 5 m gallery and a 12 m hall, both masonry, came back as
+  "rooms"; the pair differing in material AND form was told apart on sight. Spend a class
+  per place that must read as distinct. When they run out, say so — that is the ceiling,
+  not a cue to vary numbers.
+- **Contrast makes hierarchy, not identity.** A tall space reads as tall only if
+  approached through a low one — that works. It does not make it a DIFFERENT place:
+  height and width contrast did no identification work.
 - **Vary the section along a passage.** A constant cross-section is the one thing the
   human called boring; a square one reads as manufactured, not natural.
-- **A landmark must be useful** — something to navigate by: distinctive in shape, scale
-  or material, not decoration.
 - **Uniqueness by scarcity does not scale.** Two odd places make two landmarks; ten need
   real differentiation. If you cannot tell two apart in a sentence, neither can the
   player.
 - **Loops beat dead ends.** Two ways between two places turn backtracking into a circuit.
-- **Give districts different material.** The material change is what makes a transition
-  legible as one.
-- **Entrances and thresholds are moments.** Build the junction where one kind of space
-  breaks into another; don't let it fall out of the carve.
+- **Entrances and thresholds are moments — and that is where the wedge will be.** Build
+  the junction where one kind of space breaks into another, then PROBE it: two cycles,
+  both wedges at a threshold.
 
 ## Ambition, and what to do when you hit a wall
 
@@ -101,4 +110,4 @@ Correct is not the same as convincing.
 - **A rule enters here only when a run showed an agent failing without it.** That gate,
   not terseness, is why this is short.
 - Lessons go to `docs/learnings/` as dated entries, never appended here — everything above
-  rests on `docs/learnings/2026-08-11-agent-world-building-cycle-1.md`.
+  rests on that directory's `agent-world-building-cycle-*` files.
