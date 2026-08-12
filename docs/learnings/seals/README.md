@@ -29,6 +29,13 @@ below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
   This is guidance, not a gate: nothing ratchets on the answer (D8, 2026-08-04 — guidance
   over machinery for file size). The value is that the growth is *named* while whoever grew
   it still remembers why.
+- **The promotion gate.** A seal does not close until: (1) durable facts from the
+  slice's spec/plans/reports are promoted into reference/backlog/learnings — walk the
+  scaffolding files named by the slice's slug and ask of each fact "does anything
+  tracked depend on this?"; (2) the slice's `docs/work/` file is deleted (the seal is
+  the tombstone; a closed epic's directory goes with its last slice); (3) the slice's
+  scaffolding files (`specs/`, `plans/`, `report/`, `prompts/` matching the slug) move
+  to the archive directory. Live scaffolding dirs hold unsealed work only.
 
 Then one index line, and nothing else in the index — the row points at the file, the
 content lives in the file.

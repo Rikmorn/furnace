@@ -54,7 +54,18 @@ Run these two concurrently — they do not depend on each other:
    one index line.
 3. **Update the reference docs and the affected package README** — `docs/reference/*.md` is
    "how the project IS today"; `packages/<pkg>/README.md` owns that package's current state.
-4. **Write the next plan and its prompt.**
+4. **Clear the promotion gate — three verifications, all three before the seal closes.**
+   - **Confirm promoted facts landed.** The slice's scaffolding is named for its slug; walk
+     those files and spot-check 2–3 durable facts against the execution report to confirm each
+     one now lives in reference/backlog/learnings. A fact that only exists in a gitignored
+     report does not exist.
+   - **Confirm the work item is deleted.** `docs/work/<slug>.md` is gone (and a closed epic's
+     directory went with its last slice). The seal is the tombstone; two records of "what is
+     live" is one too many.
+   - **Confirm the live scaffolding dirs hold no files for this slug.** They moved to the
+     archive. Live dirs are unsealed work only, which is what keeps the working set from
+     outgrowing the tracked corpus.
+5. **Write the next plan and its prompt.**
 
 ## Sweep clauses
 
