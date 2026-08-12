@@ -1,3 +1,7 @@
+---
+summary: hand a foundation model structured scene state and execute the JSON actions it returns through the classical layer (A*, animation, physics) — far future
+---
+
 # LLM-as-planner experiments
 
 Architecture doc §16. Hand a foundation model structured scene state, get JSON actions back, execute via classical layer (A*, animation, physics). Far future.
