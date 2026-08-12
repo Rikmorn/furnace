@@ -286,6 +286,16 @@ fail is worse than the flake. What the reading DID settle:
   note for whoever picks this up: the "15005 ms" figure comes from a session message, not
   from a durable artifact — no log survives.
 
+**2026-08-12 — a third sighting, name not captured.** Sculpting-worlds cycle 2's review ran
+the editor package suite at each of the five E0 commits in a throwaway worktree. The run at
+`75060723` reported **1,768 pass / 1 fail of 1,769**; two immediate re-runs at the identical
+commit gave **1,769 / 0**. The failing test's name was lost to a `tail -6` capture, so this
+cannot be attributed to the section title above — it is recorded as evidence that the package
+suite is still not deterministically green, not as a reproduction. Provenance is the same
+class as the "15005 ms" note: a session message, no durable log. **Whoever picks this up
+should capture full output, not a tail** — that is twice now that a sighting has arrived
+without the one field that would make it actionable.
+
 **Reference:** `packages/editor/tests/server.test.ts`, the "structured error bodies carry
 code + message" test; `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` (the file
 watcher and SSE feed it exercises — `src/daemon/session.ts` was cited here too and does not

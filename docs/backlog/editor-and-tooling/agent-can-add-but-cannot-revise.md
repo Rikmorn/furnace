@@ -49,6 +49,24 @@ foundations T5 close.** So agent revision freedom is not blocked on wanting it; 
 blocked on attribution, which is already scheduled. Sequence them together rather than
 separately.
 
+**2026-08-12 — demand evidence from cycle 2, and one NEW mechanism.** Sculpting-worlds cycle
+2's E1 monastery run reproduced §4 (camera and spawn) exactly — the bake wrote `playerStart`
+27 m up and 22 m north of anything built, inside solid rock, which vacated the whole
+reachability analysis. It also found a second reason §1 is unreachable: even with a correctly
+typed object, `edit.delete {entityId}` refuses because it confirms against the SELECTED stamp,
+and no agent verb selects an entity — so entity deletion stays dead even once
+`action-run-input-is-schema-untyped.md` is fixed.
+
+**The new finding is about ambition, not hygiene.** The door tells a caller *"to reverse
+something you just did, apply the inverse ops explicitly."* That is true for `fill`. **It is
+false for `dig`** — the destroyed material class cannot be restored, so an agent's mistakes are
+permanent. The measured consequence: carves were sized **conservatively all session** because
+none could be taken back. Attribution is the known blocker, and this is the argument that it is
+load-bearing for how AMBITIOUS an agent will be, not only for history hygiene — a timid builder
+is a worse failure than a messy undo stack, and nothing in the queue said so before this run.
+Per the owner's cycle-2 ruling this files NO new entry; it attaches here, as demand evidence on
+the queue item that already owns the fix.
+
 **Trigger to revisit:** the undo + attribution wire-format design pass — this entry is
 its consumer-side requirements list. Sooner if an agent build again dead-ends on a
 mistake it can see and cannot correct.

@@ -12,6 +12,11 @@ an F5-scale slice trips over); the reader gap is triggered by a consumer wanting
 a generator entity, and is cited live from `packages/core/src/field/reconfigure.ts` and
 `delete-entity.test.ts` as the reason an undo path reads the way it does.
 
+**Absorbed at sculpting-worlds cycle 2's review (2026-08-12):** *a ray answers only the first
+hit*, below — the one CORE item of the four that cycle's run ranked as small-and-blocking. It
+belongs here because it is the same class as the two above: a read whose answer is weaker than
+the data behind it.
+
 ## `analyzeWorld` re-validates the whole `extraSolid` map once per chunk
 
 `analyzeChunk` validates every buffer in `AnalyzeOptions.extraSolid` on entry (`assertExtraSolidValid` walks the whole map, checking each length is `CHUNK_SAMPLES`). That check is correct and deliberately setup-loud — a packed bitset otherwise reads as a plausible partial flag subset — but `analyzeWorld` calls `analyzeChunk` once per allocated chunk, so validation is **O(chunks × extras entries)** rather than O(extras).
@@ -23,6 +28,47 @@ Not fixed inline because the fix is not the trivial one it looks like: hoisting 
 **Trigger to revisit:** the first `analyzeWorld` run over a world large enough for the `[f4-budget]` line to show validation time — practically, when a bake exceeds ~1k chunks with placements spread across most of them, or when the analyzer worker (D-F4-9) starts running whole-world passes rather than dirty-chunk ones. Measure before changing: the per-chunk incremental path (the actual live-editing shape) passes a small extras slice and is unaffected either way.
 
 **Reference:** `packages/core/src/field/solidity.ts` (`assertExtraSolidValid`, `validatedView`) + `analyze.ts` (`analyzeWorld`); producer `packages/core/src/field/placement-collision.ts`; budget numbers in `packages/core/src/field/analyze-budget.test.ts`.
+
+## A ray answers only the FIRST hit, so the field is unqueryable except through voids the caller already made
+
+**Context.** `raycastField` returns `FieldHit | null` — "the first rock voxel the ray enters,
+the air voxel just before it, and the entry point" — and its own TSDoc states the consequence:
+*"A start inside rock hits its own voxel at t=0."* Measured in sculpting-worlds cycle 2's E1
+run: a ray into a fresh world at (20, 40, 20) returns distance 0, because a fresh world is
+solid rock everywhere. **So the cost of finding out where something is scales with how much
+has already been dug — backwards.**
+
+What that cost was, concretely, in that run: answering *"where is the floor of the cave I just
+generated?"* — about an object the editor had created seconds earlier — took a failed tunnel,
+two viewport captures used as an X-ray aiming device, an entity query that returned a
+useless AABB, a read of `packages/core/src/field/cave.ts`, a speculative 8 m dig and two more
+probes. **Eight door calls and a source read for one question.** The source read was decisive
+and free only because that agent had filesystem access; one driving a remote editor could not
+have recovered at all.
+
+The fix is cheap and sits inside machinery that already exists: `raycastField` runs an
+Amanatides–Woo DDA that **already visits every voxel along the ray** and simply returns at the
+first rock. A variant that collects transitions instead — one ray down a column from outside
+the world reporting `solid 0→2.5, air 2.5→8, solid 8→…` — replaces most of those eight calls
+with one, and the traversal cost is identical. A **heightfield query** (surface Y over a
+region, on a grid) is the second, larger shape: it is what "is this walkable, and at what
+level" actually wants, and it is the question a world-builder asks most.
+
+New public API surface either way, so it fails the `AGENTS.md` inline-fix threshold — the
+shape (a second function vs an `opts` flag on the existing one, and whether crossings come
+back as voxels or as world-metre spans) is a real decision, not a mechanical edit.
+
+**Trigger to revisit:** **cycle-3 planning takes this as its E0-equivalent** (ruled by the
+owner at cycle 2's close, 2026-08-12). Sooner if any consumer needs to probe field structure
+it has not itself carved.
+
+**Reference:** `packages/core/src/field/raycast.ts` (`FieldHit`, `raycastField`, and the
+`MAX_STEPS` DDA loop that already walks every voxel); `packages/core/src/field/index.ts:100`
+(the public export); `docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §1 for the
+run that priced it. This is the CORE half of that run's four small items — see
+`stamps-not-authored-to-connect.md` for the door-position half, and
+`docs/backlog/editor-and-tooling/advisor-answers-volume-not-questions.md` +
+`edit-apply-reports-nothing-about-what-it-wrote.md` for the two editor-local ones.
 
 ## `markUnreachable` still floods UNDIRECTED, now that a directed graph exists
 

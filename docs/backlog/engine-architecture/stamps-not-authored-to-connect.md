@@ -39,9 +39,35 @@ dropped its load-bearing mechanism.
 The three unit systems are themselves part of the gap: whatever lands should let a
 caller speak in world metres at the seam, whatever the generator counts internally.
 
-**Trigger to revisit:** the first build that assembles more than two stamps into a
-single circulation — including the agent world-building probes, whose whole premise
-is a mine that breaks into a cave.
+**2026-08-12 — THE TRIGGER FIRED, and the first option is now scheduled.** Sculpting-worlds
+cycle 2's E1 run assembled two `hall` stamps plus a `cave` into one circulation of five places,
+which is the "more than two stamps" case this trigger named. What it measured:
+
+- **Doors are advertised as connections and carry no position.** Every generator has
+  `doorNorth/South/East/West`, which reads as a connection affordance — but a door opens into
+  solid rock and **you cannot ask where it is**. Worse for the cave: `buildMouths` sets the
+  mouth's height from the nearest chamber's floor, so it is unknowable without reading
+  `packages/core/src/field/cave.ts`. The run did read it, and only because that agent had
+  filesystem access.
+- **The entity answer is a bounding box, not structure.** `session_query {about:"entity"}`
+  returned `min [12,0,4] max [44,16,28]` for the cave — a box that is ~90% rock. `buildChambers`
+  had already computed exact centres, radii and floor heights and discarded them. **The
+  generator knows; the door doesn't say.**
+- **The three unit systems cost an entire expressive axis.** `doorNorthOffset` ranges to 28 on
+  the hall, 7 on the maze and 62 on the cave, *in units the schema never states*. The run
+  therefore avoided door offsets entirely — precisely the axis that would have let it AIM doors
+  instead of hand-carving junctions. This is the paragraph above, priced.
+
+The **first option** (doors as first-class queryable anchors) is what closes all three at once,
+and the owner ruled at cycle 2's close that it joins the cycle-3 E0-equivalent set. It has a
+CORE half (the generators must stop discarding what they computed) and an editor half (the
+entity arm must relay it) — noting the split here because cycle 2's ruling listed the item as
+core-only.
+
+**Trigger to revisit:** **cycle-3 planning takes the door-anchor option as its E0-equivalent**
+(owner, 2026-08-12). The original trigger — the first build that assembles more than two stamps
+into a single circulation, including the agent world-building probes — has fired twice and is
+kept as the record of what it predicted.
 
 **Reference:** `packages/core/src/field/generators.ts` (`openDoor`,
 `assertDoorOffsetFits`, `HALL_PARAMS` / `MAZE_PARAMS` door fields);
