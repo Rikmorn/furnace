@@ -269,6 +269,7 @@ const spatialQuery = z.discriminatedUnion("about", [
     maxDist: z.number().positive().max(MAX_PROBE_M).optional(),
   }),
   z.strictObject({ about: z.literal("selection") }),
+  z.strictObject({ about: z.literal("flags") }),
 ]);
 
 /**

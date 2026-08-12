@@ -364,12 +364,16 @@ test("every bound the document states is a bound dispatch enforces", () => {
   );
 });
 
-test("session_query advertises FIVE arms, projected from the union dispatch runs", () => {
+test("session_query advertises SIX arms, projected from the union dispatch runs", () => {
   // **THE ARM T5 ADDED IS ADVERTISED WITHOUT ANYBODY WRITING A SCHEMA, which is the whole
   // reason the generator catalogue rode this verb instead of a tenth tool.** The document is a
   // PROJECTION of `spatialQuery`, so an arm added to that union appears here or the projection
   // is broken. Read off the `oneOf` rather than out of the prose: the prose is what a human
   // wrote and the `oneOf` is what a client renders a picker from.
+  //
+  // **AND IT COLLECTED A SECOND TIME (cycle 2's `flags`)**, which is the case this pin was
+  // kept for: the arm cost one zod literal and appeared in the advertised document with no
+  // schema written for it, and this list is where a human had to agree it should.
   const row = advertised().find((x) => x.name === "session_query");
   const arms = (row?.inputSchema["oneOf"] ?? []) as Record<string, unknown>[];
   const about = arms.map((arm) => {
@@ -384,6 +388,7 @@ test("session_query advertises FIVE arms, projected from the union dispatch runs
     "generators",
     "ray",
     "selection",
+    "flags",
   ]);
   // …and the ONE member the two new arms add between them is `entityId`, REQUIRED, which is
   // what makes "list, then ask about one" a call an agent can compose from the document alone.

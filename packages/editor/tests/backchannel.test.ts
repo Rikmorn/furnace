@@ -736,6 +736,31 @@ test("session.query RELAYS each arm, and defaults nothing on the way past", asyn
   expect(await asked).toEqual(payload);
 });
 
+test("session.query ADMITS the flags arm and relays the advisor's answer", async () => {
+  // The sixth arm's daemon half. `{about:"flags"}` takes nothing, so what has to be true is
+  // that the discriminated union carries the literal at all — a schema without it refuses
+  // with `invalid-input` and the tab is never asked, which is the failure this pins.
+  const { handlers, session } = daemon();
+  const tab = session("cavern");
+  const asked = dispatch(handlers, "session.query", { about: "flags" });
+  const req = requestsTo(tab).at(-1);
+  if (req === undefined)
+    throw new Error("test: no request frame reached the tab");
+  expect(req.method).toBe("session.query");
+  expect(req.params).toEqual({ about: "flags" });
+  // The daemon declares no result type for this either — the host's answer, relayed whole.
+  const payload = {
+    about: "flags",
+    total: 0,
+    byKindSeverity: [],
+    findings: [],
+    truncated: false,
+    pending: 0,
+  };
+  await answer(handlers, { requestId: req.requestId, ok: true, payload });
+  expect(await asked).toEqual(payload);
+});
+
 test("session.query REFUSES a bad arm before any tab is asked", async () => {
   const { handlers, session } = daemon();
   const tab = session("cavern");
@@ -789,9 +814,12 @@ test("session.query REFUSES a bad arm before any tab is asked", async () => {
   // (the contamination this tranche already paid for once). `session.query RELAYS each arm`
   // above sends `dir: [0,-1,0]` and answers it, which is that half.
   //
-  // …and the three bare arms take nothing.
+  // …and the four bare arms take nothing.
   expect(await bad({ about: "entities", deep: true })).toBe("invalid-input");
   expect(await bad({ about: "generators", verbose: true })).toBe(
+    "invalid-input",
+  );
+  expect(await bad({ about: "flags", severity: "candidate" })).toBe(
     "invalid-input",
   );
   // THE ENTITY ARM'S ONE MEMBER IS REQUIRED, because `{about:"entity"}` alone names no

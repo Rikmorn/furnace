@@ -501,7 +501,10 @@ export function createSessionAnswerers(
     // not from HERE. This file is chrome, and `tests/frontend-no-engine-leakage.test.ts`
     // fails a value import of `@furnace/core` or of anything under `field-host/` from it, so
     // the only route to that list is the host method this row is missing. The throw is
-    // therefore right for all five arms, for four reasons and one different one.
+    // therefore right for all six arms, for five reasons and one different one — the flags
+    // arm joins the five: the advisor's findings are `substrate.flagStore`'s, so a chrome
+    // with no engine has no findings to be empty ABOUT, and answering `{total: 0}` would be
+    // the same positive claim in the advisor's vocabulary.
     "session.query": (params: unknown): QueryAnswer => {
       const engine = host.current;
       if (engine === undefined) {
@@ -518,7 +521,7 @@ export function createSessionAnswerers(
       const req = params as SessionQueryRequest | undefined;
       if (req === undefined || typeof req.about !== "string") {
         throw new Error(
-          "session.query needs an `about` naming what to ask about — entities, entity, generators, ray or selection",
+          "session.query needs an `about` naming what to ask about — entities, entity, generators, ray, selection or flags",
         );
       }
       return engine.query(req);
