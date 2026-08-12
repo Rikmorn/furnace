@@ -6535,6 +6535,12 @@ and it wants its own brainstorm plus external research rather than a task in a p
 tranche. T5 built the process half of that split (§28.3); 3b is the world-building half —
 what an agent driving this editor should be TOLD about composing a world through the nine
 verbs, which is a design question this tranche had no license to answer.
+*[Executed 2026-08-12: the 3b session ran as the `sculpting-worlds` skill — cycle 1,
+RED baseline build (45 door calls, owner-walked) → GREEN skill + guardrail test
+(`packages/editor/tests/skill-references.test.ts`); field notes at
+`docs/learnings/2026-08-11-agent-world-building-cycle-1.md`. The T5-close ruling also
+inserted the TOOLING SESSION (doc strategy + build-cycle speed) into the queue between
+3b and the undo + attribution pass below — the T5 seal carries that queue.]*
 
 **Then undo + attribution**, as ONE wire-format design pass: an origin field on the log entry
 and named-stroke boundaries, designed together with an agent undo verb rather than before it.
