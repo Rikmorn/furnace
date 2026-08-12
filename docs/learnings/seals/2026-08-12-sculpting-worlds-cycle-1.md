@@ -50,11 +50,12 @@ numbers got their pin (the guardrail now evaluates the hall through the PUBLIC s
 and solves for cell + shell from the fill box's two independent axes, measures the door
 aperture off the dig union — one correction to the review's sketch en route:
 `BUILTIN_TABLE` carries no kit class, the stamp path refuses it setup-loud, so the pin
-authors core's minimal kit fixture) · **the word pin (1,100) STANDS as shipped but is
-NOT a ratified number** — provenance established at review: it is the cycle's own
-review-minted "1.16× head at the cut", not a standard (the nearest guidance,
-`writing-skills`, targets <500); kept as an anti-runaway backstop, re-anchorable at the
-tooling session, removable on a word.
+authors core's minimal kit fixture) · **the word pin (1,100) RATIFIED by the user at
+close** — provenance established first: it is the cycle's own review-minted "1.16× head
+at the cut", not a standard (the nearest guidance, `writing-skills`, targets <500);
+accepted as an anti-runaway backstop, and by the same ruling the number's basis — and
+prose-pin number bases generally (this pin + the mcp byte pins share the shape) — is
+QUEUED FOR THE TOOLING SESSION's agenda.
 
 **Orphaned surface: none.** New files only; nothing lost a consumer.
 
