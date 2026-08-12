@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { scanDeadPaths, scanFileLineCitations } from "./check-docs";
+import {
+  checkDeriveMarkers,
+  collectLiveRegisterFiles,
+  scanDeadPaths,
+  scanFileLineCitations,
+} from "./check-docs";
 
 const exists = (p: string) =>
   ["packages/core/src/index.ts", "docs/reference/docs-system.md"].includes(p);
@@ -89,5 +94,33 @@ describe("scanFileLineCitations", () => {
     expect(scanFileLineCitations("f.md", "at 14:11 the ratio was 3:1")).toEqual(
       [],
     );
+  });
+});
+
+describe("checkDeriveMarkers", () => {
+  test("passes when the command output matches the recorded value", () => {
+    const md = "count: <!-- derive: echo 7 -->7<!-- /derive -->";
+    expect(checkDeriveMarkers("f.md", md)).toEqual([]);
+  });
+  test("fails when the recorded value drifted", () => {
+    const md = "count: <!-- derive: echo 7 -->9<!-- /derive -->";
+    const v = checkDeriveMarkers("f.md", md);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("derive-drift");
+    expect(v[0]?.detail).toContain("expected 7");
+  });
+  test("fails when the deriving command itself fails", () => {
+    const md = "<!-- derive: exit 3 -->x<!-- /derive -->";
+    expect(checkDeriveMarkers("f.md", md)[0]?.kind).toBe("derive-error");
+  });
+});
+
+describe("collectLiveRegisterFiles", () => {
+  test("includes backlog + reference, excludes learnings/research/superpowers", () => {
+    const files = collectLiveRegisterFiles();
+    expect(files.some((f) => f.startsWith("docs/backlog/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("docs/reference/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("docs/learnings/"))).toBe(false);
+    expect(files.some((f) => f.startsWith("docs/superpowers/"))).toBe(false);
   });
 });
