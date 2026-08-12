@@ -2935,8 +2935,11 @@ allowed to stand:
   capability-sweep backlog column there. **The file shape changed at foundations T5**: the
   dominant form is now a MERGED TRACKER — one theme, one file, one `##` section per absorbed
   entry keeping its own Context / Trigger / Reference — so "one file per entry" (which this
-  bullet said until T5) no longer describes the directory. `docs/backlog/README.md` §"Two
-  file shapes" is the convention, and `ls docs/backlog/editor-and-tooling/` is the index.
+  bullet said until T5) no longer describes the directory. **Superseded 2026-08-12:** the
+  merged-tracker shape is retired by `docs/reference/docs-system.md` §8 — one record per
+  file, merged views generated only — and the existing trackers are scheduled to be
+  un-merged. `docs/backlog/README.md` is now a generated index, and
+  `ls docs/backlog/editor-and-tooling/` is the other one.
 
 ## 20. Foundations T3a — the host's framework primitives (2026-08-05)
 

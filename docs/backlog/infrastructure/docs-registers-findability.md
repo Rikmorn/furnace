@@ -229,9 +229,43 @@ share one shape: agent-paid prose bounded by an internally-minted number. The us
 class discussed here — whether such pins get a principled basis, stay taste-with-a-test, or
 belong to the same instrument question as the register thresholds above.
 
+---
+
+## ANSWERED 2026-08-12 — this charter's question has a designed answer
+
+The tooling session ran and the design landed. **The answer is
+`docs/reference/docs-system.md`** — genres and their unit rules, the values rule, status
+vocabulary and typed supersession, the work register, the scaffolding lifecycle and its
+promotion gate, the pruning moves, and the checks table. Rungs 1–4 are implemented:
+`scripts/check-docs.ts` in `bun run check`, frontmatter on every entry, a generated backlog
+index, `docs/work/` plus `bun run sitrep`.
+
+**Both questions this entry framed were answered, not deferred:**
+
+- *Is a file count the right instrument?* **No** — and the design says so with the evidence:
+  one record per file, findability bought by generated views and `ls`, and the threshold
+  demoted to a holding number that nobody re-dials.
+- *Prose-pin number bases* (the scope the owner added at the cycle-1 close) — answered by
+  `docs/reference/docs-system.md` §7: pins are typed **budget** (derived from consumer
+  economics) or **drift alarm** (ratified size × slack), each stating kind, basis and binding
+  response, and a binding pin triggers re-derivation or re-review rather than a silent bump.
+
+**What is still open: rung 5** — the tracker un-merge, the `editor-architecture.md` split,
+and the AGENTS.md trim. It was deliberately excluded so the checks would land before the
+motion they protect. It gets its own plan and is not yet a work item in `docs/work/`.
+
+**This entry is kept, not deleted** — it is the design's provenance, and it holds the
+measured framing (the growth rate, the two failed prune shapes) that the canon states as
+conclusions rather than evidence.
+
+**Note for whoever seals the docs-system slice:** this entry carries
+`consumer: docs-system`. When that work item is deleted at seal, either re-point the field at
+rung 5's work item or drop it — a `consumer:` naming nothing is a rot seed, and `consumer:`
+is not machine-checked against the register.
+
 **Reference:** `AGENTS.md` § "Deferred work — `docs/backlog/`" (the provisional bar and its
-pointer here) · `docs/backlog/README.md` (§ Pruning's three moves, § Two file shapes' no-re-merge
-rule, and the per-dir index rationale) · prune commits `a531088c` and `9e12a3a1` · the entry this
+pointer here) · `docs/reference/docs-system.md` (the answer: pruning's three moves, the unit
+rule that retired the merged tracker, the checks) · prune commits `a531088c` and `9e12a3a1` · the entry this
 one succeeds, resolved by the T5 prune and recoverable with
 `git show 9e12a3a1^:docs/backlog/engine-architecture/backlog-topic-dirs-over-the-prune-threshold.md`
 — it is where the "re-derived because nobody found it" framing and the ~150 escalation number
