@@ -1,3 +1,7 @@
+---
+summary: cave passages clamp their own delivered rise in extreme-aspect regions, leaving a floor discontinuity where a switchback meets its chamber
+---
+
 # Cave chambers with unreachable Δy under grade budget — passage vs shared-chamber clamp
 
 **Context.** The F3b cave skeleton (`packages/core/src/field/cave.ts`,

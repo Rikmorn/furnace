@@ -1,3 +1,7 @@
+---
+summary: an owner walk saw through a baked world into void; the location was never captured, and no analyzer pass detects open-to-nothing at all
+---
+
 # A walked world has a hole to empty space, and nothing detects it
 
 Observed by the owner walking sculpting-worlds cycle 2's `monastery-in-the-rock` world in

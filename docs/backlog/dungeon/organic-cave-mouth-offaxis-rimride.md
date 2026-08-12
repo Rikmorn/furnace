@@ -1,3 +1,7 @@
+---
+summary: off-axis lanes inside the organic cave hit ~0.80 m floor steps that trip the launch guard and wedge the voxel-proxy mover
+---
+
 # Organic cave interior floor undulates > STEP_HEIGHT off-axis (trips the launch guard)
 
 **Context.** The W2 collar+bore premise probe (`tests/collar-bore.gpu.test.ts`) walks the

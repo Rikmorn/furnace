@@ -1,3 +1,7 @@
+---
+summary: nothing blends the cave isosurface to a mouth's masonry collar — the rock contact is masked by interpenetration alone
+---
+
 # Dungeon: isosurface↔built blending at collar-to-rock contact
 
 > Narrowed at the W4 sweep (2026-07-13): the entry's placer-era history (enclosures,

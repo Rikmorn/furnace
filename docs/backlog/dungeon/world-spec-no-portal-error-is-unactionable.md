@@ -1,3 +1,7 @@
+---
+summary: realizeWorldSpec's no-portal-0 throw names only the symptom — it never says doors come from connectors, so the message offers no next step
+---
+
 # `realizeWorldSpec`'s "no portal 0" error says nothing actionable
 
 `packages/dungeon/src/world-build.ts (gone):672` throws

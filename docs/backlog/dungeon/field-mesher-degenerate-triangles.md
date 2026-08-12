@@ -1,3 +1,7 @@
+---
+summary: the Surface-Nets mesher emits zero-area triangles and non-manifold edges on symmetric surfaces — harmless to render, risky for a cooked collision mesh
+---
+
 # Field mesher emits degenerate triangles on symmetric surfaces
 
 **Context.** `@furnace/core/field`'s chunked Surface Nets mesher (`packages/core/src/field/mesher.ts`, F1 Task 3) uses plain-centroid vertex placement (mean of edge crossings). On surfaces that lie on a symmetry axis under the coarse int8 density (`DENSITY_SCALE = 32`, ~0.25 m cells), coincident cell minimizers produce **zero-area triangles and non-manifold edges** (edge-count histogram shows count-4/6/10 edges, ~60 self-edges on an axis-centered sphere). Independently confirmed at F1 T3 review: the anomaly is present in a **single seamless chunk**, so it is a property of the vertex-placement scheme, NOT the chunk seams (which are watertight — zero count-1 holes verified at the 8-chunk corner). Offsetting the surface off the symmetry axes reduces but does not eliminate it.

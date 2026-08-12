@@ -1,3 +1,7 @@
+---
+summary: the disjoint-region assert tests region AABBs, so it rejects geometrically legal layouts — a hard error once a human is dragging placements
+---
+
 # `assertDisjointRegionVolumes` is AABB-conservative and will reject legal worlds in the editor
 
 **Context:** Surfaced in the W3 holistic review. W3 added `assertDisjointRegionVolumes`

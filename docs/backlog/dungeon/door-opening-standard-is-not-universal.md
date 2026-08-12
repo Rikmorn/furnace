@@ -1,3 +1,7 @@
+---
+summary: two door heights ship — the grid stamp's 3.0 m and the organic collar's 2.8 m — so the single door-class portal standard is false
+---
+
 # The door-opening standard is not universal — two door heights ship (3.0 grid vs 2.8 collar)
 
 **Context.** Surfaced at the W4 sweep. `docs/reference/dungeon-architecture.md` records the

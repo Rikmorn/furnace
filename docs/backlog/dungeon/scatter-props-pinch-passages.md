@@ -1,3 +1,7 @@
+---
+summary: catalog scatter at authored densities pinches passages below the capsule's width bar — 29–47 advisor flags per config against 0–3 bare
+---
+
 # Scattered props pinch passages — the advisor's whole candidate budget
 
 **Context.** P-F4-3b (2026-07-26, `packages/dungeon/scripts/measure-analyze.ts`) measured the

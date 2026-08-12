@@ -1,3 +1,7 @@
+---
+summary: MazeParams.cells has no ceiling — a fat-fingered value expands to a 64 MB grid and hangs the tab, with no budget or fail-fast
+---
+
 # `MazeParams.cells` has no upper bound — a fat-fingered knob value hangs the tab
 
 **Context:** Surfaced in the W3 Task 4 review. `maze()` in `packages/dungeon/src/themes/maze.ts` (gone)

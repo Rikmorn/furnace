@@ -1,3 +1,7 @@
+---
+summary: attach construction-guaranteed regions to a baked world at play time for an endless feel — needs a socket contract and runtime realize plus collider attach
+---
+
 # JIT runtime regions (3.6 charter seed)
 
 **Context.** The 3.3 Worlds charter (2026-07-11) defers runtime-appended regions:

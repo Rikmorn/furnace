@@ -1,3 +1,7 @@
+---
+summary: the substrate grid is dense Uint8Array behind an accessor wall — the seam a palette or RLE encoding slots into when streaming makes size matter
+---
+
 # Substrate grid storage: palette / RLE behind the accessors
 
 **Context.** W2 ships the two-resolution voxel substrate with **dense per-region

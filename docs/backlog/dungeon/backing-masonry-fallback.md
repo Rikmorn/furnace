@@ -1,3 +1,7 @@
+---
+summary: fallback if a void ever flashes through the proud-panel reveal gaps: stamp backing masonry behind each panel run
+---
+
 # Backing masonry behind proud panels (the D-W2-1 fallback)
 
 **Context.** W2's wall render model is **proud panels + reveals** (D-W2-1, user-picked over

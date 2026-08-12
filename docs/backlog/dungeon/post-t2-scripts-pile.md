@@ -1,3 +1,7 @@
+---
+summary: packages/dungeon/scripts/ accumulated one-off bake, measure and probe scripts whose referents partly died with dungeon v1 — wants a sweep
+---
+
 # The dungeon `scripts/` pile — post-T2 remainder
 
 Named at the foundations programme's disposition sweep (2026-08-04); never filed; filed

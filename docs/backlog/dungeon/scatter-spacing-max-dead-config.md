@@ -1,3 +1,7 @@
+---
+summary: ScatterLayerSpec.spacing.max is inert — scatter() reads only spacing.min, so every authored max-gap range does nothing
+---
+
 # `ScatterLayerSpec.spacing.max` is dead config — scatter() reads only `spacing.min`
 
 **Context.** Surfaced during W2 Task 13 (hall dressing) and reported-but-not-filed in the

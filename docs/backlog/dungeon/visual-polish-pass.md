@@ -1,3 +1,7 @@
+---
+summary: tracker for the dungeon look-not-structure work: a richer rim-collar case set and a material/UV atlas for the masonry kit
+---
+
 # Dungeon visual polish pass
 
 Tracker for the dungeon "look, not structure" work all deferred to the same 3.4 / 3.5

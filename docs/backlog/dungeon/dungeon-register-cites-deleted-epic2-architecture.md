@@ -1,3 +1,7 @@
+---
+summary: eleven dungeon backlog entries cite Epic 2 modules that were deleted; each needs a live-or-not disposition, not a citation re-point
+---
+
 # `docs/backlog/dungeon/` was never pruned, and 11 of its 19 entries cite architecture Epic 2 deleted
 
 Measured at the **T5 review** (2026-08-11), by the citation sweep the review ran after the

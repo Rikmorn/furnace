@@ -1,3 +1,7 @@
+---
+summary: crouch, jump, mantle, climb, rope and swim layered on CharacterMover, plus the jump-vs-ground-snap and single-ray edge-drop fixes each will need
+---
+
 # Traversal verbs as extension points on `CharacterMover`
 
 **Context.** Slice 2.1.1 built a custom collide-and-slide `CharacterMover`

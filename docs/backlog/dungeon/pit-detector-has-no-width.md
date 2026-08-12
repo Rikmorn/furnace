@@ -1,3 +1,7 @@
+---
+summary: detectPits ignores free width, so a 0.25 m well between two prop colliders is flagged as a trap the 0.60 m capsule cannot even enter
+---
+
 # The pit detector has no width — sub-capsule wells read as traps
 
 **Context.** `detectPits` (D-F4-18) floods the same headroom-free, width-free node set

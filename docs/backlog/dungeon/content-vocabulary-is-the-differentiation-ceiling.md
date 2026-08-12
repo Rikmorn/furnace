@@ -1,3 +1,7 @@
+---
+summary: four material classes and two prop archetypes cap how many places can read as distinct; cycle 2 measured material as the discriminating variable
+---
+
 # The content vocabulary is the differentiation ceiling — four materials and two prop archetypes cannot make ten places read as ten
 
 Named at the first agent world-building cycle (2026-08-11): the owner's walk of the RED

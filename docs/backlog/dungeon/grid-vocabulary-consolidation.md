@@ -1,3 +1,7 @@
+---
+summary: tracker: a third grid vocabulary costs five edit sites, three of them pure TypeScript union tax, plus duplicated door and dressing constants
+---
+
 # Grid vocabulary consolidation
 
 Tracker for the dungeon grid-vocabulary hygiene findings surfaced in the W3 review:

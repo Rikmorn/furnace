@@ -1,3 +1,7 @@
+---
+summary: CharacterMover commits to a step-up without checking headroom, so a tight ceiling produces a climb-and-fall wedge
+---
+
 # CharacterMover step-up into a low ceiling — headroom guard
 
 ## Context
