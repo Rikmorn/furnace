@@ -4,7 +4,9 @@ import { join } from "node:path";
 import {
   DEFAULT_CELL_SIZE,
   FIELD_GENERATORS,
+  generatorById,
   MAZE_PITCH_CELLS,
+  type MaterialTable,
 } from "@furnace/core/field";
 import { ACTION_DESCRIPTORS } from "../src/action-registry/index.ts";
 
@@ -275,6 +277,122 @@ test("the numbers the skill calls unrotting are the numbers the sources hold", (
     walkableWidth: true,
     mazePitchCells: 5,
     units: ["cells", "cells", "cells", "m", "m"],
+  });
+});
+
+/** THE MODULE-PRIVATE NUMBERS, pinned through the public surface. Three facts the skill
+ *  quotes rest on constants inside `core/src/field/generators.ts` (`CELL`, the door's cell
+ *  dims, the `+2` shell) — unreachable by import, so the review named them as the guardrail's
+ *  blind spot: core's own tests red on any behavioural change, but nothing pointed that red
+ *  at this skill. This case DERIVES all three from what a hall actually emits at its defaults
+ *  — the same route an agent's `generate` takes — then looks for the skill's spellings,
+ *  exactly as the unrotting-numbers case above does.
+ *
+ *  The algebra gets cell and shell WITHOUT assuming either: the shell fill box satisfies
+ *  `(dim + shellCells)·cell = 2·halfExtent` per axis, and the defaults' width ≠ height gives
+ *  two independent equations. The door aperture is the union of the dig boxes that reach past
+ *  the interior on the doored side. Values are rounded to 3 decimals before use so the case
+ *  pins the lattice, not IEEE 754 — the walkable-width pin's own argument. */
+const r3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+/** Stamp generators refuse a catalog with no kit class (`kitClassId` throws setup-loud), so
+ *  the hall cannot be evaluated against `BUILTIN_TABLE`. This is the minimal kit-carrying
+ *  table — the fixture shape `core/src/field/generators.test.ts` uses, cut to two classes. */
+const KIT_TABLE: MaterialTable = {
+  classes: [
+    { id: 0, name: "rock", kind: "organic", color: [0.6, 0.6, 0.6, 1] },
+    {
+      id: 1,
+      name: "masonry",
+      kind: "kit",
+      color: [0.5, 0.5, 0.5, 1],
+      kit: {
+        panelProud: 0.06,
+        panelReveal: 0.02,
+        collarSection: 0.14,
+        backingColor: [0.4, 0.4, 0.4, 1],
+        pieceColors: {
+          panel: [0.55, 0.53, 0.5, 1],
+          floor: [0.42, 0.4, 0.38, 1],
+          trim: [0.35, 0.33, 0.3, 1],
+          collar: [0.3, 0.28, 0.26, 1],
+        },
+      },
+    },
+  ],
+};
+
+test("the three module-private numbers the skill quotes are what a hall emits", () => {
+  const hall = generatorById("hall");
+  const w = hall.defaults["width"] as number;
+  const h = hall.defaults["height"] as number;
+  const d = hall.defaults["depth"] as number;
+  const region = {
+    min: [0, 0, 0] as [number, number, number],
+    max: [8, 6, 8] as [number, number, number],
+  };
+  // The one override opens the north door so the aperture exists to measure; params
+  // round-trip through the evaluate contract's own parse.
+  const { ops } = hall.evaluate(
+    { ...hall.defaults, doorNorth: true },
+    1,
+    region,
+    KIT_TABLE,
+    "replace",
+  );
+  const boxes = ops.flatMap((op) =>
+    op.kind === "brush" && op.shape.kind === "box"
+      ? [
+          {
+            effect: op.effect,
+            center: op.shape.center,
+            half: op.shape.halfExtents,
+          },
+        ]
+      : [],
+  );
+  const fills = boxes.filter((b) => b.effect === "fill");
+  // The derivation's own precondition, asserted so a hall that stops emitting one shell
+  // fill box reds HERE rather than turning the algebra below into NaN comparisons.
+  expect(fills.length).toBe(1);
+  const fill = fills[0] as (typeof boxes)[number];
+  // (w + s)·c = 2·hx0 and (h + s)·c = 2·hx1 ⇒ subtract: c = 2(hx0 − hx1)/(w − h).
+  const cell = r3((2 * (fill.half[0] - fill.half[1])) / (w - h));
+  const shellCells = r3((2 * fill.half[0]) / cell - w);
+  // Door digs sit past the interior's far-z face (north). Interior far z = fill max z
+  // minus one shell's worth; everything here is derived, no magic thresholds.
+  const interiorZMax = fill.center[2] + fill.half[2] - (shellCells / 2) * cell;
+  const door = boxes.filter(
+    (b) =>
+      b.effect === "dig" && b.center[2] + b.half[2] > interiorZMax + cell / 4,
+  );
+  expect(door.length).toBeGreaterThan(0);
+  const doorW = r3(
+    Math.max(...door.map((b) => b.center[0] + b.half[0])) -
+      Math.min(...door.map((b) => b.center[0] - b.half[0])),
+  );
+  const doorH = r3(
+    Math.max(...door.map((b) => b.center[1] + b.half[1])) -
+      Math.min(...door.map((b) => b.center[1] - b.half[1])),
+  );
+  const text = skillText();
+  expect({
+    // The third axis closes the system: the same cell and shell must reproduce the
+    // depth half-extent, or the two-equation solve above fit noise.
+    depthConsistent: r3((d + shellCells) * cell) === r3(2 * fill.half[2]),
+    // The skill's three spellings, each SEARCHED FOR with the derived value — re-dial
+    // `CELL`, the door dims or the shell and the sentence stops being found.
+    coarseCell: text.includes(`count coarse cells of ${cell} m`),
+    shell:
+      shellCells === 2 && text.includes(`one-coarse-cell (${cell} m) shell`),
+    door: text.includes(
+      `**${doorW.toFixed(1)} m wide × ${doorH.toFixed(1)} m high**`,
+    ),
+  }).toEqual({
+    depthConsistent: true,
+    coarseCell: true,
+    shell: true,
+    door: true,
   });
 });
 
