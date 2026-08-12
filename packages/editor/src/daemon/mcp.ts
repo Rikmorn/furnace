@@ -237,15 +237,18 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * discovery blurb and not the rows would be budgeting the cheaper surface and calling it
  * discipline. `tests/mcp.test.ts` pins the total at 8,192. It was 6,004 bytes and 1.36× head
  * when this paragraph was written; the T4c review spent 1,078 of that slack on four rows that
- * described this door WRONGLY, and T5 spent 420 more teaching `session_query` its two new arms
- * and pointing `generate` at the catalogue that now exists.
+ * described this door WRONGLY, T5 spent 420 more teaching `session_query` its two new arms
+ * and pointing `generate` at the catalogue that now exists, and cycle 2 spent 363 on its
+ * sixth arm (`flags`).
  *
- * **HEAD IS 1.092×, AND THE TENTH-ROW CLAIM THIS PARAGRAPH USED TO MAKE IS NOW FALSE** —
+ * **HEAD IS 1.042×, AND THE TENTH-ROW CLAIM THIS PARAGRAPH USED TO MAKE IS NOW FALSE** —
  * said plainly rather than quietly dropped, because it is the number a later task will
- * reason from. It read *"admits a tenth row at the median length (870)"*; 7,502 + 870 = 8,372
- * and that reds. What is left is 690 bytes, which is shorter than six of the nine rows. So the
+ * reason from. It read *"admits a tenth row at the median length (870)"*; 7,865 + 870 = 8,735
+ * and that reds. What is left is 327 bytes, which is shorter than SEVEN of the nine rows —
+ * only `project_get` (214) and `world_list` (255) would fit inside it, and both are verbs
+ * with no arms to describe. So the
  * prose cap has become the binding constraint on a tenth tool BEFORE the ceiling of ten is —
- * a tenth verb must now either be describable in 690 bytes or arrive with a cut somewhere
+ * a tenth verb must now either be describable in 327 bytes or arrive with a cut somewhere
  * else, and either way somebody has to decide rather than discover it. A TOTAL rather than a
  * per-row cap, because one row genuinely is a wall — `session_query` restates the contact rule
  * verbatim, which is the whole reason that rule reaches an agent — and a per-row limit would
@@ -307,7 +310,7 @@ const TOOLS: readonly ToolRow[] = [
     command: "session.query",
     reads: true,
     description:
-      'MEASURE the world instead of looking at it. Five questions, picked with `about`. "entities": one row per committed generator entity — id, generator and footprint box — plus `entityTotal` and the placed-prop lint: how many props there are, which are FLOATING and which OVERLAP. Both lists are EXCEPTIONS, so empty means nothing is wrong — unless `truncated` is true, which means the scan stopped early and empty means "I did not look at all of it". "entity" {entityId}: ONE entity in full — its seed, the region it was committed over, whether it is frozen or baked, and what it placed; list first, then ask about one. An id no entity carries answers entity:null, not an error. "generators": the generator REGISTRY — every id with its param schema and defaults, which is how you tune `generate` instead of only calling it. "ray": one ray cast into the density field, answering where it hit or null. "selection": the human\'s cell selection as a replayable spec, its size and its box. CONTACT IS DEFINED, not eyeballed: a prop is in contact when a ray cast straight down from the centre of its proxy box\'s BASE finds a solid sample within one cell size (0.25 m in this editor, and the answer states the gap in metres so you never have to assume it) — so a prop buried in the floor reports contact with gap 0, and a `gap` of null means nothing was found beneath it within the probe\'s reach at all. Entities are deliberately NOT contact-probed: a carver\'s footprint is the AIR it removed, so a downward probe from its base always hits the floor it just made and the question has no meaning for it. Prefer this over viewport_capture for anything positional.',
+      'MEASURE the world instead of looking at it. Six questions, picked with `about`. "entities": one row per committed generator entity — id, generator and footprint box — plus `entityTotal` and the placed-prop lint: how many props there are, which are FLOATING and which OVERLAP. Both lists are EXCEPTIONS, so empty means nothing is wrong — unless `truncated` is true, which means the scan stopped early and empty means "I did not look at all of it". "entity" {entityId}: ONE entity in full — its seed, the region it was committed over, whether it is frozen or baked, and what it placed; list first, then ask about one. An id no entity carries answers entity:null, not an error. "generators": the generator REGISTRY — every id with its param schema and defaults, which is how you tune `generate` instead of only calling it. "ray": one ray cast into the density field, answering where it hit or null. "selection": the human\'s cell selection as a replayable spec, its size and its box. "flags": the walkability advisor\'s findings — kind, severity, world position, an unreachable tag (ABSENT = the flood has not visited it, which is NOT the same as reachable) and any verified verdict. Candidate and pit rows only, capped with a truncated flag; info arrives as counts. pending>0 means the findings trail the latest edits — re-ask once it settles. CONTACT IS DEFINED, not eyeballed: a prop is in contact when a ray cast straight down from the centre of its proxy box\'s BASE finds a solid sample within one cell size (0.25 m in this editor, and the answer states the gap in metres so you never have to assume it) — so a prop buried in the floor reports contact with gap 0, and a `gap` of null means nothing was found beneath it within the probe\'s reach at all. Entities are deliberately NOT contact-probed: a carver\'s footprint is the AIR it removed, so a downward probe from its base always hits the floor it just made and the question has no meaning for it. Prefer this over viewport_capture for anything positional.',
   },
   {
     tool: "viewport_capture",

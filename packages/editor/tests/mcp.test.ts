@@ -161,16 +161,21 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   expect(advertised().length).toBeLessThanOrEqual(10);
   // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
   // ceiling-of-ten exists because "every row a model must consider is paid for on every
-  // turn"; the descriptions are 7,502 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // turn"; the descriptions are 7,865 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
   // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
   // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
   // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6, 1.157× after the
-  // T4c review's 1,078 bytes of corrections, and is 1.092× after T5's 420 — 690 bytes left,
-  // which is SHORTER THAN SIX OF THE NINE ROWS. The tenth-row headroom this comment used to
-  // claim is gone, and that is the budget working rather than slack running out: a tenth verb
-  // now has to be argued against the prose cap before the ceiling of ten is even reached.
+  // T4c review's 1,078 bytes of corrections, 1.092× after T5's 420, and is 1.042× after
+  // cycle 2's flags arm spent 363 — 327 bytes left, which is SHORTER THAN SEVEN OF THE NINE
+  // ROWS. The tenth-row headroom this comment used to claim is gone, and that is the budget
+  // working rather than slack running out: a tenth verb now has to be argued against the
+  // prose cap before the ceiling of ten is even reached — and on this figure a tenth row
+  // would have to be shorter than the two SHORTEST rows standing (project_get, 214;
+  // world_list, 255), which no verb with arms has managed.
   // A TOTAL rather than a per-row cap, because `session_query`'s wall is the one length this
   // door had to buy.
+  // The figures above are derived, not typed: `bun test tests/mcp.test.ts` with a scratch
+  // `console.log(proseBytes)` on the reduce below (inserted, run once, reverted).
   const proseBytes = advertised().reduce(
     (sum, tool) => sum + Buffer.byteLength(tool.description ?? "", "utf8"),
     0,
