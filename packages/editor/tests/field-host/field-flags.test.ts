@@ -528,3 +528,25 @@ test("flagCellBox is the marker's own cell — the box the pick, the frame and t
   expect(box.max[1]).toBe(1 + CELL);
   expect(box.max[0] - box.min[0]).toBeCloseTo(CELL, 12);
 });
+
+test("rows() is the UNFILTERED verdict-joined read — filters shape visible, never rows", () => {
+  const store = createFlagStore();
+  const a = flag("narrow", "candidate", [1, 0, 0], "0,0,0");
+  const b = flag("low-clearance", "info", [2, 0, 0], "0,0,0");
+  const c = flag("narrow", "candidate", [3, 0, 0], "0,0,0", true);
+  const pit = flag("pit", "candidate", [9, 0, 0], "1,0,0");
+  store.applyFlags(byOwner([a, b, c]), [pit]);
+  store.setVerdict(a, verdict("trapped"));
+  store.setFilters({
+    candidates: false,
+    info: false,
+    unreachable: false,
+    pits: false,
+  });
+  // The human's chips hide everything…
+  expect(store.summary().visible).toEqual([]);
+  // …and rows() still reports every deduped finding, in key order, verdicts joined.
+  const rows = store.rows();
+  expect(rows.map((r) => r.flag)).toEqual([b, a, c, pit]);
+  expect(rows.find((r) => r.flag === a)?.verdict?.outcome).toBe("trapped");
+});

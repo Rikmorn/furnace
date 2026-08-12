@@ -333,6 +333,17 @@ export type FlagStore = {
    * holding a key for.
    */
   rowByKey(key: string): FlagRow | undefined;
+  /**
+   * Every deduped finding, verdict-joined, UNFILTERED and in key order — the agent
+   * door's read (`session_query {about:"flags"}`).
+   *
+   * NOT {@link FlagStore.summary}'s `visible`, deliberately: `visible` answers what the
+   * HUMAN's filter chips admit, and an agent answered through that lens would silently
+   * lose whatever the human has hidden — the chips default `info` and `unreachable`
+   * OFF. The dedupe and the verdict join are {@link rowByKey}'s own (`findings` +
+   * `rowOf`), so a row read here and a row resolved by key cannot disagree.
+   */
+  rows(): FlagRow[];
   /** Record what stage 2 proved about one finding. */
   setVerdict(flag: FieldFlag, verdict: VerifyVerdictWire): void;
   setFilters(filters: FlagFilters): void;
@@ -412,6 +423,9 @@ export function createFlagStore(): FlagStore {
         (f) => flagKey(f) === key && passesFilters(f, filters),
       );
       return flag === undefined ? undefined : rowOf(flag);
+    },
+    rows() {
+      return findings().map(rowOf);
     },
     setVerdict(flag, verdict) {
       verdicts.set(flagKey(flag), {
