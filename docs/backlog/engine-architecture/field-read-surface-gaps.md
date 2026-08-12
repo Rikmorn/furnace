@@ -1,3 +1,8 @@
+---
+summary: field read-surface gaps: `analyzeWorld`'s per-chunk revalidation, a weaker-than-necessary reachability answer, a record with no public reader, and a ray that returns only the first hit
+consumer: door-set
+---
+
 # Field read-surface gaps
 
 Tracker for the field's **read** surface — what a caller can ask the world, what the answer
@@ -58,7 +63,7 @@ New public API surface either way, so it fails the `AGENTS.md` inline-fix thresh
 shape (a second function vs an `opts` flag on the existing one, and whether crossings come
 back as voxels or as world-metre spans) is a real decision, not a mechanical edit.
 
-**Trigger to revisit:** **cycle-3 planning takes this as its E0-equivalent** (ruled by the
+**Trigger to revisit:** **`door-set` planning takes this as its E0-equivalent** (ruled by the
 owner at cycle 2's close, 2026-08-12). Sooner if any consumer needs to probe field structure
 it has not itself carved.
 

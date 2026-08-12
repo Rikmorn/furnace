@@ -1,3 +1,7 @@
+---
+summary: cookbook debt against one-demo-per-Tier-1-feature: ten Tier-1 names with no demo and no recorded decision, plus KCC, collision events and shader composition
+---
+
 # Cookbook debt
 
 The cookbook's outstanding debt against the "one demo page per Tier 1 feature" convention.

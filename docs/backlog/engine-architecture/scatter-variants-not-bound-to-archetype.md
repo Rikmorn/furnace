@@ -1,3 +1,7 @@
+---
+summary: scatter's `variants` param ignores the archetype's own mesh count, so a default-params scatter bakes a world that refuses to load
+---
+
 # Scatter's `variants` is not bound to the archetype it places
 
 **Context.** Found live (2026-08-11) by the first agent world-building probe: the world

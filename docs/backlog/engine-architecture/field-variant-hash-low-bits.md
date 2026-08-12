@@ -1,3 +1,7 @@
+---
+summary: `variantHash` mixes only the low 16 bits of each int input, so kit variant tints alias beyond ~32 km
+---
+
 # field/skin variantHash mixes only the low 16 bits of its int inputs
 
 **Context.** `variantHash` in `packages/core/src/field/skin.ts` (FNV-1a, ported

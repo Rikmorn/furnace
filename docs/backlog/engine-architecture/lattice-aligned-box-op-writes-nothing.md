@@ -1,3 +1,8 @@
+---
+summary: a box op whose faces land exactly on the sample lattice writes no samples and still answers ok
+consumer: door-set
+---
+
 # A lattice-aligned box op writes nothing and still answers ok
 
 Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated and accepted at
@@ -45,4 +50,4 @@ next time `edit_apply`'s response shape is revisited.
 `applyOp`'s fill/paint legs and in `applySmooth`). Sibling:
 `docs/backlog/editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md` — the
 second candidate fix above, filed on its own because it closes a class rather than this
-defect, and scheduled into the cycle-3 E0-equivalent set.
+defect, and scheduled into the `door-set` E0-equivalent set.

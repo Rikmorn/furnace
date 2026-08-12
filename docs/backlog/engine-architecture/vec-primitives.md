@@ -1,3 +1,7 @@
+---
+summary: vector primitives: centralizing the `Vec3Tuple` input type, `Float32Array` authoring ergonomics, the missing `vec2` module, opt-in hot-path assertions
+---
+
 # Vec primitives — type centralization, ergonomics, and the vec2 gap
 
 Tracker for the deferred work on the engine's vector primitives in

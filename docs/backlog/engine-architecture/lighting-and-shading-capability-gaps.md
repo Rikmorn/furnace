@@ -1,3 +1,7 @@
+---
+summary: what the shipped Blinn-Phong forward path cannot express: PBR, area/IES lights, cookies, ambient authoring sugar, many-light scaling, fog modes
+---
+
 # Lighting and shading capability gaps
 
 Tracker for what the shipped **Blinn-Phong forward** path does not cover. The Visual

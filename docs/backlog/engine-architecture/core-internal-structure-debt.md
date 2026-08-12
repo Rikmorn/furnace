@@ -1,3 +1,7 @@
+---
+summary: core files whose internal shape is wrong (a 1370-line four-codec `field/artifact.ts` and siblings) — fix on the next substantial touch rather than extend
+---
+
 # Core internal structure debt
 
 Tracker for **core files and modules whose internal shape is wrong** — no public surface

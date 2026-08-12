@@ -1,3 +1,7 @@
+---
+summary: audit every coined public name against industry vocabulary and run the rename batch before the first npm publish, while renames are still free
+---
+
 # Public API naming audit — align coined names with industry-standard vocabulary
 
 As the `@furnace/core` surface grows, several operations have ended up with **coined names that deviate from the well-understood, common terms** used by the engines/libraries we research against (three.js, pmndrs/postprocessing, Babylon.js, Bevy, Unity, Godot, wgpu/sokol). Naming matters for two reasons beyond ergonomics: (1) a consumer who knows three.js/Babylon should map furnace concepts onto prior knowledge with no friction, and (2) **our own prior-art research is keyed on vocabulary** — if we call a thing something nobody else does, we can't find the precedent that would inform its design. Surfaced during the Stage 2b T2 brainstorm (2026-06-06): the multi-pass effect factory landed as the provisional `post.createPasses`, which describes its *input* (passes) rather than its *output* (an `Effect`) and matches **no** engine's verb-noun — the cross-engine vocabulary is unit = "effect", stage = "pass", container = "pipeline"/"composer", and none use "compose"/"chain"/"createPasses". `post.createPasses` is good-enough and descriptive for 2b, but it is an explicit audit candidate, not a settled name.

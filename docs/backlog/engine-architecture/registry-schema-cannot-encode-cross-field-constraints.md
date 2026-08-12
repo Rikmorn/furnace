@@ -1,3 +1,7 @@
+---
+summary: registry definers take a flat `ZodRawShape`, so cross-field, one-of and discriminated-union constraints survive only as throws inside `evaluate` that no emitted schema or editor form can see
+---
+
 # A registry's `ZodRawShape` can't encode cross-field / one-of / exclusivity constraints
 
 `@furnace/core/registry`'s definers take a **`ZodRawShape`** — a flat `{ field: ZodType }`

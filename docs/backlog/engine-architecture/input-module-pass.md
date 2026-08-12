@@ -1,3 +1,7 @@
+---
+summary: deferred `@furnace/core/input` work: per-ctx scoping instead of a module singleton, pointer lock and relative motion, configurable `preventDefault`, stuck-key recovery
+---
+
 # Input-module pass
 
 Tracker for the deferred work on `@furnace/core/input`. Each entry is a capability

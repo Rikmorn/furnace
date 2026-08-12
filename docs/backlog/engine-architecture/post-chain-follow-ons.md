@@ -1,3 +1,7 @@
+---
+summary: post-chain follow-ons above the shipped linear T2 chain: a runtime render graph, a node-graph editor, effect-input composability, effect variants, two profiling-gated hot-path items
+---
+
 # Post-chain follow-ons
 
 Tracker for the post-processing follow-ons deferred out of the Visual Fidelity epic's

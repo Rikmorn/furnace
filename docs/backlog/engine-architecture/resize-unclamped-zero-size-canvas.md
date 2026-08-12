@@ -1,3 +1,7 @@
+---
+summary: an unclamped canvas resize can feed zero-size depth/MSAA texture creation — a probe, not yet reproduced
+---
+
 # Unclamped canvas resize can feed zero-size texture creation
 
 **Context.** Found by the F2b fix-round-2 executor (2026-07-21), not yet reproduced.

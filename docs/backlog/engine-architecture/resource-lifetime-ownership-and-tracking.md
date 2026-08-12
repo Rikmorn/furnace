@@ -1,3 +1,7 @@
+---
+summary: who owns a GPU resource: teardown cascade policy, ownership roots, allocations the resource manager cannot see, and the ctxId wraparound defect in the handle encoding
+---
+
 # Resource lifetime, ownership and tracking
 
 Tracker for the open questions about **who owns a GPU resource** in `@furnace/core` — how

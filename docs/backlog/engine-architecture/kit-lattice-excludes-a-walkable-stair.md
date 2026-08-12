@@ -1,3 +1,7 @@
+---
+summary: the 0.5 m kit lattice and the agent's 0.4 m step height do not overlap, so no kit-class stair is walkable
+---
+
 # The 0.5 m kit lattice cannot express a stair the agent can climb
 
 Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated and accepted at

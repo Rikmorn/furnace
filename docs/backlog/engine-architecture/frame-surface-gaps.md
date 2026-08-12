@@ -1,3 +1,7 @@
+---
+summary: what `frame.*` cannot express yet: unexposed `GPURenderPipeline` state, a pass-target union, multi-camera frames, and a scalable clock
+---
+
 # Frame surface gaps
 
 Tracker for **what `frame.*` cannot express yet** — the render-pass and clock surface the

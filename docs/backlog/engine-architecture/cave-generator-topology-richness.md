@@ -1,3 +1,7 @@
+---
+summary: richer cave-generator topology dials so a stamped cave reads as a web of caves rather than one tunnel
+---
+
 # Cave generator — tweakable web topology
 
 **Context.** F3b gate round 1 (2026-07-25), user: a cave stamped into a region can

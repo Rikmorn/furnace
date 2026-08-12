@@ -1,3 +1,7 @@
+---
+summary: a group apply's pass 2 does not roll the store back, so an applier throw mid-group leaves a partial write
+---
+
 # Pass 2 of a group apply does not roll the store back
 
 > **The trigger FIRED at T4c Task 3 (2026-08-10). The entry stays OPEN and the residue

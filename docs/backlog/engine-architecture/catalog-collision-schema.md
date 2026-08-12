@@ -1,3 +1,7 @@
+---
+summary: catalog `collision` schema: whether `collisionExtentY` survives `collisionCenter`, and whether the box-only kind should escalate to a mesh kind
+---
+
 # Catalog collision schema
 
 Tracker for the catalog's **`collision` schema** — the two open questions about how a

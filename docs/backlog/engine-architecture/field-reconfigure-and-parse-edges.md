@@ -1,3 +1,7 @@
+---
+summary: reconfigure and parse legs that are exact only under preconditions nothing enforces: flood masks, empty evaluations, and unre-checked op-log payload interiors
+---
+
 # Field reconfigure and parse edges
 
 Tracker for the legs of the field's **reconfigure / parse** path that are exact only under

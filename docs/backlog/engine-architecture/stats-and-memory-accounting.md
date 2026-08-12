@@ -1,3 +1,7 @@
+---
+summary: stated limits of `stats`: no GPU-side timing at all, two unspecified ways to mark a frame boundary, and `memory.textureBytes` undercounting mipmapped textures by ~33%
+---
+
 # Stats and memory accounting
 
 Tracker for `@furnace/core/stats` — **what it does not measure, and where its numbers are

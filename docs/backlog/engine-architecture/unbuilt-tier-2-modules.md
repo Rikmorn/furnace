@@ -1,3 +1,7 @@
+---
+summary: the Tier 2 cross-cutting modules decided on but never built — animation, assets, glTF, audio, event bus, ECS storage, jobs, transform hierarchy, wasm hot loop, debug draw
+---
+
 # Unbuilt Tier 2 modules
 
 Tracker for the cross-cutting modules the original core-architecture design named as

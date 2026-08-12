@@ -1,3 +1,7 @@
+---
+summary: shadow follow-ons on the Stage-4 single-map substrate: cascades and point cubes, auto-fit, resolution/kernel, per-mesh opt-in, instanced and transparent casters
+---
+
 # Shadow follow-ons
 
 Tracker for the shadow-system follow-ons deferred out of the Visual Fidelity epic's

@@ -1,3 +1,7 @@
+---
+summary: the sibling lattice-box entry blames the wrong write gate: a box fill's density write is gated on `nd < d`, not on `sdf > 0`
+---
+
 # `lattice-aligned-box-op-writes-nothing` attributes the miss to the wrong gate
 
 Filed 2026-08-12 during the docs-system rung-1 citation triage, which read every cited site

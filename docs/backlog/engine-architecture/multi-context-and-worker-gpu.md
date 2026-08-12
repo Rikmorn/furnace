@@ -1,3 +1,7 @@
+---
+summary: more than one `gpu.Context`: an OffscreenCanvas worker context, and what a resource created against one device may do against another
+---
+
 # Multi-context and worker GPU
 
 Tracker for **more than one `gpu.Context`** — an off-main-thread context, and sharing

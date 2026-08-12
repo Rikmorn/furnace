@@ -1,3 +1,7 @@
+---
+summary: the two-track physics posture (ADR 0001) and its residue: deferred determinism/networking concerns, the unbuilt GPU track, and the unfinished body-mutation surface
+---
+
 # Physics tracks
 
 Tracker for the **two-track physics posture** and the body-mutation surface it left

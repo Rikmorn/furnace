@@ -1,3 +1,8 @@
+---
+summary: generator doors are validated only within their own stamp, so nothing checks that two placed stamps' doorways actually meet
+consumer: door-set
+---
+
 # Stamps are not authored to connect
 
 **Context.** Three of the four field generators carry doors — `hall`, `maze` and
@@ -59,12 +64,12 @@ which is the "more than two stamps" case this trigger named. What it measured:
   instead of hand-carving junctions. This is the paragraph above, priced.
 
 The **first option** (doors as first-class queryable anchors) is what closes all three at once,
-and the owner ruled at cycle 2's close that it joins the cycle-3 E0-equivalent set. It has a
+and the owner ruled at cycle 2's close that it joins the `door-set` E0-equivalent set. It has a
 CORE half (the generators must stop discarding what they computed) and an editor half (the
 entity arm must relay it) — noting the split here because cycle 2's ruling listed the item as
 core-only.
 
-**Trigger to revisit:** **cycle-3 planning takes the door-anchor option as its E0-equivalent**
+**Trigger to revisit:** **`door-set` planning takes the door-anchor option as its E0-equivalent**
 (owner, 2026-08-12). The original trigger — the first build that assembles more than two stamps
 into a single circulation, including the agent world-building probes — has fired twice and is
 kept as the record of what it predicted.

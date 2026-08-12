@@ -1,3 +1,7 @@
+---
+summary: procedural generation beyond textures: meshes and geometry, a richer noise/pattern module, and GPU-generated content
+---
+
 # Procedural generation as a broader direction (beyond textures)
 
 During the Visual Fidelity epic's Stage 1 (textures) the user flagged broad

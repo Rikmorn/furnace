@@ -1,3 +1,7 @@
+---
+summary: compacting ops downstream of a live generator entity silently changes what a later reconfigure of that entity produces
+---
+
 # field: compaction downstream of a LIVE entity freezes what a reconfigure could change
 
 `compactRuns` (`packages/core/src/field/maintenance.ts`) refuses to fold the ops INSIDE a

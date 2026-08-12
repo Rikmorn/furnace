@@ -1,3 +1,7 @@
+---
+summary: undo/redo entries address `log.ops` by index, which is why compaction refuses any live history — and where a less conservative guard could start
+---
+
 # field: undo/redo entries address `log.ops` by INDEX, which is why compaction refuses a live history
 
 Two of the three `LogEntry` kinds store a POSITION into `log.ops`: `splice` keeps `at`,

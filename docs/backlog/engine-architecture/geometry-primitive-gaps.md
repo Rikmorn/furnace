@@ -1,3 +1,7 @@
+---
+summary: missing render primitives (box/parallelepiped, cone/open cylinder, tunable tessellation) and the render-vs-collider parity principle that governs them
+---
+
 # Geometry primitive gaps
 
 Tracker for the deferred geometry-primitive work: the render primitives furnace does

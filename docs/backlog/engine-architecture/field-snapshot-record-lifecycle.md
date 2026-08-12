@@ -1,3 +1,7 @@
+---
+summary: field snapshot records have no invalidation or pruning story, so a record staled by an edit is consumed silently
+---
+
 # field: snapshot records have no invalidation or pruning story
 
 `captureDueSnapshots` (`packages/core/src/field/snapshots.ts`) captures a chunk's bytes as

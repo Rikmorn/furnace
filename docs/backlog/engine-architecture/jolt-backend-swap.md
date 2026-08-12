@@ -1,3 +1,7 @@
+---
+summary: swapping the physics backend to Jolt, or exposing backend choice, for single-scene multicore and ghost-free mesh collision
+---
+
 # Jolt as the physics scale-up backend (and/or consumer-selectable backend)
 
 **Filed 2026-06-01** when the CPU-physics backend was resolved to **Rapier** (ADR 0001; `docs/research/rapier-vs-jolt-threading-debuggability.md`). This entry tracks the **deferred option to swap the physics backend to Jolt** — or to expose backend choice to consumers — once a real need arrives.

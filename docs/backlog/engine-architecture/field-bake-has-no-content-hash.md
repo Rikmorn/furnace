@@ -1,3 +1,7 @@
+---
+summary: a baked field stores no hash of (ops + mesher version), so nothing can detect that a bake is stale
+---
+
 # A field bake carries no content hash, so nothing can detect a stale bake
 
 **Filed 2026-08-11 (foundations T5 register prune), as the surviving residual of

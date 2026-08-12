@@ -1,3 +1,7 @@
+---
+summary: what the `Shader` substrate deliberately did not ship: WGSL→TS schema codegen with a staleness gate, `// @include` composition, a reload path, a refcount on the resource
+---
+
 # Shader substrate follow-ons
 
 Tracker for the deferred halves of the `Shader` resource and its composition substrate

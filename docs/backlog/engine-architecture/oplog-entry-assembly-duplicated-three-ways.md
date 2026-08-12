@@ -1,3 +1,7 @@
+---
+summary: three hand-rolled copies of "apply a list, build one `ops` log entry" — rule of three met, the helper's shape still a design question
+---
+
 # Three hand-rolled copies of "apply a list, build one `ops` entry"
 
 **Context.** The same five-step block now appears three times in `@furnace/core/field`:

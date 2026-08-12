@@ -1,3 +1,7 @@
+---
+summary: per-draw submission cost in `frame`: sorting draws by pipeline, per-object uniform writes, instance-attribute uploads, line-pass count
+---
+
 # Render submission and batching
 
 Tracker for the **per-draw cost** of `frame`'s submission path — the API-call and GPU-state

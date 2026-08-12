@@ -1,3 +1,7 @@
+---
+summary: render- and material-path extract-on-next-touch hygiene: `frame/render.ts` length, duplication, dead machinery, over-long parameter lists
+---
+
 # Render-code hygiene — extract / refactor on next touch
 
 Tracker for the render- and material-path code-hygiene items that are all

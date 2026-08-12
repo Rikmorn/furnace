@@ -1,3 +1,7 @@
+---
+summary: field ops are only sphere/box/capsule, so stairs, ramps and polyline passages are hand-computed box arithmetic at the caller
+---
+
 # The field-op vocabulary has no architectural altitude
 
 Filed at sculpting-worlds cycle 2's review (2026-08-12), from that cycle's E1 monastery run.
@@ -49,9 +53,9 @@ API surface in every case, so all of it fails the `AGENTS.md` inline-fix thresho
 
 **Trigger to revisit:** the first slice that has to build an interior a human will call
 *architecture* rather than *caves* — or the next time an author (human or agent) decomposes one
-intent into more than ~10 hand-computed brush ops. Explicitly NOT in the cycle-3 E0-equivalent
-set: the owner ruled at cycle 2's close that this half backlogs with triggers because it
-changes the editor's authoring model rather than the door.
+intent into more than ~10 hand-computed brush ops. Explicitly NOT in the `door-set`
+E0-equivalent set: the owner ruled at cycle 2's close that this half backlogs with triggers
+because it changes the editor's authoring model rather than the door.
 
 **Reference:** `packages/core/src/field/types.ts` (`BrushShape` :97-110, `BrushMask` :120-125,
 `SmoothParams` :127-139 for the one op that DOES carry a mode vocabulary);
