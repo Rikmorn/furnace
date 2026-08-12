@@ -226,9 +226,9 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * **THE CEILING IS TEN AND THE SET IS NINE, which is a budget rather than a coincidence.** A
  * model picks a tool by reading names and first sentences, and every row it must consider is
  * paid for on every turn; the tranche sized the door at ten and spent nine, which is why
- * `session.query` is ONE parameterized read rather than five (`shared/wire.ts` argues that
+ * `session.query` is ONE parameterized read rather than six (`shared/wire.ts` argues that
  * trade at the type; T5 grew it from three arms to five and cycle 2 to six, neither touching
- * this table). The
+ * this table — the rows-not-spent figure tracks the ARM count, so it moves with them). The
  * remaining slot is deliberately unspent — the next verb that wants it has to be worth more
  * than the room it takes.
  *

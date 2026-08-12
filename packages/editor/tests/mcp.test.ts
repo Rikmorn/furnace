@@ -175,7 +175,11 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   // A TOTAL rather than a per-row cap, because `session_query`'s wall is the one length this
   // door had to buy.
   // The figures above are derived, not typed: `bun test tests/mcp.test.ts` with a scratch
-  // `console.log(proseBytes)` on the reduce below (inserted, run once, reverted).
+  // `console.log(proseBytes)` on the reduce below (inserted, run once, reverted). The PER-ROW
+  // figures (project_get 214, world_list 255, and the seven-of-nine split) come off the same
+  // scratch run one level down — `console.log(tool.name, Buffer.byteLength(tool.description ??
+  // "", "utf8"))` inside the reduce — because a total cannot say which rows the headroom is
+  // shorter than, and that comparison is the sentence above's whole argument.
   const proseBytes = advertised().reduce(
     (sum, tool) => sum + Buffer.byteLength(tool.description ?? "", "utf8"),
     0,
