@@ -16,12 +16,12 @@ find docs/backlog -name '*.md' -not -name 'README.md' | wc -l
 | --- | ---: | --- |
 | `engine-architecture/` | 38 | `@furnace/core` — capability gaps, internal structure debt, unbuilt modules |
 | `editor-and-tooling/` | 27 | the editor daemon + chrome + field host, and the `@furnace/editor` package |
-| `dungeon/` | 21 | the dungeon demo — traversal, generation, placement |
+| `dungeon/` | 22 | the dungeon demo — traversal, generation, placement |
 | `native-runtime/` | 12 | the native shell, its JS surfaces, and platform support |
 | `testing-and-quality/` | 10 | test harness, benchmarking, visual regression |
 | `infrastructure/` | 7 | the `@furnace/tools` harness/CLI and repo plumbing |
 | `ai-agents/` | 2 | agent-facing surfaces |
-| **total** | **117** | |
+| **total** | **118** | |
 
 Counted 2026-08-11, at the foundations T5 register prune and re-run after each entry filed on top of it (`build-cycle-gate-cost.md`, then the three from the first agent world-building probe: `stamps-not-authored-to-connect.md`, `scatter-variants-not-bound-to-archetype.md`, `agent-can-add-but-cannot-revise.md`, then the cycle-1 review's two: `analyzer-flags-cannot-reach-the-agent.md`, `content-vocabulary-is-the-differentiation-ceiling.md`, then the cycle-2 planning ruling: `skill-cycle-worlds-have-no-durable-home.md`) — and re-derived 2026-08-12 when cycle 2's E0 **resolved** `analyzer-flags-cannot-reach-the-agent.md` and deleted it, which is the first deletion-by-resolution this table has recorded. Re-derived again at cycle 2's **review** the same day, +8 in one close and the largest single-session growth this table has seen: four from the E1 monastery run (`action-run-input-is-schema-untyped`, `kit-lattice-excludes-a-walkable-stair`, `lattice-aligned-box-op-writes-nothing`, `pending-zero-cannot-say-the-advisor-is-off`) and four minted at review from that run's tool-surface findings (`advisor-answers-volume-not-questions`, `edit-apply-reports-nothing-about-what-it-wrote`, `the-door-charges-per-question-and-assumes-a-filesystem`, `field-op-vocabulary-has-no-architectural-altitude`) — a rate that is itself the finding, since a single agent build priced eight gaps that months of human authoring had not. The enumeration above is a dated record of what was FILED and is left intact; the counts are the current derivation. The per-dir number is the index granularity on purpose: entries are added and deleted continuously, so a per-entry index would be a constant write target that rots between sessions — the failure mode `AGENTS.md` names for append-only records. `ls docs/backlog/<topic>/` is the per-entry list, and it cannot go stale.
 

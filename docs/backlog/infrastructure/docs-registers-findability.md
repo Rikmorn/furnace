@@ -214,9 +214,9 @@ words: *"just moving a threshold number around isn't fixing anything."* The orig
 (the ~150/~50 bar crossing; a session catching itself re-deriving something the register held)
 stand only as escalations if the scheduled session somehow doesn't happen. A digest was
 prepared for that session in gitignored plan scaffolding; it is regenerable and deliberately
-not cited by path here, per the `AGENTS.md` rule that no tracked doc points into
-`docs/superpowers/`. *(Path citation removed at the sculpting-worlds cycle-2 review,
-2026-08-12 — it was the only live violation of that rule in the whole register.)*
+not cited by path here, per the `AGENTS.md` rule about where tracked docs may point.
+*(Path citation removed at the sculpting-worlds cycle-2 review, 2026-08-12 — it was the only
+live violation of that rule in the whole register.)*
 **Scope added by user ruling 2026-08-12 (the sculpting-worlds cycle-1 close): prose-pin
 number bases.** The skill word pin (1,100 — ratified as an anti-runaway backstop, but the
 number is the review's own "1.16× head at the cut") and the mcp byte pins (2,048 / 8,192)

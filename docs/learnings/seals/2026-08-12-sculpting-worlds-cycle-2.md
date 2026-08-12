@@ -15,7 +15,7 @@
 **Counts, computed:** 11 commits `87086f73..ada7eb81` (1 planning ruling + 5 E0 + 5
 review — `git log --oneline 87086f73..HEAD | wc -l`); 34 files, +1,539/−110
 (`git diff 87086f73..HEAD --stat | tail -1`); the skill 948 → **1,097 words** against its
-1,100 pin (`wc -w`); register 109 → **117** (the README's own `find`, re-run).
+1,100 pin (`wc -w`); register 109 → **118** (the README's own `find`, re-run).
 
 **The cycle.** E0 grew `session_query` its sixth arm — `about="flags"`, the advisor's
 findings finally reaching the agent, which cycle 1 had named as the gap that "costs the
