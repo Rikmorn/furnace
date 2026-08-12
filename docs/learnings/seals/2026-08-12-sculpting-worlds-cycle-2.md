@@ -48,6 +48,16 @@ blow `MAX_REPORTED` and set `truncated: true` on the rows that mattered. **Cycle
 reached the agent in a shape it could not use."** Building the door was necessary and not
 sufficient.
 
+**Did the `flags` arm earn its place? USED, and it changed NOTHING the agent fixed** — the
+adjudication the cycle owed, recorded as it came out rather than as it was hoped. E1 called
+it, got `{total: 2541, pending: 0}` and 255 candidate rows, **reported the numbers and
+triaged none of them**, because there was no way to narrow 184 low-clearance and 71 narrow
+findings to a place. The arm is still right to exist — it is what made every measurement
+above possible, and without it the low-clearance discovery would still be waiting for a
+third cycle. But "the agent can now ask" was the cheap half of the gap cycle 1 named, and
+the cycle-1 entry that E0 deleted as *resolved* was resolved only in that half. The
+remainder is filed as `advisor-answers-volume-not-questions.md`.
+
 **Review (independent, this session): CLOSE-WITH-MINORS.** Every load-bearing E0 claim
 re-derived — byte figures to the byte, the per-row list identical, backlog counts from the
 commit tree, all five commits green in isolation, all three sabotages reproducing including
