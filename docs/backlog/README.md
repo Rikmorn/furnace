@@ -15,15 +15,15 @@ find docs/backlog -name '*.md' -not -name 'README.md' | wc -l
 | topic dir | files | what it holds |
 | --- | ---: | --- |
 | `engine-architecture/` | 35 | `@furnace/core` — capability gaps, internal structure debt, unbuilt modules |
-| `editor-and-tooling/` | 22 | the editor daemon + chrome + field host, and the `@furnace/editor` package |
-| `dungeon/` | 20 | the dungeon demo — traversal, generation, placement |
+| `editor-and-tooling/` | 23 | the editor daemon + chrome + field host, and the `@furnace/editor` package |
+| `dungeon/` | 21 | the dungeon demo — traversal, generation, placement |
 | `native-runtime/` | 12 | the native shell, its JS surfaces, and platform support |
 | `testing-and-quality/` | 10 | test harness, benchmarking, visual regression |
 | `infrastructure/` | 6 | the `@furnace/tools` harness/CLI and repo plumbing |
 | `ai-agents/` | 2 | agent-facing surfaces |
-| **total** | **107** | |
+| **total** | **109** | |
 
-Counted 2026-08-11, at the foundations T5 register prune and re-run after each entry filed on top of it (`build-cycle-gate-cost.md`, then the three from the first agent world-building probe: `stamps-not-authored-to-connect.md`, `scatter-variants-not-bound-to-archetype.md`, `agent-can-add-but-cannot-revise.md`). The per-dir number is the index granularity on purpose: entries are added and deleted continuously, so a per-entry index would be a constant write target that rots between sessions — the failure mode `AGENTS.md` names for append-only records. `ls docs/backlog/<topic>/` is the per-entry list, and it cannot go stale.
+Counted 2026-08-11, at the foundations T5 register prune and re-run after each entry filed on top of it (`build-cycle-gate-cost.md`, then the three from the first agent world-building probe: `stamps-not-authored-to-connect.md`, `scatter-variants-not-bound-to-archetype.md`, `agent-can-add-but-cannot-revise.md`, then the cycle-1 review's two: `analyzer-flags-cannot-reach-the-agent.md`, `content-vocabulary-is-the-differentiation-ceiling.md`). The per-dir number is the index granularity on purpose: entries are added and deleted continuously, so a per-entry index would be a constant write target that rots between sessions — the failure mode `AGENTS.md` names for append-only records. `ls docs/backlog/<topic>/` is the per-entry list, and it cannot go stale.
 
 ## How to use
 
