@@ -54,7 +54,7 @@ Run these two concurrently — they do not depend on each other:
    one index line.
 3. **Update the reference docs and the affected package README** — `docs/reference/*.md` is
    "how the project IS today"; `packages/<pkg>/README.md` owns that package's current state.
-4. **Clear the promotion gate — three verifications, all three before the seal closes.**
+4. **Clear the promotion gate — four verifications, all four before the seal closes.**
    - **Confirm promoted facts landed.** The slice's scaffolding is named for its slug; walk
      those files and spot-check 2–3 durable facts against the execution report to confirm each
      one now lives in reference/backlog/learnings. A fact that only exists in a gitignored
@@ -65,6 +65,11 @@ Run these two concurrently — they do not depend on each other:
    - **Confirm the live scaffolding dirs hold no files for this slug.** They moved to the
      archive. Live dirs are unsealed work only, which is what keeps the working set from
      outgrowing the tracked corpus.
+   - **Sweep the pointers INTO the slice.** `grep -rl "^consumer: <slug>" docs/backlog/` —
+     each hit was either consumed (promote it or delete it, per its content) or gets
+     re-pointed at the successor work item, or cleared to a prose trigger. The verification
+     above deletes the work item, which is precisely what dangles these; the ritual that
+     closes a slice is the ritual that breaks them.
 5. **Write the next plan and its prompt.**
 
 ## Sweep clauses

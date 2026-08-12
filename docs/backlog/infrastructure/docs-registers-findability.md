@@ -1,6 +1,6 @@
 ---
 summary: charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument
-consumer: docs-system
+consumer: docs-system-rung-5
 ---
 
 # Keeping a growing body of markdown findable — the register needs a design, not a number
@@ -252,16 +252,18 @@ index, `docs/work/` plus `bun run sitrep`.
 
 **What is still open: rung 5** — the tracker un-merge, the `editor-architecture.md` split,
 and the AGENTS.md trim. It was deliberately excluded so the checks would land before the
-motion they protect. It gets its own plan and is not yet a work item in `docs/work/`.
+motion they protect. It is on the board as `docs/work/docs-system-rung-5.md`, which carries
+the two demand measurements rungs 1–4 produced.
 
 **This entry is kept, not deleted** — it is the design's provenance, and it holds the
 measured framing (the growth rate, the two failed prune shapes) that the canon states as
 conclusions rather than evidence.
 
-**Note for whoever seals the docs-system slice:** this entry carries
-`consumer: docs-system`. When that work item is deleted at seal, either re-point the field at
-rung 5's work item or drop it — a `consumer:` naming nothing is a rot seed, and `consumer:`
-is not machine-checked against the register.
+**Resolved at the docs-system seal (2026-08-12).** This entry's `consumer:` was re-pointed
+from the sealed slice to `docs-system-rung-5`, and the rot seed it flagged — a `consumer:`
+naming nothing, unnoticed because the field was not machine-checked — was closed in the same
+review: `consumer:` values are now checked against the live work register, and the seal
+ritual carries a clause that sweeps them.
 
 **Reference:** `AGENTS.md` § "Deferred work — `docs/backlog/`" (the provisional bar and its
 pointer here) · `docs/reference/docs-system.md` (the answer: pruning's three moves, the unit

@@ -23,5 +23,9 @@ are not bound to their archetype, which bites harder the moment the vocabulary g
 should make it fire, and the binding response is re-review and re-ratification, never a
 silent bump. See `docs/reference/docs-system.md` §7.
 
+**Annotate that pin while you have it open.** It does not yet state its kind or its binding
+response in the test — it is named `WORD_BUDGET`, which reads as the wrong kind. This slice
+is its ruled carrier; add the annotation per §7 when the re-review fires.
+
 Background: `docs/backlog/dungeon/content-vocabulary-is-the-differentiation-ceiling.md` and
 `docs/learnings/2026-08-12-agent-world-building-cycle-2.md`.

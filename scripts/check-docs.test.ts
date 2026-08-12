@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WorkItem } from "./check-docs";
 import {
   checkBacklogFrontmatter,
+  checkConsumers,
   checkDeriveMarkers,
   checkWorkRegister,
   collectLiveRegisterFiles,
@@ -138,6 +139,10 @@ describe("checkDeriveMarkers", () => {
     const md = "<!-- derive: exit 3 -->x<!-- /derive -->";
     expect(checkDeriveMarkers("f.md", md)[0]?.kind).toBe("derive-error");
   });
+  test("skips an angle-bracket placeholder — the canon documents its own syntax", () => {
+    const md = "<!-- derive: <deterministic command> -->value<!-- /derive -->";
+    expect(checkDeriveMarkers("f.md", md)).toEqual([]);
+  });
 });
 
 describe("collectLiveRegisterFiles", () => {
@@ -268,5 +273,43 @@ describe("checkWorkRegister", () => {
         },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("checkConsumers", () => {
+  const live = new Set(["door-set", "docs-system-rung-5"]);
+
+  test("passes a consumer naming a live work item", () => {
+    expect(
+      checkConsumers(new Map([["docs/backlog/x/a.md", "door-set"]]), live),
+    ).toEqual([]);
+  });
+
+  test("flags a consumer naming nothing — the seal-deletes-its-work-item case", () => {
+    const v = checkConsumers(
+      new Map([["docs/backlog/x/a.md", "docs-system"]]),
+      live,
+    );
+    expect(v).toEqual([
+      {
+        file: "docs/backlog/x/a.md",
+        line: 1,
+        kind: "consumer-dangling",
+        detail:
+          "consumer: docs-system names no work item — re-point it, or drop it for a prose trigger",
+      },
+    ]);
+  });
+
+  test("flags every dangling entry, not just the first", () => {
+    const v = checkConsumers(
+      new Map([
+        ["a.md", "gone-one"],
+        ["b.md", "door-set"],
+        ["c.md", "gone-two"],
+      ]),
+      live,
+    );
+    expect(v.map((x) => x.file)).toEqual(["a.md", "c.md"]);
   });
 });

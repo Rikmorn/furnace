@@ -78,6 +78,11 @@ export function checkDeriveMarkers(file: string, text: string): Violation[] {
   const out: Violation[] = [];
   for (const m of text.matchAll(DERIVE_RE)) {
     const cmd = m[1] ?? "";
+    // A command in angle brackets is a placeholder, not a command — the same convention
+    // PATH_RE uses to skip `docs/backlog/<topic>/<slug>.md`. Without it the canon cannot
+    // document its own marker syntax: the doc that defines the mechanism is inside the
+    // scanned set, so an illustrative example would be executed.
+    if (/^<.*>$/.test(cmd.trim())) continue;
     const recorded = (m[2] ?? "").trim();
     const line = text.slice(0, m.index).split("\n").length;
     const proc = Bun.spawnSync(["sh", "-c", cmd], { cwd: ROOT });
@@ -244,10 +249,33 @@ export function checkWorkRegister(items: readonly WorkItem[]): Violation[] {
   return out;
 }
 
+/** `consumer: <slug>` asserts that a named work item reads this entry — which is what
+ *  protects it from consolidation. The assertion only means anything while that item is on
+ *  the board, so it is checked against the live register: an entry whose consuming slice is
+ *  not scheduled uses a prose trigger instead. Without this the field rots silently and in
+ *  the one direction nobody is looking — a seal DELETES its work item, so the ritual that
+ *  closes a slice is itself what dangles the pointers into it. */
+export function checkConsumers(
+  entries: ReadonlyMap<string, string>,
+  workSlugs: ReadonlySet<string>,
+): Violation[] {
+  return [...entries]
+    .filter(([, consumer]) => !workSlugs.has(consumer))
+    .map(([file, consumer]) => ({
+      file,
+      line: 1,
+      kind: "consumer-dangling",
+      detail: `consumer: ${consumer} names no work item — re-point it, or drop it for a prose trigger`,
+    }));
+}
+
 if (import.meta.main) {
   const violations: Violation[] = [];
+  const consumers = new Map<string, string>();
   for (const f of collectLiveRegisterFiles()) {
     const text = readFileSync(join(ROOT, f), "utf8");
+    const consumer = parseFrontmatter(text)?.["consumer"];
+    if (consumer !== undefined) consumers.set(f, consumer);
     violations.push(
       ...scanDeadPaths(f, text),
       ...scanFileLineCitations(f, text),
@@ -255,7 +283,11 @@ if (import.meta.main) {
       ...checkBacklogFrontmatter(f, text),
     );
   }
-  violations.push(...checkWorkRegister(collectWorkItems()));
+  const work = collectWorkItems();
+  violations.push(...checkWorkRegister(work));
+  violations.push(
+    ...checkConsumers(consumers, new Set(work.map((i) => i.slug))),
+  );
   const indexDrift = checkIndex();
   if (indexDrift) {
     violations.push({

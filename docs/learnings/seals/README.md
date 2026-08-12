@@ -36,7 +36,13 @@ below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
   tracked depend on this?"; (2) the slice's `docs/work/` file is deleted (the seal is
   the tombstone; a closed epic's directory goes with its last slice); (3) the slice's
   scaffolding files (`specs/`, `plans/`, `report/`, `prompts/` matching the slug) move
-  to the archive directory. Live scaffolding dirs hold unsealed work only.
+  to the archive directory. Live scaffolding dirs hold unsealed work only; (4) every
+  backlog entry pointing INTO the sealed slice is resolved — `grep -rl "^consumer: <slug>"
+  docs/backlog/` and, per hit, promote or delete it if the slice consumed it, otherwise
+  re-point it at the successor work item or clear it to a prose trigger. Clause 2 is what
+  makes clause 4 necessary: deleting the work item is exactly what dangles the pointers
+  into it, so the ritual that closes a slice is the ritual that breaks them. `bun run
+  check` fails on a dangling `consumer:`, so this one cannot be forgotten quietly.
 
 Then one index line, and nothing else in the index — the row points at the file, the
 content lives in the file.

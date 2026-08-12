@@ -21,22 +21,23 @@ with `grep -rl '^consumer: door-set' docs/backlog/`):
   filtering and rollup.
 - `docs/backlog/editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md` —
   `edit_apply` write-counts.
-- `docs/backlog/engine-architecture/lattice-aligned-box-op-writes-nothing.md` — the
-  lattice-aligned box defect.
 
-**Membership: five, and the fifth is undecided — settle it at planning.** The queue was
-carried in memory as *four* door items; the register carries **five**, because
-`lattice-aligned-box-op-writes-nothing.md`'s own body says it was "scheduled into the
-E0-equivalent set". `consumer:` was applied by the stated rule (the entry's body names a
-future slice that reads it) rather than by the remembered count. **Put to the owner
-2026-08-12 at the docs-system sitrep gate; the answer was "I really don't know", so the
-call is deliberately deferred to this slice's planning session** — the fifth stays marked
-until then, which keeps it protected from consolidation in the meantime.
+**Membership: four, settled 2026-08-12.** The authoritative set is what cycle 2's review
+filed with the "`door-set` planning takes these as its E0-equivalent" trigger — the four
+above, each carrying that ruling in its own body.
 
-Note when deciding: that entry's stated mechanism was corrected on 2026-08-12 and the
-defect is **narrower** than its title suggests (a lattice-aligned fill into air does write;
-only a fill against already-solid cells silently does nothing). That may change whether it
-belongs in this set at all.
+A fifth, `lattice-aligned-box-op-writes-nothing.md`, briefly carried `consumer: door-set`:
+the backfill matched on a clause in that entry's Reference line ("scheduled into the
+`door-set` E0-equivalent set") which is an apposition describing its **sibling**, not
+itself. The docs-system review verified the misreading against source — the entry's own
+Trigger line carries no owner ruling, while all four real members do — and dropped the
+marker. It is an engine-side ops-semantics item (the `applyOp` write-predicate table), not
+a door capability; it stays in the backlog on its own prose trigger.
+
+**Annotate the MCP prose pin when you touch it.** The door's byte pin in
+`packages/editor/tests/mcp.test.ts` is a **budget** whose ruled binding response is
+re-derivation at door growth — which is this slice. Add its kind and binding response to
+the pin per `docs/reference/docs-system.md` §7 while you are there.
 
 Explicitly NOT in the set:
 `docs/backlog/engine-architecture/field-op-vocabulary-has-no-architectural-altitude.md` —

@@ -1,7 +1,6 @@
 ---
 status: queued
 injected: true
-after: docs-system
 summary: parallel + incremental typecheck, the per-package coverage gap, scoped-gate scripts
 ---
 

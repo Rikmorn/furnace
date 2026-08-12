@@ -13,7 +13,9 @@ READMEs) they are yours to hold.
 - **Backlog entries carry frontmatter:** `summary:` (one line, feeds the generated
   index), `status: open | deferred | superseded` (open = default), `superseded-by:` /
   `supersedes:` (both edges, one commit), `consumer: <slice-slug>` (charter inputs
-  only — protects the entry from consolidation).
+  only — protects the entry from consolidation; the slug must name a LIVE `docs/work/`
+  item, checked. If the consuming slice is not scheduled yet, use a prose trigger — the
+  field means someone on the board reads this, not that someone should).
 - **Never cite `file:line`.** Cite the symbol (`markUnreachable` in `field-analyzer.ts`).
   Checked.
 - **Values rule.** A dated snapshot (seal, charter evidence) is immutable — keep it, with
@@ -35,3 +37,7 @@ READMEs) they are yours to hold.
   (derived from consumer economics) or drift alarm (ratified size × slack) — plus basis
   and binding response, in the test that enforces them. A binding pin triggers
   re-derivation or re-review, never a silent bump.
+- **Never state future conformance in the present tense.** A reference doc says how the
+  project IS. A convention that is agreed but not yet applied is written "ratified; pending
+  at `<slice>`", with the slice that carries it named. An undated "is" that means "will be"
+  is rot at birth — the claims-side sibling of the values rule.

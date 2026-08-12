@@ -101,15 +101,24 @@ false positives.
 **Tier 3 — derive markers, the narrow escape hatch.** Where a reader genuinely needs the
 value inline, wrap it so the check can re-derive it:
 
-Live backlog entries, re-derived by `bun run check` on every run:
-<!-- derive: find docs/backlog -name '*.md' -not -name README.md | wc -l | tr -d ' ' -->122<!-- /derive -->
+```
+<!-- derive: <deterministic command> -->value<!-- /derive -->
+```
 
 The command runs at repo root and must be **deterministic** — sorted, stable output, no
 timestamps, no network. The recorded value and the command's output are compared after
 trimming; a mismatch fails the check. Commands come from tracked docs, which is the same
 trust domain as the repo's own scripts.
 
-Prefer tier 2. A derive marker is a maintenance obligation; earn it.
+**Prefer tier 2. A derive marker is a maintenance obligation; earn it** — and the cost is
+paid by whoever changes the *subject*, not by whoever owns the doc. This section carried a
+live marker on the backlog entry count for one day and it fired three times in that day,
+each time on a doc the change had nothing to do with. The register grows a couple of entries
+a day; the count was never a number a reader of this doc needed. It was demoted to tier 2
+at the rungs 1–4 review, which is the rule applying to itself: **count of live backlog
+entries — `find docs/backlog -name '*.md' -not -name README.md | wc -l`.** A marker earns
+tier 3 when the value is load-bearing for the reader AND changes only when the doc's own
+subject changes.
 
 ## 4. Statuses and supersession
 
@@ -133,7 +142,14 @@ consumer: <slice-slug>                       # charter inputs only
   a check failure waiting to happen and a dead end for the next reader.
 - **`consumer: <slice-slug>`** marks an entry that a named future slice reads as an input.
   It is mechanical protection: a consolidation pass may not touch an entry that something
-  is waiting on.
+  is waiting on. **The slug must name a live item in `docs/work/`, and that is checked** —
+  the field means *someone standing on the board reads this*, so it says nothing once the
+  item is gone. An entry whose consuming slice is not scheduled yet gets a prose trigger
+  instead; `consumer:` is not a wishlist.
+
+  The failure mode this closes is quiet and structural: a seal DELETES its work item, so
+  the ritual that closes a slice is the one that dangles every pointer into it, at the
+  moment nobody is looking at the backlog. §6's promotion gate carries the matching sweep.
 
 There is no `resolved` status. Resolved means the file is deleted.
 
@@ -211,13 +227,26 @@ for on every call. Two kinds, and a pin must say which it is:
 - **Drift alarm** — a ratified size times some slack. It does not encode a limit; it
   detects unnoticed growth. The binding response is re-review and re-ratification.
 
-Every pin states its **kind**, its **basis**, and its **binding response**, in the test
-that enforces it. A binding pin triggers re-derivation or re-review — **never a silent
-bump**. Bumping the number to make the test pass converts the only signal into noise.
+A pin states its **kind**, its **basis**, and its **binding response**, in the test that
+enforces it. A binding pin triggers re-derivation or re-review — **never a silent bump**.
+Bumping the number to make the test pass converts the only signal into noise.
 
-The two live pins and their ratified dispositions: the MCP door's prose byte budget is a
-**budget**, re-derived when the door grows; the agent world-building skill's word pin is a
-**drift alarm**, re-reviewed and re-ratified when it fires.
+**Ratified 2026-08-12; pending on both live pins.** The taxonomy is settled and the two live
+pins are classified, but neither yet carries the annotation, and one reads as the wrong kind
+today (`WORD_BUDGET`, for a pin that is a drift alarm). Each annotation rides the slice that
+next opens its pin, rather than a sweep:
+
+| pin | kind | binding response | annotation rides |
+| --- | --- | --- | --- |
+| MCP door prose bytes (`packages/editor/tests/mcp.test.ts`) | budget — the door's context economics | re-derive against current economics, or cut prose | `door-set` (the re-derivation at door growth IS that slice) |
+| agent world-building skill words (`packages/editor/tests/skill-references.test.ts`) | drift alarm — ratified size × slack | re-review and re-ratify | `vocabulary-expansion` (its work fires the alarm anyway) |
+
+**The general rule this exposed.** A reference doc never states future conformance in the
+present tense. This section originally read "Every pin states its kind…" while no pin did —
+a convention described as an existing state on the day it was invented, in the document that
+defines the rule against exactly that. Write "ratified; pending at `<slice>`" until the
+slice lands. It is the values rule's sibling for claims rather than numbers: a dated
+commitment is honest, an undated "is" that means "will be" is rot at birth.
 
 ## 8. Pruning
 
@@ -261,6 +290,7 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
 | frontmatter schema per genre (zod) | contract violations | fail |
 | generated-index diff | index rot | fail |
 | work-register consistency — at most one `next`, `after:` targets exist, an `in-flight` epic still owns a slice | a board that lies | fail |
+| `consumer:` names a live `docs/work/` item | pointers into a sealed slice | fail |
 
 **Scope rules.**
 
@@ -278,8 +308,8 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
   them stays true, which is the worst failure shape: the reader trusts the sentence and
   lands somewhere unrelated.
 
-**Also not checked:** `after:` cycles (only that the target exists), and `consumer:` against
-the live work register (it is a free string). Both are small additions when they earn it.
+**Also not checked:** `after:` cycles — only that the target exists. A small addition when
+it earns it.
 
 **What is not checked, and why.** Semantic claim rot — a sentence that is well-formed,
 cites live paths, and is simply no longer true — is not mechanically detectable, and is an

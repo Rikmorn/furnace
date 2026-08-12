@@ -1,6 +1,5 @@
 ---
 summary: a box fill whose faces land exactly on the sample lattice writes nothing into already-solid cells and still answers ok
-consumer: door-set
 ---
 
 # A lattice-aligned box op writes nothing and still answers ok
@@ -68,6 +67,10 @@ next time `edit_apply`'s response shape is revisited.
 **Reference:** `packages/core/src/field/ops.ts` (`shapeSdf`'s box branch for the box SDF,
 `assertShapeValid`'s TSDoc for the zero-extent stance, and the `sdf > 0` gates in
 `applyOp`'s fill/paint legs and in `applySmooth`). Sibling:
-`docs/backlog/editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md` — the
-second candidate fix above, filed on its own because it closes a class rather than this
-defect, and scheduled into the `door-set` E0-equivalent set.
+`docs/backlog/editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md`. That
+sibling is the second candidate fix above, filed on its own because it closes a class
+rather than this defect; **it** is in the `door-set` E0-equivalent set, and **this entry is
+not** — this one is engine-side ops semantics (the `applyOp` write-predicate table), not a
+door capability. It was briefly marked `consumer: door-set` on 2026-08-12 by misreading the
+clause above as describing itself; the marking was dropped at the docs-system review the
+same day, on the cycle-2 record of what was actually ruled in.
