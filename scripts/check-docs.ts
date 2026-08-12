@@ -180,7 +180,9 @@ export function collectWorkItems(): WorkItem[] {
       });
     }
   }
-  return out;
+  // readdir order is the OS's, and the sitrep is rendered from this — sort so the board
+  // is the same on every machine.
+  return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
 export function checkWorkRegister(items: readonly WorkItem[]): Violation[] {
