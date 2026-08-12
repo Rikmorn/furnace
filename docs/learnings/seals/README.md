@@ -98,6 +98,7 @@ Dates marked `*` below are extraction-filed, not real seal dates.
 | 2026-07-25 | [Epic 3 · One Field F3b — the cave & the entities](2026-07-25-epic3-f3b-cave-and-entities.md) | core, dungeon, editor |
 | 2026-07-27 | [Epic 3 · One Field F4 — seeing](2026-07-27-epic3-f4-seeing.md) | core, dungeon, editor |
 | 2026-08-03 | [Epic 3 · F4.5 — the overlay cockpit](2026-08-03-epic3-f4.5-overlay-cockpit.md) | editor (core, dungeon stated byte-untouched except two comment-only changes) |
+| 2026-08-04 | [Structural housekeeping — the seal record, tests beside modules, two src splits](2026-08-04-structural-housekeeping.md) — *written retroactively 2026-08-12; the arc merged unsealed and the docs-system archive sweep found it* | core, dungeon, editor |
 | 2026-08-07 | [Foundations program · T1a→T3c — consolidated backfill](2026-08-07-foundations-t1a-t3c-backfill.md) — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d* | core, editor, dungeon |
 | 2026-08-08 | [Foundations T3d — the facade, finished · T3 CLOSES](2026-08-08-foundations-t3d-facade-finish.md) — *carries the objectives-audit rulings* | editor |
 | 2026-08-09 | [Foundations T4a — the honest substrate](2026-08-09-foundations-t4a-honest-substrate.md) — *user visual gate deferred to T4 close by ruling* | editor, core |

@@ -119,8 +119,8 @@ work item that reads it — those entries are protected from consolidation.
 - [github-actions-ci](infrastructure/github-actions-ci.md) — no CI exists — a GitHub Actions pipeline running check, typecheck, and tests on PR
 - [harness-cli-follow-ons](infrastructure/harness-cli-follow-ons.md) — two `@furnace/tools` deferrals: the `furnace.config.json` schema, and the Bun ↔ wasm-bindgen wrapper generator's maintenance surface
 - [npm-publish-and-distribution](infrastructure/npm-publish-and-distribution.md) — publishing `@furnace/tools` and `@furnace/core` to npm: release flow, `dist/tools/` staging, and the biome-style per-platform binary migration
+- [seal-entries-are-growing-into-essays](infrastructure/seal-entries-are-growing-into-essays.md) — individual seal files have grown from a paragraph to ~1000-word essays — the failure the seal record was split to escape, one level down
 - [skill-cycle-worlds-have-no-durable-home](infrastructure/skill-cycle-worlds-have-no-durable-home.md) — world-building cycle bakes stay local and gitignored by owner ruling, so a cycle's run numbers cannot be re-derived off the authoring machine
-- [structural-housekeeping-shipped-without-a-seal](infrastructure/structural-housekeeping-shipped-without-a-seal.md) — the structural-housekeeping arc merged to master 2026-08-04 with no seal file, so its promotion gate never ran
 
 ## native-runtime (12)
 
