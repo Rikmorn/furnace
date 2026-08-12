@@ -9,7 +9,7 @@ pick up every pending decision. Sections keep their original order.
 
 ## Refactor `input.attach(canvas)` → `input.attach(ctx)`
 
-`packages/core/src/input/attach.ts:28` takes a raw `HTMLCanvasElement` and operates against a module-level singleton `state: State` in `packages/core/src/input/state.ts`. Input emitters (`keyDown`, `keyUp`, `pointerDown/Move/Up`, `wheel`) are created at module-load time, before any ctx exists.
+`attach` in `packages/core/src/input/attach.ts` takes a raw `HTMLCanvasElement` and operates against a module-level singleton `state: State` in `packages/core/src/input/state.ts`. Input emitters (`keyDown`, `keyUp`, `pointerDown/Move/Up`, `wheel`) are created at module-load time, before any ctx exists.
 
 This means tranche 5's per-ctx `stats._recordEmission` instrumentation does NOT apply to input — input emissions don't surface in `snap.events.perEmitter`. Adding per-ctx tracking requires:
 
@@ -33,7 +33,7 @@ pointer-lock and the per-frame relative motion (`movementX`/`movementY`) that
 lock delivers. `@furnace/core/input` doesn't offer either — its `PointerEvent`
 carries the absolute pointer position only (no relative delta, no lock helper) —
 so the controller reaches outside the engine and wires `requestPointerLock()` +
-raw `movementX/Y` against the DOM directly (`packages/dungeon/src/fp-controller.ts`,
+raw `movementX/Y` against the DOM directly (`packages/dungeon/src/agent/fp-controller.ts`,
 `attachMouse`, lines 70–77).
 
 Pointer-lock + relative motion is an input *mechanism*, not game logic, so it's
@@ -47,7 +47,7 @@ pointer-lock mechanism to `core/input` (e.g. a `lockPointer(ctx)` + a relative
 `movementX/Y` field or a dedicated relative-motion emitter) and migrate the
 dungeon controller onto it.
 
-**Reference:** `packages/dungeon/src/fp-controller.ts` (`attachMouse`);
+**Reference:** `packages/dungeon/src/agent/fp-controller.ts` (`attachMouse`);
 `docs/reference/core-modules.md` `@furnace/core/input`.
 
 ## Configurable `preventDefault` for tracked input events

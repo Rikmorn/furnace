@@ -9,12 +9,12 @@ Error: world: archetype "stalagmite" has no mesh for variant 3
 
 The chain, verified end to end:
 
-- `packages/core/src/field/scatter.ts:411` — `const variantIndex = rng() % p.variants;`
+- `makeRecord` in `packages/core/src/field/scatter.ts` — `const variantIndex = rng() % p.variants;`
 - `SCATTER_PARAMS.variants` — `z.number().min(1).max(8)`, **default 3**. A static range;
   it never consults the archetype being placed.
 - `packages/dungeon/catalog/entities.json` — `stalagmite` ships **2** meshes, and the
   archetype's own `scatter.variants: 2` states that fact. **The generator ignores it.**
-- `packages/dungeon/src/world/world-loader.ts:479` — `archetype.meshes[variantIndex]`
+- `buildArchetypeGroups` in `packages/dungeon/src/world/world-loader.ts` — `archetype.meshes[variantIndex]`
   is `undefined`, and the module throws, per its declared setup-loud stance.
 
 **Why it is worse than a bad-params story.** The generator's own default (3) already

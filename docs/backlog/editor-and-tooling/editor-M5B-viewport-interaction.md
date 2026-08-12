@@ -58,7 +58,7 @@ the named symbols should be re-verified against those before the entry is acted 
 
 **Context (as written at M5B):** `viewport-host/index.ts` grew to ~685 lines after M5B. The file is cohesive
 (all host wiring), but it is past the ~400-line cognitive-load guideline
-(`docs/rules/clean-code.md`). The gizmo controller — `tryStartGizmoDrag`,
+(`.claude/rules/clean-code.md`). The gizmo controller — `tryStartGizmoDrag`,
 `updateGizmoDrag`, `commitGizmoDrag`, `cancelGizmoDrag`, `committedTransform`,
 `currentTransform`, `gizmoDrag` state, and `renderGizmo` (~110 lines) — is the cleanest
 extraction candidate: pure drag-state management that could live in a `gizmo-controller.ts`

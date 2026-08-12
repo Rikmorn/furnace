@@ -86,7 +86,7 @@ instance counts), or as a small API-symmetry cleanup taken alongside other insta
   `setInstanceTint` (the per-instance path).
 - `packages/dungeon/src/world/world-loader.ts` — the per-instance `setInstanceTint` loop that a
   bulk path would collapse. *(Re-pointed at the T5 branch review, 2026-08-11: this entry named
-  `packages/dungeon/src/realize.ts`, which does not exist. The dungeon's `src/` was split into
+  `packages/dungeon/src/world/realize.ts`, which does not exist. The dungeon's `src/` was split into
   `world/` and `agent/` during the 2026-08-04 structural housekeeping; `world/realize.ts` does
   exist but contains **zero** `setInstanceTint` calls —
   `grep -rn "setInstanceTint" packages/dungeon/src --include="*.ts"` returns exactly one line,

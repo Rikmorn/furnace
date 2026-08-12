@@ -20,6 +20,6 @@ recorded as the fallback if the bet is wrong.
 "through" a wall at a panel gap / reveal / carve rim. Then the fix is to stamp a backing slab
 (a full-cell masonry box) behind each panel run, at the cost of instance count.
 
-**Reference.** `packages/dungeon/src/substrate/skin.ts` (panel emission, `PANEL_PROUD` offset);
-`packages/dungeon/src/substrate/pieces.ts` (`PANEL_PROUD`, `PANEL_REVEAL`);
-`packages/dungeon/src/substrate/carve.ts` (the E2 patch + shared box); spec decision D-W2-1.
+**Reference.** `packages/dungeon/src/substrate/skin.ts` (gone) (panel emission, `PANEL_PROUD` offset);
+`packages/dungeon/src/substrate/pieces.ts` (gone) (`PANEL_PROUD`, `PANEL_REVEAL`);
+`packages/dungeon/src/substrate/carve.ts` (gone) (the E2 patch + shared box); spec decision D-W2-1.

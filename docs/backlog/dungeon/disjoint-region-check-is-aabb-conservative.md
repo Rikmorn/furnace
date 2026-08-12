@@ -1,7 +1,7 @@
 # `assertDisjointRegionVolumes` is AABB-conservative and will reject legal worlds in the editor
 
 **Context:** Surfaced in the W3 holistic review. W3 added `assertDisjointRegionVolumes`
-(`packages/dungeon/src/world-build.ts`), which runs at realize and throws setup-loud when two PLACED
+(`packages/dungeon/src/world-build.ts` (gone)), which runs at realize and throws setup-loud when two PLACED
 region AABBs interpenetrate on all three axes beyond dust (`REGION_OVERLAP_EPS` = 1e-6). Flush contact
 is legal by design (an aperture pair shares exactly a plane); connectors are exempt (they
 interpenetrate regions on purpose).
@@ -31,7 +31,7 @@ field-charter brainstorm — one-field composition likely dissolves the check en
 (docs/research/2026-07-13-one-field-direction.md §6). Until then it correctly guards hand-authored
 bakes.
 
-**Reference:** `packages/dungeon/src/world-build.ts` (`assertDisjointRegionVolumes`,
-`REGION_OVERLAP_EPS`), `packages/dungeon/src/region.ts` (`RegionData.bounds` vs `RegionData.envelopes` —
+**Reference:** `packages/dungeon/src/world-build.ts` (gone) (`assertDisjointRegionVolumes`,
+`REGION_OVERLAP_EPS`), `packages/dungeon/src/world/region.ts` (`RegionData.bounds` vs `RegionData.envelopes` —
 the same over-claim problem, already solved once for the placement engine's Rule 1). Filed 2026-07-13
 from the W3 review.

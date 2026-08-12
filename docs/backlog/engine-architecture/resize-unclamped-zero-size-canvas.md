@@ -1,8 +1,9 @@
 # Unclamped canvas resize can feed zero-size texture creation
 
 **Context.** Found by the F2b fix-round-2 executor (2026-07-21), not yet reproduced.
-`gpu/resize.ts:103` computes `Math.floor(cssWidth * dpr)` with no lower clamp and
-assigns it to `ctx.canvas.width`; `frame/render.ts:104` feeds those dimensions to
+`computeResizeEvent` in `gpu/resize.ts` computes `Math.floor(cssWidth * dpr)` with no
+lower clamp and assigns it to `ctx.canvas.width`; `_ensureDepthTexture` in
+`frame/render.ts` feeds those dimensions to
 `createTexture` (depth / MSAA color targets) with no zero guard. Two unclamped hops: a
 zero-CSS-size canvas (collapsed layout, `display: none`) would request a 0×N texture —
 a WebGPU validation error, and under the F2b MSAA line-overlay path potentially a
@@ -24,6 +25,7 @@ with a debug-level note is the likely posture).
 **Trigger to revisit:** the probe firing, any zero-size validation error in the wild,
 or the next `gpu/` module hygiene pass.
 
-**Reference:** `packages/core/src/gpu/resize.ts:103`,
-`packages/core/src/frame/render.ts:104`, F2b fix-round-2 executor report;
-`packages/editor/src/frontend/components/FieldPanel.tsx` (`min-h-24` canvas floor).
+**Reference:** `computeResizeEvent` in `packages/core/src/gpu/resize.ts`,
+`_ensureDepthTexture` / `_ensureSceneColorTarget` in
+`packages/core/src/frame/render.ts`, F2b fix-round-2 executor report;
+`packages/editor/src/frontend/components/FieldPanel.tsx` (gone) (`min-h-24` canvas floor).

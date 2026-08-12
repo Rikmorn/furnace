@@ -21,8 +21,9 @@ reason to defer both.
 
 `project_get`'s advertised answer is *"The absolute filesystem path of the project this editor
 daemon is serving … use it to resolve the world names `world_list` reports against your own
-filesystem tools"* (`packages/editor/src/daemon/mcp.ts:307`). That is honest about what it
-does and quietly assumes the caller shares the daemon's filesystem.
+filesystem tools"* (the `project_get` row of `TOOLS` in `packages/editor/src/daemon/mcp.ts`).
+That is honest about what it does and quietly assumes the caller shares the daemon's
+filesystem.
 
 **Any agent driving a remote editor cannot read the catalog at all** — materials, entity
 archetypes and the agent profile are all project files under that path. In the cycle-2 run,
@@ -48,8 +49,8 @@ cheap enough that they should ride along rather than be scheduled. Item 2 sooner
 drives this daemon from a machine that is not the one serving it, which is the first thing that
 turns it from an inefficiency into a wall.
 
-**Reference:** `packages/editor/src/daemon/mcp.ts:303-307` (the `project_get` row) and the
+**Reference:** `packages/editor/src/daemon/mcp.ts` (the `project_get` row of `TOOLS`) and the
 byte-budget pin in `packages/editor/tests/mcp.test.ts`;
-`docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §9. Siblings:
+`docs/learnings/2026-08-12-agent-world-building-cycle-2.md` §9. Siblings:
 `docs/backlog/engine-architecture/field-read-surface-gaps.md`,
 `agent-can-add-but-cannot-revise.md`.

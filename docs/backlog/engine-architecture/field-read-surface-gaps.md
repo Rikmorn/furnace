@@ -63,9 +63,9 @@ owner at cycle 2's close, 2026-08-12). Sooner if any consumer needs to probe fie
 it has not itself carved.
 
 **Reference:** `packages/core/src/field/raycast.ts` (`FieldHit`, `raycastField`, and the
-`MAX_STEPS` DDA loop that already walks every voxel); `packages/core/src/field/index.ts:100`
-(the public export); `docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §1 for the
-run that priced it. This is the CORE half of that run's four small items — see
+`MAX_STEPS` DDA loop that already walks every voxel); `packages/core/src/field/index.ts`
+(the `raycastField` public export);
+`docs/learnings/2026-08-12-agent-world-building-cycle-2.md` §1 for the run that priced it. This is the CORE half of that run's four small items — see
 `stamps-not-authored-to-connect.md` for the door-position half, and
 `docs/backlog/editor-and-tooling/advisor-answers-volume-not-questions.md` +
 `edit-apply-reports-nothing-about-what-it-wrote.md` for the two editor-local ones.

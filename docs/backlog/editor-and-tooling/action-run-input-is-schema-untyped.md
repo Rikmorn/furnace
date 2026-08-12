@@ -4,8 +4,9 @@ Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated a
 that cycle's review the same day.
 
 `action_run` declares `input` with an EMPTY JSON Schema (`"input": {}`) — it is `input?:
-unknown` at `packages/editor/src/shared/wire.ts:257`, and `z.toJSONSchema` can project nothing
-narrower from that. **The row's PROSE names all six input-taking actions and their fields; the
+unknown` on `ActionRunRequest` in `packages/editor/src/shared/wire.ts`, and `z.toJSONSchema`
+can project nothing narrower from that. **The row's PROSE names all six input-taking actions
+and their fields; the
 SCHEMA names none of them**, and a client marshals against the schema. Six actions
 require an object there — `world.saveAs {name}`, `world.makeDefault {name}`,
 `edit.duplicate {entityId}`, `edit.delete {entityId}`, `edit.grab {entityId}`,
@@ -43,9 +44,9 @@ unreachable even once this entry is fixed. That half belongs to
 **Trigger to revisit:** Next time an agent-facing door change is made, or the first time
 anyone tries to drive `world.saveAs` / `tool.stamp` / `edit.*` over MCP from any client.
 
-**Reference:** `packages/editor/src/shared/wire.ts:257` (`input?: unknown` — the untyped
-field); `packages/editor/src/daemon/mcp.ts:339-343` (the `action_run` row, whose prose carries
-what the schema does not); `packages/editor/src/action-registry/schemas.ts` (the per-action
-zod the union would be built from);
+**Reference:** `packages/editor/src/shared/wire.ts` (`ActionRunRequest.input?: unknown` — the
+untyped field); `packages/editor/src/daemon/mcp.ts` (the `action_run` row of `TOOLS`, whose
+prose carries what the schema does not); `packages/editor/src/action-registry/schemas.ts`
+(the per-action zod the union would be built from);
 `docs/backlog/editor-and-tooling/agent-can-add-but-cannot-revise.md` for the
 selection/revision half.

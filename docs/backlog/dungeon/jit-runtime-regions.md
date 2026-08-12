@@ -12,5 +12,5 @@ and a runtime-safe vocabulary (grid classes qualify; search-class does not).
 3.5 curating work exposes a natural socket surface.
 
 **Reference:** the 3.3 phase charter + `docs/research/2026-07-11-voxel-substrate-spike-findings.md`
-(construction-guarantee evidence); `packages/dungeon/src/world-loader.ts`
+(construction-guarantee evidence); `packages/dungeon/src/world/world-loader.ts`
 (re-expansion machinery); Epic 3 doctrine in `docs/reference/dungeon-architecture.md` §1.

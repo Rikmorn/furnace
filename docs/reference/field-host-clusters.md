@@ -621,9 +621,9 @@ take from it.
   BETTER FINDING.** The first write-up of the row said four test files name `litByClass` in
   their own `HostSubstrate` literals, so removing it would break four. Deleting the member
   and running `tsc --noEmit` says otherwise: **8 errors, exactly ONE in a test** —
-  `tests/field-host/field-history-feed.test.ts:57`, the only one that passes its literal
-  straight to `createHostSubstrate` and so gets excess-property checking. The other three
-  (`field-view.test.ts:63`, `field-stats.test.ts:69`, `substrate.test.ts:42`) build it
+  `substrateOver` in `tests/field-host/field-history-feed.test.ts`, the only one that passes
+  its literal straight to `createHostSubstrate` and so gets excess-property checking. The
+  other three (`field-view.test.ts`, `field-stats.test.ts`, `substrate.test.ts`) build it
   inside a spread helper (`otherSubstrateMembers()` / `frozen()`), which that check does not
   reach. **The conclusion is unchanged — one forced test edit is still one too many for this
   tranche's bar — but the reason is more interesting than the one first written: three of
@@ -810,7 +810,8 @@ from it.
   almost nothing about it, whose real pins are held by five unrelated lanes that never
   mention it.** What IS unpinned, measured: the whole focus-loss path — gutting BOTH
   `tool.releaseModifiers()` and `cameraRig.releaseKeys()` is 2912/0, because the only test
-  in the package that fires `blur` (`field-host-move.gpu.test.ts:835`) asserts
+  in the package that fires `blur` (`field-host-move.gpu.test.ts`'s "losing focus mid-drag
+  CANCELS it — a move nobody released is not a move") asserts
   `cancelMoveInFlight` alone — and `applyRadius`'s `rebuildSegmentPreview()` call. Both
   module headers carry all of it.
 

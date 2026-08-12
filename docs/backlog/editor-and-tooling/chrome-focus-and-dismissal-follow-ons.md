@@ -54,7 +54,8 @@ summoner, which is why it is filed rather than patched.
 **This entry used to say the opposite** (*"happy-dom does not focus a clicked trigger, so the
 no branch's landing place cannot be observed"*), and that was wrong. It does not need focus to
 move on click: the record is written by a **`pointerdown` capture listener on the window**
-(`CanvasHost.tsx:141-143` sets `heldAtGestureStart = document.activeElement === canvas`), and
+(`CanvasHost.tsx`'s `record` callback sets
+`heldAtGestureStart = document.activeElement === canvas`), and
 happy-dom dispatches that listener like any other. What the earlier reading missed is that
 `fireEvent.click` alone **skips the pointerdown**, so every existing case drives the *yes*
 branch by accident. Fire `pointerDown` **then** `click`, the way a mouse does, and the *no*
@@ -118,8 +119,8 @@ adding it alongside another field is not.
 - `packages/editor/src/frontend/hooks/useViewportFocusReturn.ts` — `onCloseAutoFocus`'s
   `if (!cameFromCanvas.current) return;`, the branch this is about, and the header paragraph
   on why the chain case needed `handOff`.
-- `packages/editor/src/frontend/components/shell/WorldDrawer.tsx:345` — the comment noting
-  that, like every dialog here, it has no `DialogTrigger`.
+- `packages/editor/src/frontend/components/shell/WorldDrawer.tsx` — the comment above
+  `focusReturn` noting that, like every dialog here, it has no `DialogTrigger`.
 - `packages/editor/tests/chrome/viewport-focus-return.test.tsx` — both branches as they are
   pinned today.
 
@@ -224,7 +225,9 @@ the button's own native activation cannot.
 It escapes only where something else gets there first: a ConfirmDialog being open (the gate
 refuses), the canvas `stopPropagation`ing its own branch, activation that is JS rather than
 native (Radix, cmdk), and Task 9's three row grids — which had to perform ⏎ themselves for
-this exact reason, and say so at `hooks/useRovingList.tsx:299-302`.
+this exact reason, and say so in `hooks/useRovingList.tsx`'s two-axes docblock above
+`ROW_STOP` ("⏎ activates the focused control. It has to be performed here rather than left
+to the browser").
 
 ### Context
 
@@ -257,7 +260,8 @@ task's candidate list as the highest-value entry.
   paragraph stating why it is there.
 - `packages/editor/src/frontend/lib/actions.ts` — `session.confirm`'s def; `gateAction`,
   `clickGate` and `ActionDef` are where a per-action rule would live.
-- `packages/editor/src/frontend/hooks/useRovingList.tsx:299-302` — the workaround, and the
+- `packages/editor/src/frontend/hooks/useRovingList.tsx` — the two-axes docblock above
+  `ROW_STOP` (the "⏎ activates the focused control" note): the workaround, and the
   clearest statement of the mechanism in the tree.
 
 ---

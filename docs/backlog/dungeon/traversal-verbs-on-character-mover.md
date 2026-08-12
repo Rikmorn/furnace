@@ -1,7 +1,7 @@
 # Traversal verbs as extension points on `CharacterMover`
 
 **Context.** Slice 2.1.1 built a custom collide-and-slide `CharacterMover`
-(`packages/dungeon/src/char-move.ts`) on the core `physics.castRay`/`castShape`
+(`packages/dungeon/src/agent/char-move.ts`) on the core `physics.castRay`/`castShape`
 primitives — deliberately as an *extensible* base, not a one-off walk solver. The
 go-forward traversal track wants additional movement verbs layered on it over time:
 **crouch, jump, mantle, climb, rope, swim**. Each is a later traversal-track slice that
@@ -28,5 +28,5 @@ the relevant verb lands:
 or mechanic demands crouch/jump/climb/...), or when edge-of-ledge behaviour on generated
 terrain reads bad enough to fix the single-ray ground probe.
 
-**Reference.** `packages/dungeon/src/char-move.ts` (`applyGravity`, `resolve`); Slice
+**Reference.** `packages/dungeon/src/agent/char-move.ts` (`applyGravity`, `resolve`); Slice
 2.1.1 spec/plan (local design scaffolding); memory `project_dungeon_epic2_procgen`.

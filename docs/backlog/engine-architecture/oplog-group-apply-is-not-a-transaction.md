@@ -20,7 +20,7 @@
 >    version of this note said the seam "cannot tell a pass-1 rejection from a pass-2 applier
 >    throw" and classed both as the caller's fault. That was wrong, and this entry's own
 >    reference disproves it: `logApplyGroup` wraps a pass-1 rejection with `cause` set
->    (`ops.ts:1125`) and that is the **only** `{ cause: … }` in the file, so a raw throw with
+>    (its pass-1 `catch` in `ops.ts`) and that is the **only** `{ cause: … }` in the file, so a raw throw with
 >    no cause is a pass-2 failure. The editor discriminates on that — pass 1 is
 >    `refused(…, "input")` (nothing moved), pass 2 is **`failed`**, whose message carries the
 >    residue explicitly. No message prefix is parsed, so `result.ts`'s "the message is not a
@@ -54,7 +54,7 @@ log no longer replays to the live store, and the user has no ⌘Z for what just 
 `[dig sphere r=1.0 centred [1,1,1], smooth sphere radius=1e12]`, default 0.25 m cell,
 BUILTIN_TABLE, fresh store. Op 2 clears `assertOpValid` whole — finite and positive, so
 nothing in pass 1 has an opinion — and dies at `applySmooth`'s scratch-buffer allocation
-(`packages/core/src/field/ops.ts:670`, one `Int8Array` byte per sample of the bounds) with
+(`packages/core/src/field/ops.ts`, one `Int8Array` byte per sample of the bounds) with
 `RangeError: length larger than (2 ** 53) - 1`, sub-millisecond (0.48–0.60 ms over six
 runs on one machine — the point is that it fails FAST, unlike the `Infinity` case Task 3
 closed, which hung past an 8 s cutoff). State after the throw:
@@ -156,8 +156,8 @@ world whose re-bake from the log produces different bytes than the live store.
 > `docs/reference/editor-architecture.md` §23.5.
 
 **Reference:** `logApplyGroup` and its residual paragraph in
-`packages/core/src/field/ops.ts:1107-1149`; `commitGenerator`'s pass-1/pass-2 split in
-`packages/core/src/field/generators.ts:1010-1074`; the strand pins in
+`packages/core/src/field/ops.ts`; `commitGenerator`'s pass-1/pass-2 split in
+`packages/core/src/field/generators.ts`; the strand pins in
 `packages/core/src/field/ops.test.ts` ("an applier throw STRANDS the earlier ops' writes")
 and
 `packages/core/src/field/generators.test.ts` ("an op that VALIDATES and then throws in the

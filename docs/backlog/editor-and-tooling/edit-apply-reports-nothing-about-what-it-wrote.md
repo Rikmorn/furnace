@@ -4,8 +4,9 @@ Filed at sculpting-worlds cycle 2's review (2026-08-12), from that cycle's E1 mo
 
 `edit_apply` answers a bare `{"ok": true}` — no dirty-chunk count, no written-sample count, no
 touched bounds — while `generate`, the sibling write verb, reports `dirtyChunks`
-(`packages/editor/src/field-host/field-mutation.ts:402`, `committed.dirty.size`). **A write
-that changed zero samples is indistinguishable from one that worked.**
+(`generate` in `packages/editor/src/field-host/field-mutation.ts`, `dirtyChunks:
+committed.dirty.size`). **A write that changed zero samples is indistinguishable from one that
+worked.**
 
 That asymmetry is not theoretical: it is exactly how the lattice-aligned no-op in
 `docs/backlog/engine-architecture/lattice-aligned-box-op-writes-nothing.md` went undetected in
@@ -31,10 +32,10 @@ closing this entry.
 owner at cycle 2's close, 2026-08-12). Sooner if `edit_apply`'s response shape is revisited for
 any other reason, or the next time an author reports a brush op that "did nothing".
 
-**Reference:** `packages/editor/src/field-host/field-mutation.ts:402` (`dirtyChunks` on the
-generate path — the precedent this verb lacks); `packages/editor/src/daemon/mcp.ts` (the
+**Reference:** `packages/editor/src/field-host/field-mutation.ts` (`dirtyChunks` on `generate`
+— the precedent this verb lacks); `packages/editor/src/daemon/mcp.ts` (the
 `edit_apply` row); `docs/backlog/engine-architecture/lattice-aligned-box-op-writes-nothing.md`
 (the defect this would have surfaced, and the core leg);
-`docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §5. Siblings:
+`docs/learnings/2026-08-12-agent-world-building-cycle-2.md` §5. Siblings:
 `docs/backlog/engine-architecture/field-read-surface-gaps.md` and
 `advisor-answers-volume-not-questions.md` — the other three of that run's four small items.

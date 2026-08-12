@@ -63,9 +63,9 @@ failure wearing a door.
 *"let the flood take a caller-supplied seed"* as a core change. `markUnreachable` and
 `detectPits` are public exports of `@furnace/core/field` and **both already take
 `seeds: readonly [number, number, number][]`** (`packages/core/src/field/reachability.ts`,
-exported at `index.ts:101`). Core is already caller-seeded. What is hard-wired is the
-EDITOR: `field-analyzer.ts:433` seeds both passes from the loaded world's manifest
-`playerStart` and nothing else, and no door verb sets `playerStart`.
+exported at `index.ts`). Core is already caller-seeded. What is hard-wired is the
+EDITOR: `analyzerSeeds` in `field-analyzer.ts` seeds both passes from the loaded world's
+manifest `playerStart` and nothing else, and no door verb sets `playerStart`.
 
 The consequence is what cycle 2's run hit: the flood seeds from a spawn the bake derives from
 the human's camera, so a bad spawn vacates the entire reachability analysis. In E1 that is
@@ -86,11 +86,11 @@ flags.
 
 **Reference:** `packages/editor/src/field-host/field-query.ts` (`flagsAnswer` — relays kind,
 severity, position, tri-state `unreachable` and verdict; no standability, no filter);
-`packages/editor/src/field-host/field-analyzer.ts:433` (the `playerStart`-only seeding);
-`packages/core/src/field/reachability.ts` (`markUnreachable` / `detectPits`, both already
+`packages/editor/src/field-host/field-analyzer.ts` (`analyzerSeeds` — the `playerStart`-only
+seeding); `packages/core/src/field/reachability.ts` (`markUnreachable` / `detectPits`, both already
 seed-taking); `packages/dungeon/scripts/measure-analyze.ts` (the walkable-ground definition
 and its `low-clearance` exclusion note);
-`docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §3 and §6.
+`docs/learnings/2026-08-12-agent-world-building-cycle-2.md` §3 and §6.
 Siblings: `docs/backlog/engine-architecture/field-read-surface-gaps.md` (the CORE half of the
 same four items), `edit-apply-reports-nothing-about-what-it-wrote.md`,
 `pending-zero-cannot-say-the-advisor-is-off.md` (the other freshness debt on the same arm).

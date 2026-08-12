@@ -233,10 +233,10 @@ deferral case records why that test moves focus to a sibling rather than blurrin
 
 ## `useCatalogs` carries a second, narrower severity vocabulary
 
-`NotifySeverity` (`lib/notify-store.ts:21`) is the editor's severity type:
+`NotifySeverity` (`lib/notify-store.ts`) is the editor's severity type:
 `"info" | "success" | "warn" | "error"`, and every toast and log entry is one of those four.
 
-`hooks/useCatalogs.tsx:83` declares a second one:
+`hooks/useCatalogs.tsx` declares a second one in `Report`:
 
 ```ts
 type Report = { severity: "info" | "error"; text: string };
@@ -274,9 +274,9 @@ vocabularies must merge rather than the narrow one grow a third member. A third 
 
 ### Reference
 
-- `packages/editor/src/frontend/hooks/useCatalogs.tsx:81-89` — the `Report` type, its two
-  constructors, and `post`.
-- `packages/editor/src/frontend/lib/notify-store.ts:21` — `NotifySeverity`, and the store's
+- `packages/editor/src/frontend/hooks/useCatalogs.tsx` — the `Report` type, its two
+  constructors (`info` / `bad`), and `post`.
+- `packages/editor/src/frontend/lib/notify-store.ts` — `NotifySeverity`, and the store's
   per-severity methods a lookup would use.
 
 ---
@@ -324,7 +324,7 @@ does NOT hold at three is the flat shape: `voidCastPending`, `<x>Pending`, `<y>P
 siblings of `chunks` and `undoDepth` reads as a bag.
 
 The change when it comes is `jobs: { voidCast: boolean; … }` — still ONE push, still no new
-seam, and `statsEqual` (`lib/field-host-mirrors.ts:34`) grows one level rather than one
+seam, and `statsEqual` (`lib/field-host-mirrors.ts`) grows one level rather than one
 comparison. **A trigger, not a change**: doing it at one flag would be inventing structure
 for a single member.
 
@@ -336,13 +336,13 @@ commit if the reconfigure answer turns out to be "post progress from somewhere".
 
 ### Reference
 
-- `packages/editor/src/frontend/components/shell/StatusBar.tsx:486-501` — `longJobs`, the
+- `packages/editor/src/frontend/components/shell/StatusBar.tsx` — `longJobs`, the
   one derivation feeding both the chips and the `aria-live` announcement.
 - `packages/editor/src/field-host/field-host.ts` — `FieldStats` (still there; the line
   anchor rotted, so grep `export type FieldStats`) and `applyReconfigure`'s TSDoc §COST
   (its old range rotted too — grep the declaration), which carries the measurement and names
   `captureDueSnapshots` as the lever that exists and is unwired.
-- `packages/editor/src/frontend/lib/field-host-mirrors.ts:34` — `statsEqual`, the
+- `packages/editor/src/frontend/lib/field-host-mirrors.ts` — `statsEqual`, the
   never-check that a regrouping has to move with.
 
 ---
@@ -422,7 +422,7 @@ composition, and one layout proven only at the design floor.
 
 `components/ui/segmented.tsx` takes an optional `hint` per option and renders it through
 `ActionTip` (`:136-139`, guarded by `o.hint === undefined`). `ActionTip` is a Radix
-`Tooltip.Root`, and Radix does not degrade outside a provider — it throws. `ui/tooltip.tsx:8`
+`Tooltip.Root`, and Radix does not degrade outside a provider — it throws. `ui/tooltip.tsx`
 exports `TooltipProvider` as a separate component, mounted once by the shell, so nothing in
 the type system pairs the two.
 
@@ -469,7 +469,7 @@ that claim.
 - `packages/editor/src/frontend/components/ui/tips.tsx` — `ActionTip`, whose docblock already
   states the requirement ("Requires the shell's single `TooltipProvider` above it — a Radix
   `Tooltip` outside one does not degrade, it throws").
-- `packages/editor/src/frontend/components/ui/tooltip.tsx:8` — `TooltipProvider`, the
+- `packages/editor/src/frontend/components/ui/tooltip.tsx` — `TooltipProvider`, the
   separately-exported piece nothing forces a caller to mount.
 - `docs/reference/editor-architecture.md` §7 (the layer rule the T3b1 move established) and
   §18's tips paragraph (the trio's two moves).

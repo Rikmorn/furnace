@@ -103,19 +103,19 @@ The originally-stated `prune[- ]tranche`-only command therefore returned **seven
 table below claimed eight — the row it disowned was the eighth. Corrected at the T5 branch
 review, 2026-08-11, along with four line numbers the command had already invalidated.
 
-Line numbers are as of that run; the command above is the authority, and each row carries an
-anchor phrase so it survives the next drift.
+The command above is the authority, and each row carries an anchor phrase so it survives the
+next drift. Line numbers are deliberately absent — they were the part that rotted twice.
 
 | Site | Anchor phrase | What is parked |
 | --- | --- | --- |
-| `field-camera-rig.ts:163` | "consolidating the five across the directory" | the local `Box` alias, one of five spellings of `{ min: Vec3T; max: Vec3T }` restated per module |
-| `field-analyzer.ts:195` | "Consolidating the four across the directory" | the `Vec3T` / `LineBatch` alias family, four spellings, this module's end |
-| `field-materials.ts:77` | "choosing an accent-vocabulary owner" | the accent-constant owner question, from the material seam's end |
-| `field-materials.ts:157` | "TWO PRUNE CANDIDATES ARE PARKED HERE" | `Materials.kitInstanced` / `kitMat`, two spellings of one handle; AND the `Vec3T` / `LineBatch` family, declared privately in FIFTEEN and SEVEN modules |
-| `field-render.ts:129` | "choosing an owner among peer modules" | `selectionColor` / `anchorCrossHalfM`, the two accent constants this module takes as value deps |
-| `field-render.ts:173` | "What is still parked for T5" | the `Vec3T` / `LineBatch` consolidation across the directory, and `field-materials.ts`'s `kitMat` / `kitInstanced` pair — **the site spelled "parked for T5", which is why the old grep never returned it** |
-| `field-host.ts:1569` | "belongs to the prune tranche and not to a threading one" | the three accent constants (`SELECTION_COLOR`, `SELECTED_COLOR`, `ANCHOR_CROSS_HALF_M`) — declared in the host with NO host reader since T3d Task 5, kept there because choosing an owner among peer modules is a naming decision whose only spelling makes two siblings value-import a third for a literal |
-| `field-selection.ts:84` | "the choice of an accent-vocabulary owner is the prune tranche's" | the same three constants from the other end |
+| `field-camera-rig.ts` | "consolidating the five across the directory" | the local `Box` alias, one of five spellings of `{ min: Vec3T; max: Vec3T }` restated per module |
+| `field-analyzer.ts` | "Consolidating the four across the directory" | the `Vec3T` / `LineBatch` alias family, four spellings, this module's end |
+| `field-materials.ts` | "choosing an accent-vocabulary owner" | the accent-constant owner question, from the material seam's end |
+| `field-materials.ts` | "TWO PRUNE CANDIDATES ARE PARKED HERE" | `Materials.kitInstanced` / `kitMat`, two spellings of one handle; AND the `Vec3T` / `LineBatch` family, declared privately in FIFTEEN and SEVEN modules |
+| `field-render.ts` | "choosing an owner among peer modules" | `selectionColor` / `anchorCrossHalfM`, the two accent constants this module takes as value deps |
+| `field-render.ts` | "What is still parked for T5" | the `Vec3T` / `LineBatch` consolidation across the directory, and `field-materials.ts`'s `kitMat` / `kitInstanced` pair — **the site spelled "parked for T5", which is why the old grep never returned it** |
+| `field-host.ts` | "belongs to the prune tranche and not to a threading one" | the three accent constants (`SELECTION_COLOR`, `SELECTED_COLOR`, `ANCHOR_CROSS_HALF_M`) — declared in the host with NO host reader since T3d Task 5, kept there because choosing an owner among peer modules is a naming decision whose only spelling makes two siblings value-import a third for a literal |
+| `field-selection.ts` | "the choice of an accent-vocabulary owner is the prune tranche's" | the same three constants from the other end |
 
 **Three more that this tranche treated as parked and that had no record at all** — they are
 the reason this entry exists rather than a ninth `grep` hit:

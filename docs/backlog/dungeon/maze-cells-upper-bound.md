@@ -1,6 +1,6 @@
 # `MazeParams.cells` has no upper bound — a fat-fingered knob value hangs the tab
 
-**Context:** Surfaced in the W3 Task 4 review. `maze()` in `packages/dungeon/src/themes/maze.ts`
+**Context:** Surfaced in the W3 Task 4 review. `maze()` in `packages/dungeon/src/themes/maze.ts` (gone)
 validates that `cells` are integers `>= 2` but imposes NO ceiling. Cost grows quadratically in
 the footprint and the fine grid multiplies it again: `cells: [200, 200]` yields coarse dims
 `[1001, 8, 1001]` ≈ 8M coarse cells, which `rasterize` (`substrate/grid.ts`, `SUB` = 2 per axis)
@@ -21,8 +21,8 @@ knob schema, which bounds the interactive path but leaves the API itself unguard
 **Trigger to revisit:** BEFORE the World panel ships the `cells` knob (the W3 editor half).
 That is the point where an unbounded generator parameter reaches a user's fingers.
 
-**Reference:** `packages/dungeon/src/themes/maze.ts` (`maze()` validation block, `PITCH`,
-`PASSAGE_CELLS`), `packages/dungeon/src/substrate/grid.ts` (`rasterize`, `SUB`).
+**Reference:** `packages/dungeon/src/themes/maze.ts` (gone) (`maze()` validation block, `PITCH`,
+`PASSAGE_CELLS`), `packages/dungeon/src/substrate/grid.ts` (gone) (`rasterize`, `SUB`).
 `.claude/rules/working-standards.md` §Planning ("search systems get budgets on day one").
 Compare `LayoutBudget.deadlineMs` (Slice 3.2.3) — the precedent for a measured, fail-fast
 generator budget. Filed 2026-07-12 from the W3 Task 4 review.

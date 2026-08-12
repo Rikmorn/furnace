@@ -181,7 +181,7 @@ IBL machinery this overlaps with).
 ### Context
 
 The engine renders **forward** with a fixed `MAX_LIGHTS = 16` Scene-UBO array
-(`packages/core/src/frame/lights.ts:150`; `_packScene` clamps to 16 and
+(`MAX_LIGHTS` in `packages/core/src/frame/lights.ts`; `_packScene` clamps to 16 and
 `frame.render` warns once on overflow, never throws). This caps **simultaneous
 real light sources at 16** regardless of scene size.
 
@@ -223,7 +223,7 @@ pass (clustered forward+ vs deferred) before any implementation.
 ### Reference
 
 - 2.2.3a brainstorm (emissive glow scatter — the trigger that surfaced this).
-- `packages/core/src/frame/lights.ts:150` (`MAX_LIGHTS = 16`); forward render
+- `packages/core/src/frame/lights.ts` (`MAX_LIGHTS = 16`); forward render
   path `packages/core/src/frame/render.ts`.
 - Related: the *PBR material pipeline* section, `shadow-follow-ons.md` (*Advanced shadows*
   section), the *Area lights + IES lights* section, `post-chain-follow-ons.md` (*runtime

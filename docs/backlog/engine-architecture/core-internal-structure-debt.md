@@ -140,13 +140,13 @@ const detail = e instanceof Error ? e.message : String(e);
 throw new Error(`<locator> — ${detail}`, { cause: e });
 ```
 
-- `atOp` — `packages/core/src/field/artifact.ts:294-301` (the oplog decoder; T4a Task 4,
+- `atOp` — `packages/core/src/field/artifact.ts` (the oplog decoder; T4a Task 4,
   the first of them)
-- `logApplyGroup` — `packages/core/src/field/ops.ts:1123-1126` (T4a Task 5)
-- `commitGenerator` — `packages/core/src/field/generators.ts:1041-1046` (T4a Task 5)
-- `evaluateSpan` — `packages/core/src/field/reconfigure.ts:263-268` (T4a Task 5)
-- `parseOplogJson` — `packages/core/src/field/artifact.ts:908-913`
-- `parsePlacementJson` — `packages/core/src/field/artifact.ts:1087-1092`
+- `logApplyGroup` — `packages/core/src/field/ops.ts` (T4a Task 5)
+- `commitGenerator` — `packages/core/src/field/generators.ts` (T4a Task 5)
+- `evaluateSpan` — `packages/core/src/field/reconfigure.ts` (T4a Task 5)
+- `parseOplogJson` — `packages/core/src/field/artifact.ts`
+- `parsePlacementJson` — `packages/core/src/field/artifact.ts`
 
 Only the locator string differs between them, and the locator is the part that SHOULD
 differ — it is the one thing each call site knows and the primitive cannot. Everything

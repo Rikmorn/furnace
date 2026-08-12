@@ -33,11 +33,11 @@ no target; its six axis views reuse *the human's* pivot and distance, and the on
 viewpoint-moving verbs are `view.frame` (needs a selection) and `view.frameWorld`. Brush
 ops mint no entity, so anything hand-carved can never be framed or photographed
 deliberately. And `playerStart` bakes from the editor camera's eye
-(`field-host/field-world.ts:896`) — **measured: a re-bake silently re-rolled the spawn
-from wherever the camera happened to sit**, twice in one session. That is not only an
+(`exportArtifact` in `field-host/field-world.ts`) — **measured: a re-bake silently re-rolled
+the spawn from wherever the camera happened to sit**, twice in one session. That is not only an
 agent gap; every re-bake re-rolls the spawn for a human too. It compounds: the
 walkability advisor seeds reachability and pit detection from `playerStart`
-(`field-host/field-analyzer.ts:433`), so a spawn outside the build degrades the
+(`analyzerSeeds` in `field-host/field-analyzer.ts`), so a spawn outside the build degrades the
 habitability analysis as well.
 
 **The mitigation is already queued, and it is the gating dependency.** The reason a wider
@@ -73,6 +73,6 @@ mistake it can see and cannot correct.
 
 **Reference:** `packages/editor/src/frontend/lib/actions.ts` (`edit.delete` gate and
 run body); `packages/editor/src/shared/wire.ts` (`ViewportCaptureRequest`);
-`packages/editor/src/field-host/field-world.ts:896` (spawn from camera eye);
-`packages/editor/src/field-host/field-analyzer.ts:433` (reachability seeds). Sibling:
-`docs/backlog/engine-architecture/stamps-not-authored-to-connect.md`.
+`packages/editor/src/field-host/field-world.ts` (`exportArtifact` — spawn from camera eye);
+`packages/editor/src/field-host/field-analyzer.ts` (`analyzerSeeds` — reachability seeds).
+Sibling: `docs/backlog/engine-architecture/stamps-not-authored-to-connect.md`.

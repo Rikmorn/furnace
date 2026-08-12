@@ -36,8 +36,8 @@ Three shapes a fix could take, none obviously right:
 that must read as masonry rather than as cut rock — or when the kit gains its second
 material class.
 
-**Reference:** the kit-lattice clause at `packages/core/src/field/ops.ts:438`;
-`packages/core/src/field/types.ts:97-110` (`BrushShape` — kit-class writes accept the BOX
+**Reference:** the kit-lattice clause in `assertOpValid` (`packages/core/src/field/ops.ts`);
+`packages/core/src/field/types.ts` (`BrushShape` — kit-class writes accept the BOX
 alone, which is why "one kit primitive per run of steps" needs a new shape rather than a
 looser bound); `packages/dungeon/catalog/agent.json` (`stepHeight`);
 `docs/backlog/dungeon/content-vocabulary-is-the-differentiation-ceiling.md`. Sibling:

@@ -55,8 +55,8 @@ the *Generation session as a generic editor facility* section below — the same
 the contract side).
 
 **Reference:** `packages/dungeon/src/editor-extensions.ts` (the seam),
-`packages/editor/src/frontend/components/WorldPanel.tsx` (main-thread cast — three members),
-`packages/editor/src/frontend/lib/generation-protocol.ts` (`WorkerEngine` — two members),
+`packages/editor/src/frontend/components/WorldPanel.tsx` (gone) (main-thread cast — three members),
+`packages/editor/src/frontend/lib/generation-protocol.ts` (gone) (`WorkerEngine` — two members),
 `packages/editor/src/field-host/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
 `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
@@ -68,13 +68,13 @@ Promoting this to a facility means: (1) declaring the generator-consumer contrac
 
 **Trigger to revisit.** A second project wants cockpit generation (forcing the contract to be explicit rather than dungeon-shaped), OR the Slice 3.3 generator-entity / socket work formalizes the generation contract (at which point the panel↔generator protocol should be defined alongside it, not left as an ad-hoc cast). The field charter's brush editor re-shapes this contract — fold into that brainstorm if it lands first.
 
-**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` + `src/frontend/lib/generation-protocol.ts` + `src/field-host/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
+**Reference.** `packages/dungeon/src/editor-extensions.ts` (the seam — the re-export surface the cockpit consumes; its over-wide re-export set is tracked separately in the *`editor-extensions.ts` re-exports more than the editor consumes* section above); `packages/editor/src/daemon/bundle.ts` (the `export * as extensions` namespace re-export); `packages/editor/src/frontend/components/WorldPanel.tsx` (gone) + `src/frontend/lib/generation-protocol.ts` + `src/field-host/analyzer-protocol.ts` (the three boundary casts that narrow the untyped namespace); `docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
 
 ## Generation preview should be its own dockview panel, not a viewport takeover
 
 Found at the Slice 3.2.2 editor gate (2026-07-09). The generation cockpit preview renders
 on a SECOND canvas that shares the Viewport panel and swaps in via `visibility` when
-`state.generationActive` (`packages/editor/src/frontend/components/Viewport.tsx` ~:143–160).
+`state.generationActive` (`packages/editor/src/frontend/components/Viewport.tsx` (gone) ~:143–160).
 Activating a preview therefore HIDES the scene viewport — "it takes over the viewport tab."
 The user wants preview as its own surface so the scene stays visible while previewing.
 
@@ -101,9 +101,9 @@ User-approved deferral at the 3.2.2 gate ("backlog 3, we can handle it after thi
 **Trigger to revisit:** immediately after Slice 3.2.2 seals — the user flagged it as the next
 thing to pick up.
 
-**Reference:** `packages/editor/src/frontend/components/Viewport.tsx` (the two-canvas
+**Reference:** `packages/editor/src/frontend/components/Viewport.tsx` (gone) (the two-canvas
 visibility swap + the zero-size init comment), `packages/editor/src/frontend/components/App.tsx`
-(dockview panel registration, `previewHostRef`), `packages/editor/src/frontend/lib/panels.ts`
+(dockview panel registration, `previewHostRef`), `packages/editor/src/frontend/lib/panels.ts` (gone)
 (`PANELS` registry) — all three deleted at F4.5a with the dock and the preview host.
 
 ## The editor viewport is non-HDR and draws no post chain
@@ -202,7 +202,7 @@ public-surface pass.
 The concrete third-fact candidate is already visible: **`usesSeed`**. `hallGenerator.evaluate`
 opens with `void seed` — hall's structure is params-determined (the donor contract), and its
 TSDoc reserves the seed for future skin variants, so nothing consumes it *today*. Meanwhile
-`packages/editor/src/frontend/components/field/StampInspector.tsx` (:133-169) renders the seed
+`packages/editor/src/frontend/components/field/StampInspector.tsx` (gone) (:133-169) renders the seed
 input and the ⚄ re-roll button **unconditionally**, with no generator-dependent guard
 (verified). So the editor offers a control that changes nothing on hall — the same class of
 gap the editor's `placesArchetypes` schema sniff existed to paper over, and the same class of

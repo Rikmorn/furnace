@@ -14,9 +14,10 @@ thing that would make this actionable, and it is recorded as missing rather than
 - **Not a pit.** `bun scripts/measure-analyze.ts` from `packages/dungeon` over that world
   (2026-08-12, post-re-bake, local artifact on the authoring machine) reports **0 pit
   regions** across 2,541 flags, with `seeds: 1/1 usable` so the detector actually ran.
-- **Not an escape past the allocated field.** `packages/core/src/field/chunks.ts:12` and `:53`
-  — *"unallocated chunks read as SOLID"*. A carve that leaves the allocated region meets rock,
-  not void, so "carve containment at the chunk frontier" (the walk verdict's first guess) is
+- **Not an escape past the allocated field.** `SOLID` and `getDensity` in
+  `packages/core/src/field/chunks.ts` — *"unallocated chunks read as SOLID"*. A carve that
+  leaves the allocated region meets rock, not void, so "carve containment at the chunk
+  frontier" (the walk verdict's first guess) is
   not the mechanism.
 - **Probably not the mesher.** `field-mesher-degenerate-triangles.md` records zero-area
   triangles on symmetric surfaces, but also that they *draw nothing* and that the render mesh
@@ -43,6 +44,6 @@ the detector closes the class without ever locating this instance.
 
 **Reference:** `docs/learnings/2026-08-12-agent-world-building-cycle-2.md` (the walk verdict
 and the analyzer numbers, with their deriving commands);
-`packages/core/src/field/chunks.ts:12,53` (unallocated reads solid);
+`packages/core/src/field/chunks.ts` (`SOLID` / `getDensity` — unallocated reads solid);
 `packages/core/src/field/analyze.ts` (the flag kinds, none of which is this);
 `docs/backlog/dungeon/field-mesher-degenerate-triangles.md`.

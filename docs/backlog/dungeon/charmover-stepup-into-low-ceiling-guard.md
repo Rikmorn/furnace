@@ -46,10 +46,10 @@ collider backend.
 
 ## Reference
 
-- `packages/dungeon/src/char-move.ts` — the step-up pass (`resolve`, `STALL_GAIN` step-up
+- `packages/dungeon/src/agent/char-move.ts` — the step-up pass (`resolve`, `STALL_GAIN` step-up
   branch) and the downward-ray ground pass (`applyGravity`, `GROUND_SNAP`, `STEP_HEIGHT`,
   `footOffset`).
-- `packages/dungeon/src/themes/cave.ts` — `TUNNEL_R` and the round-bore `capsuleCavern` tunnel
+- `packages/dungeon/src/themes/cave.ts` (gone) — `TUNNEL_R` and the round-bore `capsuleCavern` tunnel
   whose narrowing produced the wedge.
 - Sibling deferral: `docs/backlog/dungeon/traversal-verbs-on-character-mover.md`.
 - The wedge corpus this class belongs to is `docs/reference/dungeon-architecture.md` §3

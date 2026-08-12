@@ -90,12 +90,12 @@ of `overwrites`. That is the design question this half is filed on.
 
 On macOS's default case-insensitive filesystem, `worlds/Cavern` and `worlds/cavern` are one
 directory entry. The save-as cue is an exact-match `Set` lookup
-(`WorldDrawer.tsx:103`, `overwrites.has(value)`), so typing `Cavern` against a listed
+(`WorldDrawer.tsx`'s `overwrite` const, `valid && overwrites.has(value)`), so typing `Cavern` against a listed
 `cavern` shows no warning while the write lands on the existing world.
 
 **Pre-existing and not this cue's fault**: the tracked-world confirm downstream has the same
 blind spot for the same reason — it asks git whether `worlds/<typed name>` is tracked
-(`lib/world-actions.ts:103`), and git's index is case-sensitive, so the differently-cased
+(`lib/world-actions.ts`'s `needs-tracked-confirm` guard), and git's index is case-sensitive, so the differently-cased
 path reads as untracked and no confirm fires either. Both surfaces are exact-match against a
 filesystem that is not.
 
@@ -128,24 +128,24 @@ contract and doing them together is most of the saving.
   `dispatch`). `grep -n 'already-exists' packages/editor/src/daemon/handlers.ts` is the
   durable instrument; the file's line numbers move whenever the registry gains or sheds a
   family, and it shed one to `session-handlers.ts` in T4b.
-- `packages/editor/src/frontend/lib/world-actions.ts:98-104` — the tracked-overwrite
-  confirm's predicate.
+- `packages/editor/src/frontend/lib/world-actions.ts` — the tracked-overwrite confirm's
+  predicate (the `needs-tracked-confirm` return).
 
 ---
 
 ## `world.list`'s `legacy` kind now names a world that cannot boot
 
-`listWorlds` (`packages/editor/src/daemon/worlds.ts:75`) classifies every directory under
+`listWorlds` (`packages/editor/src/daemon/worlds.ts`) classifies every directory under
 `worlds/` as `kind: "field" | "legacy"`, on one test: does it have an `oplog.json` beside
 its `manifest.json`? With one → `field`. Without → `legacy`.
 
 `legacy` was accurate when it was written: it meant "a v1 world — real, loadable by the
 game, just not editable, because `field.load` needs the oplog the editor writes". The
-drawer says exactly that (`WorldDrawer.tsx:44` — *"a v1 world: no oplog, so field.load
+drawer says exactly that (`WorldDrawer.tsx`'s `LEGACY_REASON` — *"a v1 world: no oplog, so field.load
 can't read it into the editor"*) and disables Open on those rows.
 
 **Foundations T2 (2026-08-05) made that untrue.** The game's `loadWorld`
-(`packages/dungeon/src/world/world-loader.ts:67`) now gates every manifest through
+(`packages/dungeon/src/world/world-loader.ts`) now gates every manifest through
 `isWorldManifest`, which admits `version: 2` + `kind: "field"` and nothing else, and
 **throws** — `"...is not a world this runtime understands — re-bake"` — on anything that
 fails. A `worlds/` directory with a manifest and no oplog is therefore not a v1 world the
@@ -161,14 +161,13 @@ misbehaves today — a `legacy` row is correctly refused everywhere it appears.
 
 What is stale is the vocabulary and the copy that explains it, in four places:
 
-- `packages/editor/src/daemon/worlds.ts` — the `WorldRow["kind"]` union (`:28` at head, not
-  the `:26` this entry carried) and the
-  ternary that produces it.
-- `packages/editor/src/frontend/lib/api.ts:53-54` — the client-side type and its docblock
-  ("`legacy` = a v1 world directory with a manifest but no oplog").
-- `packages/editor/src/frontend/components/shell/WorldDrawer.tsx:44` (`LEGACY_REASON`),
-  `:240-241`, `:279` (the `legacy` badge), `:291`, `:418`.
-- `packages/editor/src/frontend/lib/world-actions.ts:194` — the `lastWorld` docblock, which
+- `packages/editor/src/daemon/worlds.ts` — the `WorldRow["kind"]` union and the ternary in
+  `listWorlds` that produces it.
+- `packages/editor/src/frontend/lib/api.ts` — the client-side `WorldRow` type and its
+  docblock ("`legacy` = a v1 world directory with a manifest but no oplog").
+- `packages/editor/src/frontend/components/shell/WorldDrawer.tsx` — `LEGACY_REASON`, the
+  `reason` ternary that selects it, and the `legacy` badge on the same row.
+- `packages/editor/src/frontend/lib/world-actions.ts` — the `lastWorld` docblock, which
   lists `legacy` among the reasons a boot-reopen silently answers `null`.
 
 The design question is which of these it becomes:
@@ -193,7 +192,7 @@ to still work in the game, which is what the word now promises and no longer del
 
 ### Reference
 
-- `packages/editor/src/daemon/worlds.ts:60-85` — `listWorlds` and the `oplog.json` test.
-- `packages/dungeon/src/world/world-loader.ts:67-110` — `loadWorld` and `isWorldManifest`,
+- `packages/editor/src/daemon/worlds.ts` — `listWorlds` and the `oplog.json` test.
+- `packages/dungeon/src/world/world-loader.ts` — `loadWorld` and `isWorldManifest`,
   the gate that made `legacy` mean "cannot boot".
 - `docs/reference/editor-architecture.md` §4 — the daemon's world verbs as-built.

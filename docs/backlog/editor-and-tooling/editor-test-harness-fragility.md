@@ -277,10 +277,11 @@ fail is worse than the flake. What the reading DID settle:
 - **An earlier revision of this entry argued the 15 s figure could not come from this test.
   That was wrong, and worth keeping as the correction it is.** The argument rested on
   "15005 ms" implying a 15 s test BUDGET (this test declares 20 s), and on
-  `bundle-watch.test.ts:50` being the only 15 s budget in the package. Bun prints ELAPSED
+  the `15_000` budget on `bundle-watch.test.ts`'s "a source change under the extensions dir
+  emits bundle-outdated to subscribers" being the only 15 s budget in the package. Bun prints ELAPSED
   time on every fail line whatever the budget — probe-confirmed: a test with a 20 s budget
   failing at 1.5 s prints `[1516.83ms]` — so the figure never implied a budget at all, and
-  the exclusivity argument dissolves with it. `bundle-watch.test.ts:50` remains a SECONDARY
+  the exclusivity argument dissolves with it. That same `bundle-watch.test.ts` case remains a SECONDARY
   candidate on its own merits (its `read` → `fire()` → `read` shape would deadlock if the
   `": connected"` preamble ever failed to flush); it went 10/10 green here too. Provenance
   note for whoever picks this up: the "15005 ms" figure comes from a session message, not

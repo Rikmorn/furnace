@@ -17,5 +17,5 @@ classes.
 **Trigger to revisit:** the Jolt-era isosurface↔built blending pass, or the field
 charter's material-class boundary design — whichever lands first.
 
-**Reference:** `packages/dungeon/src/built.ts` (`mouthCollar`),
-`packages/dungeon/src/themes/cave.ts` (collar application at mouths).
+**Reference:** `packages/dungeon/src/built.ts` (gone) (`mouthCollar`),
+`packages/dungeon/src/themes/cave.ts` (gone) (collar application at mouths).

@@ -33,7 +33,7 @@ cube for `box`, a sphere for `sphere`, a cylinder for `capsule` — tinted with 
 archetype's `material.litColor`. The stamp ghost does the same thing in wireframe.
 
 The dungeon does not: its field-world loader fetches each archetype's `.fmesh` variants
-and instances the real geometry (`buildArchetypeGroups` in `packages/dungeon/src/field-world.ts`).
+and instances the real geometry (`buildArchetypeGroups` in `packages/dungeon/src/field-world.ts` (gone)).
 So the editor shows you correct COUNT, POSE, SCALE and rough VOLUME of every prop, but not
 its silhouette — a stalagmite reads as a capped cylinder, a rock as a box.
 
@@ -61,7 +61,7 @@ mapping + the shading constraint); `packages/editor/src/field-host/field-props.t
 (`rebuildProps`, `proxyGeometry` — both were in `field-host.ts` until foundations T3b1,
 2026-08-06); `packages/editor/src/shared/catalog.ts`
 (`parseEntityCatalog` — deliberately does not carry the catalog's `meshes` paths);
-`packages/dungeon/src/field-world.ts` (`buildArchetypeGroups` — the mesh-accurate loader
+`packages/dungeon/src/field-world.ts` (gone) (`buildArchetypeGroups` — the mesh-accurate loader
 this would converge on); `docs/reference/dungeon-architecture.md` (the placement artifact).
 
 ## The placement sizing convention is implemented twice, with nothing pinning the two together
@@ -72,7 +72,7 @@ primitive and its record's per-axis scale" — has two independent implementatio
 - `proxyScale` / `proxyExtents` in `packages/editor/src/field-host/field-placements.ts`
   (editor): the proxy the editor DRAWS, both as a ghost wireframe and as the committed
   instanced prop.
-- `placementCollider` in `packages/dungeon/src/field-world.ts` (game): the static collider
+- `placementCollider` in `packages/dungeon/src/field-world.ts` (gone) (game): the static collider
   the runtime DERIVES at load.
 
 They agree exactly today, including the fiddly parts — a `box` scales per-axis, a
@@ -104,7 +104,7 @@ drew.
 
 **Reference:** `packages/editor/src/field-host/field-placements.ts` (`proxyExtents`,
 `proxyScale` — and their TSDoc, which names the dungeon as the authority);
-`packages/dungeon/src/field-world.ts` (`placementCollider`);
+`packages/dungeon/src/field-world.ts` (gone) (`placementCollider`);
 `packages/core/src/field/kit-render.ts` (`packPlacementMatrices` — where the promoted
 version would live, and the precedent for promoting);
 `packages/editor/tests/catalog.test.ts` (the cross-package coupling-test precedent: it

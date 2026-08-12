@@ -6,7 +6,7 @@ it should not be fixed at the door.
 
 ## Three primitives, and every architectural move is arithmetic on top of them
 
-`BrushShape` is `sphere | box | capsule` (`packages/core/src/field/types.ts:97-110`), the
+`BrushShape` is `sphere | box | capsule` (`packages/core/src/field/types.ts`), the
 capsule being exactly ONE segment `a → b`. Kit-class writes accept the box alone. There is
 nothing above that altitude, so every architectural move decomposes at the caller:
 
@@ -30,7 +30,7 @@ nothing above that altitude, so every architectural move decomposes at the calle
 ## The paint mask has no surface-aware member
 
 `BrushMask` is `organic-only | kit-only | class | solid-only | selection`
-(`types.ts:120-125`). The cross-cutting filter axis EXISTS — what it has no member for is
+(`types.ts`). The cross-cutting filter axis EXISTS — what it has no member for is
 orientation or height: no *floor only*, no *below Y*, no *surfaces facing up*.
 
 Measured cost in the run: the crypt was painted by dropping one large box and then
@@ -56,7 +56,7 @@ changes the editor's authoring model rather than the door.
 **Reference:** `packages/core/src/field/types.ts` (`BrushShape` :97-110, `BrushMask` :120-125,
 `SmoothParams` :127-139 for the one op that DOES carry a mode vocabulary);
 `packages/dungeon/catalog/agent.json` (`stepHeight`, the constraint a stair op would own);
-`docs/learnings/2026-08-12-agent-world-building-cycle-2-e1.md` §4 and §10. Siblings:
+`docs/learnings/2026-08-12-agent-world-building-cycle-2.md` §4 and §10. Siblings:
 `kit-lattice-excludes-a-walkable-stair.md` (why the built-looking stair could not be masonry —
 the same missing primitive from the material side),
 `lattice-aligned-box-op-writes-nothing.md` (why the ~66 hand-computed boxes were silently one

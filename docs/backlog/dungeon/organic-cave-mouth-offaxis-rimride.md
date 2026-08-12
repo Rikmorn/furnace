@@ -48,7 +48,7 @@ collide-on-Jolt `CharacterVirtual`, `EnhancedInternalEdgeRemoval`) — the track
 the voxel-proxy KCC and the general fix for organic-terrain rim-riding. Raise priority if a
 shipped world's on-axis or lightly-off-axis path rim-rides an organic cave in play.
 
-**Reference.** `packages/dungeon/src/char-move.ts` (`applyGravity` highest-support sweep);
-`packages/dungeon/tests/collar-bore.gpu.test.ts` (off-centre lanes scoped to the collar+bore
+**Reference.** `packages/dungeon/src/agent/char-move.ts` (`applyGravity` highest-support sweep);
+`packages/dungeon/tests/collar-bore.gpu.test.ts` (gone) (off-centre lanes scoped to the collar+bore
 seam); the bore-spawn diagnostic above; the collision-architecture decision + Jolt-in-browser
 proof. Surfaced + verified in W2 Task 11.

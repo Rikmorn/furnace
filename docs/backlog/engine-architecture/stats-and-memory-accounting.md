@@ -49,7 +49,7 @@ Surfaced during cookbook Task 8 (`docs/reference/core-modules.md`) when document
 
 **Trigger to revisit:** When GPU perf becomes a debugging concern (e.g. a demo's frame budget is tight and the user wants to see GPU-side vs CPU-side time). Or when adding the timestamp-query feature for any other reason.
 
-**Reference:** `packages/core/src/stats/snapshot.ts:36-37`, `docs/reference/core-modules.md` `@furnace/core/stats` table notes.
+**Reference:** the `renderMs: null` / `computeMs: null` lanes in `buildSnapshot` (`packages/core/src/stats/snapshot.ts`), `docs/reference/core-modules.md` `@furnace/core/stats` table notes.
 
 ## `stats.markFrameBoundary` interaction with `frame.loop`
 

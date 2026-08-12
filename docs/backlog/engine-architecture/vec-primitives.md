@@ -18,12 +18,12 @@ the same primitive family, and it fires on the same next-hygiene-tranche trigger
 The `readonly [number, number, number]` array-literal input type is defined in
 multiple places across the engine, with no single source of truth:
 
-- `packages/core/src/physics/types.ts:15` — `export type Vec3Tuple = readonly [number, number, number]` (the only **exported** copy)
-- `packages/core/src/geometry/factories/cube.ts:6` — local `type Vec3Tuple = readonly [number, number, number]`
-- `packages/core/src/frame/lights.ts:15` — local `type Vec3Tuple = readonly [number, number, number]`
-- `packages/core/src/texture/procedural.ts:9` — local `type Rgb = readonly [number, number, number]` (same shape, different name)
-- `packages/core/src/camera/perspective.ts:11–13` — inline `readonly [number, number, number]` on three `const` defaults
-- `packages/core/src/camera/orthographic.ts:15–17` — inline `readonly [number, number, number]` on three `const` defaults + one function parameter
+- `packages/core/src/physics/types.ts` — `export type Vec3Tuple = readonly [number, number, number]` (the only **exported** copy)
+- `packages/core/src/geometry/factories/cube.ts` — local `type Vec3Tuple = readonly [number, number, number]`
+- `packages/core/src/frame/lights.ts` — local `type Vec3Tuple = readonly [number, number, number]`
+- `packages/core/src/texture/procedural.ts` — local `type Rgb = readonly [number, number, number]` (same shape, different name)
+- `packages/core/src/camera/perspective.ts` — inline `readonly [number, number, number]` on three `const` defaults (`DEFAULT_POSITION` / `DEFAULT_TARGET` / `DEFAULT_UP`) + one function parameter (`cloneVec3OrDefault`'s `fallback`)
+- `packages/core/src/camera/orthographic.ts` — inline `readonly [number, number, number]` on three `const` defaults (`DEFAULT_POSITION` / `DEFAULT_TARGET` / `DEFAULT_UP`) + one function parameter (`cloneVec3OrDefault`'s `fallback`)
 
 **Proposal:** home a canonical `Vec3Tuple` in `packages/core/src/transform/types.ts`
 alongside the existing `Vec3` / `Vec4` storage types. The distinction matters:
@@ -83,8 +83,8 @@ public export from `@furnace/core/transform`).
 **Reference:** `packages/core/src/frame/lights.ts` (local `Vec3Tuple` added in
 Stage 3 Phase 2 Task 3, originally coined `Vec3Input` — renamed to `Vec3Tuple`
 in the same commit after spec review found it synonymous with the engine's
-existing name); `packages/core/src/physics/types.ts:15` (currently the only
-exported copy).
+existing name); `Vec3Tuple` in `packages/core/src/physics/types.ts` (currently
+the only exported copy).
 
 ## Vec primitive ergonomics — domain wrappers + indexing-cast hygiene
 

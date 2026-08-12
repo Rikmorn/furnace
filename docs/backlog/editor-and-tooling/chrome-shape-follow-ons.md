@@ -489,7 +489,7 @@ really did move type surface into `shared/`. Two things kept the comparator wher
 
 **A first draft of this note claimed the move needs a test edit. It does not**, and the
 correction matters because the false claim would have made the work look more expensive than
-it is: `tests/field-host-mirrors.test.ts:33` imports `toolsEqual` BY NAME from
+it is: `tests/field-host-mirrors.test.ts` imports `toolsEqual` BY NAME from
 `frontend/lib/field-host-mirrors.ts`, so `export { toolsEqual } from "../../shared/…"` there
 satisfies it with zero test edits and ONE implementation. That is also not what this entry
 calls *"worse than today"* — that phrase is about keeping TWO implementations behind a shared

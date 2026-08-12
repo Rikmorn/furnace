@@ -3,8 +3,9 @@
 Filed 2026-08-12 from the sculpting-worlds cycle-2 E1 monastery run; validated and accepted at
 that cycle's review the same day.
 
-Sample writes are gated on a STRICT `sdf > 0` (`packages/core/src/field/ops.ts:598`,
-`:608`, `:687`), and a box's SDF is `halfExtents[a] - |p[a] - center[a]|` (`:83`–`:87`).
+Sample writes are gated on a STRICT `sdf > 0` (`applyOp`'s fill and paint legs, and
+`applySmooth`, all in `packages/core/src/field/ops.ts`), and a box's SDF is
+`halfExtents[a] - |p[a] - center[a]|` (`shapeSdf`'s box branch).
 A sample lying exactly ON a box face therefore scores 0 and is excluded. Both faces are
 exclusive, so a box whose extent along an axis is a whole number of cells AND whose faces
 land on the sample lattice contains **no samples on that axis at all** — the op writes
@@ -24,7 +25,7 @@ walkable only because every tread shifted by the same amount, so the risers were
 unchanged — a shift that happened to cancel, not a shift that was safe.
 
 This is the defect class `ops.ts` already names for patches ("a mutation verb must
-actually mutate") and already REJECTS for zero extents — the TSDoc at `:245`–`:260`
+actually mutate") and already REJECTS for zero extents — `assertShapeValid`'s TSDoc
 documents the zero case in detail, including its silent-no-op and phantom-write legs. A
 positive-but-lattice-aligned extent lands in the same place and falls through the
 validation hole, because the guard tests the NUMBER (`positiveLength`) rather than
@@ -39,8 +40,9 @@ answers a bare `{"ok": true}` with no write count, while `generate` does report
 **Trigger to revisit:** Next time an author reports a brush op that "did nothing", or the
 next time `edit_apply`'s response shape is revisited.
 
-**Reference:** `packages/core/src/field/ops.ts` (`:83`–`:87` box SDF, `:245`–`:260` the
-zero-extent stance, `:598`/`:608`/`:687` the `sdf > 0` gates). Sibling:
+**Reference:** `packages/core/src/field/ops.ts` (`shapeSdf`'s box branch for the box SDF,
+`assertShapeValid`'s TSDoc for the zero-extent stance, and the `sdf > 0` gates in
+`applyOp`'s fill/paint legs and in `applySmooth`). Sibling:
 `docs/backlog/editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md` — the
 second candidate fix above, filed on its own because it closes a class rather than this
 defect, and scheduled into the cycle-3 E0-equivalent set.

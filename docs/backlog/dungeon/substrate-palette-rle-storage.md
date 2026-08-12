@@ -1,7 +1,7 @@
 # Substrate grid storage: palette / RLE behind the accessors
 
 **Context.** W2 ships the two-resolution voxel substrate with **dense per-region
-`Uint8Array` storage** (D-W2-5): the region IS the chunk. `packages/dungeon/src/substrate/grid.ts`
+`Uint8Array` storage** (D-W2-5): the region IS the chunk. `packages/dungeon/src/substrate/grid.ts` (gone)
 holds coarse (0.5 m) and fine (0.25 m) grids as flat dense arrays, and every read/write goes
 through accessors (`coarseGet`/`coarseSet`/`fineGet`/`fineSet`/`rasterize`) — **no raw array
 appears in any public signature**. That accessor wall is deliberate: it is the seam a palette or
@@ -16,5 +16,5 @@ current and near-term scale, and compressing now would be speculative.
 measured multi-MB world where grid memory shows up in a profile. Either makes the constant factor
 matter; until then dense-behind-accessors is the cheaper, simpler thing.
 
-**Reference.** `packages/dungeon/src/substrate/grid.ts` (the accessor wall + the dense
+**Reference.** `packages/dungeon/src/substrate/grid.ts` (gone) (the accessor wall + the dense
 `cells: Uint8Array`); spec decision D-W2-5.
