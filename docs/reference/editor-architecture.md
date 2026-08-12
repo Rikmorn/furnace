@@ -6320,6 +6320,19 @@ are worth the sentences:
   build before the arm had a branch — the same mechanism T5 recorded, re-proven by sabotage
   at cycle 2's gate (comment the branch out → `tsc` reds at the `never` binding; restore →
   clean).
+- **What the arm does NOT relay, discovered by using it (cycle 2's review).** The rows carry
+  kind, severity, position, tri-state `unreachable` and any mover verdict — but NOT
+  standability, which is the second leg of the "walkable ground" definition the project reads
+  its stop condition against. The consequence is measured and it is not small:
+  `low-clearance` anchors on the OFFENDING NEIGHBOUR, so it scores **0 on walkable ground in
+  all twelve worlds the analyzer covers — 1,117 candidates, zero actionable, every time**
+  (`bun scripts/measure-analyze.ts` from `packages/dungeon`; the walkable-ground definition and
+  the exclusion note are that script's own). The arm relays it as `severity: "candidate"`,
+  indistinguishable from `narrow`, and in cycle 2's run that was 184 of 255 rows — enough to
+  blow `MAX_REPORTED` and set `truncated: true` on the rows that mattered. **Building the door
+  was necessary and not sufficient**: cycle 1 recorded "the finding reached nobody"; cycle 2
+  is "it reached the agent in a shape it could not use". Filed with the filter/rollup design at
+  `docs/backlog/editor-and-tooling/advisor-answers-volume-not-questions.md`.
 
 The door cost 363 B of the 690 that remained, and `tests/mcp.test.ts`'s projected-arm list
 (five → six) is where a human had to agree the arm should be advertised — the projection
@@ -6584,7 +6597,12 @@ RED baseline build (45 door calls, owner-walked) → GREEN skill + guardrail tes
 (`packages/editor/tests/skill-references.test.ts`); field notes at
 `docs/learnings/2026-08-11-agent-world-building-cycle-1.md`. The T5-close ruling also
 inserted the TOOLING SESSION (doc strategy + build-cycle speed) into the queue between
-3b and the undo + attribution pass below — the T5 seal carries that queue.]*
+3b and the undo + attribution pass below — the T5 seal carries that queue.
+**Cycle 2 followed on 2026-08-12** — the skill's first real use, planner ≠ executor ≠
+reviewer across three sessions: E0 built the `flags` arm (§28.2), E1 ran a 58-call
+five-place monastery build with the skill loaded, the owner walked it, and the review
+adjudicated the four on-trial `§Composing` bullets and filed eight backlog entries. Field
+notes at `docs/learnings/2026-08-12-agent-world-building-cycle-2.md`.]*
 
 **Then undo + attribution**, as ONE wire-format design pass: an origin field on the log entry
 and named-stroke boundaries, designed together with an agent undo verb rather than before it.
