@@ -603,6 +603,49 @@ upstream in `bun-webgpu`'s FFI is the isolate-hardening slice's first probe.
 the four root `scripts/*.test.ts` files landed with the docs-system slice and live in no
 package (derive: compare `bun test` root file count against the per-package runs).
 
+**RULED 2026-08-13 at the isolate-hardening slice (owner ruling; supersedes clause 4 outright
+and answers clause 5's reopening trigger).**
+
+*Clause 4 — "`bun test --isolate` stays recorded NOT USABLE" — is now WRONG and struck.* Both
+mechanisms it rested on were fixed in that slice: the GPU fixture resolves bun-webgpu's native
+library synchronously and passes it as an explicit `libPath`, and the inspector harness pulls
+testing-library through a synchronous `require` instead of a top-level await. Both were
+workarounds for one Bun defect, not for anything this repo did wrong — the mechanism, a
+three-file repro, and the trigger to revert both live in
+[`bun-isolate-top-level-await-tdz.md`](../infrastructure/bun-isolate-top-level-await-tdz.md).
+Measured after: `bun test --isolate` and `bun test` return the SAME population and the same
+result — 0 fail, 0 module errors, and one remaining skip, which is `test.skipIf` on a genuinely
+absent capability (`createImageBitmap`/`ImageData`, in `load.gpu.test.ts` under
+`packages/core/src/texture/`) and skips identically in both modes.
+
+*Clause 5's reopening trigger DID fire, and the ruling stands unchanged — because the second
+class turned out to be a machine-load artefact with a machine-load fix.* Under `bun test
+--parallel` at bun's default worker count (one per core), two cases fail: the `cave-budget` and
+`generators-budget` files in `packages/core/src/field/`. Both fail on bun's **5 s default
+per-test timeout**, not on their own ceilings, which they print as comfortably inside budget.
+The ruled gate is **`--parallel=4`**, and at 4 workers those same two cases return to
+essentially their serial timing — under 50% of the default timeout, against a serial figure a
+hair under that. So no budget file is edited, no per-file timeout is raised, and no
+baseline-relative budget is adopted.
+
+**The answer clause 5's objection is owed** ("an absolute ceiling is a claim about the ENGINE,
+which a reader can argue with; a baseline-relative one is a claim about the machine, which
+drifts with it and can never fail"): the objection is correct and is the reason this ruling
+does NOT calibrate. Contention was never evidence that the ceilings are wrong — it is evidence
+that a saturated machine is the wrong place to measure them. Fixing the measurement condition
+keeps every ceiling an argue-able claim about the engine. Choosing the worker count is the
+cheaper lever and the honest one; the same lever also buys back the headroom that group E of
+the build-speed inputs found this laptop needs when a second agent session is running.
+
+**Derive all of the above** (dated snapshots, machine idle, `--parallel=4` unless stated):
+`bun test`, `bun test --isolate`, `bun test --parallel`, `bun test --parallel=4`, and for the
+per-case timings `bun test --parallel=4 --reporter=junit --reporter-outfile=<file>` parsed for
+the two `*-budget.test.ts` testcases' `time` attributes.
+
+**What would reopen THIS ruling.** A budget-file failure under `--parallel=4` — which is the
+signal that 4 is no longer an uncontended-enough measurement condition on the machine of the
+day, and the next lever is the worker count again, not the budgets.
+
 
 ## `stubDaemon`'s `loadable` should be the default, not an opt-in
 
