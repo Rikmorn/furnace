@@ -1,21 +1,39 @@
 // Shared component-test harness for the inspector pins.
 //
-// DOM-registration ordering gotcha (VERIFIED under bun 1.3.14, this session):
-// @testing-library's `screen` binds to `document.body` at the moment its module is
-// EVALUATED, so the DOM must exist first. The spike proved a STATIC
-// `import ... from "@testing-library/react"` is unreliable here: bun evaluates the
-// testing-library module (and binds `screen`) BEFORE a relative side-effect module
-// like `_register.ts` runs its body — even when `_register.ts` is the first import.
-// So the plan's "put registration in its own module, import it first" idea does NOT
-// work under bun's loader; `screen` still binds before the DOM exists.
+// DOM-registration ordering gotcha: @testing-library's `screen` binds to `document.body`
+// at the moment its module is EVALUATED, so the DOM must exist first. A STATIC
+// `import ... from "@testing-library/react"` does NOT hold that ordering under bun —
+// the testing-library module evaluates (and `screen` binds) before a relative
+// side-effect module like `_register.ts` runs its body, even as the first import. So
+// registration must happen, and testing-library must be pulled in AFTER it, from this
+// module's BODY. Registration stays scoped to files that import this harness (NOT a bun
+// `--preload`) so `document`/`window` never leak into the daemon/server/GPU test runs.
 //
-// The reliable pattern is the spike's: register synchronously, THEN pull in
-// testing-library via a DYNAMIC import (top-level await) so its evaluation is
-// deferred until after the DOM exists. Registration stays scoped to files that
-// import this harness (NOT a bun `--preload`) so `document`/`window` never leak into
-// the daemon/server/GPU test runs.
+// WHY `createRequire` RATHER THAN THE OBVIOUS `await import(...)`, which is what this
+// file used until the isolate-hardening slice. A top-level await makes this an ASYNC
+// module, and `bun test --isolate` mis-evaluates those: importers run before the
+// top-level await settles, so every `const` binding below lands in its temporal dead
+// zone and each of the 31 files importing this harness died at module evaluation with
+// `ReferenceError: Cannot access 'cleanup' before initialization`. That is a Bun defect,
+// not ours, with a repro and a revert trigger in
+// `docs/backlog/infrastructure/bun-isolate-top-level-await-tdz.md`. A synchronous
+// `require` buys the same deferral — it evaluates where it is WRITTEN, after every
+// static import of this file including `./_register.ts` — without the async-module
+// status. Deletion candidate the day that entry's trigger fires.
+//
+// WHAT NOT TO "SIMPLIFY" THIS BACK TO, since a plain static import is the obvious
+// reading and it is measurably wrong. Swapping the line below for
+// `import { render, screen, ... } from "@testing-library/react"` passes this file alone
+// in BOTH modes, and passes the whole editor directory serially — then produces 454
+// failures (`For queries bound to document.body a global document has to be available`)
+// under `--isolate`. Shared-process mode cannot detect the break: one file's happy-dom
+// registration repairs the process for every file loaded after it, so a per-file
+// ordering fault reads as green. `--isolate` is the only mode that tests this file's
+// contract, and it has to be run at DIRECTORY scale to do it.
 import "./_register.ts";
 
+import { createRequire } from "node:module";
+import type * as TestingLibrary from "@testing-library/react";
 import type { ReactElement } from "react";
 import {
 	EditorContext,
@@ -28,10 +46,12 @@ import {
 	initialState,
 } from "../../src/frontend/lib/state.ts";
 
-const { render, screen, fireEvent, cleanup, within, waitFor, act } =
-	await import("@testing-library/react");
+const testingLibrary = createRequire(import.meta.url)(
+	"@testing-library/react",
+) as typeof TestingLibrary;
 
-export { act, cleanup, fireEvent, render, screen, waitFor, within };
+export const { act, cleanup, fireEvent, render, screen, waitFor, within } =
+	testingLibrary;
 
 // biome-ignore lint/suspicious/noEmptyBlockStatements: shared inert test no-op
 const noop = () => {};
