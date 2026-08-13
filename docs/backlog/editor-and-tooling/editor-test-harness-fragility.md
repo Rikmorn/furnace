@@ -691,6 +691,33 @@ the build-speed inputs found this laptop needs when a second agent session is ru
 per-case timings `bun test --parallel=4 --reporter=junit --reporter-outfile=<file>` parsed for
 the two `*-budget.test.ts` testcases' `time` attributes.
 
+**Correction (2026-08-13, at the isolate-hardening review) — the default-width failure
+DESCRIPTION above is wrong in both halves; the ruling it supports is not.** The paragraph
+beginning "Clause 5's reopening trigger DID fire" names a fixed pair of failing files and a
+timeout mechanism. Three further runs at bun's default worker count disagree:
+
+| run at default width | failing cases |
+| --- | --- |
+| the ruling's own | `cave-budget` + `generators-budget` |
+| review run A | `analyze-budget` + `generators-budget` |
+| review run B | `generators-budget` + `harness-conventions.test.ts` — not a budget file |
+| review run C | `generators-budget` + `harness-conventions.test.ts`, then the run HUNG with one worker alive and no further output; killed at ~5 min |
+
+Only `generators-budget` is constant across the four. The failures the review attributed via
+junit all carried `type="AssertionError"`, and **no run mentions a timeout at all** — a
+properly-quoted `grep -ciE "timed out|timeout"` over each full captured log returns 0, and the
+longest budget case observed ran under bun's 5 s default. So at default width the failure SET is
+load-dependent and reaches files with no budget in them, and the failure MODE is an assertion
+against a ceiling rather than a timeout being blown.
+
+**Why this strengthens the ruling rather than weakening it.** A stable two-file timeout would
+have had a cheap targeted fix — raise those two per-file timeouts — and the ruling would owe an
+argument for not taking it. An unstable failure set that spans non-budget files, plus an outright
+hang, is a property of the saturated machine and of no test in particular, which is precisely
+what "`--parallel=4`, budget files untouched" is the right answer to. The hang is recorded with
+the panic sighting in
+[`bun-parallel-worker-panic.md`](../infrastructure/bun-parallel-worker-panic.md).
+
 **What would reopen THIS ruling.** A budget-file failure under `--parallel=4` — which is the
 signal that 4 is no longer an uncontended-enough measurement condition on the machine of the
 day, and the next lever is the worker count again, not the budgets.

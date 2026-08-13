@@ -17,7 +17,7 @@ A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with W
 - `packages/tools/` (`@furnace/tools`, private) — the harness (Rust CLI + vendored runtime shell + npm shim); the only package that produces binaries. Details: `packages/tools/README.md`.
 - Two runtime targets, shared TS/HTML/WGSL between them: `bun run hello-world:dev` (browser tab) and `bun run hello-world:dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `docs/backlog/`).
 - Build outputs: `dist/core/` (core publish layout) and `dist/web/` (bundled hello-world demo, with optional `dist/web/dev/` from `build:web:dev` for unminified inspection). The CLI binary builds in-place to `packages/tools/crates/target/{debug,release}/furnace`; the `dist/tools/` publish layout is deferred — see `docs/backlog/`.
-- Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode. Per-package `tsconfig.json` in core; root tsconfig excludes `dist`/`target`.
+- Tooling: Biome for lint, `bun:test` for tests, TypeScript strict mode. Per-package `tsconfig.json` in core; root tsconfig excludes `dist`/`target`, `docs/superpowers`, and `packages/*/plugins/*/pkg`.
 
 For deeper context: `docs/reference/packaging-and-distribution.md` (publish model, engine/harness principle), `docs/reference/engine-architecture.md` (engine architecture notes), `docs/backlog/` (deferred work register).
 

@@ -34,9 +34,12 @@ Two options, in preference order:
 
 1. **One fixture, one guard.** Give the shared helper a single home and have both packages
    import it, then the existing un-gated assertion covers everything. Needs a decision on where
-   a cross-package TEST helper lives — dungeon already reaches into core's test tree in one
-   place (`gpu-fixture-survives-dom.test.ts` imports `../../core/tests/_helpers/gpu-fixture.ts`,
-   from the editor package), so the precedent exists but has never been ruled on.
+   a cross-package TEST helper lives — the **editor** package already imports core's test
+   helpers widely (`gpu-fixture-survives-dom.test.ts` and the `field-host-*.gpu.test.ts` family;
+   derive: `grep -rl "core/tests/_helpers" packages/editor --include="*.ts" --include="*.tsx"`),
+   so the cross-package precedent exists but has never been ruled on. **Dungeon** imports core's
+   test tree nowhere — its fixture is a copy, not an import, which is the whole reason this
+   entry exists.
 2. **Keep both, guard both.** A dungeon-side twin of the un-gated assertion. Cheap, and leaves
    the duplication — and therefore this entry — in place.
 
