@@ -160,7 +160,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `engine-architecture.md` — broader architectural rationale
   - `dungeon-architecture.md` — as-built dungeon: game loop, traversal/collision (voxel-proxy bridge), the generator library, the bake/load pipeline, invariants, testing posture
   - `packaging-and-distribution.md` — what we ship to consumers
-  - `editor-architecture.md` — as-built M3+M4+M5A+M5B editor: daemon, project-first bundling, command registry, document session, SSE change feed + file watching, error contract, chrome, config namespacing; M5A inspector module (SchemaForm, kind→renderer registry, live-preview seam, multi-select, echo suppression); M5B viewport interaction (orbit camera, GPU picking, AABB highlight, translate gizmo, drag-scrub, echo-guard, revertSettings)
+  - `editor-architecture.md` — as-built M3+M4+M5A+M5B editor: daemon, project-first bundling, command registry, document session, SSE change feed + file watching, error contract, chrome, config namespacing; M5A inspector module (SchemaForm, kind→renderer registry, live-preview seam, multi-select, echo suppression); M5B viewport interaction (orbit camera, GPU picking, AABB highlight, translate gizmo, drag-scrub, echo-guard)
   - `field-host-clusters.md` — the editor field-host's cluster map (the un-growing of the 7.4K-line host)
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
   - `fixed-step-interpolation.md` — engine posture + consumer recipe for interpolating between fixed-step ticks
