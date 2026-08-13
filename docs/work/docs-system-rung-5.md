@@ -72,8 +72,10 @@ session's follow-up and approved as rung-5 scope — planning inherits this, no 
 2. **Seals:** one-line `summary:` frontmatter, backfilled FROM the existing README index rows
    (reversing the drift direction); seals README index becomes generated + `--check`ed — the
    repo's last hand-maintained per-entry index. Planning input:
-   `docs/backlog/infrastructure/seal-entries-are-growing-into-essays.md` (three candidates,
-   no ruling — if seals get a bound it is a drift alarm, never a budget, per canon §7).
+   the ~80-line seal guidance ruled at the process retro (2026-08-14, seals README
+   §Writing a seal; `infrastructure/seal-entries-are-growing-into-essays.md` (gone) —
+   resolved by that ruling, deliberately unpinned per the D8 guidance-over-machinery
+   posture; if a PIN is ever added it is a drift alarm, never a budget, per canon §7).
 3. **Research:** filename contract `YYYY-MM-DD-<slug>.md`, dated *directories* allowed for
    multi-file research (legalises the two existing ones, each carrying a README.md); each doc
    ends with what it FED (decision/spec/reference); pattern-checked, content stays exempt.

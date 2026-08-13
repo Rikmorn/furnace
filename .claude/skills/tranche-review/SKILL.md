@@ -12,6 +12,13 @@ Until now this protocol lived only in session memory, which is why it is here. E
 sweep clause below is scar tissue from a specific tranche — the reason is stated beside
 each one, because a rule without its reason is the first thing a future reader deletes.
 
+**The planner session owns this protocol** (two-session model, ruled at the process retro,
+2026-08-14): the planner plans, hands off by prompt, and reviews the executor's report;
+the executor never self-reviews. Handoffs travel as FILES — the executor's report lives
+under `docs/superpowers/report/` named by the slice slug, and this session READS it; the
+owner's relay is one line ("done — review it"), never a pasted report. A separate review
+session is the fallback only when the planner's context is genuinely spent, not the shape.
+
 ## The protocol
 
 ### 1. Verify the branch, then ONE reviewer subagent
@@ -25,8 +32,9 @@ before anything else happens). One reviewer, not several: contradictory sub-revi
 trust-picked, and the passing lane is the one that gets believed. Give it:
 
 - the plan path, and the plan's **numbered exit claims** — the reviewer checks claims, not vibes;
-- the gates, all three, from the repo root: `bun run check` · `bun run typecheck` ·
-  the **FULL root `bun test`** (not the package suite — a tranche reds other packages);
+- the gates, from the repo root: `bun run check` · `bun run typecheck` · `bun run test` ·
+  **`bun run test:serial`** — serial is the close/review standard, and the two modes
+  disagreeing is itself a bug (never a package suite — a tranche reds other packages);
 - **1–2 sabotage re-runs**, each restored **byte-identical** afterwards;
 - a **tree-clean proof** — `git status --short` empty, quoted in the report.
 
@@ -35,13 +43,23 @@ trust-picked, and the passing lane is the one that gets believed. Give it:
 Minor findings are fixed in this session and committed on the branch. Anything that is not
 minor is a ruling for step 3, not a silent fix.
 
+**Executor deviations arrive logged, never blocked** (ruled 2026-08-14): the executor
+addresses plan defects for the better mid-flight and logs what changed and why in its
+report. This review adjudicates every logged deviation — ratify it, spawn a follow-up
+work item, or instruct a rollback/tweak. A deviation with no log entry is itself a
+finding.
+
 ### 3. In parallel: the digest agent and the user round
 
 Run these two concurrently — they do not depend on each other:
 
-- **Next-tranche digest agent** — background, **read-only**, scoped to the sweeps the next
-  tranche will need, counts computed by it, and it **persists its own output** to a file. A
-  digest that only exists in a subagent's return message is lost the moment the session ends.
+- **Next-tranche digest agent — CONDITIONAL** (ruled 2026-08-14): dispatch it only when
+  the next slice lacks measured inputs, and check `docs/superpowers/report/` AND
+  `archive/report/` for an existing digest first — a duplicate was dispatched at
+  isolate-hardening because the existing one wasn't found. When dispatched: background,
+  **read-only**, scoped to the sweeps the next tranche will need, counts computed by it,
+  and it **persists its own output** to a file under the NEXT slice's slug. A digest that
+  only exists in a subagent's return message is lost the moment the session ends.
 - **One `AskUserQuestion` round** — the Safari-first user gate plus every decision that needs
   a ruling. **ONE round**, with your recommendation marked on each question. Batching is the
   point: a ruling asked three turns apart is three interruptions for one decision.

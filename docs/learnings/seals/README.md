@@ -30,6 +30,12 @@ below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
   This is guidance, not a gate: nothing ratchets on the answer (D8, 2026-08-04 — guidance
   over machinery for file size). The value is that the growth is *named* while whoever grew
   it still remembers why.
+- **Budget: answer everything above in roughly 80 lines or fewer** (owner ruling at the
+  process retro, 2026-08-14, resolving `seal-entries-are-growing-into-essays.md` (gone)).
+  Depth lives in the slice's archived execution report, which the seal may name by date —
+  the promotion gate, not seal length, is what guarantees nothing load-bearing stays only
+  there. Guidance, not a pinned test, per the same D8 posture as the bullet above: a seal
+  the author notices running long is a seal narrating the work instead of sealing it.
 - **The promotion gate.** A seal does not close until: (1) durable facts from the
   slice's spec/plans/reports are promoted into reference/backlog/learnings — walk the
   scaffolding files named by the slice's slug and ask of each fact "does anything

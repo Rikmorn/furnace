@@ -34,6 +34,24 @@ From the placement-arc postmortem (`docs/learnings/2026-07-05-dungeon-placement-
 - **Precedent-fidelity check.** When a design adopts a published or shipped approach, list every deviation from the precedent's load-bearing mechanism and either justify why it can't bite here or schedule the probe that would catch it. Keeping a precedent's shape while dropping its mechanism is how it fails (Edgar's cycles-first ordering; Ma's joint chain optimization — both relaxed without a license, both billed later).
 - **Search systems get budgets on day one.** Any task that introduces a search/solve loop ships wall-clock/attempt ceilings with fail-fast semantics in that same task, not as later hardening — robustness lives in the outer retry loop, not in search depth (the DunGen/Warframe shape). Unbounded search cost discovered late makes measurement, retries, and the bars themselves intractable.
 
+## Execution
+
+From the process retro (2026-08-14, ruled). The workflow is TWO sessions: the planner
+(more capable model, root) plans, hands off by prompt, and reviews the executor's report;
+the executor executes. The split exists for context management, not ceremony.
+
+- **Deviate-and-log, never block.** An executor that finds a plan defect mid-task
+  addresses it for the better and keeps moving, logging what changed and why in the
+  execution report; the planner adjudicates every logged deviation at review — ratify,
+  spawn a follow-up work item, or instruct a rollback/tweak. Silent adherence to a broken
+  plan and stop-the-world blocking are both wrong; the log is what makes the autonomy safe.
+- **Ritual docs commits batch.** The take-commit absorbs plan-recording; the seal commit
+  absorbs the register pass; only a ruling with standalone value earns its own docs
+  commit. Docs-only commits gate on `bun run check` alone (AGENTS.md §Before committing).
+- **Handoffs travel as files.** Execution reports live under `docs/superpowers/report/`
+  named by slug; the receiving session reads the file — the owner relays a pointer, never
+  pasted content.
+
 ## Design
 - **Boundaries enforce declared surface, not path shapes.** A module's contract is what
   it *declares* — its public surface (`index.ts`) and its package-private seam
