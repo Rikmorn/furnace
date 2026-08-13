@@ -28,7 +28,7 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun test path/to/file.test.ts` — run a single test file
 - `bun test -t "name"` — run tests matching a name pattern
 - `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
-- `bun run typecheck` — one incremental whole-repo `tsc` run (all packages + root `scripts/`; warm ~2 s, cold ~7 s)
+- `bun run typecheck` — one incremental whole-repo `tsc` run (all packages + root `scripts/`)
 - `bun run sitrep` — the owner's board, projected from `docs/work/`
 - `bun run docs:index` — regenerate `docs/backlog/README.md` (generated; `bun run check` fails on drift)
 - `bun run hello-world:dev` — hello-world in the browser

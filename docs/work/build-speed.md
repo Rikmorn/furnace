@@ -16,8 +16,10 @@ gates.
   that the root project is a strict superset: the three package tsconfigs that exist are
   `extends` + `include` with no `compilerOptions`, and the hello-world/dungeon lanes have no
   tsconfig at all, so they resolve the root config — the whole-repo check runs twice.
-- `--incremental` probe: warm no-change **2.0 s**, warm leaf-package edit **2.1 s**, warm
-  core edit **7.0 s** (≈ cold — core is the import-graph root).
+- `--incremental` probe (procedure: append a one-line edit to the named file, `time bun run
+  typecheck`, revert): warm no-change **2.0 s**, warm leaf-package edit **2.1 s**
+  (`packages/dungeon/src/editor-extensions.ts`), warm core edit **7.0 s**
+  (`packages/core/src/errors.ts`; ≈ cold — core is the import-graph root).
 - suite: **56.8 s** (`time bun test`; 3,292 pass / 1 skip, 376 files) — out of this slice's
   scope; `isolate-hardening` owns it (`--parallel` measured 8.25 s there).
 
