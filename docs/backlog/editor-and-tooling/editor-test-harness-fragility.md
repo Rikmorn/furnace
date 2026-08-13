@@ -301,6 +301,24 @@ class as the "15005 ms" note: a session message, no durable log. **Whoever picks
 should capture full output, not a tail** — that is twice now that a sighting has arrived
 without the one field that would make it actionable.
 
+**2026-08-13 — the never-tail rule is necessary but NOT sufficient under `--parallel`.**
+Sharpened at the isolate-hardening slice, and it costs nothing to obey, so obey it. A full-suite
+`bun test --parallel` run reported **`2 fail`** in its summary while its stdout carried **no
+failure detail whatever** — no `(fail)` line, no test name, no assertion text, nothing to grep.
+That was a complete capture, not a tail: 5,289 lines redirected to a file. Two sibling runs of
+the same command, same commit, printed the detail normally, so this is not a property of the
+failing tests. The names were recovered by re-running with
+`--reporter=junit --reporter-outfile=<file>` and parsing the XML for `testcase` elements
+carrying a `failure` child.
+
+**So the rule for any `--parallel` run whose failures need attributing is: capture full stdout
+AND take a junit run.** Stdout alone can tell you *that* a run was red and not *what* was red,
+which is the same dead end a `tail` produces and reads identically to a captured log. Two
+practical notes from the same session: parse the junit for the `.test.ts`-named testsuites only,
+since the file-level and `describe`-level suites both carry the case and naive totals double-count;
+and one full-suite junit-plus-`--parallel` run hung past 240 s before completing normally on
+retry — one sighting, no class claimed, but budget for it rather than assuming the run wedged.
+
 **Reference:** `packages/editor/tests/server.test.ts`, the "structured error bodies carry
 code + message" test; `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` (the file
 watcher and SSE feed it exercises — `src/daemon/session.ts` was cited here too and does not
@@ -459,6 +477,37 @@ have this at all; OR any move to change the repo's gate command, which should se
 the same time; OR MCP coverage the transcript shape cannot express (a streaming tool, an
 interleaving the probe cannot script). *(The T4c clause of this trigger is spent — see the
 next section.)*
+
+**What changed at isolate-hardening (2026-08-13).** The paragraph above offers three gate
+options and rules out one of them in passing; that parenthetical is now false, and the second
+clause of the trigger directly above has FIRED — the repo's gate command did change. Recorded
+here as a dated correction rather than by editing the prose, which stands as a record of what
+was true when it was written.
+
+- **"`bun test --isolate` (not usable today: 32 fails, since the GPU fixtures depend on shared
+  process state)" is wrong twice over and is struck.** The stated mechanism was already refuted
+  by the 2026-08-13 correction at the foot of the T5 section (a GPU file alone under `--isolate`
+  skips too, so no cross-file state is involved). The *conclusion* is now wrong as well:
+  `--isolate` is usable, and **`bun test --parallel=4` — which implies `--isolate` — is the
+  repo's per-commit gate**, with the serial run kept as the close/review standard. Command,
+  wording and the reason the worker count is 4 live in `AGENTS.md` §Commands and §Before
+  committing.
+- **Both blocking mechanisms were one Bun defect, not repo defects**, and the two sites that
+  work around it are `trySetup` in the `gpu-fixture.ts` helpers under `packages/core/tests/` and
+  `packages/dungeon/tests/` (which resolve bun-webgpu's native library synchronously and pass an
+  explicit `libPath`), and `_harness.tsx` under `packages/editor/tests/inspector/` (which pulls
+  testing-library through a synchronous `require`). Mechanism, minimal repro, and the trigger to
+  delete both:
+  [`bun-isolate-top-level-await-tdz.md`](../infrastructure/bun-isolate-top-level-await-tdz.md).
+- **The third option in that paragraph — calibrating the core wall-clock budgets against a
+  per-process baseline — was NOT taken**, and deliberately: see the RULED 2026-08-13 block at
+  the foot of the T5 section below, which carries the evidence, the worker-count ruling that
+  made calibration unnecessary, and the answer the declined-calibration objection was owed.
+- **The first option — per-package runs — remains a diagnostic, not a gate**, for the coverage
+  reason clause 3 gives; nothing in this slice touched that.
+
+Derive the current state rather than reading a number here: `bun run test`, `bun run test:serial`,
+`bun test --isolate`.
 
 **Reference:** `packages/editor/tests/_helpers/mcp-probe.ts` (the measurement and the
 eliminations, at source); `packages/editor/tests/action-registry/node-door.test.ts` (the
