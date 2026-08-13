@@ -1,5 +1,5 @@
 ---
-status: queued
+status: in-flight
 injected: true
 summary: fix the isolate-incompatible test files so `bun test --parallel` can be the gate
 ---
