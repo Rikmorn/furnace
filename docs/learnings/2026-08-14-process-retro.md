@@ -42,8 +42,17 @@ five sessions plus subagents, and roughly six long owner paste-relays between se
 - **Digest agents conditional** — only when the next slice lacks measured inputs, after
   checking `report/` + `archive/report/` for existing coverage → SKILL.md §3.
 
-## Open thread
+## Open thread — RESOLVED same day
 
-Whether the planner can drive the executor directly (a `claude -p` child, or SendMessage
-to a sibling local session) instead of the owner hopping — deferred; the billing question
-is unverified. The owner hops for now; the file-handoff rule makes each hop one line.
+Whether the planner can drive the executor directly, both halves settled 2026-08-14:
+
+- **`claude -p` is out**: designed to bill the subscription, but an open bug
+  (anthropics/claude-code#43333) bills it as API per-token under subscription OAuth.
+  Re-check the issue before revisiting.
+- **Session-to-session messaging is ADOPTED**: the planner reaches a sibling session by
+  name (harness `ListAgents`/`SendMessage`), both directions, including idle sessions.
+  Caveat found by probing: messages crossing into a session with a *stricter permission
+  mode* are held for that user's per-message approval; with both sessions in the same
+  mode they flow with zero clicks. Protocol: the owner boots the executor in the right
+  package dir with the matching permission mode and does nothing further; messages are
+  the doorbell, never the payload — files remain the handoff per §Execution.
