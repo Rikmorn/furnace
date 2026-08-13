@@ -39,7 +39,7 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun run build` — full chain: core publish staging → tools cargo release → web bundle
 - `bun run clean` — remove `dist/` and per-package cargo `target/` + plugin `pkg/` dirs
 
-**Before committing:** run `bun run check` and `bun run typecheck`. Fix anything flagged.
+**Before committing:** run `bun run check` and `bun run typecheck`. Fix anything flagged. Docs-only commits (markdown/register work, no code): `bun run check` alone is the gate.
 
 ## Agent skills & `.claude` structure
 
