@@ -6,7 +6,12 @@ summary: fix the isolate-incompatible test files so `bun test --parallel` can be
 
 # Isolate hardening
 
-**Execution complete; awaiting review + seal.** `bun run test` (`bun test --parallel=4`) is
+**Execution complete; REVIEWED 2026-08-13 (PASS-WITH-MINORS, minors fixed on the branch);
+merge + seal HELD at owner request — the owner is reading the branch first.** 11 commits, tree
+clean, `--ff-only` available. The review's own additions: five prose corrections
+(`95d7aa97`) and one code change (`f50f345c`, the dungeon GPU guard, owner-ruled). Nothing has
+been merged; `docs/learnings/seals/` has no entry for this slice yet and this file is
+deliberately still here — it is the live record until the seal replaces it. `bun run test` (`bun test --parallel=4`) is
 the per-commit gate, and the serial `bun test` remains the close/review standard. Both modes
 now report the same case count, the same pass count and the same single skip.
 
