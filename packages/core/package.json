@@ -30,8 +30,7 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "check:tsdoc": "bun scripts/check-tsdoc.ts",
-    "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "test": "bun test"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

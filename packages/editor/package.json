@@ -9,7 +9,6 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit",
     "build:frontend": "bun scripts/build-frontend.ts"
   },
   "dependencies": {

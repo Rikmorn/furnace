@@ -17,7 +17,7 @@
     "dungeon:dev": "bun run --cwd packages/dungeon dev",
     "dungeon:editor": "bun run --cwd packages/dungeon edit",
     "build": "bun run core:build && bun run tools:build && bun run hello-world:build:web",
-    "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/hello-world typecheck && bun run --cwd packages/cookbook typecheck && bun run --cwd packages/editor typecheck && bun run --cwd packages/dungeon typecheck",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/typecheck.tsbuildinfo -p tsconfig.json",
     "test": "bun test",
     "check": "biome check && bun run --cwd packages/core check:tsdoc && bun scripts/check-docs.ts",
     "docs:index": "bun scripts/docs-index.ts --write",

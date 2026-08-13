@@ -27,5 +27,10 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": true
   },
-  "exclude": ["**/dist", "**/target"]
+  "exclude": [
+    "**/dist",
+    "**/target",
+    "docs/superpowers",
+    "packages/*/plugins/*/pkg"
+  ]
 }
