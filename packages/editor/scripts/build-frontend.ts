@@ -8,6 +8,12 @@ import tailwind from "bun-plugin-tailwind";
 // checks. Bun.build sets neither by default, so react-dom otherwise ships in dev mode.
 process.env.NODE_ENV = "production";
 
+// Overridable so `tests/build-frontend.test.ts` can build into a temp dir instead of deleting
+// and rebuilding the REAL dist/frontend, which the daemon serves as its DEFAULT_STATIC_DIR —
+// under a parallel runner that delete window makes every reader of the chrome dir a flake (it
+// made `project-assets.test.ts` answer 503 where it asserted 404).
+const OUTDIR = process.env["FURNACE_FRONTEND_OUTDIR"] ?? "dist/frontend";
+
 const result = await Bun.build({
   entrypoints: [
     "src/frontend/index.html",
@@ -22,7 +28,7 @@ const result = await Bun.build({
     // drives the project's own mover.
     "src/frontend/analyzer-worker.ts",
   ],
-  outdir: "dist/frontend",
+  outdir: OUTDIR,
   minify: true,
   sourcemap: "linked",
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
@@ -33,4 +39,4 @@ if (!result.success) {
   for (const log of result.logs) console.error(log);
   process.exit(1);
 }
-console.log(`build-frontend: ${result.outputs.length} files → dist/frontend`);
+console.log(`build-frontend: ${result.outputs.length} files → ${OUTDIR}`);

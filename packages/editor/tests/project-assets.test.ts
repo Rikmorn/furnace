@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/daemon/server.ts";
 
@@ -11,6 +12,17 @@ import { startServer } from "../src/daemon/server.ts";
 // The temp dir below is a stand-in for any such asset dir; the mapping under test is
 // name-agnostic.
 describe("project asset serving", () => {
+  /** A chrome dir that EXISTS but holds none of the paths asked for below, so a miss reaches
+   *  the 404 these cases are about. Without it `startServer` falls back to DEFAULT_STATIC_DIR
+   *  — the real `packages/editor/dist/frontend` — and every assertion here silently depends on
+   *  a build artifact: `serveStatic` answers 503 ("editor chrome not built"), not 404, when
+   *  that directory is absent. It read as a rare parallel flake because the only thing that
+   *  removed the directory was `build-frontend.test.ts` rebuilding it; on a fresh clone that
+   *  has never built the chrome it is not a flake at all. Same shape as `server.test.ts`'s
+   *  `staticFixture()`. */
+  const chromeFixture = (): string =>
+    mkdtempSync(join(tmpdir(), "furnace-assets-chrome-"));
+
   const setup = () => {
     const root = mkdtempSync(join(import.meta.dir, "fixtures", "tmp-assets-"));
     mkdirSync(join(root, "regions"), { recursive: true });
@@ -24,7 +36,11 @@ describe("project asset serving", () => {
   test("a root-absolute sidecar path serves the project file with octet-stream", async () => {
     const root = setup();
     try {
-      const server = await startServer({ root, port: 0 });
+      const server = await startServer({
+        root,
+        port: 0,
+        staticDir: chromeFixture(),
+      });
       try {
         const res = await fetch(
           `http://127.0.0.1:${server.port}/regions/r.fmesh`,
@@ -45,7 +61,11 @@ describe("project asset serving", () => {
   test("dotfile segments and node_modules are refused; traversal stays root-contained", async () => {
     const root = setup();
     try {
-      const server = await startServer({ root, port: 0 });
+      const server = await startServer({
+        root,
+        port: 0,
+        staticDir: chromeFixture(),
+      });
       try {
         const base = `http://127.0.0.1:${server.port}`;
         expect((await fetch(`${base}/.env`)).status).toBe(404);
