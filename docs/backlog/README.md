@@ -109,10 +109,11 @@ work item that reads it — those entries are protected from consolidation.
 - [unbuilt-tier-2-modules](engine-architecture/unbuilt-tier-2-modules.md) — the Tier 2 cross-cutting modules decided on but never built — animation, assets, glTF, audio, event bus, ECS storage, jobs, transform hierarchy, wasm hot loop, debug draw
 - [vec-primitives](engine-architecture/vec-primitives.md) — vector primitives: centralizing the `Vec3Tuple` input type, `Float32Array` authoring ergonomics, the missing `vec2` module, opt-in hot-path assertions
 
-## infrastructure (9)
+## infrastructure (10)
 
 - [bare-line-refs-escape-the-citation-check](infrastructure/bare-line-refs-escape-the-citation-check.md) — the docs file:line citation check cannot see bare `:N` continuation refs, so a whole class of line citations rots unflagged
 - [bun-dev-server-prewarm-workaround](infrastructure/bun-dev-server-prewarm-workaround.md) — cookbook's dev server prewarms every route to dodge a Safari first-click failure in Bun 1.3.14 — revert it on the next Bun bump
+- [bun-isolate-top-level-await-tdz](infrastructure/bun-isolate-top-level-await-tdz.md) — bun test --isolate evaluates importers before an async module's top-level await settles, leaving const bindings in TDZ — two in-repo workarounds to revert when upstream fixes it
 - [docs-registers-findability](infrastructure/docs-registers-findability.md) — charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument → docs-system-rung-5
 - [engine-architecture-topic-dir-wants-sharding](infrastructure/engine-architecture-topic-dir-wants-sharding.md) — `engine-architecture/` is the crowded topic dir and was deferred for sharding once, in a report nothing tracked cited
 - [github-actions-ci](infrastructure/github-actions-ci.md) — no CI exists — a GitHub Actions pipeline running check, typecheck, and tests on PR
