@@ -15,6 +15,11 @@
 // Safari / Chrome runs of hello-world and the cookbook demos. See
 // `docs/reference/engine-conventions.md` for the color-space convention.
 
+import { suffix } from "bun:ffi";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
 let _setup: Promise<boolean> | null = null;
 let _availableSync = false;
 /** The GPU object from the first successful setup. happy-dom replaces globalThis.navigator
@@ -41,16 +46,70 @@ function reattachGpuIfMissing(): boolean {
   return !!navigator.gpu;
 }
 
+/**
+ * Resolve bun-webgpu's native library ourselves, SYNCHRONOUSLY, so `setupGlobals` can be
+ * handed an explicit `libPath` instead of running the library's own resolver.
+ *
+ * THIS IS A WORKAROUND FOR A BUN DEFECT, NOT FOR A PACKAGING PROBLEM, and the error it
+ * routes around is a lie worth naming: without this, under `bun test --isolate`, the
+ * library throws `bun-webgpu is not supported on the current platform: darwin-arm64` on a
+ * machine where it loads perfectly well under the serial runner. `bun:ffi`/Dawn are never
+ * reached — `dlopen` is not the thing that fails. What fails is that bun-webgpu resolves
+ * its library through `await import("bun-webgpu-<platform>-<arch>/index.ts")`, that
+ * platform package is itself an async module, and under `--isolate` the dynamic import
+ * resolves before its top-level await settles: reading `.default` off it throws a TDZ
+ * `ReferenceError` which the library swallows into a debug line, leaving its own
+ * `targetLibPath` null. Mechanism, repro and revert trigger:
+ * `docs/backlog/infrastructure/bun-isolate-top-level-await-tdz.md`.
+ *
+ * The resolution below must stay SYNCHRONOUS. Another `await import` here would
+ * reintroduce the exact async-module dependency this routes around, one level up.
+ * Two hops because the platform package is linked only inside bun-webgpu's own
+ * `node_modules`, not resolvable from this package. Returns undefined rather than
+ * throwing — the caller then passes no `libPath` and gets the library's own resolution,
+ * which is the right behaviour anywhere this defect does not apply.
+ */
+function resolveBunWebGpuLib(): string | undefined {
+  try {
+    const fromFixture = createRequire(import.meta.url);
+    const fromLibrary = createRequire(fromFixture.resolve("bun-webgpu"));
+    const platformPkg = `bun-webgpu-${process.platform}-${process.arch}`;
+    const dir = dirname(fromLibrary.resolve(`${platformPkg}/index.ts`));
+    // Both spellings the library's own `resolveFromLocalBuild` accepts.
+    for (const name of [
+      `libwebgpu_wrapper.${suffix}`,
+      `webgpu_wrapper.${suffix}`,
+    ]) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One report per realm. The bare `catch` this replaces cost two separate measurement
+ *  passes their root cause: the whole GPU tier skipped, and the reason was unreadable. */
+let _reportedFailure = false;
+
 async function trySetup(): Promise<boolean> {
   try {
     const mod = await import("bun-webgpu");
     if (typeof mod.setupGlobals !== "function") return false;
-    await mod.setupGlobals();
+    await mod.setupGlobals({ libPath: resolveBunWebGpuLib() });
     const ok = typeof navigator !== "undefined" && !!navigator.gpu;
     if (ok) _gpu = navigator.gpu;
     _availableSync = ok;
     return ok;
-  } catch {
+  } catch (err) {
+    if (!_reportedFailure) {
+      _reportedFailure = true;
+      console.warn(
+        "[gpu-fixture] bun-webgpu setup failed; GPU tests will skip:",
+        err,
+      );
+    }
     return false;
   }
 }

@@ -15,18 +15,71 @@
 // Safari / Chrome runs of hello-world and the cookbook demos. See
 // `docs/reference/engine-conventions.md` for the color-space convention.
 
+import { suffix } from "bun:ffi";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
 let _setup: Promise<boolean> | null = null;
 let _availableSync = false;
+
+/**
+ * Resolve bun-webgpu's native library ourselves, SYNCHRONOUSLY, so `setupGlobals` can be
+ * handed an explicit `libPath` instead of running the library's own resolver.
+ *
+ * THIS IS A WORKAROUND FOR A BUN DEFECT, NOT FOR A PACKAGING PROBLEM. Without it, under
+ * `bun test --isolate`, the library throws `bun-webgpu is not supported on the current
+ * platform: darwin-arm64` on a machine where it loads fine under the serial runner —
+ * `dlopen` is never reached. bun-webgpu resolves its library through
+ * `await import("bun-webgpu-<platform>-<arch>/index.ts")`; that platform package is an
+ * async module, and under `--isolate` the dynamic import resolves before its top-level
+ * await settles, so reading `.default` throws a TDZ `ReferenceError` the library swallows.
+ * Mechanism, repro and revert trigger:
+ * `docs/backlog/infrastructure/bun-isolate-top-level-await-tdz.md`.
+ *
+ * Must stay SYNCHRONOUS — another `await import` would reintroduce the async-module
+ * dependency this routes around. Twin of the same function in
+ * `packages/core/tests/_helpers/gpu-fixture.ts`, which this whole file already duplicates.
+ */
+function resolveBunWebGpuLib(): string | undefined {
+  try {
+    const fromFixture = createRequire(import.meta.url);
+    const fromLibrary = createRequire(fromFixture.resolve("bun-webgpu"));
+    const platformPkg = `bun-webgpu-${process.platform}-${process.arch}`;
+    const dir = dirname(fromLibrary.resolve(`${platformPkg}/index.ts`));
+    for (const name of [
+      `libwebgpu_wrapper.${suffix}`,
+      `webgpu_wrapper.${suffix}`,
+    ]) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One report per realm; the bare `catch` this replaces made a whole skipped tier
+ *  unreadable. */
+let _reportedFailure = false;
 
 async function trySetup(): Promise<boolean> {
   try {
     const mod = await import("bun-webgpu");
     if (typeof mod.setupGlobals !== "function") return false;
-    await mod.setupGlobals();
+    await mod.setupGlobals({ libPath: resolveBunWebGpuLib() });
     const ok = typeof navigator !== "undefined" && !!navigator.gpu;
     _availableSync = ok;
     return ok;
-  } catch {
+  } catch (err) {
+    if (!_reportedFailure) {
+      _reportedFailure = true;
+      console.warn(
+        "[gpu-fixture] bun-webgpu setup failed; GPU tests will skip:",
+        err,
+      );
+    }
     return false;
   }
 }
