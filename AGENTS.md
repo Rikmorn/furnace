@@ -24,7 +24,8 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 ## Commands
 
 - `bun install` — install dependencies
-- `bun test` — run all tests
+- `bun run test` — the whole suite across 4 worker processes; the per-commit gate
+- `bun run test:serial` (or a bare `bun test`) — the whole suite in one process; the close/review standard
 - `bun test path/to/file.test.ts` — run a single test file
 - `bun test -t "name"` — run tests matching a name pattern
 - `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
@@ -39,7 +40,9 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun run build` — full chain: core publish staging → tools cargo release → web bundle
 - `bun run clean` — remove `dist/` and per-package cargo `target/` + plugin `pkg/` dirs
 
-**Before committing:** run `bun run check` and `bun run typecheck`. Fix anything flagged. Docs-only commits (markdown/register work, no code): `bun run check` alone is the gate.
+**Before committing:** run `bun run check`, `bun run typecheck`, and `bun run test`. Fix anything flagged. Docs-only commits (markdown/register work, no code): `bun run check` alone is the gate.
+
+**Both test modes run the same population, and that is the point.** `bun run test` (4 workers, each test file in a fresh realm) and the serial `bun test` report the same case count, the same pass count and the same one capability skip; the parallel lane is a fraction of the serial wall clock. **Serial remains the close/review standard** — run it before sealing a slice or opening a review, and if the two modes ever disagree, that disagreement is itself the bug. The worker count is a ruled policy about this machine rather than a default to inherit: bun's default of one worker per core saturates the laptop, and the wall-clock budget tests then blow bun's 5 s per-test timeout on contention alone. Ruling, evidence and reopening trigger: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`.
 
 ## Agent skills & `.claude` structure
 

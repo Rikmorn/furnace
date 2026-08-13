@@ -6,27 +6,33 @@ summary: fix the isolate-incompatible test files so `bun test --parallel` can be
 
 # Isolate hardening
 
-`bun test --parallel` finishes in **8.3–9.9 s** against **57–67 s** serial (measured
-2026-08-12/13 — dated snapshots, re-derive before acting). But it does **not** complete the
-suite — measured 2026-08-12, only ~69% of cases actually gate under it: **487 cases skip**
-(the whole GPU population — `ensureBunWebGpu()` returns false inside any isolate, error
-swallowed by the fixture's bare `catch`; single-file repro, so no cross-file state is
-involved) and **532 never execute** (31 editor DOM files die at module evaluation — a
-top-level-await TDZ in the inspector `_harness.tsx`). Two further classes: one real
-shared-directory interaction (`build-frontend.test.ts` deletes `dist/frontend` while the
-project-assets daemon test serves it) and the wall-clock budget files blowing bun's 5 s
-default per-test timeout under 10-way CPU contention.
+**Execution complete; awaiting review + seal.** `bun run test` (`bun test --parallel=4`) is
+the per-commit gate, and the serial `bun test` remains the close/review standard. Both modes
+now report the same case count, the same pass count and the same single skip.
 
-The work is to bring the missing 31% under the fast gate, in leverage order: the harness
-top-level await (one file, 532 cases — cheapest, biggest); the GPU-fixture probe (log the
-swallowed error under `--isolate` — decides whether the class is a fixture fix or blocked
-upstream in `bun-webgpu`'s FFI, and with it most of this slice's value); the shared-dir
-fix; the budget-files policy, which must explicitly re-open the fragility entry's ruling
-(5) (baseline-relative budgets declined) rather than discover it at execution. Worker
-count is a policy choice, not a default to inherit: 10 workers saturate this laptop and a
-second concurrent session turns 9 s into minutes; `--parallel=4` costs ~1 s more with real
-headroom.
+What the fast path used to hide: only ~69% of cases actually gated under it. The whole GPU
+population skipped (487 cases) and 31 editor DOM files never executed (532 cases), so the
+old headline wall clock was the cost of running two thirds of the suite. **Both classes
+turned out to be one Bun defect** — under `--isolate` an importer evaluates before the
+imported async module's top-level await settles, so `const` bindings sit in TDZ while
+hoisted functions do not. That is filed with a minimal repro and a revert trigger at
+`docs/backlog/infrastructure/bun-isolate-top-level-await-tdz.md`; both in-repo workarounds
+(the fixtures' explicit `libPath`, the inspector harness's synchronous `require`) are
+deletion candidates the day it is fixed upstream.
+
+Also landed: the shared-directory interaction is gone from both ends
+(`build-frontend.test.ts` builds into a temp outdir, `project-assets.test.ts` serves an
+explicit temp `staticDir` instead of a build artifact), and `trySetup` no longer swallows
+its error. The budget-files question (D1) and the worker count (D2) collapsed into one
+ruling — `--parallel=4` — recorded in
+`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`, which also answers the
+objection its declined-baseline-budgets ruling was owed. Two findings were filed rather
+than absorbed: a one-off Bun panic at one-worker-per-core, and the unguarded duplicate GPU
+fixture in `packages/dungeon`.
+
+Derive the current numbers rather than reading them here: `bun test`, `bun test --isolate`,
+`bun run test`.
 
 **Deliberately unordered** — no `after:`. Related: the build-speed seal (2026-08-13) owns
-the typecheck side; the scoped-gate script overruled there gets re-priced only if this
-slice walls and the suite stays serial.
+the typecheck side; the scoped-gate script overruled there stays overruled — the fast gate
+runs the whole population, so there is nothing left for a selection layer to buy.
