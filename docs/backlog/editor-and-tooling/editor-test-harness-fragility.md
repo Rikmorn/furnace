@@ -587,6 +587,22 @@ upgrade / a move to change the gate command / MCP coverage the transcript shape 
 Add one clause: **a SECOND contamination class of the synchronous kind**, which is the premise
 (5) rests on and the only one of the five that a single new finding could knock out.
 
+**Correction 2026-08-13 (measured at the build-speed close; supersedes two claims above).**
+(a) Clause 4's mechanism is refuted: a GPU file run entirely ALONE under `--isolate` skips too
+(`bun test --isolate packages/core/tests/frame/render.gpu.test.ts` → 12 skip, vs 12 pass
+serial), so no cross-file shared process state is involved — the fixture simply cannot
+initialise inside an isolate: `ensureBunWebGpu()` returns false there, and the underlying
+error is swallowed by the bare `catch` in `trySetup()`
+(`gpu-fixture.ts` in `packages/core/tests/_helpers/`). "Not usable" stands; the recorded
+reason does not. The 32-fail count also understates the damage: under `--isolate`/`--parallel`
+487 cases skip and 532 more never execute (31 editor DOM files die at module evaluation on a
+top-level-await TDZ in `_harness.tsx` in `packages/editor/tests/inspector/`) — roughly 31% of
+the suite stops gating. Whether the fixture failure is fixable in the fixture or blocked
+upstream in `bun-webgpu`'s FFI is the isolate-hardening slice's first probe.
+(b) Clause 3's coverage gap has grown: the per-package fallback now misses **6** files, not 2 —
+the four root `scripts/*.test.ts` files landed with the docs-system slice and live in no
+package (derive: compare `bun test` root file count against the per-package runs).
+
 
 ## `stubDaemon`'s `loadable` should be the default, not an opt-in
 

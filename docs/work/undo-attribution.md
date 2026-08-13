@@ -1,7 +1,6 @@
 ---
 status: queued
 injected: true
-after: build-speed
 summary: op-log undo designed WITH attribution — one wire-format pass, before any further world runs
 ---
 
