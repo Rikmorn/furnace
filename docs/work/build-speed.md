@@ -29,8 +29,10 @@ gates.
    file set stops being clone-dependent. Closes the root-`scripts/` coverage gap for free.
 2. **Docs-only gate convention** — one line in AGENTS.md §Before committing: docs-only
    commits gate on `bun run check` alone.
-3. **Register pass** — resolve `root-scripts-have-no-typecheck-lane.md` and
-   `build-cycle-gate-cost.md`; update AGENTS.md's `typecheck` command wording.
+3. **Register pass** — DONE 2026-08-13: `testing-and-quality/root-scripts-have-no-typecheck-lane.md`
+   (gone — the root lane is now the gate) and `infrastructure/build-cycle-gate-cost.md`
+   (gone — typecheck strand landed here; the suite strand is the `isolate-hardening`
+   work item); AGENTS.md `typecheck` command wording updated with the collapse commit.
 
 **Ruling reversed (owner, 2026-08-13):** the tooling session's "scoped gates by dep graph —
 the ruling wants a script" is **overruled**: "doesn't earn it." With the config fixes above

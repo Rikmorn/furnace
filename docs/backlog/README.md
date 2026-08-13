@@ -109,10 +109,9 @@ work item that reads it — those entries are protected from consolidation.
 - [unbuilt-tier-2-modules](engine-architecture/unbuilt-tier-2-modules.md) — the Tier 2 cross-cutting modules decided on but never built — animation, assets, glTF, audio, event bus, ECS storage, jobs, transform hierarchy, wasm hot loop, debug draw
 - [vec-primitives](engine-architecture/vec-primitives.md) — vector primitives: centralizing the `Vec3Tuple` input type, `Float32Array` authoring ergonomics, the missing `vec2` module, opt-in hot-path assertions
 
-## infrastructure (10)
+## infrastructure (9)
 
 - [bare-line-refs-escape-the-citation-check](infrastructure/bare-line-refs-escape-the-citation-check.md) — the docs file:line citation check cannot see bare `:N` continuation refs, so a whole class of line citations rots unflagged
-- [build-cycle-gate-cost](infrastructure/build-cycle-gate-cost.md) — every commit pays the full check + typecheck + suite gate and the cost compounds per task — build-cycle speed wants a design pass
 - [bun-dev-server-prewarm-workaround](infrastructure/bun-dev-server-prewarm-workaround.md) — cookbook's dev server prewarms every route to dodge a Safari first-click failure in Bun 1.3.14 — revert it on the next Bun bump
 - [docs-registers-findability](infrastructure/docs-registers-findability.md) — charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument → docs-system-rung-5
 - [engine-architecture-topic-dir-wants-sharding](infrastructure/engine-architecture-topic-dir-wants-sharding.md) — `engine-architecture/` is the crowded topic dir and was deferred for sharding once, in a report nothing tracked cited
@@ -137,13 +136,12 @@ work item that reads it — those entries are protected from consolidation.
 - [window-resize-swap-chain-recreation](native-runtime/window-resize-swap-chain-recreation.md) — the WebGPU swap chain is not recreated on native window resize, so the render is squished
 - [windows-native-implementation](native-runtime/windows-native-implementation.md) — no Windows native target — the wry runtime should cross-compile, but the build pipeline, templates, and platform builder are macOS-only
 
-## testing-and-quality (11)
+## testing-and-quality (10)
 
 - [in-suite-pool-stress-test](testing-and-quality/in-suite-pool-stress-test.md) — nothing in the suite pushes one resource-pool slot past the 16-bit generation-counter wrap, so the overflow warn and wrap semantics go unexercised
 - [mitata-microbenchmarks](testing-and-quality/mitata-microbenchmarks.md) — adopt mitata as a hot-loop microbenchmark harness once there are hot loops worth measuring
 - [record-draw-non-finite-coverage](testing-and-quality/record-draw-non-finite-coverage.md) — the NaN/Infinity arm of `_recordDraw`'s finite-triangles guard has no test — only the negative-value arm is covered
 - [resize-cascade-test-coverage](testing-and-quality/resize-cascade-test-coverage.md) — no regression test for canvas-resize-between-renders-then-dispose, the scenario that would catch a cascade callback capturing a stale texture entry
-- [root-scripts-have-no-typecheck-lane](testing-and-quality/root-scripts-have-no-typecheck-lane.md) — nothing in `bun run typecheck` invokes the root tsconfig, so root `scripts/` is never type-checked by the gate
 - [suppressed-non-null-assertions-survive-the-error-gate](testing-and-quality/suppressed-non-null-assertions-survive-the-error-gate.md) — 20 `biome-ignore`d non-null assertions in core scene GPU tests were never in the warning count the noNonNullAssertion escalation swept, and the suppression path stays open
 - [svelte-formatting-prettier-or-biome-upgrade](testing-and-quality/svelte-formatting-prettier-or-biome-upgrade.md) — `.svelte` files go unformatted because biome's support is partial — needs Prettier or a biome upgrade before Svelte content grows
 - [test-mock-context-helper](testing-and-quality/test-mock-context-helper.md) — 8 test files build fake contexts with an `as Context` cast that silently swallows every new `InternalState` field — wants a typed `createTestContext()` helper

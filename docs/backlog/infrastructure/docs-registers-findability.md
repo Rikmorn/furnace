@@ -213,7 +213,7 @@ instead of an answer — the last one bought 17 days.
 
 **Trigger to revisit — SCHEDULED by user ruling at the T5 review close (2026-08-11):** this
 session now runs after the 3b world-building-skill session and **before returning to the main
-epic**, paired with `infrastructure/build-cycle-gate-cost.md` into one tooling session covering
+epic**, paired with `infrastructure/build-cycle-gate-cost.md` (gone — resolved 2026-08-13 at the build-speed slice; the suite side rides `isolate-hardening`) into one tooling session covering
 doc strategy (organisation of files, tooling, guidance) AND build-cycle speed — the user's
 words: *"just moving a threshold number around isn't fixing anything."* The original triggers
 (the ~150/~50 bar crossing; a session catching itself re-deriving something the register held)
