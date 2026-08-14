@@ -979,8 +979,15 @@ export type FieldHost = {
    *
    *  FREEZING cancels a live reconfigure session on that same entity — core
    *  would refuse its Apply, so the session has nothing left to offer.
-   *  Unfreezing never cancels anything (a frozen entity has no session). */
-  setEntityFrozen(entityId: number, frozen: boolean): void;
+   *  Unfreezing never cancels anything (a frozen entity has no session).
+   *
+   *  `origin` is who is authoring THIS call, reaching the `entity-update` ENTRY
+   *  and nothing else — a freeze rewrites a record somebody else wrote, so there
+   *  is no op it can claim durably. Omit it for the human's own work; the one
+   *  caller that names it is the agent relay (`shared/wire.ts`'s
+   *  `AGENT_ORIGIN`). The same parameter appears on the five verbs below and
+   *  means the same thing at each. */
+  setEntityFrozen(entityId: number, frozen: boolean, origin?: string): void;
   /** Severs a committed entity's recipe — PERMANENT (no unbake; the caller
    *  confirms before calling). The record keeps its provenance for history, but
    *  reconfigure is gone for good and the span becomes plain history. ONE undo
@@ -989,7 +996,7 @@ export type FieldHost = {
    *
    *  A live reconfigure session on that entity is CANCELLED — its Apply could
    *  no longer land. */
-  bakeEntity(entityId: number): void;
+  bakeEntity(entityId: number, origin?: string): void;
   /** Deletes a committed entity — core `deleteGeneratorEntity`: the span AND its
    *  entity op are spliced out, the chunks the span wrote are rewound, and the
    *  downstream ops reaching them replay on top. The log reads as though the
@@ -1009,8 +1016,12 @@ export type FieldHost = {
    *  contract, and it bites here: a placements-only entity (a scatter) writes no
    *  cells, so deleting it dirties NOTHING while every prop it placed leaves the
    *  log with it. Selecting THIS entity clears the selection (and notifies
-   *  {@link subscribeEntitySelection}); selecting another leaves it standing. */
-  deleteEntity(entityId: number): void;
+   *  {@link subscribeEntitySelection}); selecting another leaves it standing.
+   *
+   *  `origin` stamps the SPLICE entry alone — the ops it removes ride out of the
+   *  log carrying whoever wrote them, which is what stops a delete laundering one
+   *  caller's work into another's. */
+  deleteEntity(entityId: number, origin?: string): void;
   /** Commits a COPY of a committed entity beside it — a fresh `commitGenerator`
    *  from the record's own provenance, not a second reference to it. ONE undo
    *  entry (the commit's own), and the copy becomes the selected entity.
@@ -1042,8 +1053,12 @@ export type FieldHost = {
    *
    *  Runtime-quiet ids like the rest of the entity verbs: an id no entity op
    *  carries, or a generator that has left the registry, reports through
-   *  {@link subscribeToolError} and commits nothing. */
-  duplicateEntity(entityId: number): void;
+   *  {@link subscribeToolError} and commits nothing.
+   *
+   *  `origin` is the DUPLICATING caller's, never the original's, and it stamps
+   *  the copy's whole span plus the commit's entry — the one entity verb with
+   *  something durable to claim, because it is the one that authors ops. */
+  duplicateEntity(entityId: number, origin?: string): void;
   /** Subscribes to the latest reconfigure drift report: the downstream ops the
    *  last {@link applyReconfigure} replayed whose outcome moved (`drifted`) or
    *  vanished (`orphaned`). Pushed on every apply that LANDS — null when that
@@ -1199,8 +1214,12 @@ export type FieldHost = {
    *  write and two notifications, and the remesh it schedules is the frame's
    *  work rather than this call's. A caller wanting to SEE the result must let
    *  the drain run — {@link captureScene} photographs what is on screen,
-   *  remesh lag included. */
-  applyOps(ops: readonly BrushOpInput[]): ActionResult;
+   *  remesh lag included.
+   *
+   *  `origin` is who is authoring the batch — one gesture, one author — stamped
+   *  durably on every op and volatilely on the single undo entry they share.
+   *  Absent = human; the agent relay is the only caller that names it. */
+  applyOps(ops: readonly BrushOpInput[], origin?: string): ActionResult;
   /** Commit a generator in ONE act, opening no stamp session and leaving none —
    *  the agent's route to what `startStamp` opens interactively.
    *
@@ -1209,8 +1228,12 @@ export type FieldHost = {
    *  vocabulary {@link applyOps} uses. Why the success arm is its own type rather
    *  than a widened `ActionResult`, what each default is READ from, and why a
    *  missing region refuses rather than guessing are `field-mutation.ts`'s
-   *  `generate` to state. */
-  generate(req: GenerateRequest): GenerateOutcome;
+   *  `generate` to state.
+   *
+   *  `origin` stamps the WHOLE authored span — evaluated field ops, the placement
+   *  op and the `entity` op recording the recipe — plus the commit's undo entry.
+   *  A generator does not author its own output; the caller committing it does. */
+  generate(req: GenerateRequest, origin?: string): GenerateOutcome;
   /** Photograph the viewport as a PNG — **the editor's agent-facing eyes**
    *  (foundations T4c).
    *
@@ -4160,17 +4183,23 @@ export function createFieldHost(deps?: {
     // dissolved in that task; the module's header carries the re-decision on the
     // merits (each had exactly ONE caller — the facade member directly beside it)
     // and states plainly that the bar was met without this move.
-    setEntityFrozen(entityId, frozen) {
-      entities.setFrozen(entityId, frozen);
+    // THESE FOUR ARE THE WRITTEN-OUT DELEGATES, which is why the `origin` each
+    // now carries is spelled at both ends rather than inherited: a delegate that
+    // dropped its last argument type-checks perfectly and silently un-attributes
+    // everything an agent does through it. `tests/field-host/mutation.test.ts`
+    // pins the pair that leaves a durable trace; the other three stamp the ENTRY
+    // alone, so they are pinned one layer down against the module.
+    setEntityFrozen(entityId, frozen, origin) {
+      entities.setFrozen(entityId, frozen, origin);
     },
-    bakeEntity(entityId) {
-      entities.bake(entityId);
+    bakeEntity(entityId, origin) {
+      entities.bake(entityId, origin);
     },
-    deleteEntity(entityId) {
-      entities.remove(entityId);
+    deleteEntity(entityId, origin) {
+      entities.remove(entityId, origin);
     },
-    duplicateEntity(entityId) {
-      entities.duplicate(entityId);
+    duplicateEntity(entityId, origin) {
+      entities.duplicate(entityId, origin);
     },
     subscribeDrift(cb) {
       return drift.subscribe(cb);

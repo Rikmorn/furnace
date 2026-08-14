@@ -397,9 +397,44 @@ test("the entity verbs go through the HOST, on the selected id", () => {
   const ctx = makeCtx({ selectedEntity: entity({ entityId: 12 }) });
   const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
   byId("edit.duplicate").run(ctx);
-  expect(host.duplicateEntity.mock.calls).toEqual([[12]]);
+  // TWO ARGUMENTS SINCE THE UNDO-ATTRIBUTION SLICE, and the second one is `undefined` here
+  // because a chrome dispatch names no origin — absent = human, which is the default the
+  // whole scheme rests on. `edit.grab` stays one: `beginMove` opens a drag and writes no
+  // log entry, so there is nothing for it to attribute.
+  expect(host.duplicateEntity.mock.calls).toEqual([[12, undefined]]);
   byId("edit.grab").run(ctx);
   expect(host.beginMove.mock.calls).toEqual([[12]]);
+});
+
+test("a ctx carrying an origin hands it to the host verb — the agent-relay path", () => {
+  // THE OTHER HALF of the case above, and the one that makes it a pin rather than a
+  // formality: the chrome's `undefined` proves nothing on its own, because a body that
+  // dropped `ctx.origin` entirely would produce the same call. `ActionCtx.origin` is set by
+  // exactly one writer — `session-answerers.ts`' `action.run`, through the dispatch ref —
+  // and every chrome surface leaves it unset.
+  const ctx = makeCtx({
+    selectedEntity: entity({ entityId: 12 }),
+    origin: "agent:mcp",
+  });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("edit.duplicate").run(ctx);
+  expect(host.duplicateEntity.mock.calls).toEqual([[12, "agent:mcp"]]);
+});
+
+test("delete's onConfirm carries the origin too — the callback runs long after the run", () => {
+  // THE VARIANT WORTH ITS OWN CASE: `edit.delete`'s host call lives inside a confirm
+  // callback that fires after a human decides, so the tag has to be captured by the closure
+  // rather than read at call time. Nothing else in the table defers a mutating host call.
+  const ctx = makeCtx({
+    selectedEntity: entity({ entityId: 3, opSpan: [4, 6] }),
+    origin: "agent:mcp",
+  });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  byId("edit.delete").run(ctx);
+  const request = (ctx.run.openConfirm as unknown as ReturnType<typeof mock>)
+    .mock.calls[0]?.[0] as { onConfirm: () => void };
+  request.onConfirm();
+  expect(host.deleteEntity.mock.calls).toEqual([[3, "agent:mcp"]]);
 });
 
 test("delete asks first — the confirm carries the op count, and only its onConfirm deletes", () => {
@@ -413,7 +448,9 @@ test("delete asks first — the confirm carries the op count, and only its onCon
     .mock.calls[0]?.[0] as { message: string; onConfirm: () => void };
   expect(request.message).toContain("3 ops");
   request.onConfirm();
-  expect(host.deleteEntity.mock.calls).toEqual([[3]]);
+  // The trailing `undefined` is the chrome's own dispatch naming no origin — see
+  // `edit.duplicate`'s case for why absent is the default that matters.
+  expect(host.deleteEntity.mock.calls).toEqual([[3, undefined]]);
 });
 
 test("⏎ confirms through the MOVE-AWARE host verb, and the spy no longer offers the other one", () => {
@@ -785,7 +822,12 @@ test("the entity trio takes an entityId, and falls back to the SELECTION when it
   expect(await byId("edit.duplicate").run(ctx, { entityId: 40 })).toEqual({
     ok: true,
   });
-  expect(host.duplicateEntity.mock.calls).toEqual([[12], [40]]);
+  // The trailing `undefined` is the ORIGIN a chrome dispatch names none of — see the
+  // entity-verb case above, where both halves of that channel are pinned.
+  expect(host.duplicateEntity.mock.calls).toEqual([
+    [12, undefined],
+    [40, undefined],
+  ]);
   expect(await byId("edit.grab").run(ctx, { entityId: 41 })).toEqual({
     ok: true,
   });
@@ -1703,7 +1745,7 @@ test("`enabled` reads the INPUT — a named id is not refused inert before the r
       ok: true,
     },
   );
-  expect(dupHost.duplicateEntity.mock.calls).toEqual([[6041]]);
+  expect(dupHost.duplicateEntity.mock.calls).toEqual([[6041, undefined]]);
 });
 
 test("edit.delete still refuses a named id it did not select — as `input`, inside the run", async () => {

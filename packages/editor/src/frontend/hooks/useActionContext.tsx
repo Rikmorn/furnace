@@ -330,15 +330,31 @@ export function ActionContextProvider({
 	//
 	// The cleanup nulls it, which is what makes an unmounted shell REFUSE `action.run`
 	// rather than dispatch into a ctx nothing is rendering from.
+	//
+	// THE THIRD ARGUMENT IS THE ATTRIBUTION SEAM, and folding it into the ctx here is what
+	// makes it reach a `run` at all: the table is pure `(ctx, input) => …`, so the only way
+	// a dispatch-time fact reaches a body is as a ctx member. A COPY rather than a mutation
+	// of the memoized ctx, because that object is the one the provider is rendering from and
+	// the one the window keydown listener reads through `ctxRef` — writing a field onto it
+	// would leave the human's next ⌘Z acting under the agent's tag until the next render.
+	//
+	// AND ONLY WHEN THERE IS ONE: with no origin the LIVE ctx travels unwrapped, which keeps
+	// the chrome path allocation-free and — the reason that matters — keeps
+	// `ActionCtx.origin` genuinely ABSENT rather than present-and-undefined, matching the
+	// absent-means-human spelling the op log itself uses.
 	useEffect(() => {
-		dispatchRef.current = (id, input) =>
+		dispatchRef.current = (id, input, opOrigin) =>
 			// Boundary cast: `input` arrives as `unknown` because the backchannel envelope
 			// RELAYS rather than reads, and the daemon has already parsed it against this
 			// id's own schema (`action-registry/schemas.ts`, through `action.run`'s handler)
 			// — the invariant the type system cannot carry across a JSON hop. Parsing again
 			// here would put a second author on one contract; `ActionInput` is the union
 			// those schemas infer, so this names the shape rather than erasing it.
-			runNamedById(id, ctx, input as ActionInput);
+			runNamedById(
+				id,
+				opOrigin === undefined ? ctx : { ...ctx, origin: opOrigin },
+				input as ActionInput,
+			);
 		return () => {
 			dispatchRef.current = null;
 		};

@@ -161,6 +161,20 @@ export type ActionCtx = {
    *  its harness for no gap closed today; the day "a modal is open" stops meaning
    *  *"`confirmRef` is non-null"* is the day it has to be bought. */
   isConfirmOpen: () => boolean;
+  /** The op-log origin tag this dispatch acts under — set ONLY by the agent relay
+   *  (`lib/session-answerers.ts`' `action.run`, through the dispatch ref); every chrome
+   *  surface dispatches without it, and absent = human (core's `FieldOp.origin`).
+   *
+   *  Mutating runs hand it to the host verb they call, which threads it to the core
+   *  committing path and stamps both altitudes from it. Which runs do that is enumerated
+   *  where they are written, and one that does not simply produces human-read entries —
+   *  the conservative failure, whose only cost is that the agent cannot undo that piece of
+   *  its own work. Mis-attribution in the other direction is what the scheme forbids.
+   *
+   *  A CTX MEMBER rather than a second parameter on `run`, for `isConfirmOpen`'s reason
+   *  one field up: what an action can SEE is the ctx, and a parallel channel would have to
+   *  be threaded through both dispatch funnels and every gate. */
+  origin?: string;
   /** What LMB is armed to do (`null` = the brush strokes). */
   gesture: ViewportGesture | null;
   tool: FieldTool;
@@ -954,7 +968,13 @@ const BEHAVIORS: ActionBehaviors = {
       const entityId = input?.entityId ?? ctx.selectedEntity?.entityId;
       if (entityId === undefined)
         return Promise.resolve(refused(NO_ENTITY, "inert"));
-      return okAfterHost(ctx, (host) => host.duplicateEntity(entityId));
+      // `ctx.origin` UNCONDITIONALLY, `undefined` included: it is a positional argument
+      // rather than a property on an op, so passing it always is what keeps the thread
+      // visible at the call site — and the host verb branches on the value exactly as it
+      // would on an omitted parameter.
+      return okAfterHost(ctx, (host) =>
+        host.duplicateEntity(entityId, ctx.origin),
+      );
     },
   },
   "edit.delete": {
@@ -1018,7 +1038,11 @@ const BEHAVIORS: ActionBehaviors = {
           message: `Removes ${entity.generator} #${entity.entityId} and the ${ops} op${ops === 1 ? "" : "s"} it committed. Edits made after it are replayed onto what is left, so a dig that cut through this stamp survives as a dig into whatever was underneath. ⌘Z puts it back.`,
           confirmLabel: "Delete",
           destructive: true,
-          onConfirm: () => host.deleteEntity(entity.entityId),
+          // CAPTURED BY THE CLOSURE, which is the one thing about this thread worth
+          // saying: the callback fires after a human decides, so the tag has to be the
+          // one the DISPATCH carried rather than one read at click time. Nothing else in
+          // this table defers a mutating host call.
+          onConfirm: () => host.deleteEntity(entity.entityId, ctx.origin),
         }),
       );
     },

@@ -114,10 +114,16 @@ export type GenerateOutcome =
     }
   | Extract<ActionResult, { ok: false }>;
 
-/** The two verbs a caller that cannot point gets to mutate with. */
+/** The two verbs a caller that cannot point gets to mutate with.
+ *
+ *  BOTH TAKE A TRAILING `origin`, and it is the same parameter core's committing paths
+ *  take: who is authoring THIS call, stamped durably on the ops and volatilely on the undo
+ *  entry. Omitted for the human's own work — absent means human, and the editor's only
+ *  writer of a non-absent value is the session-answerer seam
+ *  (`frontend/lib/session-answerers.ts`'s `AGENT_ORIGIN`). */
 export type Mutation = {
-  applyOps(ops: readonly BrushOpInput[]): ActionResult;
-  generate(req: GenerateRequest): GenerateOutcome;
+  applyOps(ops: readonly BrushOpInput[], origin?: string): ActionResult;
+  generate(req: GenerateRequest, origin?: string): GenerateOutcome;
 };
 
 /** A throw's own sentence, however it was thrown. The third occurrence is what earns it —
@@ -256,8 +262,13 @@ export function createMutation(deps: MutationDeps): Mutation {
      * step would cost a real one. The agent door refuses an empty batch one layer up, where
      * a schema can ADVERTISE the rule (`daemon/op-schema.ts`) rather than leaving it to be
      * discovered.
+     *
+     * `origin` IS THE CALLER'S, NOT THE OPS', and the asymmetry is core's contract read
+     * from here: one gesture has one author, so the single value stamps every op in the
+     * group plus the one entry they share. An `origin` a caller had already written onto
+     * an op it handed over is OVERWRITTEN — a batch is authored by whoever applies it.
      */
-    applyOps(ops) {
+    applyOps(ops, origin) {
       const busy = refuseUnderSession();
       if (busy !== null) return busy;
       let dirty: Set<field.ChunkKey>;
@@ -270,6 +281,11 @@ export function createMutation(deps: MutationDeps): Mutation {
           // op's id back would be reading a number this line invented.
           ops.map((op) => ({ ...op, id: 0 })),
           substrate.table(),
+          // Passed straight through, `undefined` included: core reads it as a value and
+          // branches, so the conditional-spread rule that governs the OP literal does not
+          // reach a positional argument. Absent = human, and that is what a chrome-side
+          // caller passing nothing produces.
+          origin,
         );
       } catch (err) {
         return isValidationRejection(err)
@@ -325,8 +341,14 @@ export function createMutation(deps: MutationDeps): Mutation {
      * reads a SETTLED PREVIEW — which this verb, having no session, does not have. Core's
      * own rejection is returned instead, and for a caller that composes rather than tunes it
      * is the better sentence: it names the generator and says the result was empty.
+     *
+     * `origin` reaches `commitGenerator`'s opts and stamps the WHOLE authored span — the
+     * evaluated field ops, the placement op, the `entity` op recording the recipe — plus
+     * the commit's undo entry. A generator does not author its own output; the caller that
+     * commits it does, which is core's own wording and the reason an `origin` already
+     * sitting on an evaluated op is overwritten.
      */
-    generate(req) {
+    generate(req, origin) {
       const busy = refuseUnderSession();
       if (busy !== null) return busy;
       let def: field.GeneratorDef;
@@ -359,6 +381,13 @@ export function createMutation(deps: MutationDeps): Mutation {
           region,
           policy: "replace",
           table: substrate.table(),
+          // A MEMBER OF THE OPTS RATHER THAN A TRAILING ARGUMENT, which is core's shape for
+          // this verb and not a second spelling of the rule: `commitGenerator` reads
+          // `opts.origin` into a local and branches on `undefined`, exactly as the
+          // positional form does, so writing it here unconditionally is safe. What must
+          // never be written unconditionally is `origin` onto an OP or an ENTRY, and core
+          // owns both of those.
+          origin,
         });
       } catch (err) {
         // `failed`, NOT `refused(…, "input")`, and the reason is that this catch covers a

@@ -59,6 +59,7 @@ const noop = () => {};
 type EditorContextOverrides = {
 	state?: Partial<EditorState>;
 	fieldHostRef?: EditorContextValue["fieldHostRef"];
+	dispatchRef?: EditorContextValue["dispatchRef"];
 	worldsVersion?: number;
 	openConfirm?: EditorContextValue["openConfirm"];
 	confirmRef?: EditorContextValue["confirmRef"];
@@ -92,11 +93,14 @@ export function makeEditorContext(
 	return {
 		state: { ...initialState, status: "ready", ...overrides.state },
 		fieldHostRef: overrides.fieldHostRef ?? { current: undefined },
-		// The backchannel's DISPATCH seam (T4c). Not overridable like `sessionStateRef`
-		// below, because no inspector test drives an action through it — it is here because
-		// the context type requires it, and `null` is the honest empty value (it is what
-		// App creates it with, and what an unmounted shell leaves behind).
-		dispatchRef: { current: null },
+		// The backchannel's DISPATCH seam (T4c). `null` is the honest empty value — it is
+		// what App creates it with, and what an unmounted shell leaves behind — and it stays
+		// the default because no INSPECTOR case drives an action through it. It became
+		// overridable at the undo-attribution slice, when `tests/chrome/session-dispatch.
+		// test.tsx` arrived to pin the one hop that turns a relayed origin into
+		// `ActionCtx.origin`: that case needs the ref the SHELL fills, which means passing
+		// its own and reading it after the mount.
+		dispatchRef: overrides.dispatchRef ?? { current: null },
 		worldsVersion: overrides.worldsVersion ?? 0,
 		openConfirm: overrides.openConfirm ?? noop,
 		// No prompt pending: the shell's keydown listener reads this to decide whether a

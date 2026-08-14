@@ -153,7 +153,12 @@ export type EditorContextValue = {
    *
    *  It carries the DISPATCHER and not the table: which verbs exist stays
    *  `frontend/lib/actions.ts`'s answer, and `runNamedById` is what refuses an id that is
-   *  not one of them. */
+   *  not one of them.
+   *
+   *  Its third parameter is the op-log ORIGIN this dispatch acts under, which only the
+   *  agent relay supplies — the provider folds it into `ActionCtx.origin` and the mutating
+   *  runs thread it down to core. Nothing else in this record is written by the answerers,
+   *  and the argument for that asymmetry is `ActionDispatch`'s own. */
   dispatchRef: RefObject<ActionDispatch | null>;
   /** The viewport focus seam ({@link ViewportFocus}), as a ref: App creates it,
    *  `CanvasHost` fills it, and every dismissible overlay reads it through

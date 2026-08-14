@@ -25,6 +25,12 @@ import type {
   ViewportCaptureRequest,
   ViewportCaptureResult,
 } from "../../shared/wire.ts";
+// THE ONE VALUE IMPORT off `shared/wire.ts`, and the reason that module stopped being
+// types-only: `AGENT_ORIGIN` is authored HERE and nowhere else, so it has to be a runtime
+// binding somewhere both this file and the daemon-facing prose can name. It sits on the
+// neutral floor beside the shapes it attributes rather than in this module, so a second
+// stamping seam (a future non-MCP relay) cannot quietly invent a second spelling of it.
+import { AGENT_ORIGIN } from "../../shared/wire.ts";
 import type { ActionCtx } from "./actions.ts";
 
 /**
@@ -329,10 +335,21 @@ export type SessionStateReader = () => SessionState;
  * ONE REF FOR ALL 39 VERBS rather than a ref per verb, which is what makes `action.run` a
  * door rather than a switch: the chrome hands over the ability to dispatch BY ID, and which
  * ids exist stays the registry's answer.
+ *
+ * **THE THIRD PARAMETER IS THE ATTRIBUTION SEAM, and it is a DISPATCH argument rather than
+ * a member of `input` deliberately.** `input` is the caller's — relayed unparsed, validated
+ * per id by the daemon — so an origin living there would be something the agent DECLARES.
+ * This one is something the tab ASSERTS about where the call came from, and the two must
+ * not share a channel. The provider folds it into {@link ActionCtx.origin}, where the
+ * mutating runs read it; every chrome dispatch omits it, and absent = human.
+ *
+ * `input` stays `unknown` rather than narrowing to `ActionInput`: the envelope RELAYS, and
+ * the one cast that turns it into the union lives where the dispatcher is built.
  */
 export type ActionDispatch = (
   id: string,
   input?: unknown,
+  opOrigin?: string,
 ) => Promise<ActionResult>;
 
 /**
@@ -559,7 +576,16 @@ export function createSessionAnswerers(
           "edit.apply needs an `ops` array and none arrived",
           "input",
         );
-      return engine.applyOps(req.ops);
+      // AGENT_ORIGIN IS ASSERTED HERE, NOT RELAYED, and that is the whole of the trust
+      // argument for the attribution scheme. `EditApplyRequest` carries no `origin` field
+      // and never will: a self-declared author is a claim, while a request that reached
+      // this registry at all is agent-initiated BY CONSTRUCTION — `backchannel.ask` has
+      // exactly one producer (`daemon/session-handlers.ts`), and this record is invoked
+      // only for a frame that arrived on this tab's daemon feed. The chrome's own four
+      // daemon calls (`frontend/lib/api.ts`) include none of the mutating verbs; every
+      // chrome surface dispatches locally instead. So the tab can KNOW the author rather
+      // than believe one.
+      return engine.applyOps(req.ops, AGENT_ORIGIN);
     },
     // The second write, and the one that makes a world rather than editing one. It answers
     // a `GenerateOutcome` — the committed record read back, or a refusal in the same
@@ -574,7 +600,9 @@ export function createSessionAnswerers(
       // members — so this assignment type-checks on its own, the way `viewport.capture`'s
       // `view` does one row up. If they ever diverge the compiler says so here, which is
       // the whole value of not casting.
-      return engine.generate(req);
+      // Stamped for `edit.apply`'s reason exactly — one seam, one tag, and it reaches the
+      // whole committed span rather than only the entry (`FieldHost.generate`).
+      return engine.generate(req, AGENT_ORIGIN);
     },
     // THE ESCAPE KEY, AS A VERB (foundations T4c, Task 5) — and the only row here whose
     // subject is the human's own interaction rather than the world.
@@ -645,7 +673,15 @@ export function createSessionAnswerers(
       // `input` is relayed UNPARSED because the daemon has already parsed it against this
       // id's own schema — the one place per-id input validation lives. `runNamedById`
       // refuses an id the table does not carry, which is the half the daemon cannot check.
-      return run(req.id, req.input);
+      //
+      // THE THIRD ARGUMENT IS THIS SEAM'S, not the request's, and it is stamped for the
+      // reason `edit.apply` states. It travels differently from the two rows above because
+      // a named verb reaches the host through the CTX rather than directly: the provider
+      // folds it into `ActionCtx.origin` and each mutating run hands it to the host verb it
+      // calls. Which runs do that is `frontend/lib/actions.ts`' answer, and the ones that
+      // do not produce human-read entries — the conservative failure, where the agent
+      // simply cannot undo that piece of its own work.
+      return run(req.id, req.input, AGENT_ORIGIN);
     },
   };
 }

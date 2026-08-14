@@ -17,6 +17,7 @@ import { ACTION_OK, type ActionResult } from "../src/action-registry/index.ts";
 import type { FieldHost } from "../src/field-host/index.ts";
 import type { ActionDispatch } from "../src/frontend/lib/session-answerers.ts";
 import { createSessionAnswerers } from "../src/frontend/lib/session-answerers.ts";
+import { AGENT_ORIGIN } from "../src/shared/wire.ts";
 
 /** A host that records the two mutation calls and answers a fixed value each.
  *
@@ -26,18 +27,24 @@ function stubHost(cancels = true): {
   host: FieldHost;
   applied: unknown[];
   generated: unknown[];
+  /** The trailing `origin` each mutating call arrived with, in call order — the one thing
+   *  this seam is the SOLE author of (`shared/wire.ts`'s `AGENT_ORIGIN`). */
+  origins: unknown[];
   escapes: number;
 } {
   const applied: unknown[] = [];
   const generated: unknown[] = [];
+  const origins: unknown[] = [];
   let escapes = 0;
   const host = {
-    applyOps: (ops: unknown) => {
+    applyOps: (ops: unknown, origin?: unknown) => {
       applied.push(ops);
+      origins.push(origin);
       return ACTION_OK;
     },
-    generate: (req: unknown) => {
+    generate: (req: unknown, origin?: unknown) => {
       generated.push(req);
+      origins.push(origin);
       return { ok: true as const, entityId: 11, generator: "hall" };
     },
     // The Esc stack's own boolean, which is what `session.interrupt` branches on: `true`
@@ -51,6 +58,7 @@ function stubHost(cancels = true): {
     host,
     applied,
     generated,
+    origins,
     get escapes() {
       return escapes;
     },
@@ -250,4 +258,49 @@ test("SABOTAGE: with both seams unfilled, every brokered verb refuses and none t
     row(bare, "session.interrupt")({}),
   ];
   for (const answer of answers) expect(refusal(answer).because).toBe("inert");
+});
+
+// --- the stamping seam (undo attribution) -----------------------------------
+//
+// THIS FILE IS WHERE `AGENT_ORIGIN` IS AUTHORED, and that is the whole of the trust
+// argument. The daemon does not stamp it and the agent never declares it: `backchannel.ask`
+// has exactly one producer (`daemon/session-handlers.ts`) and this registry is invoked only
+// for a request that arrived on this tab's daemon feed, so everything reaching these rows is
+// agent-initiated BY CONSTRUCTION. The chrome's own four daemon calls (`frontend/lib/api.ts`)
+// are `generation.bake`, `project.get`, `session.answer` and `world.list` — none of the three
+// mutating verbs — and every chrome surface dispatches locally through `dispatchRef` instead.
+//
+// So a case here is not "the row forwards a parameter it was given"; it is "the row INVENTS
+// the right one". A row that forwarded `undefined` would type-check, pass every other case in
+// this file, and silently leave every agent write reading as the human's.
+
+test("edit.apply stamps AGENT_ORIGIN — the tab asserts authorship, the caller never claims it", () => {
+  const { host, origins } = stubHost();
+  // No `origin` anywhere in the request, and there is no field for one on `EditApplyRequest`
+  // by design: a self-declared author is a claim, and this seam is the only place that fact
+  // is knowable rather than asserted.
+  row(
+    rows({ host }),
+    "edit.apply",
+  )({ ops: [{ kind: "brush", effect: "dig" }] });
+  expect(origins).toEqual([AGENT_ORIGIN]);
+});
+
+test("generate stamps AGENT_ORIGIN too — one tag for every write on this seam", () => {
+  const { host, origins } = stubHost();
+  row(rows({ host }), "generate")({ generatorId: "hall" });
+  expect(origins).toEqual([AGENT_ORIGIN]);
+});
+
+test("action.run relays AGENT_ORIGIN as its THIRD argument, beside the id and the input", async () => {
+  // The door's own stamping: a named verb's run reaches the host through the ctx, so the tag
+  // travels as a dispatch argument the provider folds into `ActionCtx.origin` rather than as
+  // anything on the wire.
+  const seen: unknown[] = [];
+  const dispatch: ActionDispatch = (_id, _input, opOrigin) => {
+    seen.push(opOrigin);
+    return Promise.resolve(ACTION_OK);
+  };
+  await row(rows({ dispatch }), "action.run")({ id: "edit.duplicate" });
+  expect(seen).toEqual([AGENT_ORIGIN]);
 });

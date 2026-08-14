@@ -22,14 +22,22 @@ import {
   type FieldStore,
   type MaterialTable,
   type OpLog,
+  parseOps,
 } from "@furnace/core/field";
+import {
+  createEntities,
+  type Entities,
+  type EntitiesDeps,
+} from "../../src/field-host/field-entities.ts";
 import { createFieldHost } from "../../src/field-host/field-host.ts";
 import {
   createMutation,
   type MutationDeps,
 } from "../../src/field-host/field-mutation.ts";
 import type { StampSession } from "../../src/field-host/index.ts";
+import { createInputRouter } from "../../src/field-host/input-router.ts";
 import type { BrushOpInput } from "../../src/shared/field-op.ts";
+import { AGENT_ORIGIN } from "../../src/shared/wire.ts";
 
 /** A dig sphere at `center`. The op every case here that does not care about the op uses,
  *  so a reader can tell "this case is about the op" from "this case is about the seam". */
@@ -515,4 +523,207 @@ test("an agent's batch is ONE undo step for the human — the named-stroke guard
   expect(histories.at(-1)).toBe(1);
   host.undo();
   expect(histories.at(-1)).toBe(0);
+});
+
+// --- origin: the editor half of undo attribution ----------------------------
+//
+// Core stamps BOTH altitudes from one trailing parameter — durable on the ops it AUTHORS,
+// volatile on the undo entry (`core-modules.md` § the oplog wire format). What these pin is
+// the editor's half: that the host's mutating verbs THREAD their caller's tag down to that
+// parameter, and that a caller who names none leaves both altitudes untouched.
+//
+// THE BARE CASES ARE THE LOAD-BEARING ONES and they assert `Object.hasOwn`, not
+// `=== undefined`. Absent means human, and an explicitly-written `origin: undefined` is an
+// OWN property — it survives `structuredClone`, it changes what `serializeOps` puts on the
+// wire, and it compares equal to absent under every assertion that reads the value instead
+// of the key. Core's own suites test it this way for the same reason.
+//
+// TWO HARNESSES, because the two verbs sets live in two modules and only one of them was
+// already exercised here. `createEntities` is driven directly rather than through
+// `createFieldHost` for the reason the file header gives about the session guard, plus one
+// of its own: freeze, bake and delete stamp the ENTRY and nothing else, and a host owns its
+// op log privately — `exportArtifact` can read back a durable op origin but there is no
+// route from a real host to `log.undoStack`.
+
+/** A LineBatch stub — `selectionOutline`'s answer. Nothing here reads its contents; what
+ *  matters is that `duplicate`'s re-select can rebuild an overlay without a camera. */
+const emptyBatch = () => ({
+  vertices: new Float32Array(),
+  colors: new Float32Array(),
+});
+
+/** {@link harness}'s entity-verb twin, over the SAME store and log — so a commit made
+ *  through the mutation seam is an entity the verbs below can act on. Eleven of the
+ *  fourteen deps are inert stubs: these four verbs read the substrate, the session id, and
+ *  the three visibility lines, and nothing else. */
+function entitiesHarness(): {
+  h: Harness;
+  entities: Entities;
+  mutation: ReturnType<typeof createMutation>;
+} {
+  const { h, deps: mutationDeps } = harness();
+  const deps: EntitiesDeps = {
+    substrate: mutationDeps.substrate,
+    router: createInputRouter(),
+    worldEpoch: () => 0,
+    markDirtyWithNeighbors: (changed) =>
+      h.fired.push(`dirty:${[...changed].sort().join(",")}`),
+    rebuildProps: () => h.fired.push("props"),
+    cancelSession: () => h.fired.push("cancel"),
+    reportToolError: (msg) => h.fired.push(`error:${msg}`),
+    randomSeed: () => 99,
+    notifyHistory: () => h.fired.push("history"),
+    selectionOutline: emptyBatch,
+    cursorRay: () => null,
+    gesture: () => "pointer",
+    session: () => h.session,
+    moveDrag: () => null,
+  };
+  return {
+    h,
+    entities: createEntities(deps),
+    mutation: createMutation(mutationDeps),
+  };
+}
+
+/** The hall every entity case acts on — committed through the mutation seam, so the two
+ *  harnesses share one route into the log. */
+const commitHall = (m: ReturnType<typeof createMutation>, origin?: string) => {
+  const out = m.generate(
+    { generatorId: "hall", region: { min: [0, 0, 0], max: [8, 5, 8] } },
+    origin,
+  );
+  if (!out.ok) throw new Error(`expected a commit, got: ${out.message}`);
+  return out.entityId;
+};
+
+test("applyOps stamps its caller's origin on every op AND on the undo entry", () => {
+  const { h, deps } = harness();
+  const m = createMutation(deps);
+  expect(m.applyOps([dig([0, 0, 0]), dig([1, 0, 0])], AGENT_ORIGIN)).toEqual({
+    ok: true,
+  });
+  // DURABLE, on every op in the batch — one gesture has one author, so the group's tag is
+  // not a property of the first op.
+  expect(h.log.ops.map((o) => o.origin)).toEqual([AGENT_ORIGIN, AGENT_ORIGIN]);
+  // …and VOLATILE, on the single entry the batch pushed, which is what the undo guard
+  // (Task 5) reads. The two altitudes come from ONE parameter, so a seam that threaded only
+  // one of them would red exactly one of these lines.
+  expect(h.log.undoStack.at(-1)?.origin).toBe(AGENT_ORIGIN);
+});
+
+test("applyOps with NO origin writes the property at neither altitude", () => {
+  const { h, deps } = harness();
+  const m = createMutation(deps);
+  m.applyOps([dig([0, 0, 0])]);
+  expect(h.log.ops.every((o) => Object.hasOwn(o, "origin"))).toBe(false);
+  expect(Object.hasOwn(h.log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+});
+
+test("generate stamps the WHOLE committed span — field ops and the entity record alike", () => {
+  const { h, deps } = harness();
+  const m = createMutation(deps);
+  const out = m.generate(
+    { generatorId: "hall", region: { min: [0, 0, 0], max: [8, 5, 8] } },
+    AGENT_ORIGIN,
+  );
+  if (!out.ok) throw new Error(`expected a commit, got: ${out.message}`);
+  // EVERY op, not just the field ones: the `entity` op that records the recipe is authored
+  // by the same commit, and an agent that cannot undo its own entity record cannot undo the
+  // commit at all.
+  expect(h.log.ops.length).toBeGreaterThan(1);
+  expect(h.log.ops.every((o) => o.origin === AGENT_ORIGIN)).toBe(true);
+  expect(h.log.ops.some((o) => o.kind === "entity")).toBe(true);
+  expect(h.log.undoStack.at(-1)?.origin).toBe(AGENT_ORIGIN);
+});
+
+test("generate with NO origin commits a span that reads as the human's", () => {
+  const { h, deps } = harness();
+  const m = createMutation(deps);
+  const out = m.generate({
+    generatorId: "hall",
+    region: { min: [0, 0, 0], max: [8, 5, 8] },
+  });
+  if (!out.ok) throw new Error(`expected a commit, got: ${out.message}`);
+  expect(h.log.ops.some((o) => Object.hasOwn(o, "origin"))).toBe(false);
+  expect(Object.hasOwn(h.log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+});
+
+test("deleting stamps the SPLICE entry — a delete authors no op to stamp", () => {
+  const { h, entities, mutation } = entitiesHarness();
+  const entityId = commitHall(mutation); // the human's commit
+  entities.remove(entityId, AGENT_ORIGIN);
+  const entry = h.log.undoStack.at(-1);
+  expect(entry?.kind).toBe("splice");
+  expect(entry?.origin).toBe(AGENT_ORIGIN);
+});
+
+test("deleting with no origin does not launder an AGENT-authored span into the human's", () => {
+  const { h, entities, mutation } = entitiesHarness();
+  const entityId = commitHall(mutation, AGENT_ORIGIN);
+  entities.remove(entityId);
+  const entry = h.log.undoStack.at(-1);
+  expect(entry?.kind).toBe("splice");
+  expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false);
+  // The removed ops ride out carrying whoever WROTE them, which is the whole point of the
+  // entry-level field existing beside the op-level one.
+  if (entry?.kind !== "splice") throw new Error("expected a splice entry");
+  expect(entry.removed.every((op) => op.origin === AGENT_ORIGIN)).toBe(true);
+});
+
+test("duplicating stamps the COPY's span and its entry — a fresh commit, freshly authored", () => {
+  const { h, entities, mutation } = entitiesHarness();
+  const entityId = commitHall(mutation); // human-authored original
+  const before = h.log.ops.length;
+  entities.duplicate(entityId, AGENT_ORIGIN);
+  const copied = h.log.ops.slice(before);
+  expect(copied.length).toBeGreaterThan(0);
+  expect(copied.every((o) => o.origin === AGENT_ORIGIN)).toBe(true);
+  // The ORIGINAL is untouched — a duplicate re-authors nothing but its own copy.
+  expect(
+    h.log.ops.slice(0, before).some((o) => Object.hasOwn(o, "origin")),
+  ).toBe(false);
+  expect(h.log.undoStack.at(-1)?.origin).toBe(AGENT_ORIGIN);
+});
+
+test("freeze and bake stamp their entity-update ENTRIES, and nothing else", () => {
+  const { h, entities, mutation } = entitiesHarness();
+  const entityId = commitHall(mutation);
+  entities.setFrozen(entityId, true, AGENT_ORIGIN);
+  expect(h.log.undoStack.at(-1)?.kind).toBe("entity-update");
+  expect(h.log.undoStack.at(-1)?.origin).toBe(AGENT_ORIGIN);
+  // Unfreeze first: core refuses to bake nothing, and a frozen entity is still bakeable —
+  // this only keeps the two entries distinguishable.
+  entities.setFrozen(entityId, false);
+  expect(Object.hasOwn(h.log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  entities.bake(entityId, AGENT_ORIGIN);
+  expect(h.log.undoStack.at(-1)?.kind).toBe("entity-update");
+  expect(h.log.undoStack.at(-1)?.origin).toBe(AGENT_ORIGIN);
+});
+
+test("the FACADE threads it too — the four entity delegates take a second argument", () => {
+  // WHAT THIS ADDS OVER THE MODULE CASES: `applyOps`/`generate` reach the seam as plain
+  // references (`applyOps: mutation.applyOps`), so their arity cannot drift — but the four
+  // entity verbs are WRITTEN-OUT delegates, and a delegate that forgets to pass its second
+  // argument type-checks perfectly and silently un-attributes everything an agent does.
+  //
+  // Read back through `exportArtifact`, which is the only route from a real host to its op
+  // log — so this covers the two verbs with a DURABLE trace (`generate` authors a span,
+  // `duplicateEntity` authors a copy of one) and the entry-level three stay module-level.
+  const host = createFieldHost();
+  host.setMaterialTable(TABLE);
+  const out = host.generate(
+    { generatorId: "hall", region: { min: [0, 0, 0], max: [8, 5, 8] } },
+    AGENT_ORIGIN,
+  );
+  if (!out.ok) throw new Error(`expected a commit, got: ${out.message}`);
+  host.duplicateEntity(out.entityId, AGENT_ORIGIN);
+  const file = host
+    .exportArtifact("origin-probe")
+    .find((f) => f.path === "worlds/origin-probe/oplog.json");
+  if (file === undefined || typeof file.contents !== "string")
+    throw new Error("test: no oplog.json in the artifact");
+  const ops = parseOps(file.contents);
+  expect(ops.length).toBeGreaterThan(1);
+  expect(ops.every((o) => o.origin === AGENT_ORIGIN)).toBe(true);
 });

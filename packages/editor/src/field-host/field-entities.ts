@@ -326,20 +326,32 @@ export type Entities = {
 
   // --- the five facade verbs (T3d Task 6) ----------------------------------
 
+  // FOUR OF THE FIVE TAKE A TRAILING `origin` — who is authoring THIS call, threaded
+  // to the core verb each wraps. `list` does not, being a read. Omitted means the
+  // human's own work (core's `FieldOp.origin`), which is what every chrome surface
+  // passes; the editor's only writer of a value is the session-answerer seam
+  // (`frontend/lib/session-answerers.ts`'s `AGENT_ORIGIN`).
+  //
+  // THREE OF THE FOUR STAMP THE ENTRY ALONE, and that is core's decision rather than a
+  // gap here: a freeze, a bake and a delete AUTHOR no op — they rewrite or remove
+  // records somebody else wrote — so there is nothing durable to stamp and the removed
+  // ops ride out carrying their own author. Only `duplicate` writes a fresh span, and
+  // that span is the duplicating caller's work, not the original author's.
+
   /** {@link FieldHost.setEntityFrozen}. Freezing ENDS a live session on that
    *  entity — core refuses the Apply it would offer — while unfreezing cannot
    *  orphan anything. */
-  setFrozen(entityId: number, frozen: boolean): void;
+  setFrozen(entityId: number, frozen: boolean, origin?: string): void;
   /** {@link FieldHost.bakeEntity}. Permanent, so a live session on that entity
    *  ends rather than being left promising an Apply that can never land. */
-  bake(entityId: number): void;
+  bake(entityId: number, origin?: string): void;
   /** {@link FieldHost.deleteEntity}. Named for the ACT rather than after the
    *  facade member, because `delete` is not a property name this file wants. */
-  remove(entityId: number): void;
+  remove(entityId: number, origin?: string): void;
   /** {@link FieldHost.duplicateEntity}. Offsets the copy along X by the
    *  FOOTPRINT's extent on the stamp lattice, and re-rolls the seed only where
    *  the generator reads one. */
-  duplicate(entityId: number): void;
+  duplicate(entityId: number, origin?: string): void;
   /** {@link FieldHost.listEntities}. One attribution pass for the whole list. */
   list(): FieldEntityInfo[];
 };
@@ -623,9 +635,9 @@ export function createEntities(deps: EntitiesDeps): Entities {
     // and the four cross-cluster calls through this record. The header carries
     // why they moved and what the deps record paid for it.
 
-    setFrozen(entityId, frozen) {
+    setFrozen(entityId, frozen, origin) {
       try {
-        field.setGeneratorFrozen(substrate.log, entityId, frozen);
+        field.setGeneratorFrozen(substrate.log, entityId, frozen, origin);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         deps.reportToolError(message);
@@ -642,9 +654,9 @@ export function createEntities(deps: EntitiesDeps): Entities {
       notifyEntities();
     },
 
-    bake(entityId) {
+    bake(entityId, origin) {
       try {
-        field.bakeGeneratorEntity(substrate.log, entityId);
+        field.bakeGeneratorEntity(substrate.log, entityId, origin);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         deps.reportToolError(message);
@@ -656,7 +668,7 @@ export function createEntities(deps: EntitiesDeps): Entities {
       notifyEntities();
     },
 
-    remove(entityId) {
+    remove(entityId, origin) {
       let dirtied: Set<field.ChunkKey>;
       try {
         ({ dirty: dirtied } = field.deleteGeneratorEntity(
@@ -664,6 +676,10 @@ export function createEntities(deps: EntitiesDeps): Entities {
           substrate.log,
           entityId,
           substrate.table(),
+          // The SPLICE entry's author, and the only altitude a delete can reach: the ops
+          // it removes keep whoever wrote them, which is what stops a delete laundering
+          // one caller's work into another's.
+          origin,
         ));
       } catch (err) {
         // Setup-loud core, runtime-VISIBLE editor: all three refusals (unknown
@@ -698,7 +714,7 @@ export function createEntities(deps: EntitiesDeps): Entities {
       notifyEntities();
     },
 
-    duplicate(entityId) {
+    duplicate(entityId, origin) {
       const record = entityRecord(entityId);
       if (record === null) {
         deps.reportToolError(`entity ${entityId} is no longer in the log`);
@@ -746,6 +762,11 @@ export function createEntities(deps: EntitiesDeps): Entities {
           // back to `replace` and this joins them.
           policy: "replace",
           table: substrate.table(),
+          // THE DUPLICATING CALLER'S, never the original's. A copy is a fresh
+          // commit — new ops, new ids, a new undo entry — so it is authored by
+          // whoever asked for it, and reading the source record's author here
+          // would let an agent's copy of a human's stamp read as the human's.
+          origin,
         });
       } catch (err) {
         // Reachable without a bug: the material table can have lost the kit

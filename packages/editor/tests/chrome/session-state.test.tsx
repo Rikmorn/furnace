@@ -398,10 +398,19 @@ test("the CURSOR and the HISTORY it certifies come from ONE payload", async () =
  *  spelling, borrowed for the same job one layer over. */
 type Mirrors<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
-/** What `ActionCtx` carries, frozen at the commit that added `session.state`. */
+/** What `ActionCtx` carries, frozen at the commit that added `session.state`.
+ *
+ *  ONE MEMBER SINCE, and it is the kind this pin exists to make deliberate rather than the
+ *  kind it exists to refuse. `origin` arrived with undo attribution: it is written by the
+ *  agent relay alone, read by the mutating runs, and — the reason it is not the churn the
+ *  case below argues against — it moves at DISPATCH time rather than at render time, so it
+ *  is never in this provider's memo deps and re-renders nobody. It is also absent from the
+ *  `session.state` payload on purpose: what an agent asked FOR is not a fact about the
+ *  session, and relaying its own tag back to it would say nothing. */
 const CTX_MEMBERS = [
 	"host",
 	"isConfirmOpen",
+	"origin",
 	"gesture",
 	"tool",
 	"session",

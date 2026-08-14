@@ -37,9 +37,9 @@
  * `FORBIDDEN` set is where the zod half rides in)
  * — which is exactly the property a daemon-facing module needs, from the other end: the
  * daemon is Node-portable (`AGENTS.md`'s shipping contract) and must never pull React or
- * the engine. Two rules written for opposite reasons meet on the same floor. This module
- * holds TYPES ONLY, so every import of it is erased and neither side takes a runtime edge
- * on the other at all.
+ * the engine. Two rules written for opposite reasons meet on the same floor. It holds ONE
+ * runtime value ({@link AGENT_ORIGIN}) and is otherwise types, so the daemon's two imports
+ * of it are still erased and it takes no runtime edge on the chrome at all.
  *
  * It is also `shared/`'s first DAEMON-facing member — the others (`catalog.ts`,
  * `field-brush.ts`, `action-table.ts`, `tool-registry.ts`, …) are chrome↔host. The layer
@@ -47,9 +47,16 @@
  * is unchanged by that: the daemon is a fourth reader ABOVE the floor like every other, and
  * `shared/` still imports nothing above itself.
  *
- * IT HOLDS TYPES ONLY AND STILL DOES. Since T4c it has TWO imports, both `import type` and
- * both from siblings on this same floor, so this module still compiles to nothing and still
- * gives neither side a runtime edge. `CaptureView` comes from `./capture.ts`, which is a
+ * IT HELD TYPES ONLY UNTIL THE UNDO-ATTRIBUTION SLICE, and what changed is one string.
+ * {@link AGENT_ORIGIN} is a `const`, so this module no longer compiles to nothing — the
+ * chrome's answerer registry value-imports it. `shared/capture.ts` is the precedent and the
+ * argument is its: a bare string literal is React-free, engine-free, zod-free and
+ * Node-portable, which is the whole of what this floor's two leakage suites enforce. The
+ * DAEMON's two imports stay `import type` and stay erased, so the property that actually
+ * mattered — neither bundle taking a runtime edge on the other — is intact.
+ *
+ * Its TWO type imports are both `import type` and both from siblings on this same floor.
+ * `CaptureView` comes from `./capture.ts`, which is a
  * VALUE module (it carries the array the daemon's schema and the MCP door enumerate) that
  * this file deliberately takes only the type off; `BrushOpInput` comes from
  * `./field-op.ts`, which is types-only like this one and is where the op vocabulary is
@@ -63,6 +70,24 @@
  */
 import type { CaptureView } from "./capture.ts";
 import type { BrushOpInput } from "./field-op.ts";
+
+/**
+ * The one origin tag the editor stamps on agent-authored field ops and log entries
+ * (core `FieldOp.origin` / `LogEntry.origin`).
+ *
+ * STAMPED AT THE SESSION-ANSWERER SEAM (`frontend/lib/session-answerers.ts`), which is the
+ * whole of the trust argument: everything arriving over the daemon backchannel is
+ * agent-initiated by construction, so the tab can assert authorship rather than believe a
+ * claim. The agent client never self-declares it — there is no `origin` field on any
+ * request shape in this file, deliberately. The chrome's own surfaces dispatch WITHOUT it,
+ * and absent = human (core's `FieldOp.origin`).
+ *
+ * UNRELATED TO THE DAEMON'S HTTP `Origin` DEFENCE (`daemon/origin.ts`), and the collision of
+ * spelling is worth the sentence: that one is a browser request header checked against a
+ * DNS-rebinding allowlist, this one is op PROVENANCE written into the op log. In
+ * daemon-adjacent code prefer `opOrigin` / this constant over a bare local named `origin`.
+ */
+export const AGENT_ORIGIN = "agent:mcp";
 
 /**
  * A question the daemon is relaying to the claimed editor session.
