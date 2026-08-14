@@ -15,11 +15,14 @@
 // This module cannot say a refusal even if a caller wanted it to: nothing here takes an
 // outcome (see `ran`).
 //
-// IT IS ALSO NOT ATTRIBUTION. It says nothing about which op in the log came from an agent;
-// that needs a field on `LogEntry` and a wire-format decision, is fenced to post-T4 by user
-// ruling, and is designed together with the agent undo verb. A reader who mistakes this for
-// attribution would conclude the last verb OWNS the last edit, which is exactly the kind of
-// join T4c spent a whole member removing (`shared/wire.ts`'s `ArmedState`).
+// IT IS ALSO NOT ATTRIBUTION, and it stayed that way after attribution SHIPPED. The
+// undo-attribution slice put `origin` on core's `FieldOp` and `LogEntry` and lifted the undo
+// fence behind an ownership guard — so the log now knows which entry came from an agent, and
+// this store still does not and must not become the place that says so. It records the last
+// METHOD, which is a different fact: a reader who mistook it for attribution would conclude
+// the last verb OWNS the last edit, exactly the kind of join T4c spent a whole member
+// removing (`shared/wire.ts`'s `ArmedState`), and it would be wrong for every read verb.
+// Showing attribution to the human is blame UI and is nobody's job yet.
 //
 // FRAMEWORK-FREE, the `notify-store.ts` discipline: subscribe/getSnapshot is the
 // `useSyncExternalStore` contract and nothing more, so what is recorded and what is shown are

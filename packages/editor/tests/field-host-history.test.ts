@@ -230,6 +230,39 @@ test("undo moves the entry to the REDO side and republishes both", () => {
   });
 });
 
+test("topEntryOrigin reads the TOP entry's tag, per stack — the ownership guard's reader", () => {
+  // **THE FACADE HALF OF THE UNDO OWNERSHIP GUARD (undo-attribution slice).** The guard
+  // itself is `frontend/lib/actions.ts`' and is unit-tested against a host SPY
+  // (`tests/actions.test.ts`), which pins the policy and can say nothing about whether this
+  // delegate reads the right array. That is exactly the defect this case exists for: the
+  // two stacks are one ternary apart, and a reader that answered the undo stack for both
+  // would let an agent redo over the human's work while every policy case stayed green.
+  const host = createFieldHost();
+  const id = loadHallWorld(host);
+  // A LOADED WORLD HAS AN EMPTY HISTORY (the case above states it), and an empty stack
+  // answers `undefined` — the same answer a human-authored top gives. The guard never has
+  // to tell them apart because `enabled` refuses the empty case first, which is why this is
+  // a documented conflation rather than a hole.
+  expect(host.topEntryOrigin("undo")).toBeUndefined();
+  expect(host.topEntryOrigin("redo")).toBeUndefined();
+
+  host.deleteEntity(id, "agent:mcp");
+  expect(host.topEntryOrigin("undo")).toBe("agent:mcp");
+  expect(host.topEntryOrigin("redo")).toBeUndefined();
+
+  // THE ENTRY CARRIES ITS TAG ACROSS THE STEP, which is what makes an agent's own redo
+  // reachable at all: undo moves the entry to the other stack, and the origin moves with it.
+  host.undo();
+  expect(host.topEntryOrigin("undo")).toBeUndefined();
+  expect(host.topEntryOrigin("redo")).toBe("agent:mcp");
+
+  // ABSENT = HUMAN, on a fresh host so the assertion is about the WRITE and not about a
+  // previous entry having been cleared.
+  const theirs = createFieldHost();
+  theirs.deleteEntity(loadHallWorld(theirs));
+  expect(theirs.topEntryOrigin("undo")).toBeUndefined();
+});
+
 test("a world reset empties the history", () => {
   const host = createFieldHost();
   const id = loadHallWorld(host);

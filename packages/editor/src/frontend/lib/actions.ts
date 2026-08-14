@@ -669,6 +669,56 @@ const answeredByHost = (
   return Promise.resolve(ask(host));
 };
 
+/**
+ * THE HISTORY OWNERSHIP GUARD (undo-attribution slice): an agent-originated dispatch may
+ * step only an entry that agent authored. Answers the refusal, or `null` to proceed.
+ *
+ * **WHAT IT REPLACED, and what was traded to get here.** `daemon/session-handlers.ts` held a
+ * `FENCED_ACTIONS` deny-list refusing `edit.undo`/`edit.redo` for every agent, because the
+ * op log carried no attribution and a step would routinely discard the HUMAN's last stroke.
+ * Ops carry `origin` now (core's oplog v4), so the rule can be the one it always wanted to
+ * be. But the fence's own docblock argued for living in the DAEMON, on a property this does
+ * not have: *"a daemon-side fence holds regardless of what the tab believes"* — the
+ * `bun run edit` loop restarts the daemon on every source change while an open tab keeps the
+ * bundle it booted with, so a STALE tab under a new daemon would answer `edit.undo`
+ * unguarded. That property is knowingly given up, not overlooked, and the mitigation is NOT
+ * `bundle-outdated`: that watcher covers the CONSUMER's extension source
+ * (`daemon/server.ts` watches the configured `extensions` entry's directory), so an edit to
+ * THIS file emits nothing and reloads no tab. What actually bounds it is two facts, and
+ * neither of them is "an agent will be careful": the exposed loop is single-user local dev
+ * with an agent driving a tab that outlived a daemon restart, and an errant step is
+ * NON-DESTRUCTIVE — the entry moves to the other stack and ⇧⌘Z brings it back, so losing it
+ * takes a further mutation to clear the redo stack. A guard that reads state cannot live
+ * where the state is not, and the state is the tab's.
+ *
+ * **HUMANS ARE NOT GUARDED, and the asymmetry is the policy rather than an omission.** A
+ * chrome dispatch carries no `ctx.origin` at all (absent = human, core's own convention), so
+ * this returns `null` for every one of them: the person owns the world and steps anything in
+ * it, including an agent's work. Guarding both directions would lock someone out of undoing
+ * what an agent just did in their own tab — the exact failure the fence existed to prevent,
+ * pointed the other way.
+ *
+ * **ONLY THE TOP ENTRY.** There is no "undo my last op wherever it is": burrowing into the
+ * stack is a compensating-op problem, not a history-step one, and the refusal says so by
+ * naming the remedy an agent actually has (apply the inverses as new content).
+ *
+ * A NULL HOST FALLS THROUGH rather than being refused here, so the no-engine sentence stays
+ * `handOffToHost`'s to say — one refusal for one condition, which is what
+ * `tests/actions.test.ts`' host-verb sweep asserts across all fourteen sites.
+ */
+const stepsOwnWork = (
+  ctx: ActionCtx,
+  stack: "undo" | "redo",
+): ActionResult | null => {
+  if (ctx.origin === undefined || ctx.host === null) return null;
+  const top = ctx.host.topEntryOrigin(stack);
+  if (top === ctx.origin) return null;
+  return refused(
+    `the top history entry is ${top === undefined ? "the human's" : `"${top}"'s`} — an agent steps only its own work. Ask the operator, or reverse your own earlier ops by applying their inverses as new content.`,
+    "inert",
+  );
+};
+
 // --- families ---------------------------------------------------------------
 //
 // THE ROWS ARE THE ONLY COPY since T3b2 Task 5. Three member arrays used to stand here —
@@ -944,14 +994,25 @@ const BEHAVIORS: ActionBehaviors = {
       ctx.history.undoLabel === null ? "Undo" : `Undo ${ctx.history.undoLabel}`,
     enabled: (ctx) => (ctx.stats?.undoDepth ?? 0) > 0,
     inertHint: "nothing to undo — the field's op log is empty",
-    run: handOffToHost((host) => host.undo()),
+    // The ownership guard ({@link stepsOwnWork}) runs AFTER `enabled`, which is what makes
+    // the empty-stack case answer the hint above rather than "the top entry is the human's"
+    // about an entry that does not exist.
+    run: (ctx) => {
+      const notYours = stepsOwnWork(ctx, "undo");
+      if (notYours !== null) return Promise.resolve(notYours);
+      return handOffToHost((host) => host.undo())(ctx);
+    },
   },
   "edit.redo": {
     label: (ctx) =>
       ctx.history.redoLabel === null ? "Redo" : `Redo ${ctx.history.redoLabel}`,
     enabled: (ctx) => (ctx.stats?.redoDepth ?? 0) > 0,
     inertHint: "nothing to redo — nothing has been undone",
-    run: handOffToHost((host) => host.redo()),
+    run: (ctx) => {
+      const notYours = stepsOwnWork(ctx, "redo");
+      if (notYours !== null) return Promise.resolve(notYours);
+      return handOffToHost((host) => host.redo())(ctx);
+    },
   },
   "edit.duplicate": {
     label: (ctx) =>

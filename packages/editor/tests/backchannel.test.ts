@@ -947,47 +947,37 @@ test("action.run validates the SIX ids that take input, and relays the rest unto
   // the run falls back to what is selected.
   await relayAndSettle(handlers, tab, { id: "edit.duplicate" });
 
-  // A BARE verb relays straight through. `view.frame` rather than `edit.undo`, which this
-  // door fences (see the undo case below).
+  // A BARE verb relays straight through.
   await relayAndSettle(handlers, tab, { id: "view.frame" });
 });
 
-test("action.run FENCES undo and redo — a user ruling, enforced at the daemon", async () => {
-  // THE STOP CONDITION, held by a rule rather than by non-advertisement. No dedicated undo
-  // verb was ever built, but `action.run` accepts any registered id — and a door that
-  // accepts `edit.undo` IS an agent undo verb wearing a different spelling. Without op
-  // attribution the log is a bare LIFO, so an agent's undo pops whatever is on top, which
-  // is routinely the HUMAN's stroke.
+test("action.run RELAYS undo and redo — the deny-list is gone, ownership is the TAB's", async () => {
+  // **THE FENCE LIFT (undo-attribution slice), pinned as the absence it is.** This door held
+  // a `FENCED_ACTIONS` deny-list — the only one in the daemon — that refused both ids for
+  // every agent with `invalid-input`, because the op log carried no attribution and a step
+  // would pop whatever was on top, routinely the HUMAN's stroke. Ops carry `origin` now
+  // (core's oplog v4), so the rule became a state-dependent OWNERSHIP guard inside the run:
+  // an agent steps only an entry it authored. This handler holds no opinion about ids at all
+  // any more, which is what these two relays state.
   const { handlers, session } = daemon();
   const tab = session("cavern");
-  for (const id of ["edit.undo", "edit.redo"]) {
-    // BY NAME, so a fence that lets one through reds as itself.
-    expect([
-      id,
-      await codeOf(dispatch(handlers, "action.run", { id })),
-    ]).toEqual([id, "invalid-input"]);
-  }
-  // NOT ONE FRAME reached the tab — the fence is a refusal, not a relay the chrome
-  // declines. A round trip would put the decision in a bundle that can be older than this
-  // daemon, which is the whole reason it lives here.
-  expect(requestsTo(tab)).toEqual([]);
-});
-
-test("the fence REFUSES with a reason and a lift condition, not a bare no", () => {
-  // A refusal an agent cannot act on is a refusal it retries. This one says WHY (no
-  // attribution), what that costs (it would discard the human's work) and WHEN it lifts.
-  const { handlers, session } = daemon();
-  session("cavern");
-  return dispatch(handlers, "action.run", { id: "edit.undo" }).then(
-    () => {
-      throw new Error("expected a refusal");
-    },
-    (err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      expect(message).toContain("attribution");
-      expect(message).toContain("lifts");
-    },
-  );
+  // A FRAME PER ID, checked BY NAME so a deny-list that grew back around one of them reds
+  // as itself. `relayAndSettle` asserts the params reached the tab verbatim, which is the
+  // claim: the daemon relayed rather than decided.
+  for (const id of ["edit.undo", "edit.redo"])
+    expect((await relayAndSettle(handlers, tab, { id })).method).toBe(
+      "action.run",
+    );
+  // THE PROPERTY KNOWINGLY TRADED, recorded where the fence's argument used to stand. That
+  // docblock's case for living HERE was that *"a daemon-side fence holds regardless of what
+  // the tab believes"* — the `bun run edit` loop restarts this daemon on every source change
+  // while an open tab keeps the bundle it booted with, so a stale tab now answers unguarded
+  // — and `bundle-outdated` does NOT cover it (that watcher is on the consumer's extension
+  // source, not the editor's own). Accepted on two bounds: the exposure is a single-user
+  // local dev loop with an agent driving a tab that outlived a restart, and an errant step
+  // is non-destructive (the entry moves to the other stack; ⇧⌘Z brings it back). A guard
+  // that reads state cannot live where the state is not.
+  expect(requestsTo(tab)).toHaveLength(2);
 });
 
 test("a PROTOTYPE key is not an action schema — `toString` refuses, it does not 500", async () => {

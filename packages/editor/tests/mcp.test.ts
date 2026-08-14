@@ -161,17 +161,25 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   expect(advertised().length).toBeLessThanOrEqual(10);
   // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
   // ceiling-of-ten exists because "every row a model must consider is paid for on every
-  // turn"; the descriptions are 7,865 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // turn"; the descriptions are 7,983 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
   // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
   // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
   // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6, 1.157× after the
-  // T4c review's 1,078 bytes of corrections, 1.092× after T5's 420, and is 1.042× after
-  // cycle 2's flags arm spent 363 — 327 bytes left, which is SHORTER THAN SEVEN OF THE NINE
-  // ROWS. The tenth-row headroom this comment used to claim is gone, and that is the budget
-  // working rather than slack running out: a tenth verb now has to be argued against the
-  // prose cap before the ceiling of ten is even reached — and on this figure a tenth row
-  // would have to be shorter than the two SHORTEST rows standing (project_get, 214;
-  // world_list, 255), which no verb with arms has managed.
+  // T4c review's 1,078 bytes of corrections, 1.092× after T5's 420, 1.042× after cycle 2's
+  // flags arm spent 363, and is 1.026× after the undo-attribution slice spent 118 — 209
+  // bytes left, SHORTER THAN EVERY ONE OF THE NINE ROWS. The tenth-row headroom this comment
+  // used to claim is gone, and that is the budget working rather than slack running out: a
+  // tenth verb now has to be argued against the prose cap before the ceiling of ten is even
+  // reached, and there is no longer a standing row short enough to be the model for one
+  // (the shortest is project_get, 214).
+  //
+  // WHAT THE LAST 118 BOUGHT, because a budget spent without a reason recorded is a budget
+  // that gets spent again: the fence lift REWROTE the undo sentence at par (the rule changed
+  // from "never" to "only your own") and ADDED one about `session.confirm` being left
+  // unattributed. That second one is not a caveat — an agent told it may step its own work
+  // will step a confirm it triggered and read "the top history entry is the human's", which
+  // is true under the absent-means-human convention and reads as a contradiction without
+  // this sentence.
   // A TOTAL rather than a per-row cap, because `session_query`'s wall is the one length this
   // door had to buy.
   // The figures above are derived, not typed: `bun test tests/mcp.test.ts` with a scratch
@@ -336,21 +344,23 @@ test("every bound the document states is a bound dispatch enforces", () => {
     (l) => !(t.boundRefusals[l]?.text ?? "").includes("invalid-input"),
   );
   expect({ probes: labels.length, admitted, wrongCode }).toEqual({
-    probes: 13,
+    probes: 12,
     admitted: [],
     wrongCode: [],
   });
-  // **THE THREE THAT ARE NOT SCHEMA KEYWORDS**, each carrying its rule as prose, because
+  // **THE TWO THAT ARE NOT SCHEMA KEYWORDS**, each carrying its rule as prose, because
   // prose is what an agent has instead of a bound it could have read. The count is the point
-  // as much as the cases: the door has exactly three looser-than-validation points and the
-  // probe's docblock enumerates them, so a FOURTH arriving unlisted is the thing to catch.
+  // as much as the cases: the door has exactly two looser-than-validation points and the
+  // probe's docblock enumerates them, so a THIRD arriving unlisted is the thing to catch.
+  //
+  // IT WAS THREE UNTIL THE UNDO-ATTRIBUTION SLICE, and the third — a FENCED ACTION ID —
+  // went away with the rule rather than with the pin: `FENCED_ACTIONS` refused
+  // `edit.undo`/`edit.redo` for every agent at the daemon, and undo ownership is a guard
+  // inside the tab's run now. The id's new behaviour at this door has its own case below.
   expect(
     t.boundRefusals["a zero direction — the ONE bound no JSON Schema can state"]
       ?.text,
   ).toContain("zero vector");
-  expect(
-    t.boundRefusals["a fenced action id — a handler rule, not a shape"]?.text,
-  ).toContain("op attribution");
   // The stray key on an action row — the `z.object` → `z.strictObject` change, at the WIRE.
   // Before it, this call answered ok having silently discarded `nope`. The message names the
   // key, which is what makes the refusal actionable rather than merely correct.
@@ -470,10 +480,19 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     ),
     interruptCannotAbort:
       row("session_interrupt").includes("cannot stop a bake"),
-    // (4) The undo fence, said where an agent would otherwise discover it by being refused.
-    undoFenced: row("action_run").includes(
-      "edit.undo and edit.redo are refused for every agent",
+    // (4) The undo OWNERSHIP rule, said where an agent would otherwise discover it by being
+    // refused. It read "refused for every agent" until the undo-attribution slice, when the
+    // daemon's `FENCED_ACTIONS` deny-list was replaced by a guard the tab applies against
+    // the top entry's `origin` — so the row had to stop saying "never" and start saying
+    // "only your own", which is a different instruction rather than a softer one.
+    undoOwnOnly: row("action_run").includes(
+      "edit.undo and edit.redo step only YOUR OWN work",
     ),
+    // AND THE ONE ENTRY THE RULE MAKES UNREACHABLE, because an agent told "you may step your
+    // own work" will otherwise try to step a confirm it triggered and read a refusal it
+    // cannot explain: a stamp session is staged by the HUMAN (region, params) and merely
+    // triggered by whoever confirms it, so the commit is deliberately left unattributed.
+    confirmUnattributed: row("action_run").includes("session.confirm"),
   }).toEqual({
     armedness: true,
     contactProbe: true,
@@ -482,7 +501,8 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     interruptOneThing: true,
     interruptRecency: true,
     interruptCannotAbort: true,
-    undoFenced: true,
+    undoOwnOnly: true,
+    confirmUnattributed: true,
   });
 });
 
@@ -494,6 +514,27 @@ test("a WELL-FORMED batch is refused by the SESSION, not by the schema", () => {
   expect(t.wellFormedBatch.isError).toBe(true);
   expect(t.wellFormedBatch.text).toContain("no-session");
   expect(t.wellFormedBatch.text).not.toContain("invalid-input");
+});
+
+test("edit.undo is no longer FENCED at the door — it reaches the session like any verb", () => {
+  // **THE FENCE LIFT, AT THE WIRE.** `session-handlers.ts` held a `FENCED_ACTIONS`
+  // deny-list that refused `edit.undo`/`edit.redo` for every agent with `invalid-input` and
+  // a sentence about missing op attribution. Ops carry `origin` since core's oplog v4, so
+  // the rule moved into the tab's own run as a state-dependent OWNERSHIP guard: an agent
+  // steps only an entry it authored, and the human's entries are never popped.
+  //
+  // WHAT THIS CASE CAN AND CANNOT SEE. It runs with no editor open, so it pins the DOOR:
+  // the id is admitted, relayed, and refused by the missing session exactly as
+  // `wellFormedBatch` above is. The guard's own matrix — agent over its own entry, agent
+  // over the human's, the human's un-guarded asymmetry, and redo — is unit-tested against
+  // the real registry in `tests/actions.test.ts`, because this harness's claimed sessions
+  // are answered by a fake chrome that would only echo a refusal the probe itself wrote.
+  expect(t.undoReachesTheSession.isError).toBe(true);
+  expect(t.undoReachesTheSession.text).toContain("no-session");
+  // NOT the schema, and NOT the old fence. Both halves are named: `invalid-input` is what
+  // the deny-list answered with, and the sentence is what an agent would have read.
+  expect(t.undoReachesTheSession.text).not.toContain("invalid-input");
+  expect(t.undoReachesTheSession.text).not.toContain("op attribution");
 });
 
 test("viewport_capture hands over an IMAGE block, and the base64 appears exactly once", () => {

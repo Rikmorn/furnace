@@ -27,13 +27,25 @@ const wrote = () => mock(() => Promise.resolve(ACTION_OK));
  *  `tests/field-host-camera.test.ts`', against a host that has a selection to be empty. */
 const framed = () => mock((): ActionResult => ACTION_OK);
 
-/** The FOURTEEN host verbs the action table runs, plus `isLooking`, which no `run` calls —
- *  the window dispatcher polls it per keypress to build `GateEnv.looking`. Every one of
- *  them, and NOTHING else. Both halves are load-bearing, and foundations T3b2 found this
- *  list failing both.
+/** The reader the ownership guard asks (undo-attribution slice), and the only member here
+ *  that is not a verb: `edit.undo`/`edit.redo` ask whose the top history entry is before
+ *  they step it, and an agent-originated dispatch is refused over anybody else's. Typed
+ *  `string | undefined` rather than left to `mock()`'s inferred `undefined` so a case can
+ *  `mockReturnValue` an origin at all — `undefined` IS one of the two answers under test
+ *  (a human-authored top), so the default is the human case and every agent case says so.
+ *  The parameter is declared though the body ignores it, for the other half: `mock.calls`
+ *  is what pins that `edit.redo` asks about the REDO stack, and a nullary spy would record
+ *  an empty tuple and agree with a guard that read the wrong one. */
+const topOrigin = () =>
+  mock((_stack: "undo" | "redo"): string | undefined => undefined);
+
+/** The FOURTEEN host verbs the action table runs, plus `topEntryOrigin` (a READ, not a verb
+ *  — see above) and `isLooking`, which no `run` calls — the window dispatcher polls it per
+ *  keypress to build `GateEnv.looking`. Every one of them, and NOTHING else. Both halves are
+ *  load-bearing, and foundations T3b2 found this list failing both.
  *
  *  DERIVED BY `grep -o "host\.[a-zA-Z]*(" packages/editor/src/frontend/lib/actions.ts |
- *  sort -u`, which returns these fifteen and is a REPLACEMENT: this line used to cite
+ *  sort -u`, which returns these sixteen and is a REPLACEMENT: this line used to cite
  *  `grep -o 'ctx\.host?\.[a-zA-Z]*'`, and T4c is what retired it — the three host seams
  *  bind the host to a local `host` before calling it, so that pattern now matches only the
  *  two places `actions.ts` QUOTES the old shape in prose. A citation that returns the wrong
@@ -61,6 +73,7 @@ export function makeHostSpy() {
   return {
     undo: mock(),
     redo: mock(),
+    topEntryOrigin: topOrigin(),
     deleteEntity: mock(),
     duplicateEntity: mock(),
     beginMove: mock(),

@@ -278,11 +278,14 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * one. (`session.interrupt` is projected and is not a counter-example: it takes no token and
  * addresses the claimed tab, exactly as `session.state` does.)
  *
- * **`edit.undo` AND `edit.redo` ARE UNREACHABLE, AND NOT BY OMISSION.** They are registry
- * action ids, so `action_run` would carry them; `session-handlers.ts`'s `FENCED_ACTIONS`
- * refuses both daemon-side, and the `action_run` row below says so out loud. Non-advertisement
- * is not enforcement — that is the distinction this tranche keeps making, and here it is made
- * in both directions at once.
+ * **`edit.undo` AND `edit.redo` ARE REACHABLE AND OWNERSHIP-GUARDED, since the
+ * undo-attribution slice.** They were UNREACHABLE for one tranche: `session-handlers.ts` held
+ * a `FENCED_ACTIONS` deny-list refusing both daemon-side, because the op log carried no
+ * attribution and a step would routinely discard the human's own stroke. Ops carry `origin`
+ * now (core's oplog v4), so the deny-list is gone and the rule lives where the state does —
+ * the tab's own run refuses either verb unless the top history entry was authored over this
+ * door. The `action_run` row below says so out loud, which is the same courtesy the fence
+ * got and the same distinction: prose is advertisement, and the guard is the enforcement.
  */
 const TOOLS: readonly ToolRow[] = [
   {
@@ -340,7 +343,7 @@ const TOOLS: readonly ToolRow[] = [
     command: "action.run",
     reads: false,
     description:
-      "PRESS one of the editor's own buttons, by id — the same verbs the human's menus and keys dispatch: world.save, world.bake, view.frame, and around thirty more. Most take no `input`. The six that do are world.saveAs {name}, world.makeDefault {name}, edit.duplicate {entityId}, edit.delete {entityId}, edit.grab {entityId} and tool.stamp {generatorId}; each requires exactly its own fields, and an undeclared key is refused rather than ignored. Omitting `input` is always legal and means \"act on whatever the human has selected\". An id that does not exist is refused WITH the list of ids that do. edit.undo and edit.redo are refused for every agent: the log carries no per-op attribution yet, so stepping it would discard whatever is on top — routinely the human's own stroke, not yours.",
+      "PRESS one of the editor's own buttons, by id — the same verbs the human's menus and keys dispatch: world.save, world.bake, view.frame, and around thirty more. Most take no `input`. The six that do are world.saveAs {name}, world.makeDefault {name}, edit.duplicate {entityId}, edit.delete {entityId}, edit.grab {entityId} and tool.stamp {generatorId}; each requires exactly its own fields, and an undeclared key is refused rather than ignored. Omitting `input` is always legal and means \"act on whatever the human has selected\". An id that does not exist is refused WITH the list of ids that do. edit.undo and edit.redo step only YOUR OWN work: each is refused unless the top history entry carries your origin, so the human's is never popped — reverse anything else by applying inverse ops. session.confirm commits a session the HUMAN staged, so it is left unattributed on purpose and you cannot step it.",
   },
   {
     tool: "session_interrupt",
@@ -426,7 +429,9 @@ const advertise = (command: string, schema: z.ZodType): Tool["inputSchema"] => {
  * the reachable set did not move: it is still `no-session` and `session-timeout` (the
  * backchannel's own refusals, and the reason this table exists), `internal` (a chrome that
  * answered "I could not do that", and a genuine daemon fault alike) and `invalid-input`
- * (every schema refusal, plus `action.run`'s fence). Re-derived at T4c Task 6 by reading what
+ * (every schema refusal — and, until the undo-attribution slice, `action.run`'s fence too;
+ * that deny-list is gone and undo ownership is refused one bundle away, as a relayed
+ * `ActionResult`). Re-derived at T4c Task 6 by reading what
  * each of the nine commands can throw rather than by re-reasoning from the old sentence.
  *
  * WHY THE OTHER SIX STILL CANNOT ARRIVE, one clause each, because "we predicted wrong" is only

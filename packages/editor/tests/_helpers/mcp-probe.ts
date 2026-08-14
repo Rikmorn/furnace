@@ -74,6 +74,18 @@ export type McpTranscript = {
    *  session. Without it every `boundRefusals` case would pass over a door that refused
    *  everything. */
   wellFormedBatch: ToolOutcome;
+  /** `action_run {id:"edit.undo"}` — the id the daemon used to FENCE, sent at the door.
+   *
+   *  THE END-TO-END HALF OF THE FENCE LIFT. The deny-list is gone and undo ownership is a
+   *  guard inside the tab's own run, so this call must now get PAST the daemon and refuse
+   *  for the same reason any relayed verb refuses here: no session. What it must NOT be is
+   *  `invalid-input` carrying the old fence's sentence.
+   *
+   *  IT PINS THE DOOR AND NOT THE GUARD, and the distinction is the harness's rather than a
+   *  choice: `withClaimedSession` answers with a fake chrome that posts whatever payload the
+   *  probe hands it, so a claimed run here would assert a refusal this file wrote. The
+   *  ownership matrix is unit-tested against the real registry in `tests/actions.test.ts`. */
+  undoReachesTheSession: ToolOutcome;
   relay: { sent: unknown; outcome: ToolOutcome };
   capture: CaptureOutcome;
   nullAnswer: { postedBody: string; outcome: ToolOutcome };
@@ -263,25 +275,32 @@ async function handshakeAndTools(): Promise<
  * advertisement refused this" versus "the advertisement admitted this", with no session
  * machinery in the way of either.
  *
- * **THE LAST THREE ENTRIES ARE THE KNOWN GAPS rather than bounds** — every rule this door
+ * **THE LAST TWO ENTRIES ARE THE KNOWN GAPS rather than bounds** — every rule this door
  * enforces that its projected document cannot state, pinned here so the set stays known and
- * counted. There are exactly three, and each fails to project for a different reason:
+ * counted. There are exactly two, and each fails to project for a different reason:
  *
  *  1. **A zero direction vector.** JSON Schema has no "not this value", so `direction3`'s
  *     refinement cannot become a keyword. It rides `.describe()` instead, and the suite pins
  *     both the description and the refusal.
- *  2. **A fenced action id.** `FENCED_ACTIONS` is a rule inside `action.run`'s handler over a
- *     free-string `id`, not a shape — enumerating the fenced ids in the schema would make the
- *     deny-list a wire contract two places have to agree about.
- *  3. **A stray key on an action row's `input`.** `action_run` advertises `input` as
+ *  2. **A stray key on an action row's `input`.** `action_run` advertises `input` as
  *     `unknown` (which is what its own schema says, and what is TRUE for the 33 bare verbs);
  *     the six that take an object are parsed against `ACTION_INPUT_SCHEMAS` one layer deeper.
  *     A per-id `oneOf` in the document would be a lie for the other 33.
  *
- * All three must still refuse, and the message is what an agent has instead of a keyword.
+ * Both must still refuse, and the message is what an agent has instead of a keyword.
+ *
+ * **THERE WERE THREE UNTIL THE UNDO-ATTRIBUTION SLICE.** The third was a FENCED ACTION ID:
+ * `session-handlers.ts` held a `FENCED_ACTIONS` deny-list over `action_run`'s free-string
+ * `id`, refusing `edit.undo`/`edit.redo` for every agent. That list is gone — undo ownership
+ * is now a state-dependent guard inside the tab's own run — so the door has one fewer rule
+ * its document cannot state, and the count went DOWN rather than being weakened. What the
+ * door does with that id now is {@link McpTranscript.undoReachesTheSession}.
  */
 async function boundScenarios(): Promise<
-  Pick<McpTranscript, "boundRefusals" | "wellFormedBatch">
+  Pick<
+    McpTranscript,
+    "boundRefusals" | "wellFormedBatch" | "undoReachesTheSession"
+  >
 > {
   const goodOp = {
     kind: "brush",
@@ -332,11 +351,6 @@ async function boundScenarios(): Promise<
       "session_query",
       { about: "ray", origin: [0, 0, 0], dir: [0, 0, 0] },
     ],
-    [
-      "a fenced action id — a handler rule, not a shape",
-      "action_run",
-      { id: "edit.undo" },
-    ],
     // **THE STRIP→REFUSE CHANGE, AT THE WIRE.** `action_run`'s own schema admits any
     // `input`, so this key is refused one layer deeper — by the per-id schema
     // `ACTION_INPUT_SCHEMAS` holds, which went `z.strictObject` in the same commit that
@@ -362,6 +376,12 @@ async function boundScenarios(): Promise<
       // SESSION rather than from the schema. It is what stops the twelve above passing over
       // a door that refuses every argument it is handed.
       wellFormedBatch: await call(agent, "edit_apply", { ops: [goodOp] }),
+      // The id the deny-list used to hold, on the same unclaimed agent: it must now behave
+      // like any other admitted argument — past the schema, past the daemon, and refused by
+      // the session that is not there.
+      undoReachesTheSession: await call(agent, "action_run", {
+        id: "edit.undo",
+      }),
     };
   } finally {
     await agent.close();
@@ -631,6 +651,7 @@ try {
       (d) => ({
         boundRefusals: { "probe-failed": failedCall(d) },
         wellFormedBatch: failedCall(d),
+        undoReachesTheSession: failedCall(d),
       }),
       boundScenarios,
     )),

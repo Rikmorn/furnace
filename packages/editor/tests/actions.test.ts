@@ -1662,6 +1662,108 @@ test("runNamedById reaches the real verb, gate and all", async () => {
   expect(await runNamedById("view.frame", makeCtx())).toEqual({ ok: true });
 });
 
+// --- the history OWNERSHIP guard (undo-attribution slice) --------------------
+//
+// WHAT REPLACED THE FENCE. `edit.undo`/`edit.redo` used to be refused daemon-side for every
+// agent, by a `FENCED_ACTIONS` deny-list in `daemon/session-handlers.ts`, because the op log
+// carried no attribution and stepping it would routinely discard the HUMAN's last stroke.
+// Ops carry `origin` since core's oplog v4, so the rule is now a state-dependent guard in
+// the run itself: an agent-originated dispatch pops only an entry it authored.
+//
+// THE MATRIX IS FIVE CELLS and this section pins four of them directly — agent over its own
+// top, agent over the human's, human over an agent's (the ASYMMETRY), and redo, which is the
+// same rule over the other stack. The fifth, agent over an EMPTY stack, never reaches the
+// guard at all: `enabled` reads `stats.undoDepth` and `refuseOrClaim` answers `inertHint`
+// first, which is why every case here supplies non-zero depths. The end-to-end half — that
+// the DOOR no longer refuses these two ids before the tab ever sees them — is
+// `tests/mcp.test.ts`'s `undoReachesTheSession`.
+//
+// EVERY CASE GOES THROUGH `runNamedById`, deliberately: the guard's whole subject is a
+// dispatch that arrived over the agent relay, and that relay's one entry point is this
+// funnel. Driving `byId("edit.undo").run(…)` would skip the `enabled` gate the empty-stack
+// cell is decided by, so the matrix would be pinned against a shape no caller has.
+
+/** A history ctx with something on BOTH stacks — so `enabled` passes and the guard is what
+ *  decides — plus a host answering `top` for whichever stack is asked. `origin` is spread
+ *  conditionally and never written as `undefined`: absent IS the human, and a present-but-
+ *  undefined key would make the guard's `ctx.origin !== undefined` test read the same either
+ *  way, which is the one distinction these cases exist to draw. */
+const historyCtx = (top: string | undefined, origin?: string): ActionCtx => {
+  const ctx = makeCtx({
+    stats: { undoDepth: 2, redoDepth: 2 } as never,
+    ...(origin === undefined ? {} : { origin }),
+  });
+  (
+    ctx.host as unknown as ReturnType<typeof makeHostSpy>
+  ).topEntryOrigin.mockReturnValue(top);
+  return ctx;
+};
+
+const AGENT = "agent:mcp";
+
+test("agent undo over its own top entry runs", async () => {
+  const ctx = historyCtx(AGENT, AGENT);
+  expect(await runNamedById("edit.undo", ctx)).toEqual({ ok: true });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  // REACHED THE HOST, not merely answered ok — the verdict alone would also be satisfied by
+  // a guard that returned early and claimed success.
+  expect(host.undo.mock.calls).toEqual([[]]);
+  expect(host.topEntryOrigin.mock.calls).toEqual([["undo"]]);
+});
+
+test("agent undo over the human's top entry refuses inert, naming whose it is", async () => {
+  const ctx = historyCtx(undefined, AGENT);
+  const answer = await runNamedById("edit.undo", ctx);
+  expect(answer).toMatchObject({
+    ok: false,
+    kind: "refused",
+    because: "inert",
+  });
+  if (answer.ok) throw new Error("expected a refusal");
+  if (answer.kind !== "refused") throw new Error("expected refused");
+  // WHOSE IT IS, spelled out: a refusal that only said "no" would be retried, and an agent
+  // that cannot tell "the stack is empty" from "that entry is not yours" cannot choose a
+  // different move. `undefined` is the human, and the sentence has to say so.
+  expect(answer.message).toMatch(/human/);
+  expect(
+    (ctx.host as unknown as ReturnType<typeof makeHostSpy>).undo.mock.calls,
+  ).toEqual([]);
+});
+
+test("human undo needs no ownership — a ctx without origin steps an agent's entry", async () => {
+  // THE ASYMMETRY, and the whole shape of the policy: the human owns the world and steps
+  // anything in it. A guard applied in both directions would lock a person out of undoing
+  // work an agent did in their own tab, which is the opposite of the property this replaces.
+  const ctx = historyCtx(AGENT);
+  expect(await runNamedById("edit.undo", ctx)).toEqual({ ok: true });
+  const host = ctx.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(host.undo.mock.calls).toEqual([[]]);
+  // AND IT NEVER ASKED. A human dispatch reads no origin off the log at all, so a host that
+  // could not answer would still serve them.
+  expect(host.topEntryOrigin.mock.calls).toEqual([]);
+});
+
+test("agent redo mirrors the guard over the REDO stack", async () => {
+  const own = historyCtx(AGENT, AGENT);
+  expect(await runNamedById("edit.redo", own)).toEqual({ ok: true });
+  const ownHost = own.host as unknown as ReturnType<typeof makeHostSpy>;
+  expect(ownHost.redo.mock.calls).toEqual([[]]);
+  // THE STACK NAME IS THE HALF THAT MIRRORS. A redo asking the undo stack would answer for
+  // the wrong entry entirely, and both cases below would still pass on the spy's one value.
+  expect(ownHost.topEntryOrigin.mock.calls).toEqual([["redo"]]);
+
+  const theirs = historyCtx(undefined, AGENT);
+  const answer = await runNamedById("edit.redo", theirs);
+  expect(answer).toMatchObject({
+    ok: false,
+    kind: "refused",
+    because: "inert",
+  });
+  expect(
+    (theirs.host as unknown as ReturnType<typeof makeHostSpy>).redo.mock.calls,
+  ).toEqual([]);
+});
+
 // --- refusal legibility: the inert hint (T5 Task 1) --------------------------
 //
 // The T4c gate walk's own findings — the two it filed as backlog entries, both deleted by

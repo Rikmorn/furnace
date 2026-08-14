@@ -517,6 +517,11 @@ export function makeStubHost(
     isLooking: () => looking,
     undo: calls.undo,
     redo: calls.redo,
+    // THE HUMAN'S TAB, so the honest stub answer is "the human authored it": every chrome
+    // dispatch reaches `edit.undo` with no `ctx.origin`, the ownership guard returns before
+    // it asks, and a chrome case that saw an agent tag here would be pinning a state this
+    // surface cannot produce. The guard's matrix is `tests/actions.test.ts`'.
+    topEntryOrigin: () => undefined,
     subscribeStamp: (cb) => {
       calls.subscribeStamp(cb);
       return seams.stamp.subscribe(cb);

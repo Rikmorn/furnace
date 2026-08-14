@@ -875,6 +875,17 @@ export type FieldHost = {
    *  images (byte-identical to what the undo took away), while a stroke or a
    *  stamp commit re-executes its ops against current state. */
   redo(): void;
+  /** The origin tag of the named stack's TOP entry — `undefined` for a
+   *  human-authored top OR an empty stack (the enabled gate refuses the empty
+   *  case before any guard reads this). A LIVE read, not a snapshot: the guard
+   *  must answer for the instant of dispatch, per the `ActionCtx` contract.
+   *
+   *  IT EXISTS FOR ONE CALLER — the ownership guard on `edit.undo`/`edit.redo`
+   *  in `frontend/lib/actions.ts`, which lets an agent-originated dispatch step
+   *  only an entry that agent authored. The tag itself is core's
+   *  (`LogEntry.origin`, volatile, stamped from the committing call since oplog
+   *  v4); this reports it and decides nothing. */
+  topEntryOrigin(stack: "undo" | "redo"): string | undefined;
   /** Subscribes to stamp-session changes (null = no session). Immediately
    *  pushes the CURRENT state on subscribe (the subscribeSelection remount
    *  rationale); sessions are CLONED — the chrome never holds host state.
@@ -4141,6 +4152,9 @@ export function createFieldHost(deps?: {
     },
     redo() {
       stepHistory(true);
+    },
+    topEntryOrigin(stack) {
+      return (stack === "undo" ? log.undoStack : log.redoStack).at(-1)?.origin;
     },
     subscribeStamp(cb) {
       return machine.subscribeStamp(cb);

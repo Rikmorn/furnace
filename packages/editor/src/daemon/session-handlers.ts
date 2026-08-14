@@ -142,53 +142,6 @@ const sessionAnswer = z.discriminatedUnion("ok", [
   }),
 ]);
 
-/**
- * The action ids an agent may NOT reach through `action.run`, and the only deny-list in this
- * daemon.
- *
- * **A USER RULING, ENFORCED — not a policy this layer invented.** Undo is fenced until op
- * ATTRIBUTION lands, and the two are to be designed together, because without attribution
- * the log is a bare LIFO with no `origin` on an entry: an agent's `edit.undo` pops whatever
- * is on top, which is routinely a HUMAN's stroke. There is no way at head to let an agent
- * undo its own work without letting it undo somebody else's, and "the agent should be
- * careful" is not a guardrail.
- *
- * **WHY IT EXISTS AT ALL, given no dedicated undo command was ever built.** The tranche's
- * stop condition was satisfied literally — there is no `edit.undo` verb on this wire — and
- * `action.run` then made the ruling moot by accepting any registered id. A door that accepts
- * `edit.undo` IS an agent undo verb wearing a different spelling. The plan's *"the door
- * accepts any registered id — advertisement is the filter"* was written about LISTING versus
- * VALIDATING; it was not a licence to reach a verb the user fenced.
- *
- * **AND IT IS NOT THE SECOND ALLOW-LIST THE PLAN FORBADE.** That instruction was about not
- * keeping a second copy of *which ids exist* — knowledge that belongs to the action registry
- * and lives in `runNamedById`. This is a much smaller and different thing: two ids the user
- * ruled out, named once. It cannot drift out of step with the registry, because an id that
- * stopped existing would simply stop being reachable anyway.
- *
- * **HERE RATHER THAN IN THE CHROME's answerer, and the reason is decisive rather than
- * stylistic.** A chrome-side fence lives in the TAB's bundle, and the `bun run edit` loop
- * restarts this daemon on every source change while an open tab keeps the bundle it booted
- * with — a fact this repo has already written down (`backchannel-refusals-blur-two-causes`).
- * So a tab of an older vintage would answer `edit.undo` happily, and the fence would hold
- * only for tabs that did not need it. A daemon-side fence holds regardless of what the tab
- * believes, which is the property a safety fence has to have. The cost is that this module
- * now knows two action ids; that is the price of enforcement not depending on a client.
- *
- * **NOT relying on non-advertisement — and since T4c Task 6 that is no longer hypothetical.**
- * The door advertises `action_run`, whose id parameter is a free string, so an MCP client CAN
- * name these two; what it meets is this set. The row's own prose says so out loud rather than
- * staying quiet about a refusal an agent would otherwise discover by trying — but the prose is
- * the courtesy and this is the enforcement, which is the distinction this tranche keeps
- * making. Advertisement is a filter; a fence is a rule.
- */
-const FENCED_ACTIONS: ReadonlySet<string> = new Set(["edit.undo", "edit.redo"]);
-
-/** What a caller is told when it names a fenced verb. It carries the REASON and the LIFT
- *  CONDITION, because a refusal an agent cannot act on is a refusal it will retry. */
-const fenceMessage = (id: string): string =>
-  `"${id}" is not available to an agent: undo has no op attribution yet, so stepping the log would discard whatever is on top of it — routinely the human's own work, not yours. This fence lifts when op attribution ships and undo is designed with it. To reverse something you just did, apply the inverse ops explicitly.`;
-
 /** A world-metre point. `op-schema.ts` declares the same three-tuple, carries the same
  *  hand-restated length bounds, and argues at length WHY they are hand-restated — zod's
  *  tuple reflection emits `prefixItems` and no length keyword, so the advertisement without
@@ -621,10 +574,11 @@ export function createSessionHandlers(
 
   // THE NAMED-VERB DOOR — the editor's own 39 verbs, reachable by id.
   //
-  // IT BUILDS NO ALLOW-LIST, deliberately, and that is the whole shape of the decision.
+  // IT BUILDS NO ALLOW-LIST AND, SINCE THE UNDO-ATTRIBUTION SLICE, NO DENY-LIST EITHER —
+  // this handler holds no opinion about WHICH of the 39 an agent may reach.
   // WHICH ids an agent is TOLD about is the MCP door's to choose — T4c Task 6 chose PROSE in
-  // the `action_run` row, naming the six that take an input and the two that are fenced, and
-  // left the parameter a free string. Which ids EXIST
+  // the `action_run` row, naming the six that take an input and stating the undo ownership
+  // rule, and left the parameter a free string. Which ids EXIST
   // is the action registry's, and `runNamedById` in the chrome is the one funnel that knows
   // the table and refuses an id that is not in it — with the list, so a caller learns what
   // it should have said. A second membership test here would be a second thing to keep in
@@ -660,9 +614,6 @@ export function createSessionHandlers(
           "no-session",
           "this daemon has no event feed, so there is no editor session to drive",
         );
-      }
-      if (FENCED_ACTIONS.has(args.id)) {
-        throw new EditorError("invalid-input", fenceMessage(args.id));
       }
       // `Object.hasOwn` BEFORE the index, and it is a correctness fix rather than a
       // hardening flourish. `ACTION_INPUT_SCHEMAS` is a plain object literal, so it
@@ -716,7 +667,7 @@ export function createSessionHandlers(
   //
   // THE DISPOSITION, because there are TWO spellings of this verb and the door names one.
   // `action.run {id: "session.escape"}` reaches the same `FieldHost.escape` — it is a registry
-  // row (the human's Cancel), it is never disabled, and it is not fenced. That overlap is
+  // row (the human's Cancel) and it is never disabled. That overlap is
   // structural rather than a slip: `action.run` is a door onto the whole 39-verb table by
   // design, so every registry verb has a second spelling through it. The two are NOT
   // equivalent, and the difference is the whole reason this command exists — `session.escape`
@@ -728,9 +679,10 @@ export function createSessionHandlers(
   // the HUMAN every time they press Esc with nothing standing (`sayResult` speaks a refusal,
   // and errors hold the screen), which is exactly what that action's `enabled: () => true`
   // and its "an Esc with nothing to cancel is a no-op rather than a refusal" comment protect.
-  // Fencing it would be worse — `FENCED_ACTIONS` means "an agent must not do this at all"
-  // (undo, pending attribution), and spending it on vocabulary would make the list mean two
-  // things. Recorded in `docs/reference/editor-architecture.md` §27.3.
+  // A deny-list would have been worse still, and the undo-attribution slice retired the one
+  // this clause used to weigh (`FENCED_ACTIONS`): this handler now holds no opinion at all
+  // about which of the 39 an agent may name, so vocabulary is the only thing left to decide
+  // here. Recorded in `docs/reference/editor-architecture.md` §27.3.
   handlers.set("session.interrupt", {
     input: z.strictObject({}),
     run: () => {
