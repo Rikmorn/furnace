@@ -161,25 +161,29 @@ test("tools/list advertises the nine, with readOnlyHint per ROW and no outputSch
   expect(advertised().length).toBeLessThanOrEqual(10);
   // **AND THE PROSE IS BUDGETED TOO, on the same argument the row count is made with.** The
   // ceiling-of-ten exists because "every row a model must consider is paid for on every
-  // turn"; the descriptions are 7,983 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
+  // turn"; the descriptions are 7,992 bytes against `MCP_INSTRUCTIONS`'s pinned 2 KB and ride
   // the same `tools/list`, so pinning the blurb alone would budget the cheaper surface. BYTES,
   // for the instructions pin's reason exactly — a multi-byte character costs what it costs,
   // and these rows are full of em-dashes. 8,192 was 1.36× head at Task 6, 1.157× after the
   // T4c review's 1,078 bytes of corrections, 1.092× after T5's 420, 1.042× after cycle 2's
-  // flags arm spent 363, and is 1.026× after the undo-attribution slice spent 118 — 209
+  // flags arm spent 363, and is 1.025× after the undo-attribution slice spent 127 — 200
   // bytes left, SHORTER THAN EVERY ONE OF THE NINE ROWS. The tenth-row headroom this comment
   // used to claim is gone, and that is the budget working rather than slack running out: a
   // tenth verb now has to be argued against the prose cap before the ceiling of ten is even
   // reached, and there is no longer a standing row short enough to be the model for one
   // (the shortest is project_get, 214).
   //
-  // WHAT THE LAST 118 BOUGHT, because a budget spent without a reason recorded is a budget
-  // that gets spent again: the fence lift REWROTE the undo sentence at par (the rule changed
-  // from "never" to "only your own") and ADDED one about `session.confirm` being left
-  // unattributed. That second one is not a caveat — an agent told it may step its own work
-  // will step a confirm it triggered and read "the top history entry is the human's", which
-  // is true under the absent-means-human convention and reads as a contradiction without
-  // this sentence.
+  // WHAT THE LAST 127 BOUGHT, because a budget spent without a reason recorded is a budget
+  // that gets spent again: the fence lift REWROTE the undo sentence (the rule changed from
+  // "never" to a guard) and ADDED one about `session.confirm` being left unattributed. That
+  // second one is not a caveat — an agent told it may step its own work will step a confirm
+  // it triggered and read "the top history entry is the human's", which is true under the
+  // absent-means-human convention and reads as a contradiction without this sentence.
+  // The last 9 of the 127 corrected an OVERCLAIM rather than adding information: the row
+  // said "step only YOUR OWN work" where the mechanism compares against one shared
+  // `AGENT_ORIGIN`, so two agents through one claim can step each other's entries. It now
+  // says AGENT-AUTHORED. Nine bytes to stop the door promising a guarantee it does not make
+  // is the cheapest thing on this list.
   // A TOTAL rather than a per-row cap, because `session_query`'s wall is the one length this
   // door had to buy.
   // The figures above are derived, not typed: `bun test tests/mcp.test.ts` with a scratch
@@ -483,10 +487,18 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     // (4) The undo OWNERSHIP rule, said where an agent would otherwise discover it by being
     // refused. It read "refused for every agent" until the undo-attribution slice, when the
     // daemon's `FENCED_ACTIONS` deny-list was replaced by a guard the tab applies against
-    // the top entry's `origin` — so the row had to stop saying "never" and start saying
-    // "only your own", which is a different instruction rather than a softer one.
-    undoOwnOnly: row("action_run").includes(
-      "edit.undo and edit.redo step only YOUR OWN work",
+    // the top entry's `origin` — so the row had to stop saying "never" and start naming a
+    // guard, which is a different instruction rather than a softer one.
+    //
+    // AGENT-AUTHORED, and this pin holds that word specifically. The row first shipped
+    // saying "only YOUR OWN work", which OVERCLAIMS: the guard compares against one shared
+    // `AGENT_ORIGIN`, and the door permits two agents through one claim, so two agents are
+    // indistinguishable to it and each can step the other's entries. What holds absolutely
+    // is the direction that matters — the human's entries carry no origin and are never
+    // popped. Pinning the weaker, true word is the point; if per-agent tags ever land, this
+    // pin is where the promise gets upgraded WITH the mechanism, not before it.
+    undoAgentAuthoredOnly: row("action_run").includes(
+      "edit.undo and edit.redo step only AGENT-AUTHORED history",
     ),
     // AND THE ONE ENTRY THE RULE MAKES UNREACHABLE, because an agent told "you may step your
     // own work" will otherwise try to step a confirm it triggered and read a refusal it
@@ -501,7 +513,7 @@ test("the four prose hand-offs the earlier tasks named are in the rows that owe 
     interruptOneThing: true,
     interruptRecency: true,
     interruptCannotAbort: true,
-    undoOwnOnly: true,
+    undoAgentAuthoredOnly: true,
     confirmUnattributed: true,
   });
 });

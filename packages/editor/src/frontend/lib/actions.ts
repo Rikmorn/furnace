@@ -671,7 +671,17 @@ const answeredByHost = (
 
 /**
  * THE HISTORY OWNERSHIP GUARD (undo-attribution slice): an agent-originated dispatch may
- * step only an entry that agent authored. Answers the refusal, or `null` to proceed.
+ * step only AGENT-AUTHORED history. Answers the refusal, or `null` to proceed.
+ *
+ * **AGENT-AUTHORED, NOT "ITS OWN" — the guarantee is weaker than it first reads, and the
+ * message says the weaker thing on purpose.** The comparison is against `AGENT_ORIGIN`
+ * (`shared/wire.ts`), ONE tag for every agent, while the door explicitly permits two agents
+ * to work through one claim. Two concurrent agents are therefore indistinguishable here and
+ * each can step the other's top entry. What holds absolutely is the direction that matters:
+ * the HUMAN's entries carry no origin, so no agent ever pops one. Telling an agent it steps
+ * "only its own work" would hand the next reader a guarantee the mechanism does not make —
+ * per-agent tags are a design question (who mints one, and when), not a rename, and the wire
+ * already affords it because `origin` is a string rather than an `agent` flag.
  *
  * **WHAT IT REPLACED, and what was traded to get here.** `daemon/session-handlers.ts` held a
  * `FENCED_ACTIONS` deny-list refusing `edit.undo`/`edit.redo` for every agent, because the
@@ -714,7 +724,7 @@ const stepsOwnWork = (
   const top = ctx.host.topEntryOrigin(stack);
   if (top === ctx.origin) return null;
   return refused(
-    `the top history entry is ${top === undefined ? "the human's" : `"${top}"'s`} — an agent steps only its own work. Ask the operator, or reverse your own earlier ops by applying their inverses as new content.`,
+    `the top history entry is ${top === undefined ? "the human's" : `"${top}"'s`} — an agent steps only agent-authored history. Ask the operator, or reverse your own earlier ops by applying their inverses as new content.`,
     "inert",
   );
 };
