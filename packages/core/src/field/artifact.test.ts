@@ -401,14 +401,14 @@ describe("field oplog v2 codec", () => {
     });
   });
 
-  test("serializeOps emits a v3 envelope with base64 payloads, never index-keyed objects", () => {
+  test("serializeOps emits a v4 envelope with base64 payloads, never index-keyed objects", () => {
     const op = patch(7, [densitySlice("0,0,0", [bitOf(1, 2, 3)], [-5])]);
     const text = serializeOps([op]);
     const wire = JSON.parse(text) as {
       version: number;
       ops: { kind: string; chunks: Record<string, unknown>[] }[];
     };
-    expect(wire.version).toBe(3);
+    expect(wire.version).toBe(4);
     expect(wire.ops[0]?.kind).toBe("patch");
     const slice = wire.ops[0]?.chunks[0];
     expect(typeof slice?.["densityMask"]).toBe("string");
@@ -531,9 +531,9 @@ describe("field oplog v2 codec", () => {
   });
 
   test("parseOps rejects unknown, future and malformed envelopes", () => {
-    // v3 is the CURRENT version; v4 is the future case.
-    expect(() => parseOps(JSON.stringify({ version: 4, ops: [] }))).toThrow(
-      /newer than this build/,
+    // v4 is the CURRENT version; v5 is the future case.
+    expect(() => parseOps(JSON.stringify({ version: 5, ops: [] }))).toThrow(
+      /version 5 is newer/,
     );
     expect(() => parseOps(JSON.stringify({ version: 1, ops: [] }))).toThrow(
       /unknown version 1/,
@@ -1619,20 +1619,20 @@ describe("field oplog v2 codec", () => {
     ],
   });
 
-  test("v3 round-trips a placement op exactly, as literal JSON (no base64)", () => {
+  test("the current envelope round-trips a placement op exactly, as literal JSON (no base64)", () => {
     const op = placementOp(9);
     const text = serializeOps([op]);
     const wire = JSON.parse(text) as {
       version: number;
       ops: Record<string, unknown>[];
     };
-    expect(wire.version).toBe(3);
+    expect(wire.version).toBe(4);
     // a placement op rides the envelope literally — no typed-array encoding
     expect(wire.ops[0]).toEqual(op as unknown as Record<string, unknown>);
     expect(parseOps(text)).toEqual([op]);
   });
 
-  test("three-version chain — v1 bare array, v2 envelope, v3 envelope all parse", () => {
+  test("four-version chain — v1 bare array, v2, v3 and v4 envelopes all parse", () => {
     const brush: FieldOp = {
       id: 1,
       kind: "brush",
@@ -1645,9 +1645,13 @@ describe("field oplog v2 codec", () => {
     expect(parseOps(JSON.stringify({ version: 2, ops: [brush] }))).toEqual([
       brush,
     ]);
-    // v3: the current envelope, which may carry placement ops
+    // v3: the envelope that added placement ops
     expect(
       parseOps(JSON.stringify({ version: 3, ops: [brush, placementOp(2)] })),
+    ).toEqual([brush, placementOp(2)]);
+    // v4: the current envelope, whose ops may carry an origin
+    expect(
+      parseOps(JSON.stringify({ version: 4, ops: [brush, placementOp(2)] })),
     ).toEqual([brush, placementOp(2)]);
   });
 
@@ -1694,6 +1698,53 @@ describe("field oplog v2 codec", () => {
     );
     // the good record parses clean
     expect(() => parseOps(withRecord({}))).not.toThrow();
+  });
+
+  // ——— v4: per-op origin (attribution) ———
+
+  test("oplog v4 round-trips op origin, absent and present", () => {
+    const ops: FieldOp[] = [
+      { id: 1, kind: "brush", effect: "dig", shape: SPHERE }, // no origin — human
+      {
+        id: 2,
+        kind: "brush",
+        effect: "dig",
+        shape: SPHERE,
+        origin: "agent:mcp",
+      },
+      { ...patch(3, [slice()]), origin: "agent:mcp" },
+      { ...placementOp(4), origin: "agent:mcp" },
+    ];
+    const back = parseOps(serializeOps(ops));
+    expect(back[0]?.origin).toBeUndefined();
+    // absent, not undefined-valued — `toEqual` cannot tell the two apart
+    expect(Object.hasOwn(back[0] ?? {}, "origin")).toBe(false);
+    expect(back[1]?.origin).toBe("agent:mcp");
+    expect(back[2]?.origin).toBe("agent:mcp");
+    expect(back[3]?.origin).toBe("agent:mcp");
+  });
+
+  test("a v3 envelope parses with every origin absent", () => {
+    const text = JSON.stringify({
+      version: 3,
+      ops: [{ id: 1, kind: "brush", effect: "dig", shape: SPHERE }],
+    });
+    for (const op of parseOps(text)) expect(op.origin).toBeUndefined();
+  });
+
+  test("a v1 bare-array oplog parses with every origin absent", () => {
+    // v1 = a BARE JSON array, no envelope (the four pre-envelope committed
+    // worlds), and its ops use the legacy `kind: "dig"` spelling.
+    const text = oneOp({ id: 1, kind: "dig", shape: SPHERE });
+    for (const op of parseOps(text)) expect(op.origin).toBeUndefined();
+  });
+
+  test("op origin, when present, must be a non-empty string", () => {
+    const bad = (origin: unknown): string =>
+      oneOp({ id: 1, kind: "brush", effect: "dig", shape: SPHERE, origin });
+    expect(() => parseOps(bad(42))).toThrow(/origin.*non-empty string/);
+    expect(() => parseOps(bad(""))).toThrow(/origin.*non-empty string/);
+    expect(() => parseOps(bad(null))).toThrow(/origin.*non-empty string/);
   });
 });
 

@@ -860,7 +860,12 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   `voxelChunk`, `worldToVoxel`/`sampleToWorld`, `AIR`/`SOLID`.
 - **The op log (F2b: one log, op-list undo; F3a: splice-safe entries + patches; F3b:
   placement ops)** — the `FieldOp` union = `BrushOp | EntityOp | PatchOp | PlacementOp`
-  (`isBrushOp` narrows to the brush member). **Brush shapes** (`BrushShape`): `sphere`
+  (`isBrushOp` narrows to the brush member). Every member carries an optional
+  **`origin`** — attribution, durable on the v4 wire, stamped by the committing call
+  (the editor stamps `"agent:mcp"` for MCP-relayed writes) and ABSENT for the human's own
+  gestures. It names the ACTOR OF THE COMMITTING CALL, never the entity's original author:
+  a human reconfiguring an agent-authored stamp owns the ops the reconfigure inserts.
+  **Brush shapes** (`BrushShape`): `sphere`
   (`center` + `radius`), `box` (`center` + `halfExtents`), and **`capsule`** (F3b:
   D-F3-14 — the swept sphere from `a` to `b` with hemispherical endcaps, the editor's
   two-click segment brush; `a === b` degenerates to exactly the sphere at that point).
@@ -1497,18 +1502,22 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   — envelope shape + version, each group's `id`/`count`/`records` shape, a payload length
   that must equal `count × 11 × 4`, and each group's records value-validated with
   `assertPlacementsValid` (finite vectors, unit quat, non-negative integer variant).
-- **The oplog wire format (F3a: v2; F3b: v3)** — `oplog.json` is a **v3 envelope**,
-  `{ version: 3, ops: [...] }`. Every `FieldOp` member round-trips: brush, entity AND
+- **The oplog wire format (F3a: v2; F3b: v3; attribution: v4)** — `oplog.json` is a
+  **v4 envelope**, `{ version: 4, ops: [...] }`. Every `FieldOp` member round-trips: brush,
+  entity AND
   placement ops are plain JSON (so an entity's `frozen`/`baked` flags persist, and ABSENCE
   stays absence — the literal-`true` optionals never materialize as `false`; a placement
   op's records are small literal JSON, no binary payload); a patch op's four typed arrays
   per slice encode as **base64** strings. Plain `JSON.stringify` would render them as
   index-keyed objects (~8× the bytes, and no longer typed arrays coming back) — the reason
-  the envelope exists. `parseOps` reads **v3 AND v2** envelopes (a v2 file carries no
-  placement ops by construction; the version gate rejects anything > 3 as a FUTURE build)
+  the envelope exists. `serializeOps` writes the CURRENT version; `parseOps` reads
+  **v4, v3 AND v2** envelopes (a v2 file carries no placement ops and a pre-v4 one no
+  `origin`, both by construction; the version gate rejects anything > 4 as a FUTURE build)
   and **v1**, a BARE JSON array with no envelope (every world baked before F3a), including
   F1's `kind:"dig"` literals, which map forward to brush/dig ops; a JSON array is never a
-  JSON object, so envelope and bare-array cannot be confused.
+  JSON object, so envelope and bare-array cannot be confused. **No committed file is
+  rewritten** for v4 — an older log parses with every `origin` absent, and absent = human;
+  a file becomes v4 on its next save.
   It is **setup-loud**, and it is a **security boundary**, not a robustness nicety (T4a):
   an oplog is no longer only something this machine wrote — a shared world, or a log an
   agent authored, arrives as untrusted bytes and leaves `parseOps` as typed engine objects
@@ -1517,7 +1526,10 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   sit side by side in a world dir); an unknown or FUTURE envelope version; a non-array
   `ops`; a NON-NEGATIVE INTEGER `id` on every op (unchecked, one id-less op makes the editor's
   `nextId` reduce `NaN`, every later op is stamped `id: NaN`, and `JSON.stringify` writes
-  those back as `null` — a corrupt log made plausible); a known `kind`; **every** closed
+  those back as `null` — a corrupt log made plausible); an `origin` that, WHEN PRESENT, is a
+  non-empty string (absence is the human case and legal; an empty or non-string tag would
+  compare unequal to every real one and read as someone else's work at a consumer's
+  ownership guard); a known `kind`; **every** closed
   string union — a brush's `effect`, `shape.kind`, `mask.kind` and an embedded
   `mask.selection.kind`, its `smooth.mode`, an entity's `action` and `entity.type`; that a
   present optional `mask`/`smooth` is actually a record; **every NUMERIC field a brush op

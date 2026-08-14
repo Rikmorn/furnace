@@ -21,9 +21,9 @@ const MANIFEST: FieldManifest = {
 
 /** The baked oplog's op list as RAW parsed JSON — deliberately NOT via
  *  parseOps, which would re-map legacy ops and mask a loadWorld that skipped
- *  the mapping. `oplog.json` is a versioned envelope (`{ version, ops }`) — v3
- *  since F3b's placement ops — so the raw read unwraps `ops` itself rather than
- *  laundering it through the codec. */
+ *  the mapping. `oplog.json` is a versioned envelope (`{ version, ops }`) — v4
+ *  since attribution added per-op `origin` — so the raw read unwraps `ops`
+ *  itself rather than laundering it through the codec. */
 const bakedOplog = (host: ReturnType<typeof createFieldHost>): unknown => {
   const file = host
     .exportArtifact("t")
@@ -33,7 +33,7 @@ const bakedOplog = (host: ReturnType<typeof createFieldHost>): unknown => {
     version: number;
     ops: unknown;
   };
-  expect(envelope.version).toBe(3);
+  expect(envelope.version).toBe(4);
   return envelope.ops;
 };
 

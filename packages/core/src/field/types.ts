@@ -171,6 +171,12 @@ export type BrushOp = {
    *  (harmless, revealed only if dug). Kit-class fills require a positive
    *  multiple of 0.5 m so the shell's INNER faces land on lattice planes too. */
   hollow?: number;
+  /** Who authored this op into the log — an origin tag stamped by the committing
+   *  call (the editor stamps `"agent:mcp"` for MCP-relayed writes); ABSENT = the
+   *  human's own gesture. Durable: rides the v4 oplog envelope. The tag is the
+   *  ACTOR OF THE COMMITTING CALL, never the entity's original author — a human
+   *  reconfiguring an agent stamp owns the ops the reconfigure inserts. */
+  origin?: string;
 };
 
 /** One chunk's slice of a {@link PatchOp} — the cells it writes IN THAT CHUNK
@@ -201,7 +207,14 @@ export type PatchChunk = {
  *  cells, which is what makes replay byte-exact by construction: unlike a brush
  *  op it derives nothing from surrounding state, so it never bakes context in
  *  and never drifts when an UPSTREAM op is reconfigured. */
-export type PatchOp = { id: number; kind: "patch"; chunks: PatchChunk[] };
+export type PatchOp = {
+  id: number;
+  kind: "patch";
+  chunks: PatchChunk[];
+  /** Who authored this op — see {@link BrushOp.origin}. A compaction fold
+   *  inherits its run's origin, and a run never spans two origins. */
+  origin?: string;
+};
 
 /** How a stamp treats pre-existing air in its footprint: `replace` overwrites
  *  (default); `keep-existing-air` masks the shell fill solid-only so user
@@ -363,6 +376,10 @@ export type EntityOp = {
   kind: "entity";
   action: "place";
   entity: GeneratorEntity;
+  /** Who authored this op — see {@link BrushOp.origin}. Freeze/bake swap the
+   *  record in place and leave this tag on the ORIGINAL author; the swap's own
+   *  actor is on the `entity-update` {@link LogEntry}. */
+  origin?: string;
 };
 
 /** One explicit placed instance (D-F3-8). Orientation and hemisphere resolve
@@ -388,6 +405,8 @@ export type PlacementOp = {
   id: number;
   kind: "placement";
   records: PlacementRecord[];
+  /** Who authored this op — see {@link BrushOp.origin}. */
+  origin?: string;
 };
 
 /** The field-op union: brush strokes, entity ops, patches and placements share

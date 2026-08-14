@@ -169,10 +169,11 @@ export function decodeMaterialFile(bytes: Uint8Array): ChunkMaterials {
 
 /** Oplog envelope version. v1 was a BARE JSON array of ops (no envelope) and is
  *  still read; v2 wraps the list so patch ops can carry base64 payloads; v3
- *  adds placement ops (literal JSON — no binary payload). {@link parseOps} reads
- *  all three (a v2 file carries no placement ops by construction); the writer
- *  always emits the current version. */
-const OPLOG_VERSION = 3;
+ *  adds placement ops (literal JSON — no binary payload); v4 adds per-op origin
+ *  (attribution; optional string, absent = human). {@link parseOps} reads all
+ *  four (a v2 file carries no placement ops and a pre-v4 file no origin, both by
+ *  construction); the writer always emits the current version. */
+const OPLOG_VERSION = 4;
 
 /** Bytes per binary-string step in {@link u8ToB64} — bounds the transient char
  *  array at 32K entries whatever the payload's size (a compaction patch over a
@@ -854,11 +855,30 @@ function decodeEntityOp(raw: Record<string, unknown>, id: number): EntityOp {
   return raw as EntityOp;
 }
 
-/** One op from either envelope version — `kind:"dig"` is a v1 spelling, but
- *  accepting it in a v2 envelope too keeps ONE decode path.
+/** The kind dispatch, without the checks every kind shares ({@link decodeOp}
+ *  owns those).
  *
- *  @throws {@link Error} if the op is not an object, has no integer `id`, or
- *    fails its kind's wire guards. */
+ *  @throws {@link Error} if the `kind` is unknown or the op fails its kind's
+ *    wire guards. */
+function decodeByKind(
+  raw: Record<string, unknown>,
+  id: number,
+  kind: unknown,
+): FieldOp {
+  if (kind === "patch") return decodePatchOp(raw, id);
+  if (kind === "placement") return decodePlacementOp(raw, id);
+  if (kind === "dig") return upgradeLegacyDig(raw, id);
+  if (kind === "brush") return decodeBrushOp(raw, id);
+  if (kind === "entity") return decodeEntityOp(raw, id);
+  throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
+}
+
+/** One op from any envelope version — `kind:"dig"` is a v1 spelling, but
+ *  accepting it in a later envelope too keeps ONE decode path.
+ *
+ *  @throws {@link Error} if the op is not an object, has no integer `id`, has a
+ *    present-but-not-a-non-empty-string `origin`, or fails its kind's wire
+ *    guards. */
 function decodeOp(raw: unknown): FieldOp {
   if (!isRecord(raw))
     throw new Error(
@@ -879,13 +899,24 @@ function decodeOp(raw: unknown): FieldOp {
     throw new Error(
       `field oplog: op id must be a non-negative integer, got ${jsonTag(id)}`,
     );
-  const kind = raw["kind"];
-  if (kind === "patch") return decodePatchOp(raw, id);
-  if (kind === "placement") return decodePlacementOp(raw, id);
-  if (kind === "dig") return upgradeLegacyDig(raw, id);
-  if (kind === "brush") return decodeBrushOp(raw, id);
-  if (kind === "entity") return decodeEntityOp(raw, id);
-  throw new Error(`field oplog: op of unknown kind ${jsonTag(kind)}`);
+  // v4's attribution tag, shared by every kind and therefore checked here, like
+  // the id above. Absent = human, so ABSENCE is the common case and legal; a
+  // present one must carry a real tag, because an empty or non-string origin
+  // would compare unequal to every real one and silently read as "someone
+  // else's work" at the consumer's ownership guard.
+  const origin = raw["origin"];
+  if (
+    origin !== undefined &&
+    (typeof origin !== "string" || origin.length === 0)
+  )
+    throw new Error(
+      `field oplog: op ${id} origin, when present, must be a non-empty string, got ${jsonTag(origin)}`,
+    );
+  const op = decodeByKind(raw, id, raw["kind"]);
+  // Attached once for every kind — and NEVER as an explicit `undefined`, which
+  // would make an absent origin an own property (`Object.hasOwn`) and change
+  // what serializeOps writes back.
+  return origin === undefined ? op : { ...op, origin };
 }
 
 /** Distinguishes a FUTURE oplog (a later furnace wrote it) from an
@@ -986,10 +1017,12 @@ export function parseOps(text: string): FieldOp[] {
       `field oplog: expected a versioned envelope or a v1 op array, got ${typeTag(parsed)}`,
     );
   const version = parsed["version"];
-  // Every envelope version this build reads: v2 (patches) and v3 (placements).
-  // A v2 file simply carries no placement ops. versionError distinguishes a
-  // FUTURE version (> OPLOG_VERSION) from a corrupt/unknown one.
-  if (version !== 2 && version !== 3) throw versionError(version);
+  // Every envelope version this build reads: v2 (patches), v3 (placements) and
+  // v4 (per-op origin). A v2 file simply carries no placement ops, a pre-v4 one
+  // no origin. versionError distinguishes a FUTURE version (> OPLOG_VERSION)
+  // from a corrupt/unknown one.
+  if (version !== 2 && version !== 3 && version !== 4)
+    throw versionError(version);
   const ops = parsed["ops"];
   if (!Array.isArray(ops))
     throw new Error("field oplog: envelope has no ops array");
