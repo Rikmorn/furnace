@@ -913,8 +913,11 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   whoever called freeze/bake — and `deleteGeneratorEntity`'s `splice` inserts nothing, so
   its entry is the only record of who removed the span. `redo` must carry it across:
   `replayEntry` REBUILDS an `ops` entry (re-execution recaptures the inverse), so the
-  origin is copied onto the rebuilt entry explicitly. Core never reads `origin` — the
-  ownership guard it exists for is consumer policy.
+  origin is copied onto the rebuilt entry explicitly. **`undo`/`redo` never read `origin` —
+  the stacks stay POLICY-FREE**, and the ownership guard the field exists for is consumer
+  policy. The one place core reads it at all is compaction's run-boundary predicate (§ *log
+  hygiene* below), which reads the OP-level field to PRESERVE attribution across a fold rather
+  than to act on it.
   `logApply(store, log, op, table, origin?)`.
   `logApplyGroup(store, log, ops, table, origin?)` is the PLURAL `logApply` — a whole brush-op
   list lands as ONE `ops` entry, so a gesture that commits several ops undoes with a

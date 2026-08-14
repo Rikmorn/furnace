@@ -244,7 +244,7 @@ There are **19 commands** — eight dotted families plus one bare verb (`generat
 | `session.query` | `{ about: "entities" }` \| `{ about: "ray", origin, dir, maxDist? }` \| `{ about: "selection" }` | `QueryAnswer` (`src/field-host/field-query.ts`), RELAYED — the spatial read, and the tranche's answer to *ask this, do not squint* (§27.2). `entities` returns every committed entity with its footprint plus the placed-prop LINT (floating props with their measured gap, interpenetrating pairs with their penetration extents, and a `truncated` flag so an empty list cannot read as a clean world); `ray` returns one `raycastField` hit with its distance; `selection` returns the replayable `SelectionSpec`, count and box — **never the cells**. A `z.discriminatedUnion` per arm, so a bad request reports against the arm it MEANT. **No budget of its own** (store and log arithmetic, with a measured cap on the only quadratic part). `maxDist` is bounded at `MAX_PROBE_M` where `raycastField`'s own step ceiling would otherwise make a `null` ambiguous (and CLAMPED again in the host, so the module's contract does not depend on this door); `dir` is refused as the zero vector, which `z.number()` alone admits and core would silently turn into a walk along +X. |
 | `edit.apply` | `{ ops: BrushOpInput[] }` (`.min(1)`, full op vocabulary — `daemon/op-schema.ts`) | `ActionResult`, RELAYED — a batch landing as ONE undo entry for the human (§27.1). The daemon validates the op SHAPE in full because a write arriving malformed and relayed anyway asks a tab to mutate a world nobody checked; core decides whether the shape is BUILDABLE. No budget of its own: the cost is bounded by the list the caller sent. |
 | `generate` | `{ generatorId, params?, seed?, region? }` | `GenerateOutcome` (`src/field-host/field-mutation.ts`), RELAYED — one generator committed atomically, opening no stamp session and leaving none (§27.1). `params` is `z.record(z.unknown())` and that is the honest ceiling: per-generator schemas live in core's registry, which this Node-portable daemon may not import, so core validates them at commit. Carries a **30 s budget** — a generator's `evaluate` runs on the tab's main thread. |
-| `action.run` | `{ id, input? }` | `ActionResult`, RELAYED — the named-verb door onto the editor's own 39 verbs (§27.1). Builds **no allow-list** (which ids exist is `runNamedById`'s answer) and holds one **deny-list**: `edit.undo` and `edit.redo` are fenced at the daemon until op attribution ships. The six ids with an input schema have it applied here, from `action-registry/schemas.ts`. |
+| `action.run` | `{ id, input? }` | `ActionResult`, RELAYED — the named-verb door onto the editor's own 39 verbs (§27.1). Builds **no allow-list** (which ids exist is `runNamedById`'s answer) and, since the undo-attribution slice (2026-08-14), **no deny-list either**: the `FENCED_ACTIONS` set that refused `edit.undo`/`edit.redo` here is gone, this handler holds no opinion about which of the 39 an agent may name, and undo ownership is refused one bundle away by the tab's own guard (§29). The six ids with an input schema have it applied here, from `action-registry/schemas.ts`. |
 | `session.interrupt` | `{}` | `ActionResult`, RELAYED — the Esc key as a verb (§27.3). Drains **one** rung of the host's Esc capture stack (the most recent standing thing: a session, a stamp arm, a half-drawn anchor, the entity or cell selection) and refuses `inert` when nothing is standing, so a caller can tell a cancel from a no-op. **It cannot stop a bake, a save or an analyzer pass** — nothing in this editor is abortable, and the honest answer for a long job is the ask budget. `z.strictObject({})`: the stack is ordered by recency and addresses nothing by name, so there is no parameter to take. |
 | `session.answer` | `{ requestId, ok: true, payload }` \| `{ requestId, ok: false, error }` | `{ delivered }` — hands one answer to the backchannel ask it names (`daemon/backchannel.ts`). **No token**: the `requestId` was minted into exactly one connection's stream, so holding it means holding that stream — the same structural argument the token itself rests on. `delivered: false` is the honest report for an id naming no pending ask (an answer that lost the race with its own ask's timeout, a duplicate, a forged one), not an error — refusing would manufacture a client-side failure for a designed race. A discriminated union so a refusal cannot pose as a success with a missing payload. |
 
@@ -414,7 +414,7 @@ Wire shape on every error: `{ "error": { "code": "<EditorErrorCode>", "message":
 
 **The second edge arrived in foundations T4b, and it is what "each transport edge owns its own mapping" was written for.** `src/daemon/mcp.ts`'s `AGENT_REMEDY` is `httpStatus`'s sibling: an exhaustive `Record<EditorErrorCode, string>`, so an eleventh code is a compile error until this edge has said what to do about it too. A throw out of `dispatch()` becomes an `isError: true` tool result whose text is `<code>: <the daemon's message>` followed by **what the AGENT should do** — whether retrying is sensible, and whether a human has to move first. That second half is the part no daemon-side message is written for: the messages are addressed to a human reading an error envelope, and an agent needs to know that `no-session` will not change until someone opens a tab (so do not poll), that `session-timeout` is worth one retry, and that `internal` is not worth any. `isError` rather than a JSON-RPC error, deliberately — "no editor is open" is an answer and must reach the agent's model, not its error handler; a name that was never advertised (`session_claim`, `field_load`) is the opposite case and is refused as a protocol error.
 
-**Which codes actually reach that edge, re-derived at T4c Task 6 — and the prediction this paragraph used to carry was WRONG.** It read *"T4c will project verbs that reach four more"*. T4c tripled the door (three no-argument reads → nine rows, five taking arguments, four writing) and **the reachable set did not move**: it is still exactly four — `no-session` and `session-timeout` (the backchannel's own refusals, and the reason `AGENT_REMEDY` exists), `internal` (a chrome that could not serve the method, and a genuine daemon fault alike) and `invalid-input` (every schema refusal, plus `action.run`'s fence). The other six are stated because the union is CLOSED, not because they are merely unlikely, and each is unreachable for its own reason: `not-found` / `outside-root` / `already-exists` are thrown by world, bake and claim commands, none of which is projected — the near miss is `action_run` reaching `world.makeDefault`, but through the CHROME's own HTTP client, so the code is thrown one bundle away and arrives here as a relayed `ActionResult` rather than as this edge's throw; `invalid-json` is thrown parsing an HTTP body, which the MCP transport reads for itself; `forbidden-origin` is refused ahead of the route branch, so no tool call is running when it is thrown; and **`unknown-command` became structurally unreachable at T4c**, because `createMcpDoor` resolves every row's command against the registry when the door is BUILT — a table naming a command the registry lacks fails at startup, so no tool call can be in flight to discover it. `AGENT_REMEDY` carries this derivation at source, where the next person to add a row will read it.
+**Which codes actually reach that edge, re-derived at T4c Task 6 — and the prediction this paragraph used to carry was WRONG.** It read *"T4c will project verbs that reach four more"*. T4c tripled the door (three no-argument reads → nine rows, five taking arguments, four writing) and **the reachable set did not move**: it is still exactly four — `no-session` and `session-timeout` (the backchannel's own refusals, and the reason `AGENT_REMEDY` exists), `internal` (a chrome that could not serve the method, and a genuine daemon fault alike) and `invalid-input` — **which is SCHEMA-ONLY since the undo-attribution slice (2026-08-14)**: `action.run`'s `FENCED_ACTIONS` deny-list was the code's second source at this edge and that deny-list is gone, so undo ownership is now refused one bundle away and arrives here as a relayed `ActionResult` rather than as this edge's throw (§29). The reachable SET does not move — four then, four now. The other six are stated because the union is CLOSED, not because they are merely unlikely, and each is unreachable for its own reason: `not-found` / `outside-root` / `already-exists` are thrown by world, bake and claim commands, none of which is projected — the near miss is `action_run` reaching `world.makeDefault`, but through the CHROME's own HTTP client, so the code is thrown one bundle away and arrives here as a relayed `ActionResult` rather than as this edge's throw; `invalid-json` is thrown parsing an HTTP body, which the MCP transport reads for itself; `forbidden-origin` is refused ahead of the route branch, so no tool call is running when it is thrown; and **`unknown-command` became structurally unreachable at T4c**, because `createMcpDoor` resolves every row's command against the registry when the door is BUILT — a table naming a command the registry lacks fails at startup, so no tool call can be in flight to discover it. `AGENT_REMEDY` carries this derivation at source, where the next person to add a row will read it.
 
 **The union gained its ninth and tenth members in foundations T4b** — `no-session` and
 `session-timeout`, argued in the rows above and at `errors.ts`. The tenth is also the table's
@@ -438,7 +438,7 @@ The browser frontend is **React 19**, Tailwind-styled. It is **prebuilt** to `di
 
 **Zero engine value-imports.** The chrome must never `import` `@furnace/core` at value level — doing so would create a *second* core instance alongside the engine bundle's, the exact bug project-first resolution prevents. `packages/editor/tests/frontend-no-engine-leakage.test.ts` scans `src/frontend` **and `src/shared`** and forbids value imports / side-effect imports / value re-exports of `@furnace/core`, **`field-host` and `field-protocol`** (`import type` / `export type` are erased and allowed). The chrome reaches the engine **only** through `loadEngine()` (a dynamic `import("/engine.js")`) and type-only imports of `field-host/index.ts` — which is why a host constant the chrome needs is normally restated as a local literal beside a comment saying so (`lib/field-host-mirrors.ts`, §16.7) — with three exceptions since T3b2: `MAX_SEGMENT_M`, `SELECTION_UI_BUDGET` and the `LATTICE` step now live in `src/shared/` (`field-limits.ts`, `field-brush.ts`), where BOTH layers value-import the same number instead of agreeing by review (§22), and why deriving a fact host-side and pushing it is often cheaper than the chrome computing it (§13's drift `entityIds`, §17.1's pick tiers).
 
-**The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes were SIBLINGS through T4b — neither imported the other — and **since T4c they are a chain: `field-host/ → action-registry/`.** `tests/no-chrome-leakage.test.ts` pins BOTH directions, and each for its own reason. Upward is forbidden outright (the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold). Downward is permitted for EXACTLY ONE module, `action-registry/result.ts`, and asserted as a membership rather than merely left unguarded: `field-host/field-mutation.ts` answers a caller instead of the room, and `result.ts` puts the refusal vocabulary below the chrome precisely so non-chrome callers can hold it — *"there is ONE vocabulary of refusal in this editor"*. The alternative was a host-local result type converted in the chrome verb, which is the second-name-for-a-subset that file argues against. It is the FILE and not the barrel, so `schemas.ts`'s zod never becomes reachable from anything the host pulls in. Before T4c the reverse edge was simply unguarded, which is the accident-of-file-layout the repo's boundary rule exists to prevent — silence is not permission. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. **Foundations T4b added a fourth reader that is not on that arrow at all: the daemon.** `src/shared/wire.ts` holds the backchannel's two frame types, and `daemon/events.ts` + `daemon/session-handlers.ts` `import type` them exactly as the chrome does. It changes no rule — the daemon sits above the floor like everything else and the floor still imports nothing above itself — and the two leakage suites turn out to have been enforcing precisely what a daemon-facing module needs from the other direction: React-free, engine-free and zod-free is also Node-portable. `wire.ts` is types-only, so both edges are erased. **T4c added the floor's first module the daemon VALUE-imports**: `src/shared/capture.ts` holds `CAPTURE_VIEWS` and the capture size bounds, read by the host (which derives and clamps), by `wire.ts` (type only) and by the daemon's zod schema (which validates); the MCP door joins them when the tool is advertised. It is on the floor for exactly the reason the rule exists — the daemon may not touch anything that imports `@furnace/core`, and every file in `field-host/` does — and it changes no rule either: a plain array and three numbers are React-free, engine-free, zod-free and Node-portable, which is the same four properties `wire.ts` satisfies by being empty at run time. It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
+**The import arrow runs one way — `frontend/ → { field-host/, action-registry/ } → shared/`** (foundations T3b1; the fourth node arrived in T3b2, §22.5). `src/frontend/` is the React half, `src/field-host/` the engine-facing half, `src/action-registry/` the editor's verbs as rows, and `src/shared/` the neutral floor. The two middle nodes were SIBLINGS through T4b — neither imported the other — and **since T4c they are a chain: `field-host/ → action-registry/`.** `tests/no-chrome-leakage.test.ts` pins BOTH directions, and each for its own reason. Upward is forbidden outright (the registry taking a `FieldHost` type would put a host dependency in the one module the daemon is meant to be able to hold). Downward is permitted for EXACTLY ONE module, `action-registry/result.ts`, and asserted as a membership rather than merely left unguarded: `field-host/field-mutation.ts` answers a caller instead of the room, and `result.ts` puts the refusal vocabulary below the chrome precisely so non-chrome callers can hold it — *"there is ONE vocabulary of refusal in this editor"*. The alternative was a host-local result type converted in the chrome verb, which is the second-name-for-a-subset that file argues against. It is the FILE and not the barrel, so `schemas.ts`'s zod never becomes reachable from anything the host pulls in. Before T4c the reverse edge was simply unguarded, which is the accident-of-file-layout the repo's boundary rule exists to prevent — silence is not permission. `src/field-host/` carried the deleted scene-editing viewport host's name until T3b1's last task renamed it (2026-08-06), tests included (`tests/field-host/`); four dated records — three under `docs/learnings/`, one under `docs/research/` — are the only tracked files where the old spelling still reads as current, and they keep it deliberately. Each layer may import DOWN the chain and never up; `shared/` imports nothing ABOVE it. **Foundations T4b added a fourth reader that is not on that arrow at all: the daemon.** `src/shared/wire.ts` holds the backchannel's two frame types, and `daemon/events.ts` + `daemon/session-handlers.ts` `import type` them exactly as the chrome does. It changes no rule — the daemon sits above the floor like everything else and the floor still imports nothing above itself — and the two leakage suites turn out to have been enforcing precisely what a daemon-facing module needs from the other direction: React-free, engine-free and zod-free is also Node-portable. **The daemon's two `wire.ts` edges are `import type` and therefore erased** — and that, rather than the module being empty at run time, is the property that mattered. *(`wire.ts` was types-only until the undo-attribution slice (2026-08-14), which added one runtime `const`, `AGENT_ORIGIN` — see §29. The daemon still value-imports nothing from it; the chrome's answerer registry does.)* **T4c added the floor's first module the daemon VALUE-imports**: `src/shared/capture.ts` holds `CAPTURE_VIEWS` and the capture size bounds, read by the host (which derives and clamps), by `wire.ts` (type only) and by the daemon's zod schema (which validates); the MCP door joins them when the tool is advertised. It is on the floor for exactly the reason the rule exists — the daemon may not touch anything that imports `@furnace/core`, and every file in `field-host/` does — and it changes no rule either: a plain array and three numbers are React-free, engine-free, zod-free and Node-portable, which is the same four properties `wire.ts`'s own lone runtime `const` satisfies (a bare string literal — the argument the undo-attribution slice borrowed from this very module). It stopped importing nothing *at all* in foundations T3b2 (2026-08-06), which added two intra-layer edges — `action-table.ts` reads `field-brush.ts` and `field-limits.ts` — and those are legal by the same rule: they point sideways within the floor, not up out of it. The guard was written for this (`tests/no-chrome-leakage.test.ts` deliberately pins "nothing out of `frontend/`" rather than "no `../` specifier", precisely so a legitimate intra-layer import does not trip it). Until T3b1 seven host files reversed it by importing eight modules out of `frontend/lib/`, and the modules moved rather than the rule bending:
 
 - **Host-only** (`field-host/`): `analyzer-client.ts`, `analyzer-protocol.ts`, `field-client.ts`, `field-protocol.ts`, `field-size.ts`. The two protocol modules VALUE-import `@furnace/core/field`, so they carry core and could never sit in `shared/`; their only chrome-side consumers are the two worker ENTRIES (`frontend/field-worker.ts`, `frontend/analyzer-worker.ts`), which are separate bundles in their own Worker realms and are the leakage guard's only exemptions.
 - **Chrome-shared** (`shared/`): `catalog.ts`, `field-brush.ts`, `field-entity.ts`. Two of the three are VALUE-imported by chrome components as well as by the host; **`catalog.ts` is the exception and always was** — the host `import type`s it at all four of its sites (`field-host.ts`, `field-placements.ts`, `field-props.ts`, `substrate.ts`), so only the chrome (`hooks/useCatalogs.tsx`) takes a value edge. It belongs here on the *type*-sharing half of the rule rather than the value-sharing half, and the earlier wording claiming otherwise was corrected in T3b2 Task 5. T3b2 added three more, all value-imported by both layers: `field-limits.ts`, `action-table.ts` (Task 5 switched the chrome onto it — §22), and `field-brush.ts`' `LATTICE` gained a registry-side reader too. T3c added a fourth, `tool-registry.ts`, value-imported by `tool-params.tsx` for the dead-control answer — and the floor is where it had to go for exactly the reason this bullet states, which §23.4 works through as three independent facts. `shared/` holds protocol-shaped types and pure derivations: **React-free and engine-free**, where engine-free means no VALUE import of `@furnace/core` (type-only is erased and allowed). Moving one of these into `field-host/` instead would have broken every chrome file that value-imports it, because the guard forbids a chrome value-import of any `field-host` specifier — the guard is right, and it is what decided the split.
@@ -5295,7 +5295,9 @@ naming this exact caller: *"A caller handing over a list it WROTE — a batched 
 rather than a drawn gesture — has no other way to find the record to fix."* One batched verb
 rather than one per op, deliberately: the group is ONE undo entry, so an agent's batch is one
 ⌘Z for the human. That is the **named-stroke guardrail**, and it buys the human's undo stack
-back without needing op attribution — which is post-T4 and fenced.
+back without needing op attribution — which was post-T4 and fenced when this was written, and
+which the undo-attribution slice shipped on 2026-08-14 (§29). The guardrail is unchanged by
+that: a batch is still one entry, and attribution now says whose entry it is.
 
 **The failure posture is the whole design, and it is the OPPOSITE of the interactive one.**
 `field-tool.ts`'s `commitToolOp` catches every setup-loud throw, reports it on the host's own
@@ -5403,22 +5405,27 @@ registry's answer and `runNamedById` is the one funnel that knows the table — 
 unknown id as `input` and names the verbs that do exist, because the caller cannot see a
 menu. Which ids are ADVERTISED is the MCP door's separate choice.
 
-**`edit.undo` and `edit.redo` are FENCED at the daemon**, and that is a user ruling enforced
-rather than a policy this layer invented. The tranche's stop condition — no agent undo verb —
-was satisfied literally, and `action.run` then made it moot: a door that accepts `edit.undo`
-IS an agent undo verb wearing a different spelling. Without op attribution the log is a bare
-LIFO with no `origin` on an entry, so an agent's undo pops whatever is on top, routinely the
-human's own stroke; undo and attribution are to be designed together, and the fence's message
-says so and names the lift condition. It is **not** the second allow-list the plan forbade —
-that was about not keeping a second copy of *which ids exist*; this is two ids the user ruled
-out, named once, which cannot drift out of step with a registry it does not mirror. It lives
-DAEMON-side rather than in the chrome's answerer because the `bun run edit` loop restarts the
-daemon on every source change while an open tab keeps the bundle it booted with: a chrome-side
-fence would hold only for tabs that did not need it. And it is a rule rather than a reliance
-on `mcp.ts` listing three tools — advertisement is not enforcement, which is the gap this
-tranche keeps closing elsewhere. (Task 6 proved that the hard way round: `action_run` IS
-advertised, its `id` is a free string, so an agent really can name `edit.undo` — and meets
-this set. §27.4.) The daemon validates the half it can: the six
+**`edit.undo` and `edit.redo` WERE FENCED at the daemon, from T4c until the undo-attribution
+slice lifted the fence on 2026-08-14 (§29).** The rule this tranche built was a user ruling
+enforced rather than a policy this layer invented. The tranche's stop condition — no agent undo
+verb — was satisfied literally, and `action.run` then made it moot: a door that accepts
+`edit.undo` IS an agent undo verb wearing a different spelling. Without op attribution the log
+was a bare LIFO with no `origin` on an entry, so an agent's undo popped whatever was on top,
+routinely the human's own stroke; undo and attribution were to be designed together, and the
+fence's message said so and named the lift condition. It was **not** the second allow-list the
+plan forbade — that was about not keeping a second copy of *which ids exist*; it was two ids the
+user ruled out, named once, which could not drift out of step with a registry it did not mirror.
+It lived DAEMON-side rather than in the chrome's answerer because the `bun run edit` loop
+restarts the daemon on every source change while an open tab keeps the bundle it booted with: a
+chrome-side fence would hold only for tabs that did not need it. And it was a rule rather than a
+reliance on `mcp.ts` listing three tools — advertisement is not enforcement, which is the gap
+this tranche kept closing elsewhere. (Task 6 proved that the hard way round: `action_run` IS
+advertised, its `id` is a free string, so an agent really can name `edit.undo` — and met that
+set. §27.4.) **What replaced it, and what was knowingly traded:** ops carry `origin` now, so the
+rule became the one it always wanted to be — an ownership guard that reads the top entry's
+author — and a guard that reads state cannot live where the state is not. It is TAB-side, which
+gives up exactly the daemon-side property quoted above; §29 states the residue and its bound.
+The daemon validates the half it can: the six
 verbs with an input schema have it applied from `action-registry/schemas.ts`, which makes the
 daemon the **first consumer of that directory** — by relative path, so the export-map entry
 still has no consumer and its trigger (an outside-the-package importer) has still not fired.
@@ -5681,8 +5688,9 @@ every test isolated by construction and the absence pin an ABSOLUTE rather than 
 Four things it deliberately is not, each a fence rather than an omission: it is **not a chat
 surface**; it is **not an outcome channel** — `ran` takes no result, so a refused `edit.apply`
 and an applied one are identical here, which is the quiet-refusals ruling built into the shape
-rather than remembered at a call site; it is **not attribution** (that needs a `LogEntry` field
-and is fenced to post-T4 with the agent undo verb); and it carries **no timestamp**, because a
+rather than remembered at a call site; it is **not attribution** (that needs a `LogEntry` field,
+which was fenced to post-T4 with the agent undo verb and shipped in the undo-attribution slice,
+§29 — the chip is still not where attribution is read); and it carries **no timestamp**, because a
 fading indicator would have to answer "has the agent left?", which this substrate cannot —
 an agent that stops asking is indistinguishable from one that is thinking, and the claim is
 what actually knows. It is recorded AFTER the registry lookup, so a method the tab does not
@@ -5690,7 +5698,7 @@ serve (version skew) never reaches the bar: that is a refusal, not a verb.
 
 **Two spellings of interrupt, and which one the door advertises.**
 `action.run {id: "session.escape"}` reaches the same `FieldHost.escape`: it is a registry row
-(the human's Cancel), never disabled, and not on `FENCED_ACTIONS`. The overlap is structural
+(the human's Cancel) and it is never disabled. The overlap is structural
 rather than a slip — `action.run` is a door onto the whole 39-verb table by design, so every
 registry verb has a second spelling through it — but the two are NOT equivalent, and the
 difference is the reason the new verb exists: `session.escape` hands off and answers `ok`
@@ -5702,8 +5710,11 @@ considered: making the registry verb refuse would speak a PERSISTENT error toast
 every time they press Esc with nothing standing (`sayResult` speaks a refusal and errors hold
 the screen until dismissed) — which is what that row's `enabled: () => true` and its *"an Esc
 with nothing to cancel is a no-op rather than a refusal"* comment exist to protect; and fencing
-it would spend `FENCED_ACTIONS` — which means *"an agent must not do this at all"*, undo
-pending attribution — on a vocabulary preference, making the list mean two things.
+it would have spent T4c's `FENCED_ACTIONS` — which meant *"an agent must not do this at all"*,
+undo pending attribution — on a vocabulary preference, making that list mean two things. *(The
+deny-list was retired by the undo-attribution slice, §29; the argument stands as the reason
+this stayed a vocabulary question, and the ruling it protects — which spelling the door
+advertises — is unaffected.)*
 
 **What Task 6 owed this task, and PAID.** At the close of Task 5 the `session_state` row and
 `MCP_INSTRUCTIONS` still said *"which tool and gesture are armed"* — two members that no longer
@@ -5798,20 +5809,26 @@ would have cost both daemon drift pins. `generate`'s region took `point3` in the
 plus a "no `prefixItems` without matching length" rule, so the next lossily-reflected
 construct reds before an agent reads it.
 
-**THREE RULES THIS DOOR ENFORCES THAT ITS DOCUMENT CANNOT STATE**, counted rather than
-mentioned, because "there is one" was the first draft of this paragraph and it was short by
-two. Each fails to project for a different reason, all three refuse at the wire, and the probe
-enumerates them so a fourth arriving unlisted is the thing that shows up.
+**TWO RULES THIS DOOR ENFORCES THAT ITS DOCUMENT CANNOT STATE**, counted rather than
+mentioned, because "there is one" was the first draft of this paragraph and it was short.
+Each fails to project for a different reason, both refuse at the wire, and the probe
+enumerates them so a third arriving unlisted is the thing that shows up.
 (1) **A zero direction vector** — JSON Schema has no "not this value", so `direction3`'s
 refinement rides `.describe()` and the suite pins the description as well as the refusal.
-(2) **A fenced action id** — `FENCED_ACTIONS` is a rule inside `action.run`'s handler over a
-free-string `id`; enumerating the fenced ids in the schema would make the deny-list a wire
-contract two places have to agree about. (3) **A stray key on an action row's `input`** —
+(2) **A stray key on an action row's `input`** —
 `action_run` advertises `input` as `unknown`, which is exactly what its own schema says and
 what is TRUE for the 33 bare verbs; the six that take an object are parsed one layer deeper
 against `ACTION_INPUT_SCHEMAS`, and a per-id `oneOf` in the document would be a lie for the
-other 33. All three are honest in the prose an agent reads, which is what a caller has instead
+other 33. Both are honest in the prose an agent reads, which is what a caller has instead
 of a keyword.
+
+*(**IT WAS THREE AT T4c**, and the third went away with its rule rather than with its pin: a
+FENCED ACTION ID — `FENCED_ACTIONS` was a rule inside `action.run`'s handler over a
+free-string `id`, and enumerating the fenced ids in the schema would have made the deny-list a
+wire contract two places had to agree about. The undo-attribution slice retired the deny-list
+(§29), so the door's looser-than-validation points are two. The id's NEW behaviour at this door
+— reachable, refused by the tab's ownership guard, advertised in the `action_run` row's prose —
+has its own case in `tests/mcp.test.ts` rather than a line in this list.)*
 
 **The four hand-offs the earlier tasks left, discharged.** (1) The READS-ONLY closing line is
 gone from `MCP_INSTRUCTIONS`, and its absence is now asserted — a door with hands that tells
@@ -5895,11 +5912,11 @@ and this table is where a reader looks for it.
 | Clause | Verdict | Evidence |
 | --- | --- | --- |
 | **1. An agent session builds a small world end to end through MCP — generate, dig, bake, capture — with the measures recorded** | **WALKED LIVE, PASSED, MEASURED (2026-08-11).** *(This row read "PENDING THE REVIEW WALK" until foundations T5's citation sweep — it was written by T4c Task 7 BEFORE the walk and the walk's result landed in the seal instead of here, which is the one place a reader of this table would look.)* Ten tool calls, zero errors, against the user's claimed Safari session on the real dungeon project, and it is the clause no test can stand in for: what it checks is that a model holding only the nine advertised descriptions can compose the calls in the right order and read its own results. **The distinct gate that did NOT pass is gate 2, the holistic USER VISUAL walk** — PARTIAL, then waived to daily use by user ruling; the dig/paint/bake regression pass and the `sampleCount: 1` AA eyeball were not delivered, and the seal says in as many words that it does not record a passed visual gate. The renders-clean scar rule still stands. | `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md`, which banks the measurements: `generate` (cave, defaults) **28 ms** · `edit_apply` (a three-sphere dig batch = one undo entry) **13 ms** · a geometric ray verify **13 ms** · `world.saveAs` + `world.bake` **~1.1 s** each · two `viewport_capture`s **38–45 ms** returning MCP image blocks (87/120 KB PNGs, 1024×556, **~750 vision tokens** each), visually verified by the reviewing agent. **Two firsts are in those numbers**: a daemon under real MCP traffic (the per-POST server construction is invisible in the timings — caveat 2 below is answered for one session, not retired) and the 2-D-canvas PNG encoder on Safari/wry, clean. To re-walk: `bun run dungeon:editor`, `claude mcp add --transport http furnace http://127.0.0.1:4500/mcp`, then `world_list → generate → edit_apply → session_query → action_run {id:"world.saveAs"} → action_run {id:"world.bake"} → viewport_capture` — **on a SCRATCH world**, which is the walk-design lesson this one recorded (building into `huge` made the delta invisible). |
-| **2. Every mutation enters through validated batched ops = one undo entry each, refusals typed with `because` and locators** | **HOLDS.** `logApplyGroup` validates the whole list before any store write and pushes exactly ONE entry, so an agent's batch is one ⌘Z for the human — the named-stroke guardrail, which is what buys undo safety without op attribution (fenced to post-T4). Refusals are RETURNED, never toasted, and carry core's own indexed locator (`field op group: ops[2] — …`) unreworded, because the ops carry no ids until pass 2 and the list position is the only address a caller can act on. `RefusalClass` gained `input` with its first caller. **The declared residue, which is a real limit and not a formality:** pass-2 rollback does not exist — an op that clears validation and dies in the applier leaves earlier writes in the store, unrecorded and UNMESHED. That case answers `failed` (not `input`), and its message says so; the entry stays open. | `bun test packages/editor/tests/field-host/mutation.test.ts` — 16 cases, including *"an agent's batch is ONE undo step for the human"*, *"an invalid op is REFUSED naming ops[N], as `input`, with nothing written"* and *"a pass-1 rejection and a pass-2 failure are told apart STRUCTURALLY"*. Relay half: `bun test packages/editor/tests/session-mutation.test.ts`. |
+| **2. Every mutation enters through validated batched ops = one undo entry each, refusals typed with `because` and locators** | **HOLDS.** `logApplyGroup` validates the whole list before any store write and pushes exactly ONE entry, so an agent's batch is one ⌘Z for the human — the named-stroke guardrail, which is what buys undo safety without op attribution (fenced to post-T4 when this row was written; attribution shipped 2026-08-14, §29, and the guardrail is unchanged by it). Refusals are RETURNED, never toasted, and carry core's own indexed locator (`field op group: ops[2] — …`) unreworded, because the ops carry no ids until pass 2 and the list position is the only address a caller can act on. `RefusalClass` gained `input` with its first caller. **The declared residue, which is a real limit and not a formality:** pass-2 rollback does not exist — an op that clears validation and dies in the applier leaves earlier writes in the store, unrecorded and UNMESHED. That case answers `failed` (not `input`), and its message says so; the entry stays open. | `bun test packages/editor/tests/field-host/mutation.test.ts` — 16 cases, including *"an agent's batch is ONE undo step for the human"*, *"an invalid op is REFUSED naming ops[N], as `input`, with nothing written"* and *"a pass-1 rejection and a pass-2 failure are told apart STRUCTURALLY"*. Relay half: `bun test packages/editor/tests/session-mutation.test.ts`. |
 | **3. `generate` leaves no ghost** | **HOLDS.** It calls `field.commitGenerator` directly — what `commitStampSession` calls at the END of the interactive path — and touches session state at no point, so there is no state for it to leak. This is the clause with the most immediate consequence for clause 1: a session left standing refuses `world.bake` (whose `enabled` requires `ctx.session === null`) and every family key with it, so a ghost here would kill the gate script one step later. | `bun test packages/editor/tests/field-host/mutation.test.ts -t "leaves NO stamp session"`. |
 | **4. Capture matches the viewport (lights + overlays) at a chosen pose without touching the human's camera** | **HOLDS, and the pose half is the pin that mattered.** The capture composes through the same `field-render.ts` `compose` the live frame uses, with the same `sceneLights()` and the same line batches, into an off-screen texture — so "matches the viewport" is a shared code path rather than a resemblance. A named pose derives a camera and **mutates no input**: the rig is asserted byte-identical after a posed capture. Overlays default on and `overlays: false` removes exactly the line passes. | `bun test packages/editor/tests/field-capture.gpu.test.ts` — *"capturePixels: LIT — the ONLY variable is the light list"*, *"OVERLAYS — the line passes are there, and `overlays:false` removes exactly them"*, *"captureScene: THE COLLABORATION CONSTRAINT — a posed capture leaves the rig byte-identical"*. Pure half: `bun test packages/editor/tests/field-host/field-capture.test.ts`. |
 | **5. Contact/floating answered geometrically** | **HOLDS for props, and the asymmetry is a decision rather than a gap.** A prop is IN CONTACT when a ray cast straight down from the centre of its proxy box's BASE finds a solid sample within one cell size — a function of the prop's own box and nothing else, so no camera and no ordering enters the answer. **Entities are deliberately NOT contact-probed**: a carver's footprint is a volume of air it removed, so a downward probe from its base hits the rock under the floor it just made and reports contact for every hall ever dug. The rule is carried verbatim into the advertised tool description, which is where a caller reads it. Both lists are exceptions rather than rosters, both capped, and `truncated` is what keeps an empty list honest. | `bun test packages/editor/tests/field-host/query.test.ts` — *"PIN: a deliberately-overlapping pair reports its overlap"*, *"PIN: a floating prop reports no floor contact, and a resting one does not appear"*, *"the read WRITES NOTHING"*. Door half: `bun test packages/editor/tests/session-query.test.ts`. |
-| **6. The door advertises real schemas per row, ≤10 tools, instructions ≤2KB, no false `readOnlyHint`** | **HOLDS on all four, measured.** **Nine** rows against a ceiling of ten, the tenth deliberately unspent. Every row's document is `z.toJSONSchema` over the command's own zod, resolved at door CONSTRUCTION — so a row naming a command the registry lacks is a startup failure, which is what makes `unknown-command` structurally unreachable (§6). `MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048, and the row descriptions (**7,082 bytes** at T4c; **7,502** at T5; **7,865** at cycle 2's head, still under) are pinned too, at 8,192, because budgeting only the cheaper surface would have been discipline in name. `readOnlyHint: true` on the five reads; the four writes carry no `annotations` object at all, the specification's default for an absent hint already being "not read-only". **Three rules the document cannot state** (a zero direction vector, a fenced action id, a stray key on an action row's `input`) are enumerated in the probe so a fourth arriving unlisted shows up. | `bun test packages/editor/tests/mcp.test.ts` — **19 cases** at cycle 2's head (17 when this row was written; the count is that command's own output) through a real SDK client in a spawned runtime, including *"tools/list advertises the nine, with readOnlyHint per ROW"*, *"the advertised documents say nothing this suite cannot read — and no tuple lies about its length"* and *"every bound the document states is a bound dispatch enforces"*. |
+| **6. The door advertises real schemas per row, ≤10 tools, instructions ≤2KB, no false `readOnlyHint`** | **HOLDS on all four, measured.** **Nine** rows against a ceiling of ten, the tenth deliberately unspent. Every row's document is `z.toJSONSchema` over the command's own zod, resolved at door CONSTRUCTION — so a row naming a command the registry lacks is a startup failure, which is what makes `unknown-command` structurally unreachable (§6). `MCP_INSTRUCTIONS` is **1,970 bytes** against a pinned 2,048, and the row descriptions (**7,082 bytes** at T4c; **7,502** at T5; **7,865** at cycle 2's head, still under) are pinned too, at 8,192, because budgeting only the cheaper surface would have been discipline in name. `readOnlyHint: true` on the five reads; the four writes carry no `annotations` object at all, the specification's default for an absent hint already being "not read-only". **Three rules the document cannot state** (a zero direction vector, a fenced action id, a stray key on an action row's `input`) are enumerated in the probe so a fourth arriving unlisted shows up — **two at head**, since the undo-attribution slice retired the fenced-id rule along with `FENCED_ACTIONS` (§27.4, §29). | `bun test packages/editor/tests/mcp.test.ts` — **19 cases** at cycle 2's head (17 when this row was written; the count is that command's own output) through a real SDK client in a spawned runtime, including *"tools/list advertises the nine, with readOnlyHint per ROW"*, *"the advertised documents say nothing this suite cannot read — and no tuple lies about its length"* and *"every bound the document states is a bound dispatch enforces"*. |
 | **7. The donor entry is GONE with items 3/4 dispositioned** | **HOLDS.** `docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` (gone) is deleted. Item 1 (inbound MCP) shipped across T4b + T4c; item 2 (`viewport.capture`) shipped at T4c Task 2; **item 3 (the embedded agent) is DROPPED** with the supersession recorded below and in this commit's message; **item 4 (outbound editor→LLM) is re-filed** at `docs/backlog/editor-and-tooling/outbound-llm-editor-features.md` with a trigger that can fire. Every citation was re-pointed in the same commit — and the honest statement is that the NAME survives its file on purpose, never as a live path. | `test ! -f docs/backlog/editor-and-tooling/editor-ai-integration-milestone.md` (gone) proves the deletion. Then `grep -rn "editor-ai-integration-milestone" docs packages/*/README.md --exclude-dir=superpowers` — **11 hits, and it deliberately does NOT return nothing.** (The `--exclude-dir` is load-bearing rather than tidy: `docs/superpowers/` is gitignored plan scaffolding and adds 14 more hits that are nobody's to maintain.) Every one of the 11 is one of three kinds, and the counts are the check: **five in this document** (§19, §26.3, and §27.5 ×3 — recording what was deleted and where its contents went); **four former-home annotations** (`read-only-chrome-for-an-unclaimed-session.md` ×2, which quotes the claim policy the donor was the only home for, `editor-backend-architecture.md`, and `outbound-llm-editor-features.md`'s provenance line); and **two dated records keeping their original wording** (`docs/research/2026-07-06-editor-cockpit-audit.md`, `docs/learnings/seals/2026-07-06-pre-3.2-package-record.md`). A twelfth hit, or any hit presenting it as a live register, is the failure. |
 | **8. MSAA is gone from the editor and the claim re-keys on world switch** | **HOLDS, and the two halves are unrelated warm-ups that shared a commit.** The editor's context is `sampleCount: 1` at the single site that requests one; `init` takes the canvas and nothing else; the View popover's AA switch, `ViewState.sampleCount`, `setSampleCount` and the `FieldCanvas` wrapper that existed only to read it are all deleted. **`packages/core` is untouched** — the engine keeps MSAA and hello-world still uses it; only the editor gave it up. The claim now re-keys: `useSessionClaim` owns the authored world, releases and re-claims on every change, and a REFUSED re-key releases what the tab left rather than holding a stale key. | `grep -rn "sampleCount" packages/editor/src` returns **9** lines and exactly **one** of them is code — `field-host.ts`'s `requestContext(canvas, { sampleCount: 1 })`; the other eight are the comments that record why the switch went, which is the intended residue rather than leftovers. The same grep over `packages/core/src` returns **65** lines, which is clause 8's other half stated as a measurement: core kept MSAA and only the editor gave it up. Claim: `bun test packages/editor/tests/chrome/session-claim.test.tsx` — *"loading a world RE-KEYS the claim"*, *"a REFUSED re-claim releases the world this tab left, then offers the steal"*, *"a LOST tab does not claim its way back in by switching worlds"*. |
 
@@ -6124,8 +6141,10 @@ would buy.
 
 **What this tranche did NOT do, on purpose, so the next planner does not re-derive it.** No op
 attribution and no `LogEntry` format change — user-ruled to post-T4 and designed together with
-the agent undo verb, which is why `edit.undo`/`edit.redo` are FENCED at the `action.run` door
-rather than merely unadvertised (§27.1). No abort plumbing: `session.interrupt` drains one Esc
+the agent undo verb, which is why `edit.undo`/`edit.redo` were FENCED at the `action.run` door
+rather than merely unadvertised (§27.1). *(All three landed together in the undo-attribution
+slice on 2026-08-14 — §29 — which is the pairing being described here, honoured.)* No abort
+plumbing: `session.interrupt` drains one Esc
 rung and cannot stop a bake, a save or an analyzer pass, because nothing in this editor is
 abortable. No read-only chrome mode. No canvas-snapshot tool. No `ToolDefinition.build`. No
 embedded agent and no outbound LLM (dispositioned above).
@@ -6585,7 +6604,8 @@ stated honestly is worth more than a HOLDS a reviewer disproves in one command.
 **Fenced by ruling before the plan was written, so the next planner does not re-derive it:**
 no tenth MCP tool; no numeric cap on the entity list (no measurement exists to size one); no
 op attribution, `LogEntry` format change or agent undo verb (all post-T4, with `edit.undo` /
-`edit.redo` still FENCED at the door); no `ToolDefinition.build` implementation regardless of
+`edit.redo` still FENCED at the door through T5 — all three shipped 2026-08-14, §29); no
+`ToolDefinition.build` implementation regardless of
 the verdict; no `--isolate` re-probe; no read-only chrome mode; and no 3b content.
 
 **NEXT after T5 is the 3b session — the agent world-building skill.** It lives under
@@ -6612,6 +6632,11 @@ and named-stroke boundaries, designed together with an agent undo verb rather th
 That is the pairing `edit.undo`'s fence has been holding open since T4c (§27.1), and it is
 also the state clause 1's remaining rung needs — "added since your last look" is attribution
 wearing a list's clothes.
+*[Executed 2026-08-14 as the undo-attribution slice — §29. It landed as ONE pass exactly as
+posed: `origin` on core's `FieldOp` (durable, oplog v4) AND on `LogEntry` (volatile), stamped
+by every committing path from one parameter, with the fence lifted behind a tab-side ownership
+guard in the same slice. What it did NOT build is the "added since your last look" rung — the
+slice attributes entries, it does not diff them for a reader.]*
 
 **Then F5, "scale."**
 
@@ -6672,3 +6697,106 @@ need a per-entry disposition rather than a new path. That
 class is invisible to a file count, is *propagated* rather than fixed by consolidation, and gets
 worse precisely as the register does its job. Any design for this register has to say how a
 citation stays true, or how it is made cheap to re-derive.
+
+## 29. The undo-attribution slice — the op log learns who, and the fence becomes a guard (2026-08-14)
+
+The slice that closes the pairing §27.1's fence had been holding open since T4c: **durable
+op-level attribution on the field op log, and the lift of the agent undo/redo fence behind an
+ownership guard**. Core's half — the v4 oplog wire, `origin` on every `FieldOp` and `LogEntry`,
+the two stamping altitudes, and compaction's origin-boundary rule — is `core-modules.md`'s
+(§ *the op log*, § *log hygiene* and § *the oplog wire format*). This section is the EDITOR's
+half: where the tag is asserted, where ownership is decided, and what that placement costs.
+
+**`AGENT_ORIGIN = "agent:mcp"` is the editor's one origin tag**, and it lives in
+`shared/wire.ts`. Absent = human is core's convention, so the chrome's own surfaces dispatch
+with no tag at all and a human's ops and entries stay byte-identical to their pre-v4 form.
+
+**It is ASSERTED at the session-answerer seam, never relayed**, and that is the whole of the
+trust argument. Everything arriving over the daemon backchannel is agent-initiated by
+construction, so the tab can state authorship rather than believe a claim: the three
+tab-side answerers that commit — `edit.apply`, `generate` and `action.run` — pass the constant
+themselves. No request type in `wire.ts` carries an `origin` field, deliberately; an agent
+cannot spell one. `edit.apply` and `generate` reach `FieldHost.applyOps` / `FieldHost.generate`
+with the tag as a trailing argument, and those hand it to core's committing path.
+
+**For `action.run` the tag is a DISPATCH argument rather than a member of `input`**, for the
+same reason: `input` is the caller's, relayed unparsed, so an origin living there would be
+something the agent DECLARES, where this is something the tab ASSERTS about where the call came
+from — the two must not share a channel. One ref serves all 39 verbs; the action-context
+provider folds the third parameter into `ActionCtx.origin`, and the two committing runs that
+read it hand it to the host verb they call (`duplicateEntity`, `deleteEntity`). Every chrome
+dispatch omits it.
+
+### 29.1 The ownership guard, and what moving it tab-side cost
+
+**`FENCED_ACTIONS` is gone** — the daemon-side deny-list that refused `edit.undo`/`edit.redo`
+for every agent from T4c to this slice. `session-handlers.ts` now holds no opinion about which
+of the 39 verbs an agent may name, `action.run` has no deny-list to pair with its absent
+allow-list (§4), and `invalid-input` at the MCP edge is schema-only (§6).
+
+**In its place, `stepsOwnWork` in `frontend/lib/actions.ts`**: an agent-originated dispatch may
+step only an entry that agent authored. It reads `FieldHost.topEntryOrigin(stack)` — the
+`origin` of whichever entry is on top of the named stack — and compares it to `ctx.origin`,
+answering a refusal or `null` to proceed. Three properties are decisions rather than details:
+
+- **Humans are not guarded, and the asymmetry IS the policy.** A chrome dispatch carries no
+  `ctx.origin`, so the guard returns `null` for every one of them: the person owns the world
+  and steps anything in it, an agent's work included. Guarding both directions would lock
+  someone out of undoing what an agent just did in their own tab — the exact failure the fence
+  existed to prevent, pointed the other way.
+- **Only the TOP entry.** There is no "undo my last op wherever it is": burrowing into the
+  stack is a compensating-op problem, not a history-step one, and the refusal names the remedy
+  an agent actually has — apply the inverses as new content.
+- **It runs AFTER `enabled`**, so an empty stack answers the inert hint rather than a sentence
+  about the author of an entry that does not exist. A null host falls through rather than
+  refusing here, leaving the no-engine sentence to `handOffToHost` — one refusal per condition.
+
+**The residue: a STALE TAB under a restarted daemon.** The fence's own docblock argued for
+living in the daemon on a property the guard does not have — *"a daemon-side fence holds
+regardless of what the tab believes"* — because `bun run edit` restarts the daemon on every
+source change while an open tab keeps the bundle it booted with. That property is knowingly
+given up, not overlooked: **a guard that reads state cannot live where the state is not, and
+the state is the tab's.** The residue is bounded by exactly two facts, and neither of them is
+"an agent will be careful":
+
+1. **The exposed loop is single-user local dev** — an agent driving a tab that outlived a
+   daemon restart.
+2. **An errant step is NON-DESTRUCTIVE.** The entry moves to the other stack and ⇧⌘Z brings it
+   back; losing it takes a further mutation to clear the redo stack.
+
+**It is NOT mitigated by `bundle-outdated`.** That watcher covers the CONSUMER's extension
+source — `daemon/server.ts` watches the directory of the configured `extensions` entry, and
+only when `furnace.config.json` configures one (§5) — so an edit to the editor's own chrome
+emits nothing and reloads no tab. The plan for this slice claimed otherwise; the guard's
+docblock carries the correction at source.
+
+### 29.2 `session.confirm` commits are left UNSTAMPED, whoever triggers them
+
+**Ruled this slice, and stated here because an unstated asymmetry would be a surprise wearing
+a design's clothes.** `session.confirm` reaches `FieldHost.confirmSession()` with no `origin`
+argument — from the human's ⏎ and from an agent's `action.run` alike. Its commits therefore
+carry no attribution at either altitude, and no one can step them through the guard.
+
+**The reason is MIXED AUTHORSHIP.** A staged session is not one party's work: a human stages it
+— the region, the params, the generator, the grab — and whoever calls confirm merely triggers
+the commit that was already composed. Stamping such a commit `agent:mcp` would hand the agent
+undo authority over human-staged content, which is the one direction the whole scheme forbids.
+Leaving it unstamped fails the other way, and that way is benign: an agent that grabs an entity
+with `edit.grab` and drops it with `session.confirm` cannot undo its own move. It asks the
+operator, exactly as the guard's refusal already tells it to.
+
+**"Whose work is a confirm" is an open follow-up**, not a settled answer — the honest reading is
+that a confirm has two authors and the log has one field for them. Nothing in this slice
+decides it.
+
+### 29.3 What this slice did NOT do
+
+No attribution surfaced to the human — `agent-presence.ts` records the last agent METHOD and
+is still not attribution, deliberately (§27.3); showing who authored an entry is blame UI and
+is nobody's job yet. No "added since your last look" rung on `session_state`'s history (§28.8
+posed it beside this pass; the slice attributes entries, it does not diff them for a reader).
+No second origin tag: the editor asserts exactly one, and a multi-agent vocabulary would want
+the claim to mint it rather than a constant to spell it. And core stays POLICY-FREE — its
+`undo`/`redo` read no `origin` and the stacks arbitrate nothing; the only core code that reads
+the field is compaction's run-boundary predicate, which exists to PRESERVE attribution across a
+fold rather than to act on it.
