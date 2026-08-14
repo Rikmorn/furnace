@@ -562,3 +562,28 @@ describe("fieldOpChunks", () => {
     expect(fieldOpChunks(entity, 0.25).size).toBe(0);
   });
 });
+
+// The patch leg of T2's two-altitude attribution — the `logApply`/`logApplyGroup`
+// pins live beside their own fixtures in field-ops.test.ts. Patch is the one
+// committing path that REBUILDS its op rather than spreading the caller's
+// (the slice buffers are cloned so the log owns them), so the stamp has to be
+// written into that rebuild explicitly.
+describe("origin stamping — logApplyPatch", () => {
+  const AGENT = "agent:mcp";
+
+  test("stamps origin on the op AND the entry", () => {
+    const store = createFieldStore();
+    const log = createOpLog();
+    logApplyPatch(store, log, patch([slice()]), TABLE, AGENT);
+    expect(log.ops[0]?.origin).toBe(AGENT);
+    expect(log.undoStack.at(-1)?.origin).toBe(AGENT);
+  });
+
+  test("without origin stamps NOTHING — human patches stay bare", () => {
+    const store = createFieldStore();
+    const log = createOpLog();
+    logApplyPatch(store, log, patch([slice()]), TABLE);
+    expect(Object.hasOwn(log.ops[0] ?? {}, "origin")).toBe(false);
+    expect(Object.hasOwn(log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  });
+});

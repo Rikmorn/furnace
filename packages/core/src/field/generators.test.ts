@@ -2154,3 +2154,63 @@ describe("field generators — the paramSchema annotations (F4.5b Task 11)", () 
     });
   }
 });
+
+// The commit leg of T2's two-altitude attribution. The span is the interesting
+// case: a commit AUTHORS three op kinds at once (the evaluated field ops, the
+// placement op that rides the span, and the entity op that records the recipe),
+// and every one of them is the committing caller's work — so the one `origin`
+// reaches all three plus the entry, or the guard sees a commit half-owned.
+describe("field generators — commitGenerator origin stamping", () => {
+  const AGENT = "agent:mcp";
+  const fillOp = (): BrushOp => ({
+    id: 0,
+    kind: "brush",
+    effect: "fill",
+    material: KIT_CLASS_ID,
+    shape: { kind: "box", center: [1, 1, 1], halfExtents: [0.5, 0.5, 0.5] },
+  });
+
+  test("stamps every span op, the placement op, the entity op AND the entry", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef("both", {
+      ops: [fillOp()],
+      placements: [RECORD],
+    });
+    commitGenerator(s, log, def, {
+      params: {},
+      seed: 1,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+      origin: AGENT,
+    });
+    // fill (brush), placement, entity — all three kinds in one commit
+    expect(log.ops.map((op) => op.kind)).toEqual([
+      "brush",
+      "placement",
+      "entity",
+    ]);
+    expect(log.ops.every((op) => op.origin === AGENT)).toBe(true);
+    expect(log.undoStack.at(-1)?.origin).toBe(AGENT);
+  });
+
+  test("without origin stamps NOTHING — a human commit stays bare", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const def = placingDef("both", {
+      ops: [fillOp()],
+      placements: [RECORD],
+    });
+    commitGenerator(s, log, def, {
+      params: {},
+      seed: 1,
+      region: REGION,
+      policy: "replace",
+      table: TABLE,
+    });
+    expect(log.ops.length).toBe(3);
+    expect(log.ops.some((op) => Object.hasOwn(op, "origin"))).toBe(false);
+    expect(Object.hasOwn(log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  });
+});

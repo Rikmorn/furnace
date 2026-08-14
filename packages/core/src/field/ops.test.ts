@@ -1947,3 +1947,83 @@ describe("logApplyGroup (one gesture, one undo entry)", () => {
     expect(log.redoStack.length).toBe(0);
   });
 });
+
+// Attribution at the log's two altitudes (T2): the committing call stamps its
+// `origin` onto every op it AUTHORS (durable — it rides the v4 wire) and onto
+// the entry it PUSHES (volatile — the stacks are never serialized). Both come
+// from the one parameter, so they can never disagree. The absence pins are the
+// load-bearing half: absent = human is the design's whole point, and an
+// explicit `undefined` would make a human op an own-property carrier and change
+// what `serializeOps` writes back.
+describe("origin stamping — the committing paths (ops.ts)", () => {
+  const AGENT = "agent:mcp";
+
+  test("logApply stamps origin on the op AND the entry", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE, AGENT);
+    expect(log.ops[0]?.origin).toBe(AGENT);
+    expect(log.undoStack.at(-1)?.origin).toBe(AGENT);
+  });
+
+  test("logApply without origin stamps NOTHING — human ops stay bare", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApply(s, log, digBox([2, 2, 2], [1, 1, 1]), TABLE);
+    expect(Object.hasOwn(log.ops[0] ?? {}, "origin")).toBe(false);
+    expect(Object.hasOwn(log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  });
+
+  test("logApplyGroup stamps origin on every op AND the entry", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApplyGroup(
+      s,
+      log,
+      [digBox([2, 2, 2], [1, 1, 1]), digBox([6, 2, 2], [1, 1, 1])],
+      TABLE,
+      AGENT,
+    );
+    expect(log.ops.length).toBe(2);
+    expect(log.ops.every((op) => op.origin === AGENT)).toBe(true);
+    expect(log.undoStack.at(-1)?.origin).toBe(AGENT);
+  });
+
+  test("logApplyGroup without origin stamps NOTHING — human ops stay bare", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApplyGroup(s, log, [digBox([2, 2, 2], [1, 1, 1])], TABLE);
+    expect(Object.hasOwn(log.ops[0] ?? {}, "origin")).toBe(false);
+    expect(Object.hasOwn(log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  });
+
+  test("the caller's own op records are never stamped — the log stamps COPIES", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    const mine = digBox([2, 2, 2], [1, 1, 1]);
+    logApplyGroup(s, log, [mine], TABLE, AGENT);
+    expect(Object.hasOwn(mine, "origin")).toBe(false);
+  });
+
+  test("redo's recapture carries the entry origin — undo→redo→the entry is still yours", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApplyGroup(s, log, [digBox([2, 2, 2], [1, 1, 1])], TABLE, AGENT);
+    undo(s, log);
+    redo(s, log, TABLE);
+    // replayEntry REBUILDS the `ops` entry (re-execution recaptures the
+    // inverse), so the origin has to be carried across by hand — the easiest
+    // silent drop in the design.
+    expect(log.undoStack.at(-1)?.kind).toBe("ops");
+    expect(log.undoStack.at(-1)?.origin).toBe(AGENT);
+  });
+
+  test("redo's recapture of a HUMAN entry adds no origin", () => {
+    const s = createFieldStore();
+    const log = createOpLog();
+    logApplyGroup(s, log, [digBox([2, 2, 2], [1, 1, 1])], TABLE);
+    undo(s, log);
+    redo(s, log, TABLE);
+    expect(Object.hasOwn(log.undoStack.at(-1) ?? {}, "origin")).toBe(false);
+  });
+});

@@ -521,11 +521,23 @@ function applyAndReport(
   });
 }
 
-/** Stamps a span with consecutive ids from `firstId`, leaving the ops otherwise
- *  untouched. Covers the placement op a `contextFree: false` generator appends,
- *  which rides the span like any other member. */
-const stampSpan = (ops: readonly SpanOp[], firstId: number): SpanOp[] =>
-  ops.map((op, i) => ({ ...op, id: firstId + i }));
+/** Stamps a span with consecutive ids from `firstId`, and with `origin` when
+ *  the reconfiguring caller gave one — the re-cooked span is that caller's
+ *  work, whoever authored the entity. Leaves the ops otherwise untouched, and
+ *  covers the placement op a `contextFree: false` generator appends, which
+ *  rides the span like any other member. Conditional, never `origin:
+ *  undefined`: an explicit undefined is an OWN property (`Object.hasOwn`),
+ *  which would change what serializeOps writes. */
+const stampSpan = (
+  ops: readonly SpanOp[],
+  firstId: number,
+  origin?: string,
+): SpanOp[] =>
+  ops.map((op, i) =>
+    origin === undefined
+      ? { ...op, id: firstId + i }
+      : { ...op, id: firstId + i, origin },
+  );
 
 /** The world-AABB chunk keys of one placement record: `position ± scale/2`.
  *  APPROXIMATION — it assumes a UNIT primitive mesh (±0.5 in local space, so
@@ -699,6 +711,16 @@ function placementDrift(
  * is NOT rolled back by undo — ids are only ever handed out once, so the parked
  * span on the redo stack can never collide with a later op.
  *
+ * `origin` is who is reconfiguring — the ACTOR OF THIS CALL, never the entity's
+ * original author ({@link BrushOp.origin}). It reaches exactly what this call
+ * AUTHORS: the re-cooked span ops it inserts (durable) and the `splice` entry
+ * (volatile — {@link LogEntry}.origin). It does NOT reach the entity op, which
+ * is spliced forward with its record updated but its authorship intact — a
+ * human reconfiguring an agent's stamp owns the new span, not the agent's
+ * decision to place it — and it does not reach `removed`, whose ops leave the
+ * log carrying whoever wrote them. Omit it for the human's own work: absent =
+ * human, and neither the ops nor the entry gains the property.
+ *
  * @throws {@link Error} if no entity op carries `entityId`, the entity is
  *   `frozen` or `baked`, its recorded generator id is unknown, the log does not
  *   hold its span where the record says, the generator rejects the merged
@@ -724,6 +746,7 @@ export function reconfigureGenerator(
   changes: ReconfigureChanges,
   table: MaterialTable,
   snapshots: readonly SnapshotRecord[] = [],
+  origin?: string,
 ): { dirty: Set<ChunkKey>; entity: GeneratorEntity; drift: DriftFinding[] } {
   // 1 — locate + guards. The RECORD's own guards come before the layout check,
   // deliberately: a baked entity's span is compaction-eligible, so a compacted
@@ -815,7 +838,7 @@ export function reconfigureGenerator(
   // BELOW spanStartIdx, which the splice leaves alone, so ordering it first
   // keeps the store and log.ops from ever disagreeing.
   const firstId = log.nextId;
-  const newSpan = stampSpan(evaluated, firstId);
+  const newSpan = stampSpan(evaluated, firstId, origin);
   // Spread, don't rebuild: any field the record carries that reconfigure has no
   // opinion about (a label, a lock, a recorded policy) must SURVIVE. Rebuilding
   // field-by-field silently drops whatever is added next.
@@ -849,14 +872,15 @@ export function reconfigureGenerator(
 
   // 7 — after-images + the ONE undo entry
   const after = imagesOf(store, affected);
-  log.undoStack.push({
-    kind: "splice",
+  const entry = {
+    kind: "splice" as const,
     at: spanStartIdx,
     removed,
     inserted,
     before,
     after,
-  });
+  };
+  log.undoStack.push(origin === undefined ? entry : { ...entry, origin });
   log.redoStack.length = 0;
   // Every write above lands in an affected chunk by construction, and a
   // restored-but-unrewritten chunk still needs a remesh — so the dirty set IS
@@ -925,6 +949,14 @@ export function reconfigureGenerator(
  * air). Both are SUBSETS of the downstream ops, not "everything". Widening the
  * return to carry them is additive and non-breaking whenever a caller earns it.
  *
+ * `origin` is who is deleting — the ACTOR OF THIS CALL, never the entity's
+ * original author ({@link BrushOp.origin}). This verb AUTHORS no op (`inserted`
+ * is empty), so unlike every other committing path it has nothing to stamp
+ * durably: the value reaches the `splice` ENTRY alone ({@link LogEntry}.origin),
+ * which is therefore the only record of who removed the span. The `removed` ops
+ * leave the log carrying whoever wrote them. Omit it for the human's own work:
+ * absent = human, and the entry gains no property.
+ *
  * @throws {@link Error} if no entity op carries `entityId`, the entity is
  *   `frozen` or `baked`, or the log does not hold its span where the record
  *   says. All three are VALIDATION failures that fire before the first write,
@@ -940,6 +972,7 @@ export function deleteGeneratorEntity(
   log: OpLog,
   entityId: number,
   table: MaterialTable,
+  origin?: string,
 ): { dirty: Set<ChunkKey> } {
   // 1 — locate + guards, in reconfigureGenerator's order and for its reason: a
   // baked entity's span is compaction-eligible, so a compacted log holds baked
@@ -995,14 +1028,15 @@ export function deleteGeneratorEntity(
 
   // 6 — after-images + the ONE undo entry
   const after = imagesOf(store, affected);
-  log.undoStack.push({
-    kind: "splice",
+  const entry = {
+    kind: "splice" as const,
     at: spanStartIdx,
     removed,
     inserted: [],
     before,
     after,
-  });
+  };
+  log.undoStack.push(origin === undefined ? entry : { ...entry, origin });
   log.redoStack.length = 0;
   // Every write above lands in an affected chunk by construction, and a
   // restored-but-unrewritten chunk still needs a remesh — so the dirty set IS
@@ -1016,21 +1050,31 @@ export function deleteGeneratorEntity(
  *  own copy — this hands it straight to `log.ops`.
  *
  *  Every caller validates FIRST: the push and the redo clear happen together,
- *  after the last thing that can reject. */
+ *  after the last thing that can reject.
+ *
+ *  `origin` goes on the ENTRY only, and this is the asymmetry the entry-level
+ *  field exists for. Nothing here is newly authored: the swapped-in `after` is
+ *  the SAME entity op with a new record (the spread), so it keeps the entity's
+ *  original author on its op-level `origin`, and `before` keeps it too. The
+ *  entry, meanwhile, belongs to whoever called freeze/bake. A reader deriving
+ *  entry-origin from the contained ops would therefore report the entity's
+ *  author as the freezer, which is a different person. */
 function updateEntityOp(
   log: OpLog,
   entityIdx: number,
   entityOp: EntityOp,
   next: GeneratorEntity,
+  origin?: string,
 ): void {
   const after: EntityOp = { ...entityOp, entity: next };
   log.ops[entityIdx] = after;
-  log.undoStack.push({
-    kind: "entity-update",
+  const entry = {
+    kind: "entity-update" as const,
     opIndex: entityIdx,
     before: entityOp,
     after,
-  });
+  };
+  log.undoStack.push(origin === undefined ? entry : { ...entry, origin });
   log.redoStack.length = 0;
 }
 
@@ -1083,6 +1127,16 @@ function updateEntityOp(
  * cannot rewrite the log, and it carries any field this verb has no opinion
  * about verbatim.
  *
+ * `origin` is who is freezing — the ACTOR OF THIS CALL ({@link BrushOp.origin})
+ * — and it lands on the `entity-update` ENTRY only
+ * ({@link LogEntry}.origin). Freezing AUTHORS nothing: the entity op keeps its
+ * own op-level origin on both sides of the entry, so an agent-authored entity
+ * frozen by the human yields an entry the human owns over records that still
+ * name the agent. That divergence is the point — it is why the entry carries a
+ * field of its own instead of a reader deriving one. A REDUNDANT call stamps
+ * nothing, because it pushes no entry at all. Omit it for the human's own work:
+ * absent = human.
+ *
  * @throws {@link Error} if no entity op carries `entityId`, or the entity is
  *   `baked` — a severed recipe has nothing left to protect, and the flag would
  *   be unreadable state. A `DataCloneError` if the record holds
@@ -1092,6 +1146,7 @@ export function setGeneratorFrozen(
   log: OpLog,
   entityId: number,
   frozen: boolean,
+  origin?: string,
 ): GeneratorEntity {
   const { entityIdx, entityOp } = findEntityOp(
     log,
@@ -1110,7 +1165,7 @@ export function setGeneratorFrozen(
   if (frozen) next.frozen = true;
   else delete next.frozen;
   const returned = structuredClone(next);
-  updateEntityOp(log, entityIdx, entityOp, next);
+  updateEntityOp(log, entityIdx, entityOp, next, origin);
   return returned;
 }
 
@@ -1143,6 +1198,11 @@ export function setGeneratorFrozen(
  * reports an empty dirty set, because no chunk changes. The returned record is
  * a COPY and carries any field this verb has no opinion about verbatim.
  *
+ * `origin` behaves exactly as in {@link setGeneratorFrozen}: the ACTOR OF THIS
+ * CALL, stamped on the `entity-update` ENTRY only, while the entity op on both
+ * sides keeps its original author's op-level origin. Omit it for the human's
+ * own work.
+ *
  * @throws {@link Error} if no entity op carries `entityId`, or the entity is
  *   ALREADY baked. The second is deliberate rather than an idempotent no-op:
  *   this is a one-way transition, not a setter, so a second call is a category
@@ -1156,6 +1216,7 @@ export function setGeneratorFrozen(
 export function bakeGeneratorEntity(
   log: OpLog,
   entityId: number,
+  origin?: string,
 ): GeneratorEntity {
   const { entityIdx, entityOp } = findEntityOp(
     log,
@@ -1169,6 +1230,6 @@ export function bakeGeneratorEntity(
   delete next.frozen;
   next.baked = true;
   const returned = structuredClone(next);
-  updateEntityOp(log, entityIdx, entityOp, next);
+  updateEntityOp(log, entityIdx, entityOp, next, origin);
   return returned;
 }

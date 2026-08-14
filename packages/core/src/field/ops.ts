@@ -1047,18 +1047,36 @@ export function createOpLog(): OpLog {
 }
 
 /** Validates then applies an op through the log (assigns the id, records the
- *  two-channel inverse, clears redo). Returns the dirty chunk set. */
+ *  two-channel inverse, clears redo). Returns the dirty chunk set.
+ *
+ *  @param origin Who is authoring this op — the ACTOR OF THIS CALL, never an
+ *    inherited author ({@link BrushOp.origin}). Stamped at both altitudes from
+ *    this one parameter: onto the op (durable — it rides the v4 wire) and onto
+ *    the undo entry (volatile — {@link LogEntry}.origin). OMIT it for the
+ *    human's own work: absent is what "human" is spelled as, so a human op
+ *    stays byte-identical to its pre-v4 form, and neither the op nor the entry
+ *    gains the property at all. */
 export function logApply(
   store: FieldStore,
   log: OpLog,
   op: BrushOp,
   table: MaterialTable,
+  origin?: string,
 ): Set<ChunkKey> {
   assertOpValid(op, table);
-  const stamped: BrushOp = { ...op, id: log.nextId++ };
+  // Conditional, never `origin: undefined`: an explicit undefined is an OWN
+  // property (`Object.hasOwn`), which would change what serializeOps writes.
+  const stamped: BrushOp =
+    origin === undefined
+      ? { ...op, id: log.nextId++ }
+      : { ...op, id: log.nextId++, origin };
   const { dirty, inverse } = applyOp(store, stamped, table);
   log.ops.push(stamped);
-  log.undoStack.push({ kind: "ops", ops: [stamped], inverse });
+  log.undoStack.push(
+    origin === undefined
+      ? { kind: "ops", ops: [stamped], inverse }
+      : { kind: "ops", ops: [stamped], inverse, origin },
+  );
   log.redoStack.length = 0;
   return dirty;
 }
@@ -1099,6 +1117,12 @@ export function logApply(
  *  `commitGenerator` posture), but the store is not rolled back. A group buys
  *  ONE undo entry, not atomicity.
  *
+ *  @param origin Who is authoring the whole group — the ACTOR OF THIS CALL,
+ *    never an inherited author ({@link BrushOp.origin}). One gesture has one
+ *    author, so the single parameter stamps EVERY op in the list (durable) and
+ *    the one entry (volatile), which is what keeps a group from reading as
+ *    half-owned. Omit it for the human's own work: absent = human, and nothing
+ *    gains the property (see {@link logApply}).
  *  @returns the union of the ops' dirty chunk sets.
  *  @throws {@link Error} if any op fails {@link assertOpValid} — before any
  *    mutation, naming the rejected op's list index and carrying the predicate's
@@ -1109,6 +1133,7 @@ export function logApplyGroup(
   log: OpLog,
   ops: BrushOp[],
   table: MaterialTable,
+  origin?: string,
 ): Set<ChunkKey> {
   if (ops.length === 0) return new Set();
   // Pass 1 — validate the WHOLE list before any write, under a locator. ONE try
@@ -1132,7 +1157,11 @@ export function logApplyGroup(
   const inverse: OpInverse = new Map();
   const stamped: BrushOp[] = [];
   for (const op of ops) {
-    const s: BrushOp = { ...op, id: nextId++ };
+    // Conditional, never `origin: undefined` — see logApply.
+    const s: BrushOp =
+      origin === undefined
+        ? { ...op, id: nextId++ }
+        : { ...op, id: nextId++, origin };
     const r = applyOp(store, s, table);
     for (const key of r.dirty) dirty.add(key);
     for (const [key, pre] of r.inverse)
@@ -1143,7 +1172,11 @@ export function logApplyGroup(
   // Loop push, not spread: spread hits JS-engine argument-count ceilings
   // (~65k in JSC) on mega commit spans — the `reapplyOps` convention.
   for (const s of stamped) log.ops.push(s);
-  log.undoStack.push({ kind: "ops", ops: stamped, inverse });
+  log.undoStack.push(
+    origin === undefined
+      ? { kind: "ops", ops: stamped, inverse }
+      : { kind: "ops", ops: stamped, inverse, origin },
+  );
   log.redoStack.length = 0;
   return dirty;
 }
@@ -1169,6 +1202,12 @@ const clonePatchChunk = (c: PatchChunk): PatchChunk => ({
  *  natural shape for a compactor or a procedural emitter — can never rewrite
  *  history and desynchronise replay from the live store.
  *
+ *  @param origin Who is authoring this patch — the ACTOR OF THIS CALL
+ *    ({@link BrushOp.origin}); stamped onto the op (durable) and the entry
+ *    (volatile), omitted for the human's own work. Note this path REBUILDS the
+ *    op rather than spreading the caller's (the clone above), so the stamp is
+ *    written into that rebuild rather than inherited from `op` — an `origin`
+ *    already sitting on the argument is IGNORED, exactly as its `id` is.
  *  @throws {@link Error} if `op` fails {@link assertPatchValid} — before any
  *    mutation of the store, the log, or the id counter. */
 export function logApplyPatch(
@@ -1176,16 +1215,24 @@ export function logApplyPatch(
   log: OpLog,
   op: PatchOp,
   table: MaterialTable,
+  origin?: string,
 ): Set<ChunkKey> {
   assertPatchValid(op, table);
-  const stamped: PatchOp = {
+  const rebuilt = {
     id: log.nextId++,
-    kind: "patch",
+    kind: "patch" as const,
     chunks: op.chunks.map(clonePatchChunk),
   };
+  // Conditional, never `origin: undefined` — see logApply.
+  const stamped: PatchOp =
+    origin === undefined ? rebuilt : { ...rebuilt, origin };
   const { dirty, inverse } = applyPatchOp(store, stamped);
   log.ops.push(stamped);
-  log.undoStack.push({ kind: "ops", ops: [stamped], inverse });
+  log.undoStack.push(
+    origin === undefined
+      ? { kind: "ops", ops: [stamped], inverse }
+      : { kind: "ops", ops: [stamped], inverse, origin },
+  );
   log.redoStack.length = 0;
   return dirty;
 }
@@ -1388,7 +1435,15 @@ export function redo(
  *  {@link redo}. Returns the entry {@link redo} must push onto the undo stack:
  *  the SAME object for the byte-restoring kinds, and for `ops` a fresh entry
  *  over the same op list, because re-execution recaptures the inverse against
- *  current state. */
+ *  current state.
+ *
+ *  That rebuild is the one place an entry's {@link LogEntry}.origin can be
+ *  silently DROPPED — the byte-restoring kinds hand back the popped object and
+ *  carry theirs for free — so the `ops` branch copies it across explicitly, and
+ *  has a pin of its own. Redo must not launder an agent's entry into an
+ *  unattributed one: a consumer's ownership guard reads the entry on the stack,
+ *  and undo → redo would otherwise hand the human someone else's work to
+ *  undo. */
 function replayEntry(
   store: FieldStore,
   log: OpLog,
@@ -1398,7 +1453,13 @@ function replayEntry(
   switch (entry.kind) {
     case "ops": {
       const { dirty, inverse } = reapplyOps(store, log, entry.ops, table);
-      return { entry: { kind: "ops", ops: entry.ops, inverse }, dirty };
+      return {
+        entry:
+          entry.origin === undefined
+            ? { kind: "ops", ops: entry.ops, inverse }
+            : { kind: "ops", ops: entry.ops, inverse, origin: entry.origin },
+        dirty,
+      };
     }
     case "splice":
       spliceOps(log.ops, entry.at, entry.removed.length, entry.inserted);

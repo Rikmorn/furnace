@@ -479,9 +479,27 @@ export type OpInverse = Map<ChunkKey, ChunkSnapshot>;
  *  re-execute the span.
  *
  *  `entity-update` = an in-place swap of one entity op's record at `opIndex`
- *  (freeze/bake); it touches no chunks, so it carries no images. */
+ *  (freeze/bake); it touches no chunks, so it carries no images.
+ *
+ *  Every kind carries an optional `origin`: who authored the entry, stamped by
+ *  the committing path from the SAME parameter as the ops it authored (see
+ *  {@link BrushOp.origin}), and absent for the human's own work. It is
+ *  VOLATILE — the stacks are never serialized (`serializeOps` writes `log.ops`
+ *  only), so the durable attribution record is always the OP field; this one
+ *  lives exactly as long as the undo stack does.
+ *
+ *  It is a field of its own rather than something a reader derives from the
+ *  entry's ops, because derivation has no answer for `entity-update`: that
+ *  entry's `before`/`after` are the entity op, whose op-level origin names the
+ *  entity's ORIGINAL author, while the ENTRY belongs to whoever called
+ *  freeze/bake. A `splice` from `deleteGeneratorEntity` has the same shape from
+ *  the other side — it authors no op at all, so its `removed` ops carry
+ *  somebody else's origin and the entry's is the only record of who deleted
+ *  them. This is therefore the single source a consumer's ownership guard reads
+ *  ("may I undo this?"); core itself never reads it — {@link OpLog}'s stacks
+ *  stay policy-free. */
 export type LogEntry =
-  | { kind: "ops"; ops: FieldOp[]; inverse: OpInverse }
+  | { kind: "ops"; ops: FieldOp[]; inverse: OpInverse; origin?: string }
   | {
       kind: "splice";
       at: number;
@@ -489,12 +507,14 @@ export type LogEntry =
       inserted: FieldOp[];
       before: OpInverse;
       after: OpInverse;
+      origin?: string;
     }
   | {
       kind: "entity-update";
       opIndex: number;
       before: EntityOp;
       after: EntityOp;
+      origin?: string;
     };
 
 /** The op log — `ops` in replay order, plus the two entry stacks.

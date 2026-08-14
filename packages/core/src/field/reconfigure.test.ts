@@ -1412,3 +1412,128 @@ describe("reconfigureGenerator — contextFree:false re-cook + placement drift",
     expect(snapshotLog(log)).toEqual(beforeLog);
   });
 });
+
+// T2's two-altitude attribution across the reconfigure verbs. The
+// `entity-update` pair is the reason the ENTRY carries a field of its own
+// rather than the guard deriving one from the contained ops: a freeze/bake
+// entry's `before`/`after` are the entity op, whose op-level origin names the
+// entity's ORIGINAL author — while the entry belongs to whoever called the
+// verb. Every fixture below makes those two values DIFFER, in both directions,
+// so an implementation that derived one from the other cannot pass.
+describe("origin stamping — the reconfigure verbs", () => {
+  const AGENT = "agent:mcp";
+
+  /** commitHall, but authored by `origin` — so the entity op in the log carries
+   *  an op-level origin the later verbs must NOT overwrite. */
+  const commitHallAs = (
+    store: FieldStore,
+    log: OpLog,
+    origin?: string,
+  ): GeneratorEntity =>
+    commitGenerator(store, log, HALL, {
+      params: hallParams(),
+      seed: 7,
+      region: regionAt([0, 0, 0]),
+      policy: "replace",
+      table: TABLE,
+      ...(origin === undefined ? {} : { origin }),
+    }).entity;
+
+  test("reconfigureGenerator stamps the splice ENTRY and the ops it INSERTS", () => {
+    const { store, log } = makeWorld();
+    // Authored by the human, reconfigured by the agent: the inserted span is
+    // the agent's work even though the entity is not.
+    const e = commitHallAs(store, log);
+    reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE, [], AGENT);
+
+    const entry = log.undoStack.at(-1);
+    expect(entry?.kind).toBe("splice");
+    expect(entry?.origin).toBe(AGENT);
+    if (entry?.kind !== "splice") return;
+    // The re-cooked SPAN is the reconfiguring caller's work...
+    const span = entry.inserted.filter((op) => op.kind !== "entity");
+    expect(span.length).toBeGreaterThan(0);
+    expect(span.every((op) => op.origin === AGENT)).toBe(true);
+    // ...the entity RECORD is not: it keeps its original author's op-level
+    // origin (absent here — the human committed it), the same rule the
+    // entity-update pair below pins.
+    const entityOp = entry.inserted.find((op) => op.kind === "entity");
+    expect(Object.hasOwn(entityOp ?? {}, "origin")).toBe(false);
+    // ...and the REMOVED span keeps whoever authored it (the human).
+    expect(entry.removed.some((op) => Object.hasOwn(op, "origin"))).toBe(false);
+  });
+
+  test("reconfigureGenerator without origin stamps NOTHING, over an AGENT-authored entity", () => {
+    const { store, log } = makeWorld();
+    const e = commitHallAs(store, log, AGENT);
+    reconfigureGenerator(store, log, e.entityId, { seed: 9 }, TABLE);
+
+    const entry = log.undoStack.at(-1);
+    expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false);
+    if (entry?.kind !== "splice") return;
+    const span = entry.inserted.filter((op) => op.kind !== "entity");
+    expect(span.length).toBeGreaterThan(0);
+    expect(span.some((op) => Object.hasOwn(op, "origin"))).toBe(false);
+    // The entity record still carries ITS author — the human reconfigure did
+    // not launder the agent's authorship of the entity away.
+    expect(entry.inserted.find((op) => op.kind === "entity")?.origin).toBe(
+      AGENT,
+    );
+  });
+
+  test("setGeneratorFrozen: the ENTRY is the caller's, the entity records keep their AUTHOR's origin", () => {
+    const { store, log } = makeWorld();
+    // Agent-authored entity, HUMAN freeze — the two values differ.
+    const e = commitHallAs(store, log, AGENT);
+    setGeneratorFrozen(log, e.entityId, true);
+
+    const entry = log.undoStack.at(-1);
+    expect(entry?.kind).toBe("entity-update");
+    expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false); // the human's
+    if (entry?.kind !== "entity-update") return;
+    expect(entry.before.origin).toBe(AGENT); // the entity's author
+    expect(entry.after.origin).toBe(AGENT);
+  });
+
+  test("setGeneratorFrozen: the mirror — human entity, AGENT freeze", () => {
+    const { store, log } = makeWorld();
+    const e = commitHallAs(store, log);
+    setGeneratorFrozen(log, e.entityId, true, AGENT);
+
+    const entry = log.undoStack.at(-1);
+    expect(entry?.kind).toBe("entity-update");
+    expect(entry?.origin).toBe(AGENT); // the freezing caller's
+    if (entry?.kind !== "entity-update") return;
+    expect(Object.hasOwn(entry.before, "origin")).toBe(false); // the author's
+    expect(Object.hasOwn(entry.after, "origin")).toBe(false);
+  });
+
+  test("bakeGeneratorEntity: same asymmetry, both directions", () => {
+    const agentWorld = makeWorld();
+    const agentEntity = commitHallAs(agentWorld.store, agentWorld.log, AGENT);
+    bakeGeneratorEntity(agentWorld.log, agentEntity.entityId); // human bake
+    const humanBake = agentWorld.log.undoStack.at(-1);
+    expect(humanBake?.kind).toBe("entity-update");
+    expect(Object.hasOwn(humanBake ?? {}, "origin")).toBe(false);
+    if (humanBake?.kind !== "entity-update") return;
+    expect(humanBake.before.origin).toBe(AGENT);
+    expect(humanBake.after.origin).toBe(AGENT);
+
+    const humanWorld = makeWorld();
+    const humanEntity = commitHallAs(humanWorld.store, humanWorld.log);
+    bakeGeneratorEntity(humanWorld.log, humanEntity.entityId, AGENT);
+    const agentBake = humanWorld.log.undoStack.at(-1);
+    expect(agentBake?.origin).toBe(AGENT);
+    if (agentBake?.kind !== "entity-update") return;
+    expect(Object.hasOwn(agentBake.before, "origin")).toBe(false);
+    expect(Object.hasOwn(agentBake.after, "origin")).toBe(false);
+  });
+
+  test("a REDUNDANT setGeneratorFrozen pushes no entry, origin or not", () => {
+    const { store, log } = makeWorld();
+    const e = commitHallAs(store, log);
+    const depth = log.undoStack.length;
+    setGeneratorFrozen(log, e.entityId, false, AGENT); // already unfrozen
+    expect(log.undoStack.length).toBe(depth);
+  });
+});

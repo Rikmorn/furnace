@@ -404,3 +404,52 @@ describe("deleteGeneratorEntity — a placement-only entity", () => {
     expect(findEntity(log, scatter.entityId)).toBeDefined();
   });
 });
+
+// The delete leg of T2's two-altitude attribution. A delete AUTHORS no op — it
+// only removes — so there is nothing to stamp durably: the caller's origin
+// reaches the splice ENTRY alone, and the `removed` ops ride out of the log
+// carrying whoever wrote them. That is the whole point of the entry-level
+// field, and the fixture makes the two values differ in both directions.
+describe("origin stamping — deleteGeneratorEntity", () => {
+  const AGENT = "agent:mcp";
+
+  const commitHallAs = (
+    store: FieldStore,
+    log: OpLog,
+    origin?: string,
+  ): GeneratorEntity =>
+    commitGenerator(store, log, HALL, {
+      params: hallParams(),
+      seed: 7,
+      region: regionAt([0, 0, 0]),
+      policy: "replace",
+      table: TABLE,
+      ...(origin === undefined ? {} : { origin }),
+    }).entity;
+
+  test("stamps the splice ENTRY; the removed ops keep their AUTHOR's origin", () => {
+    const { store, log } = makeWorld();
+    const e = commitHallAs(store, log); // human-authored
+    deleteGeneratorEntity(store, log, e.entityId, TABLE, AGENT);
+
+    const entry = log.undoStack.at(-1);
+    expect(entry?.kind).toBe("splice");
+    expect(entry?.origin).toBe(AGENT);
+    if (entry?.kind !== "splice") return;
+    expect(entry.inserted).toEqual([]); // a delete authors nothing
+    expect(entry.removed.length).toBeGreaterThan(0);
+    expect(entry.removed.some((op) => Object.hasOwn(op, "origin"))).toBe(false);
+  });
+
+  test("without origin stamps NOTHING, and does not launder an AGENT-authored span", () => {
+    const { store, log } = makeWorld();
+    const e = commitHallAs(store, log, AGENT);
+    deleteGeneratorEntity(store, log, e.entityId, TABLE);
+
+    const entry = log.undoStack.at(-1);
+    expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false);
+    if (entry?.kind !== "splice") return;
+    expect(entry.removed.length).toBeGreaterThan(0);
+    expect(entry.removed.every((op) => op.origin === AGENT)).toBe(true);
+  });
+});

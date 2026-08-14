@@ -901,7 +901,22 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   so a hand-built entry cannot grow `log.ops` with holes or install a non-index
   property). `restoreImages` is the shared image→store writer (both channels; a null
   channel deletes). Both stacks are strictly LIFO.
-  `logApplyGroup(store, log, ops, table)` is the PLURAL `logApply` — a whole brush-op
+  **Every committing path takes a trailing optional `origin` and stamps it at TWO
+  altitudes from that one parameter** — onto each op the call AUTHORS (durable, the v4
+  wire) and onto the `LogEntry` it pushes (volatile: `LogEntry.origin`, since
+  `serializeOps` writes `log.ops` only and never the stacks). Absent = human, in both
+  places: omitting it adds no property at all, so a human's op and entry stay
+  byte-identical to their pre-v4 form. The entry carries a field of its OWN rather than a
+  reader deriving one from the contained ops, because derivation has no answer for the two
+  entry kinds that author nothing: an `entity-update`'s `before`/`after` are the entity op,
+  whose op-level origin names the entity's ORIGINAL author while the entry belongs to
+  whoever called freeze/bake — and `deleteGeneratorEntity`'s `splice` inserts nothing, so
+  its entry is the only record of who removed the span. `redo` must carry it across:
+  `replayEntry` REBUILDS an `ops` entry (re-execution recaptures the inverse), so the
+  origin is copied onto the rebuilt entry explicitly. Core never reads `origin` — the
+  ownership guard it exists for is consumer policy.
+  `logApply(store, log, op, table, origin?)`.
+  `logApplyGroup(store, log, ops, table, origin?)` is the PLURAL `logApply` — a whole brush-op
   list lands as ONE `ops` entry, so a gesture that commits several ops undoes with a
   single ⌘Z (the entry type was always plural; this is the managed way to fill it).
   Its four contract clauses: every op is validated BEFORE the first is applied, so a
@@ -927,8 +942,10 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   dig/fill/paint into one patch) and for procedural emission (the noise math stays in
   the generator; the log stays compact data). `assertPatchValid` is setup-loud
   (canonical + unique chunk keys, mask sizes, value-array lengths == popcount, known
-  class ids, no empty slice); `logApplyPatch` validates, CLONES the slice buffers (the
-  log owns its copy) and applies; `applyPatchOp` is the bare applier, with the same
+  class ids, no empty slice); `logApplyPatch(store, log, op, table, origin?)` validates,
+  CLONES the slice buffers (the log owns its copy) and applies — it REBUILDS the op, so
+  an `origin` already on the argument is ignored exactly as its `id` is;
+  `applyPatchOp` is the bare applier, with the same
   dirty+inverse return as `applyOp`. Kit class ids are accepted — the lattice rule
   constrains a box shape, which a patch does not have. `fieldOpChunks(op, cellSize)`
   gives any op's written chunks (exact for patches, entity AND placement ops write none,
@@ -1014,7 +1031,10 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   names one, because nobody wrote this span, so a position inside it addresses nothing a
   reader can open. Validation atomicity is not a transaction on this path either: an op
   that validates and then throws out of the APPLIER strands the span ops before it, ids
-  intact and the store not rolled back. **Layout invariant:** a live entity's span ops sit immediately
+  intact and the store not rolled back. `opts.origin` stamps EVERY op the commit authors —
+  the evaluated field ops, the placement op, and the entity op — plus the undo entry; an
+  `origin` an evaluated op already carries is overwritten, because a generator does not
+  author its own output, the caller that commits it does. **Layout invariant:** a live entity's span ops sit immediately
   BEFORE its entity op in `log.ops` with sequential ids matching `opSpan`, and `entityId`
   is the entity op's own log id.
 - **The cave generator (F3b)** — the first PATCH-emitting generator: a deterministic
@@ -1119,7 +1139,7 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   `packages/core/tests/field-generators.test.ts` (gone) — a fractional value must be refused if
   and only if the schema claims it, in both directions.
 - **Smart objects — reconfigure (F3a)** — `reconfigureGenerator(store, log, entityId,
-  changes, table, snapshots?)` re-evaluates a committed generator IN PLACE: the old span is spliced
+  changes, table, snapshots?, origin?)` re-evaluates a committed generator IN PLACE: the old span is spliced
   out, a freshly evaluated one takes new ids from `log.nextId`, and the downstream ops
   the change can reach are replayed. `ReconfigureChanges` = `{params?, seed?, region?,
   policy?}`, each falling back to the recorded provenance — `params` is the COMPLETE
@@ -1146,7 +1166,12 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   come first (log order), then placement findings. Drift is chunk-granular and does not
   attribute cause — a place worth a look, not a proof an op misbehaved. One `splice`
   undo entry, redo cleared; undo/redo restore images and never re-execute the span, and
-  `log.nextId` is not rolled back (ids are handed out once). Setup-loud: unknown
+  `log.nextId` is not rolled back (ids are handed out once). `origin` reaches exactly what
+  the CALL authors — the re-cooked span ops it inserts, and the `splice` entry. It does
+  not reach the entity op (spliced forward with a new record but its authorship intact: a
+  human reconfiguring an agent's stamp owns the new span, not the agent's decision to
+  place it) and not `removed`, whose ops leave the log carrying whoever wrote them.
+  Setup-loud: unknown
   entityId, a `frozen`/`baked` entity, an unknown recorded generator id, a corrupt span
   layout, rejected params or an empty evaluation all throw with NOTHING mutated — in
   that ORDER, so a baked entity whose span was compacted away reports what it is rather
@@ -1165,7 +1190,7 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   loud in practice; the report just cannot say the new output is wrong.
   Tracked in `docs/backlog/engine-architecture/field-reconfigure-and-parse-edges.md` §a flood-masked downstream op replays against end-of-log state.
 - **Smart objects — delete (F4.5b)** — `deleteGeneratorEntity(store, log, entityId,
-  table)` is the reconfigure splice with NO replacement: the entity's span AND its own
+  table, origin?)` is the reconfigure splice with NO replacement: the entity's span AND its own
   entity op are spliced out of `log.ops`, the chunks the span wrote rewind to their
   pre-span state, and the downstream ops that reach them replay on top (the same culled
   replay, D-F3-3). The log then reads as though the generator had never been committed,
@@ -1175,7 +1200,10 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   immediately before its own entity op. `log.nextId` is NOT rewound (ids are handed out
   once, so the removed span parked on the redo stack cannot collide with a later op).
   Returns `{dirty}` only — the whole affected set, since a restored-but-unrewritten chunk
-  still needs a remesh. **`dirty` can be EMPTY, and empty does not mean nothing happened:**
+  still needs a remesh. This verb AUTHORS no op (`inserted` is empty), so `origin` reaches
+  the `splice` ENTRY alone — the only record of who removed the span; the `removed` ops
+  leave the log carrying whoever wrote them.
+  **`dirty` can be EMPTY, and empty does not mean nothing happened:**
   a placements-only entity (scatter) writes no field cells, so deleting it moves no chunk
   and there is nothing to remesh — but its placement op is gone from `log.ops`, and with it
   every prop it placed. Props are derived from the LOG, never from `dirty`; a consumer that
@@ -1208,14 +1236,20 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   to protect or retire a corrupt entity would be the wrong failure mode — so a
   compactor must derive span eligibility from LIVE (non-baked) entity spans, which
   reconfigure does verify. Both return a COPY of the record, carrying fields they have
-  no opinion about verbatim.
-  `setGeneratorFrozen(log, entityId, frozen)` blocks/unblocks `reconfigureGenerator`.
+  no opinion about verbatim. Neither AUTHORS an op — the swapped-in `after` is the same
+  entity op with a new record — so `origin` lands on the `entity-update` ENTRY alone,
+  while `before` and `after` keep the entity's ORIGINAL author on their op-level `origin`.
+  That divergence is the whole reason the entry carries a field of its own: an
+  agent-authored entity frozen by the human yields an entry the human owns over records
+  that still name the agent, and it reads the other way round too.
+  `setGeneratorFrozen(log, entityId, frozen, origin?)` blocks/unblocks `reconfigureGenerator`.
   It is a SETTER, not a toggle: a redundant call (freeze what is frozen, unfreeze what
-  is not) does nothing at all — no undo entry and no redo CLEAR, which would otherwise
+  is not) does nothing at all — no undo entry (so no `origin` is recorded either) and no
+  redo CLEAR, which would otherwise
   destroy a live redo entry for a call that changed nothing. Unfreezing DELETES the
   field (`GeneratorEntity.frozen` is a literal-`true` optional). Setup-loud on an
   unknown entityId or a BAKED entity (nothing left to protect).
-  `bakeGeneratorEntity(log, entityId)` severs the recipe — the one irreversible verb.
+  `bakeGeneratorEntity(log, entityId, origin?)` severs the recipe — the one irreversible verb.
   Provenance (generator, params, seed, region, `opSpan`) is RETAINED for history;
   `frozen` is cleared; reconfigure refuses the entity permanently and its span ops
   become plain history eligible for compaction. **"Permanent" = no VERB reverses it**

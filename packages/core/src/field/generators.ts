@@ -966,6 +966,16 @@ export function evaluateGenerator(
  *  generator; it relies on evaluate's determinism (pure, same-input-twice —
  *  the charter §2.2 contract) to reproduce a previewed span exactly.
  *
+ *  `opts.origin` is who is authoring the commit — the ACTOR OF THIS CALL, never
+ *  an inherited author ({@link BrushOp.origin}). ONE commit has one author, so
+ *  the single value stamps every op the commit AUTHORS — the evaluated field
+ *  ops, the placement op that rides the span, and the `entity/place` op that
+ *  records the recipe — plus the undo entry ({@link LogEntry}.origin). Omit it
+ *  for the human's own work: absent = human, and nothing gains the property, so
+ *  a human commit stays byte-identical to its pre-v4 form. An `origin` already
+ *  sitting on an EVALUATED op is overwritten: a generator does not author its
+ *  own output, the caller that commits it does.
+ *
  *  @throws {@link Error} if the generator's own param validation rejects
  *    `opts.params`, the evaluated result contradicts the def's
  *    {@link GeneratorDef.emits} declaration, the evaluated result is EMPTY (no
@@ -988,8 +998,10 @@ export function commitGenerator(
     region: { min: [number, number, number]; max: [number, number, number] };
     policy: MergePolicy;
     table: MaterialTable;
+    origin?: string;
   },
 ): { dirty: Set<ChunkKey>; entity: GeneratorEntity } {
+  const origin = opts.origin;
   const ctx: EvaluateContext | undefined =
     def.contextFree === false ? { store } : undefined;
   const { ops, placements } = evaluateGenerator(
@@ -1022,7 +1034,12 @@ export function commitGenerator(
   const span: FieldOp[] = [];
   try {
     for (const op of ops) {
-      const s = { ...op, id: nextId++ };
+      // Conditional, never `origin: undefined`: an explicit undefined is an OWN
+      // property (`Object.hasOwn`), which would change what serializeOps writes.
+      const s =
+        origin === undefined
+          ? { ...op, id: nextId++ }
+          : { ...op, id: nextId++, origin };
       if (s.kind === "patch") assertPatchValid(s, opts.table);
       else assertOpValid(s, opts.table);
       span.push(s);
@@ -1031,11 +1048,13 @@ export function commitGenerator(
     // still inside opSpan — validated setup-loud like every other span member.
     if (placements.length > 0) {
       assertPlacementsValid(placements);
-      const placementOp: PlacementOp = {
+      const bare = {
         id: nextId++,
-        kind: "placement",
+        kind: "placement" as const,
         records: placements,
       };
+      const placementOp: PlacementOp =
+        origin === undefined ? bare : { ...bare, origin };
       span.push(placementOp);
     }
   } catch (e) {
@@ -1064,18 +1083,24 @@ export function commitGenerator(
     region,
     opSpan: [firstId, nextId - 1],
   };
-  const entityOp: EntityOp = {
+  const bareEntityOp = {
     id: nextId++,
-    kind: "entity",
-    action: "place",
+    kind: "entity" as const,
+    action: "place" as const,
     entity,
   };
+  const entityOp: EntityOp =
+    origin === undefined ? bareEntityOp : { ...bareEntityOp, origin };
   log.nextId = nextId;
   const stamped: FieldOp[] = [...span, entityOp];
   // Loop push, not arguments-spread: fn(...arr) hits JS-engine argument-count
   // ceilings (~65k in JSC) on mega commit spans.
   for (const op of stamped) log.ops.push(op);
-  log.undoStack.push({ kind: "ops", ops: stamped, inverse });
+  log.undoStack.push(
+    origin === undefined
+      ? { kind: "ops", ops: stamped, inverse }
+      : { kind: "ops", ops: stamped, inverse, origin },
+  );
   log.redoStack.length = 0;
   // A COPY, matching reconfigureGenerator: handing back the live record makes a
   // caller that edits it (an inspector binding straight to the returned object)
