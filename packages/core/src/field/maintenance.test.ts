@@ -121,12 +121,15 @@ const smoothSphere = (center: [number, number, number]): BrushOp => ({
   smooth: { strength: 8, iterations: 1, mode: "both" },
 });
 
-/** A run of `count` digs marching along +x from `from`, half a metre apart. */
+/** A run of `count` digs marching along +x from `from`, half a metre apart.
+ *  `origin` is who commits them; OMITTED is how "human" is spelled, so the ops
+ *  do not gain the property at all. */
 const digRun = (
   store: FieldStore,
   log: OpLog,
   from: [number, number, number],
   count: number,
+  origin?: string,
 ): void => {
   for (let i = 0; i < count; i++)
     logApply(
@@ -134,8 +137,12 @@ const digRun = (
       log,
       digSphere([from[0] + i * 0.5, from[1], from[2]], 0.6),
       TABLE,
+      origin,
     );
 };
+
+/** The agent author the attribution tests commit under. */
+const AGENT = "agent:mcp";
 
 /** Drops the undo window the way an editor whose history has aged out does —
  *  the precondition {@link compactRuns} enforces. */
@@ -490,6 +497,44 @@ describe("compactRuns — semantic compaction", () => {
     expect(log.ops.map((o) => o.kind)).toEqual(["patch", "brush", "patch"]);
     expect(idsOf(log)[0]).toBeLessThan(idsOf(log)[2] ?? 0);
     expect(snapshotAll(replayAll(log, TABLE, store.cellSize))).toEqual(bytes);
+  });
+
+  test("a foldable run SPLITS at an origin boundary — no fold spans two authors", () => {
+    const { store, log } = makeWorld();
+    // Ten contiguous, individually foldable ops — but the last five are the
+    // agent's. Origin-blind, this is ONE run and the fold erases who dug what.
+    digRun(store, log, [0, 1, 1], 5);
+    digRun(store, log, [10, 1, 1], 5, AGENT);
+    dropHistory(log);
+    const bytes = snapshotAll(store);
+
+    expect(compactRuns(store, log, TABLE, NO_KEPT_IDS()).folded).toBe(10);
+
+    const patches = log.ops.filter((op) => op.kind === "patch");
+    expect(log.ops).toHaveLength(2);
+    expect(patches).toHaveLength(2);
+    // absent = human: the human fold must not GAIN the property, or it would
+    // ride the v4 wire as an author named `undefined`.
+    expect(Object.hasOwn(patches[0] ?? {}, "origin")).toBe(false);
+    expect(patches[1]?.origin).toBe(AGENT);
+    expect(snapshotAll(replayAll(log, TABLE, store.cellSize))).toEqual(bytes);
+  });
+
+  test("an origin boundary can starve a run below the fold threshold — those ops stay", () => {
+    const { store, log } = makeWorld();
+    // Three each side of the boundary: origin-blind this is one run of six and
+    // folds; split by author it is two fragments that each miss MIN_FOLD_RUN.
+    digRun(store, log, [0, 1, 1], 3);
+    digRun(store, log, [10, 1, 1], 3, AGENT);
+    dropHistory(log);
+    const before = snapshotLog(log);
+
+    // logStats and the fold share eligibleRuns, so ONE change keeps them
+    // agreeing — this pins that they still do.
+    expect(logStats(log).compactableOps).toBe(0);
+    expect(compactRuns(store, log, TABLE, NO_KEPT_IDS()).folded).toBe(0);
+
+    expect(snapshotLog(log)).toEqual(before);
   });
 
   test("a BAKED entity's span folds, and every verb still refuses the entity safely", () => {

@@ -1270,7 +1270,13 @@ error landed on every OP referencing class 256, pointing at the wrong file.
   shrinks, the field does not move. `smooth` breaks a run (it reads its neighbourhood, so
   absolute cell values cannot stand in for it); so do patch and entity ops. Ops inside a
   LIVE entity's span are excluded, as are `opts.keepIds`; runs shorter than 4 ops are left
-  alone; a run whose net effect is nothing is removed outright. `store` is read for
+  alone; a run whose net effect is nothing is removed outright. **A run never spans two
+  authors**: a change of op `origin` closes the run and opens the next one there, and the
+  fold's `PatchOp` inherits its run's (uniform) `origin` — absent for a human's, tagged for
+  an agent's. Compaction destroys per-op history; an origin-blind fold would destroy the
+  attribution with it. The boundary can leave both fragments under 4 ops, in which case
+  neither folds; `logStats` shares the same eligibility, so `compactableOps` reports that
+  as 0 rather than promising a fold that will not happen. `store` is read for
   `cellSize` ONLY — no chunk is read or written. Every fold is verified against a real
   from-scratch replay of the log's own prefix BEFORE anything is discarded (the charter
   §2.3 discard guard) and the synthesized patch passes `assertPatchValid`, so a producer

@@ -122,15 +122,24 @@ export function logStats(
   };
 }
 
-/** The maximal runs of foldable ops, in log order. An op is foldable when it is
- *  a BRUSH op (a patch is already compact; an entity op is provenance), it is
- *  {@link isCellLocalOp} (so absolute cell values can stand in for it), the
- *  caller has not pinned its id, and it does not belong to a LIVE generator
- *  entity's span — folding those would dissolve the span layout
+/** The maximal runs of foldable, SAME-ORIGIN ops, in log order. An op is
+ *  foldable when it is a BRUSH op (a patch is already compact; an entity op is
+ *  provenance), it is {@link isCellLocalOp} (so absolute cell values can stand
+ *  in for it), the caller has not pinned its id, and it does not belong to a
+ *  LIVE generator entity's span — folding those would dissolve the span layout
  *  `reconfigureGenerator` requires. Span eligibility is derived from live
  *  (non-baked) entities only, per {@link bakeGeneratorEntity}: bake does not
  *  re-verify the span it retires, so a baked record's `opSpan` is not a claim
- *  about the log's contents. */
+ *  about the log's contents.
+ *
+ *  A run additionally never spans two authors: a change of `origin` CLOSES the
+ *  current run and opens the next at that op. A fold destroys per-op history, so
+ *  one that merged a human's digs with an agent's would leave a single patch
+ *  that can only be attributed to one of them — the squashed-commit-loses-blame
+ *  failure. The boundary is enforced here rather than at the fold so
+ *  {@link logStats} reports the same eligibility the fold will act on, including
+ *  when a boundary starves both fragments below {@link MIN_FOLD_RUN} and the ops
+ *  survive individually. */
 function eligibleRuns(log: OpLog, opts: CompactOptions): OpRun[] {
   const liveSpans = log.ops.flatMap((op) =>
     op.kind === "entity" && op.entity.baked !== true ? [op.entity.opSpan] : [],
@@ -144,11 +153,22 @@ function eligibleRuns(log: OpLog, opts: CompactOptions): OpRun[] {
     !inLiveSpan(op.id);
   const runs: OpRun[] = [];
   let start = -1;
+  let runOrigin: string | undefined;
   // One index past the end closes a run that reaches the tail.
   for (let i = 0; i <= log.ops.length; i++) {
     const op = log.ops[i];
     if (op !== undefined && foldable(op)) {
-      if (start < 0) start = i;
+      if (start < 0) {
+        start = i;
+        runOrigin = op.origin;
+      } else if (op.origin !== runOrigin) {
+        // Attribution boundary: this op is foldable, but by someone else. Close
+        // the run here (keeping it only if it earned a fold) and start the next
+        // one AT this op — no fold may merge two authors' work.
+        if (i - start >= MIN_FOLD_RUN) runs.push({ start, end: i });
+        start = i;
+        runOrigin = op.origin;
+      }
       continue;
     }
     if (start >= 0 && i - start >= MIN_FOLD_RUN) runs.push({ start, end: i });
@@ -337,6 +357,19 @@ function planFolds(
   return folds;
 }
 
+/** The op a fold splices in, carrying the run's own author. `origin` is spread
+ *  CONDITIONALLY, never written as `origin: undefined` (the `logApply` idiom): an
+ *  explicit undefined is an own property, and `serializeOps` would put an author
+ *  on the wire where absence is what "human" is spelled as. */
+const foldPatch = (
+  id: number,
+  chunks: PatchChunk[],
+  origin: string | undefined,
+): PatchOp =>
+  origin === undefined
+    ? { id, kind: "patch", chunks }
+    : { id, kind: "patch", chunks, origin };
+
 /** The precondition compaction cannot work around.
  *
  *  @throws {@link Error} if either stack holds an entry. */
@@ -391,6 +424,16 @@ function assertQuiescentHistory(log: OpLog): void {
  * at least `MIN_FOLD_RUN` (4) ops fold — below that the patch's two 512-byte
  * masks per written chunk cost more than the op records they replace.
  *
+ * **A run never spans two authors, and its patch inherits the run's `origin`.** A
+ * change of `origin` closes the run and opens the next one there, so the fold of
+ * a human's digs is a bare patch (absent = human) and the fold of an agent's is a
+ * patch tagged with that agent. Compaction destroys per-op history; an
+ * origin-blind fold would destroy the ATTRIBUTION with it — the squashed commit
+ * that loses blame. The boundary can leave both fragments under `MIN_FOLD_RUN`,
+ * in which case neither folds and every op survives individually; {@link logStats}
+ * shares this eligibility, so `compactableOps` reports that as a 0 rather than
+ * promising a fold that will not happen.
+ *
  * A run whose net effect is NOTHING (masked ops that matched no cell) is removed
  * outright rather than replaced by an empty patch, which
  * {@link assertPatchValid} rejects for good reason.
@@ -434,10 +477,14 @@ export function compactRuns(
   let nextId = log.nextId;
   const planned: { run: OpRun; insert: FieldOp[] }[] = [];
   for (const fold of folds) {
+    // The run is uniform in origin by construction (eligibleRuns closes a run at
+    // any change), so its FIRST op names the whole fold's author. Read here,
+    // before any splice: these are indices into the log as it stands now.
+    const runOrigin = log.ops[fold.run.start]?.origin;
     const insert: FieldOp[] =
       fold.chunks.length === 0
         ? []
-        : [{ id: nextId++, kind: "patch", chunks: fold.chunks }];
+        : [foldPatch(nextId++, fold.chunks, runOrigin)];
     planned.push({ run: fold.run, insert });
   }
   // Back to front: an earlier run's indices are untouched by a later splice.
