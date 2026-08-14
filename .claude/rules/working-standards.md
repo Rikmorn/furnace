@@ -34,6 +34,27 @@ From the placement-arc postmortem (`docs/learnings/2026-07-05-dungeon-placement-
 - **Precedent-fidelity check.** When a design adopts a published or shipped approach, list every deviation from the precedent's load-bearing mechanism and either justify why it can't bite here or schedule the probe that would catch it. Keeping a precedent's shape while dropping its mechanism is how it fails (Edgar's cycles-first ordering; Ma's joint chain optimization — both relaxed without a license, both billed later).
 - **Search systems get budgets on day one.** Any task that introduces a search/solve loop ships wall-clock/attempt ceilings with fail-fast semantics in that same task, not as later hardening — robustness lives in the outer retry loop, not in search depth (the DunGen/Warframe shape). Unbounded search cost discovered late makes measurement, retries, and the bars themselves intractable.
 
+From the undo-attribution review (2026-08-14 — three plan defects in one slice, each
+caught downstream of where it was written; seal
+`docs/learnings/seals/2026-08-14-undo-attribution.md`).
+
+- **Plans FLAG their load-bearing factual claims.** Any claim an acceptance bar or an
+  accepted-risk argument rests on is marked `[load-bearing — verify first]` where it is
+  stated, and the executor re-verifies flagged claims before relying on them, ahead of
+  everything else. Approval launders nothing — a handed claim is not a verified claim,
+  at any level of the chain: the stale-tab residue's third "mitigation" was false in an
+  APPROVED plan and survived into a shipped docblock until the executing agent verified
+  it instead of quoting it.
+- **Every task's verify step sweeps for derived pins OUTSIDE its file list — touched
+  packages' READMEs included, by name.** Code-shaped file lists and `src`-scoped greps
+  both structurally exclude other packages' tests and every package README; the class
+  fired in four tasks of one slice, and the editor README alone was the blind spot three
+  times. The sweep is per-task, never one late sweep task.
+- **A test step that rides an existing harness cites what that harness can OBSERVE, read
+  from the harness at plan time.** An expectation the harness cannot reach is a plan
+  defect that surfaces at execution (the MCP probe's fake chrome never reaches the real
+  action registry, so "expect the guard's refusal" was unreachable as written).
+
 ## Execution
 
 From the process retro (2026-08-14, ruled). The workflow is TWO sessions: the planner

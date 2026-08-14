@@ -88,7 +88,24 @@ Run these two concurrently — they do not depend on each other:
      re-pointed at the successor work item, or cleared to a prose trigger. The verification
      above deletes the work item, which is precisely what dangles these; the ritual that
      closes a slice is the ritual that breaks them.
-5. **Write the next plan and its prompt.**
+5. **Write the next plan and its prompt.** The handoff prompt states, every run
+   (ruled 2026-08-14 at the undo-attribution close — the first managed-execution run):
+   - **execution mode** — subagent-per-task by default for any multi-task plan; gate
+     output stays inside task subagents (pass/fail + counts + deviations come back, never
+     raw logs); the orchestrator reviews each task's diff between dispatches and
+     re-dispatches on a bad result rather than absorbing fixes inline — inline absorption
+     is how the orchestrator's context dies;
+   - **branch policy** — which branch the tasks commit to, stated rather than inherited
+     from whatever HEAD happens to be (undo-attribution landed on master because nothing
+     said otherwise);
+   - **checkpoint triggers** — named per slice, the FIRST one early (after the first
+     task) so execution style is visible before real work accrues, and "otherwise just
+     work" said explicitly;
+   - **the sabotage read-back clause, verbatim, for every task subagent prompt** —
+     *"after applying a sabotage, confirm the sabotaged text is actually present in the
+     file before interpreting the suite result; a green suite proves nothing if the
+     sabotage never landed"* (it failed silently three separate times in one slice);
+   - **deviate-and-log + the report path** (`docs/superpowers/report/<slug>.md`).
 
 ## Sweep clauses
 
@@ -113,3 +130,12 @@ The reviewer carries these, and so do you when you fix minors. Each has fired:
   own protocol section.
 - **Gate and demo builds start on a SCRATCH world.** T4c's gate built into an existing large
   world and the delta was invisible — nothing to see means nothing gated.
+- **Walk the plan's `[load-bearing — verify first]` flags** — each flagged claim was
+  re-verified by the executor (the report says where), or verify it now; an UNFLAGGED claim
+  that an acceptance argument rests on is itself a finding. Canon: `working-standards.md`
+  §Planning. The undo-attribution plan shipped a false mitigation inside an accepted-risk
+  argument; only a downstream re-verification caught it.
+- **Confirm every wording/claims sweep reached the touched packages' READMEs.** `src`-scoped
+  greps exclude them structurally — the editor README was the blind spot three times in one
+  slice: absent from every file list, false until a loud flag, missed again by the wording
+  sweep. Canon: `working-standards.md` §Planning.
