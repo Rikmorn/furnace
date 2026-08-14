@@ -946,8 +946,9 @@ function parseOplogJson(text: string): unknown {
 }
 
 /**
- * Parses an oplog back into the op list. Reads the v2 AND v3 envelopes
- * {@link serializeOps} writes (v3 adds placement ops; a v2 file carries none)
+ * Parses an oplog back into the op list. Reads the v2, v3 AND v4 envelopes
+ * ({@link serializeOps} writes only the current v4; v3 added placement ops,
+ * v4 adds per-op `origin` — a v2 file carries neither, a v3 file no origins)
  * and a v1 BARE array (an F1/F2 bake), including F1's `kind:"dig"` literals,
  * which map forward to brush/dig ops. The two forms are unambiguous: a JSON
  * array is never a JSON object.

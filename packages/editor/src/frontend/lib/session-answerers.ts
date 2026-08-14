@@ -581,10 +581,10 @@ export function createSessionAnswerers(
       // and never will: a self-declared author is a claim, while a request that reached
       // this registry at all is agent-initiated BY CONSTRUCTION — `backchannel.ask` has
       // exactly one producer (`daemon/session-handlers.ts`), and this record is invoked
-      // only for a frame that arrived on this tab's daemon feed. The chrome's own four
-      // daemon calls (`frontend/lib/api.ts`) include none of the mutating verbs; every
-      // chrome surface dispatches locally instead. So the tab can KNOW the author rather
-      // than believe one.
+      // only for a frame that arrived on this tab's daemon feed. The chrome's own daemon
+      // calls (every `call<…>` site in `frontend/lib/api.ts`) include none of the mutating
+      // verbs; every chrome surface dispatches locally instead. So the tab can KNOW the
+      // author rather than believe one.
       return engine.applyOps(req.ops, AGENT_ORIGIN);
     },
     // The second write, and the one that makes a world rather than editing one. It answers

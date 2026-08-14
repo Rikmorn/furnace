@@ -266,9 +266,10 @@ test("SABOTAGE: with both seams unfilled, every brokered verb refuses and none t
 // argument. The daemon does not stamp it and the agent never declares it: `backchannel.ask`
 // has exactly one producer (`daemon/session-handlers.ts`) and this registry is invoked only
 // for a request that arrived on this tab's daemon feed, so everything reaching these rows is
-// agent-initiated BY CONSTRUCTION. The chrome's own four daemon calls (`frontend/lib/api.ts`)
-// are `generation.bake`, `project.get`, `session.answer` and `world.list` — none of the three
-// mutating verbs — and every chrome surface dispatches locally through `dispatchRef` instead.
+// agent-initiated BY CONSTRUCTION. The chrome's own daemon calls (every `call<…>` site in
+// `frontend/lib/api.ts`; derive the verb set with `grep -oE '"[a-z]+\.[a-zA-Z]+"'` there)
+// include NONE of the three mutating verbs, and every chrome surface dispatches locally
+// through `dispatchRef` instead.
 //
 // So a case here is not "the row forwards a parameter it was given"; it is "the row INVENTS
 // the right one". A row that forwarded `undefined` would type-check, pass every other case in

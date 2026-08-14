@@ -448,6 +448,7 @@ describe("origin stamping — deleteGeneratorEntity", () => {
 
     const entry = log.undoStack.at(-1);
     expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false);
+    expect(entry?.kind).toBe("splice");
     if (entry?.kind !== "splice") return;
     expect(entry.removed.length).toBeGreaterThan(0);
     expect(entry.removed.every((op) => op.origin === AGENT)).toBe(true);

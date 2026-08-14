@@ -1470,6 +1470,7 @@ describe("origin stamping — the reconfigure verbs", () => {
 
     const entry = log.undoStack.at(-1);
     expect(Object.hasOwn(entry ?? {}, "origin")).toBe(false);
+    expect(entry?.kind).toBe("splice");
     if (entry?.kind !== "splice") return;
     const span = entry.inserted.filter((op) => op.kind !== "entity");
     expect(span.length).toBeGreaterThan(0);
@@ -1524,6 +1525,7 @@ describe("origin stamping — the reconfigure verbs", () => {
     bakeGeneratorEntity(humanWorld.log, humanEntity.entityId, AGENT);
     const agentBake = humanWorld.log.undoStack.at(-1);
     expect(agentBake?.origin).toBe(AGENT);
+    expect(agentBake?.kind).toBe("entity-update");
     if (agentBake?.kind !== "entity-update") return;
     expect(Object.hasOwn(agentBake.before, "origin")).toBe(false);
     expect(Object.hasOwn(agentBake.after, "origin")).toBe(false);
