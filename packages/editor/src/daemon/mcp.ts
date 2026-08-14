@@ -233,24 +233,25 @@ const captureContent = (answer: unknown): CallToolResult["content"] => {
  * than the room it takes.
  *
  * **AND THE ROW COUNT IS THE SMALLER HALF OF THAT BUDGET, so the prose is capped too.** These
- * nine descriptions are 7,865 bytes on the wire — nearly four times
+ * nine descriptions are 7,992 bytes on the wire — nearly four times
  * {@link MCP_INSTRUCTIONS}'s pinned 2 KB, riding the same `tools/list` — so capping the
  * discovery blurb and not the rows would be budgeting the cheaper surface and calling it
  * discipline. `tests/mcp.test.ts` pins the total at 8,192. It was 6,004 bytes and 1.36× head
  * when this paragraph was written; the T4c review spent 1,078 of that slack on four rows that
  * described this door WRONGLY, T5 spent 420 more teaching `session_query` its two new arms
- * and pointing `generate` at the catalogue that now exists, and cycle 2 spent 363 on its
- * sixth arm (`flags`).
+ * and pointing `generate` at the catalogue that now exists, cycle 2 spent 363 on its
+ * sixth arm (`flags`), and undo-attribution spent 127 on the undo/redo ownership rule, the
+ * `session.confirm` explainer and the agent-authored wording fix.
  *
- * **HEAD IS 1.042×, AND THE TENTH-ROW CLAIM THIS PARAGRAPH USED TO MAKE IS NOW FALSE** —
+ * **HEAD IS 1.025×, AND THE TENTH-ROW CLAIM THIS PARAGRAPH USED TO MAKE IS NOW FALSE** —
  * said plainly rather than quietly dropped, because it is the number a later task will
- * reason from. It read *"admits a tenth row at the median length (870)"*; 7,865 + 870 = 8,735
- * and that reds. What is left is 327 bytes, which is shorter than SEVEN of the nine rows —
- * only `project_get` (214) and `world_list` (255) would fit inside it, and both are verbs
- * with no arms to describe. So the
+ * reason from. It read *"admits a tenth row at the median length (870)"*; 7,992 + 870 = 8,862
+ * and that reds. What is left is 200 bytes, which is shorter than EVERY one of the nine rows —
+ * even `project_get` (214), the shortest, no longer fits inside it. So the
  * prose cap has become the binding constraint on a tenth tool BEFORE the ceiling of ten is —
- * a tenth verb must now either be describable in 327 bytes or arrive with a cut somewhere
- * else, and either way somebody has to decide rather than discover it. A TOTAL rather than a
+ * a tenth verb must now either be describable in 200 bytes or arrive with a cut somewhere
+ * else, and either way somebody has to decide rather than discover it. Door-set opens with
+ * that re-derivation, by ruling at the undo-attribution seal. A TOTAL rather than a
  * per-row cap, because one row genuinely is a wall — `session_query` restates the contact rule
  * verbatim, which is the whole reason that rule reaches an agent — and a per-row limit would
  * forbid the one case that earned its length.

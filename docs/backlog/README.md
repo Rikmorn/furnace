@@ -38,7 +38,7 @@ work item that reads it — those entries are protected from consolidation.
 - [walked-world-has-a-hole-to-empty-space](dungeon/walked-world-has-a-hole-to-empty-space.md) — an owner walk saw through a baked world into void; the location was never captured, and no analyzer pass detects open-to-nothing at all
 - [world-spec-no-portal-error-is-unactionable](dungeon/world-spec-no-portal-error-is-unactionable.md) — realizeWorldSpec's no-portal-0 throw names only the symptom — it never says doors come from connectors, so the message offers no next step
 
-## editor-and-tooling (27)
+## editor-and-tooling (32)
 
 - [action-run-input-is-schema-untyped](editor-and-tooling/action-run-input-is-schema-untyped.md) — `action_run` declares an empty input schema, so MCP clients stringify object args and an agent cannot name — or bake — a world
 - [advisor-answers-volume-not-questions](editor-and-tooling/advisor-answers-volume-not-questions.md) — the walkability advisor's flags answer has no filter or rollup, relays a kind that can never be actionable, and seeds reachability only from `playerStart` → door-set
@@ -46,13 +46,16 @@ work item that reads it — those entries are protected from consolidation.
 - [backchannel-refusals-blur-two-causes](editor-and-tooling/backchannel-refusals-blur-two-causes.md) — the backchannel reports a chrome refusal and a daemon fault under one `internal` code, and a shutdown leaves a pending ask to its timeout
 - [chrome-focus-and-dismissal-follow-ons](editor-and-tooling/chrome-focus-and-dismissal-follow-ons.md) — where editor keyboard focus lands when a surface closes, and which surface owns a key while several are open — five follow-ons to the F4.5c focus seam
 - [chrome-legibility-gaps](editor-and-tooling/chrome-legibility-gaps.md) — places where the editor chrome knows something the user cannot see — an off-screen live session, an unexplained refusal, a permanently inert control, no onboarding
+- [chrome-mutating-verb-premise-unpinned](editor-and-tooling/chrome-mutating-verb-premise-unpinned.md) — the stamping seam's trust argument rests on "the chrome never calls edit.apply/generate/action.run over HTTP" — held by convention only, no test reds if it breaks
 - [chrome-shape-follow-ons](editor-and-tooling/chrome-shape-follow-ons.md) — editor chrome that works but whose shape is a bet — the action gate still inside `lib/actions.ts`, a counter riding the context, helpers awaiting a third occurrence
+- [compact-threshold-under-mixed-authorship](editor-and-tooling/compact-threshold-under-mixed-authorship.md) — the editor's load-time compaction threshold (COMPACT_THRESHOLD_OPS) was derived under single-author logs; origin boundaries now starve folds and nobody re-derived it
 - [edit-apply-reports-nothing-about-what-it-wrote](editor-and-tooling/edit-apply-reports-nothing-about-what-it-wrote.md) — `edit_apply` answers a bare ok, so a brush op that changed zero samples is indistinguishable from one that worked → door-set
 - [editor-backend-architecture](editor-and-tooling/editor-backend-architecture.md) — decision history for the editor as a fourth furnace pillar — MCP-first capability layer, local daemon by default, artifact-as-interchange dual mode
 - [editor-chrome-authoring-gaps](editor-and-tooling/editor-chrome-authoring-gaps.md) — editor chrome that is wrong rather than merely missing — inspector fields that mis-handle their schema type, palette focus, readouts that go stale
 - [editor-M5B-viewport-interaction](editor-and-tooling/editor-M5B-viewport-interaction.md) — viewport and hierarchy work fenced out of the M5B editor milestone — gizmo-controller extraction, non-drag pointer gestures, and two items closed by the scene deletion
 - [editor-seams-and-preview-deferrals](editor-and-tooling/editor-seams-and-preview-deferrals.md) — the editor's boundary items — the project-first `editor-extensions` seam, the preview panel and render-path fidelity deferrals, the worker's unguarded generator evaluate
 - [editor-test-harness-fragility](editor-and-tooling/editor-test-harness-fragility.md) — what the editor's `bun test` harness cannot do deterministically — happy-dom/GPU/daemon collisions in one shared process, a flaky daemon test, coverage the worker seam still hides
+- [entities-palette-bypasses-action-registry](editor-and-tooling/entities-palette-bypasses-action-registry.md) — EntitiesPalette's freeze/bake/delete buttons call fieldHostRef directly — no gate, no refusal vocabulary, no agent route, unlike their edit.* neighbours
 - [entity-list-has-no-legible-order](editor-and-tooling/entity-list-has-no-legible-order.md) — the entities list is newest-first now, but still cannot say which stamps arrived since you last looked, or who added them
 - [field-capability-sweep-deferrals](editor-and-tooling/field-capability-sweep-deferrals.md) — fourteen editor capabilities adjudicated together at the F4.5 sweep and deferred — resize handles, multi-select, camera bookmarks, walk mode, autosave, mirror, per-prop editing
 - [field-host-internals](editor-and-tooling/field-host-internals.md) — how `field-host/` is built inside — `remeshOne` swallowing GPU setup failures, eight in-source deferrals, an analyzer re-analysis halo resting on an unstated precondition
@@ -61,14 +64,16 @@ work item that reads it — those entries are protected from consolidation.
 - [latchentities-walks-the-oplog-per-reader](editor-and-tooling/latchentities-walks-the-oplog-per-reader.md) — `latchEntities` walks the whole op log once per reader — up to four whole-world walks where the old provider did one
 - [outbound-llm-editor-features](editor-and-tooling/outbound-llm-editor-features.md) — the other arrow — the editor itself calling a model over a selection, and the provider-location, key-management and context-packaging decisions that needs
 - [pending-zero-cannot-say-the-advisor-is-off](editor-and-tooling/pending-zero-cannot-say-the-advisor-is-off.md) — the flags answer's `pending: 0` conflates "the advisor settled" with "the advisor never ran", and nothing pins the counter's wire
+- [per-claim-origin-tags](editor-and-tooling/per-claim-origin-tags.md) — AGENT_ORIGIN is one shared tag while the door admits two agents through one claim — the guard cannot tell agents apart; the claim should mint the tag
 - [read-only-chrome-for-an-unclaimed-session](editor-and-tooling/read-only-chrome-for-an-unclaimed-session.md) — a second editor tab that has not claimed the session is a full editor the agent cannot see — read-only is a per-control design pass, not a flag
 - [t3-fold-ins-dropped](editor-and-tooling/t3-fold-ins-dropped.md) — four small T3 fold-ins planned, never executed and never recorded as dropped — a naked-cast comment, chip primitives, a duplicated world-name regex, a wire type test
 - [the-door-charges-per-question-and-assumes-a-filesystem](editor-and-tooling/the-door-charges-per-question-and-assumes-a-filesystem.md) — the agent door bills one round trip per ray, and `project_get` answers a filesystem path — so a remote agent cannot read the project catalog at all
 - [where-am-i-position-legibility](editor-and-tooling/where-am-i-position-legibility.md) — the status bar names the selection's position now, but the camera's own pivot is still unreadable and nothing goes to a coordinate
+- [whose-work-is-a-confirm](editor-and-tooling/whose-work-is-a-confirm.md) — session.confirm commits are unstamped by ruling — the mixed-authorship question (human stages, agent triggers) is unruled, and threading it needs that answer first
 - [wire-contracts-are-hand-mirrored](editor-and-tooling/wire-contracts-are-hand-mirrored.md) — three of the four daemon↔chrome contracts are declared twice and kept in step by hand — `WorldRow`'s only guard is a comment saying "grep both"
 - [world-verb-follow-ons](editor-and-tooling/world-verb-follow-ons.md) — the `world.*` family's edges — a tracked-precheck failure that refuses the save instead of escalating into the overwrite confirm, name-commit cue gaps, an unbootable `legacy` kind
 
-## engine-architecture (38)
+## engine-architecture (39)
 
 - [catalog-collision-schema](engine-architecture/catalog-collision-schema.md) — catalog `collision` schema: whether `collisionExtentY` survives `collisionCenter`, and whether the box-only kind should escalate to a mesh kind
 - [cave-generator-topology-richness](engine-architecture/cave-generator-topology-richness.md) — richer cave-generator topology dials so a stamped cave reads as a web of caves rather than one tunnel
@@ -90,6 +95,7 @@ work item that reads it — those entries are protected from consolidation.
 - [lattice-aligned-box-op-writes-nothing](engine-architecture/lattice-aligned-box-op-writes-nothing.md) — a box fill whose faces land exactly on the sample lattice writes nothing into already-solid cells and still answers ok
 - [lighting-and-shading-capability-gaps](engine-architecture/lighting-and-shading-capability-gaps.md) — what the shipped Blinn-Phong forward path cannot express: PBR, area/IES lights, cookies, ambient authoring sugar, many-light scaling, fog modes
 - [multi-context-and-worker-gpu](engine-architecture/multi-context-and-worker-gpu.md) — more than one `gpu.Context`: an OffscreenCanvas worker context, and what a resource created against one device may do against another
+- [op-origin-stamp-helper-rule-of-three](engine-architecture/op-origin-stamp-helper-rule-of-three.md) — the conditional-origin spread appears at ~15 op-stamp sites across three core field files — rule of three cleared on its own terms; wants a deliberate helper decision
 - [oplog-entry-assembly-duplicated-three-ways](engine-architecture/oplog-entry-assembly-duplicated-three-ways.md) — three hand-rolled copies of "apply a list, build one `ops` log entry" — rule of three met, the helper's shape still a design question
 - [oplog-group-apply-is-not-a-transaction](engine-architecture/oplog-group-apply-is-not-a-transaction.md) — a group apply's pass 2 does not roll the store back, so an applier throw mid-group leaves a partial write
 - [physics-tracks](engine-architecture/physics-tracks.md) — the two-track physics posture (ADR 0001) and its residue: deferred determinism/networking concerns, the unbuilt GPU track, and the unfinished body-mutation surface

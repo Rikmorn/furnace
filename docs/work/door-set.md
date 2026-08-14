@@ -1,7 +1,6 @@
 ---
 status: queued
 injected: true
-after: undo-attribution
 summary: the door items the agent world-building cycles priced — the E0-equivalent set
 ---
 

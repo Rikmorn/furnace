@@ -13,11 +13,6 @@ ops onto `log.ops` (never spread — the ~65k JSC argument-count ceiling), push 
 - `commitGenerator` — `packages/core/src/field/generators.ts` (its pass-2 block onward)
 - `logApplyGroup` — `packages/core/src/field/ops.ts` (added in foundations T3a)
 
-<!-- Line numbers re-derived 2026-08-09 (T4a Task 5): T4a grew ops.ts 1264 -> 1458
-     across Tasks 3-5 and generators.ts 1058 -> 1079, so all three citations had
-     staled. The blocks themselves are unchanged — this entry's trigger is still
-     unmet. -->
-
 The rule-of-three threshold is met. It was NOT extracted in T3a deliberately: the
 refactor reaches into `generators.ts`, which is outside a slice whose contract was "core
 enablers only", and the helper's shape is a genuine design question rather than a
