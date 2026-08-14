@@ -1,5 +1,5 @@
 ---
-status: queued
+status: in-flight
 injected: true
 summary: op-log undo designed WITH attribution — one wire-format pass, before any further world runs
 ---
