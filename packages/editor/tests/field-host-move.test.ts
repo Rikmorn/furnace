@@ -38,7 +38,10 @@ import { createFieldHost } from "../src/field-host/field-host.ts";
 import type { FieldWorkerRequest } from "../src/field-host/field-protocol.ts";
 import { createFieldWorkerHandler } from "../src/field-host/field-protocol.ts";
 import type { StampSession } from "../src/field-host/field-stamp.ts";
+import { runNamedById } from "../src/frontend/lib/actions.ts";
 import { LATTICE } from "../src/shared/field-brush.ts";
+import { AGENT_ORIGIN } from "../src/shared/wire.ts";
+import { makeCtx } from "./_actions-fixture.ts";
 
 const MANIFEST: FieldManifest = {
   version: 2,
@@ -334,6 +337,104 @@ test("a move commits through the reconfigure splice: ONE undo step, id preserved
     // ONE entry: a splice that pushed one per op would leave the hall half-moved.
     expect(regionOf(f.host, id)).toEqual(HALL_REGION);
     expect(hostOps(f.host).length).toBe(before);
+  } finally {
+    f.teardown();
+  }
+});
+
+test("session.confirm commits stay UNATTRIBUTED whoever triggers them — the ruling's tripwire", async () => {
+  // **A RULING, NOT AN OVERSIGHT (undo-attribution slice).** Every other agent-relayed
+  // write stamps `AGENT_ORIGIN`: `applyOps`, `generate` and the four entity verbs each
+  // take the tag and thread it to the core committing call, and
+  // `tests/field-host/mutation.test.ts`' origin section pins one case per verb. The
+  // session's terminal verb deliberately takes none, and nothing but this case would say
+  // so — the forbidden direction is held closed today by the absence itself, which is
+  // exactly the kind of invariant that gets threaded shut by a well-meaning tidy-up.
+  //
+  // WHY IT IS RULED THAT WAY: A CONFIRM IS MIXED AUTHORSHIP. The human stages the session
+  // — draws the region, tunes the params, watches the ghost — and whoever calls
+  // `session.confirm` merely TRIGGERS it. Stamping that entry `agent:mcp` would hand the
+  // agent undo over content the HUMAN authored, which is the one direction the attribution
+  // scheme forbids. Leaving it unstamped fails the other way, and that way is benign: the
+  // entry reads as the human's, so the agent cannot step its own confirm back. That cost is
+  // not argued here, it is ASSERTED at the bottom of this case — and the remedy an agent
+  // has is in the refusal's own sentence (ask the operator, or apply the inverse as new
+  // content).
+  //
+  // "WHOSE WORK IS A CONFIRM?" IS OPEN, and deliberately unanswered by this slice. This pin
+  // is NOT a claim that a confirm can never carry an origin. It is a claim that giving it
+  // one is a DESIGN DECISION — whose the staging is, what an entry with two authors means,
+  // whether a session should record who opened it — rather than a threading exercise.
+  // Whoever answers that question reddens this case ON PURPOSE and rewrites this comment;
+  // whoever reddens it by accident has just crossed a ruling.
+  //
+  // WHERE A THREADER WOULD LAND: the machine's two commit paths, `commitStampSession` and
+  // `applyReconfigureSession` in `field-machine.ts`, and `dropMove`, which routes into the
+  // second. None of the three takes an origin, and `FieldHost.confirmSession` is nullary
+  // above them. THIS CASE DRIVES THE MOVE ARM, because it is the arm a headless suite can
+  // stage — a stamp commit needs a selection, and a selection needs a camera. The ruling
+  // covers all three.
+  const f = moveFixture();
+  try {
+    const id = f.ids[0] as number;
+    f.host.beginMove(id);
+    await settle();
+    f.host.nudgeStamp(4, 0, -2);
+    await settle();
+    expect(f.session()?.phase).toBe("ready");
+
+    // THROUGH THE REAL FUNNEL rather than `host.confirmSession()` direct: the subject is
+    // what an AGENT-ORIGINATED DISPATCH does, and `runNamedById` is the entry point the
+    // relay uses — `frontend/lib/session-answerers.ts`' `action.run` is where `AGENT_ORIGIN`
+    // is asserted onto the ctx. So the route pinned is the whole one: the action row, the
+    // gate, the host verb, the machine and core.
+    const ctx = makeCtx({
+      host: f.host,
+      session: f.session(),
+      origin: AGENT_ORIGIN,
+    });
+    expect(await runNamedById("session.confirm", ctx)).toEqual({ ok: true });
+    // THE DROP LANDED. An unattributed log over a confirm that never ran would be a vacuous
+    // pass, and the gate above it is one `ctx.session` away from refusing.
+    expect(f.session()).toBeNull();
+    expect(regionOf(f.host, id).min[0]).toBeCloseTo(
+      HALL_REGION.min[0] + 4 * LATTICE,
+      10,
+    );
+
+    // NOT ONE OP CARRIES THE TAG. `Object.hasOwn` rather than `=== undefined` because
+    // absent and present-but-`undefined` are different facts everywhere else in this scheme
+    // — though not on THIS route, which reads the log back through the baked artifact and
+    // therefore through JSON, where an explicitly written `undefined` cannot survive. The
+    // key test is written anyway so the assertion says what it means; the altitude where
+    // the distinction bites is pinned at module level in `tests/field-host/mutation.test.ts`.
+    expect(hostOps(f.host).some((o) => Object.hasOwn(o, "origin"))).toBe(false);
+    // …and neither does the ENTRY, read through the very member the ownership guard asks
+    // (`FieldHost.topEntryOrigin`). A real host exposes no other window onto
+    // `log.undoStack`, so this altitude is a value test here by necessity.
+    expect(f.host.topEntryOrigin("undo")).toBeUndefined();
+
+    // THE COST, stated as behaviour rather than as prose: the agent that just confirmed
+    // cannot step it back. `stats` carries the depth `enabled` reads and nothing else —
+    // the ownership guard runs AFTER that gate, so a zero depth would answer the
+    // empty-stack hint and this refusal would pass for the wrong reason. The SENTENCE is
+    // what tells the two apart, which is why it is asserted and not just the verdict.
+    const step = await runNamedById(
+      "edit.undo",
+      makeCtx({
+        host: f.host,
+        origin: AGENT_ORIGIN,
+        stats: { undoDepth: 1, redoDepth: 0 } as never,
+      }),
+    );
+    expect(step).toMatchObject({
+      ok: false,
+      kind: "refused",
+      because: "inert",
+    });
+    if (step.ok) throw new Error("expected a refusal");
+    if (step.kind !== "refused") throw new Error("expected refused");
+    expect(step.message).toMatch(/human/);
   } finally {
     f.teardown();
   }
