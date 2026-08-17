@@ -58,3 +58,5 @@ The human owns macro-structure; the algorithm elaborates: "I want the user to fe
 5. **Not found:** a shipped tool that renders *constraint-violation overlays* (e.g., highlighting the exact overlapping volumes that rejected a placement) — Houdini/PCG show data and error locus, not the violated constraint itself. Treat that as an open design space **[absence-claim: based on this survey only]**.
 
 **Takeaway for the cockpit:** the industry-consistent shape is Houdini's — live recipe + freeze-points (stash/lock = "pin region") during curation, then an explicit one-way engine bake (cooked-vs-baked distinction, PCG's detach posture confirms the same choice); reroll granularity should be the sub-region (Dungeon Alchemist's per-room randomize, Townscaper's per-click local resolve), and failure reporting should follow PCG/Houdini: spatial, per-node/per-piece, in-viewport.
+
+**Fed:** the Epic 3 Generation-Cockpit refocus design, cited by name in `docs/learnings/seals/2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md`.

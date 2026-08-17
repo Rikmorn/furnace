@@ -108,7 +108,12 @@ broken by a later file move.
 - **Filename:** `YYYY-MM-DD-<slug>.md`, or a dated directory `YYYY-MM-DD-<slug>/` carrying a
   `README.md` when the research is multi-file. Pattern-checked; content stays exempt from
   the register checks (**ratified; pending at `genre-contracts`** — the shelf is not yet all
-  dated and no check reads the pattern).
+  dated and no check reads the pattern). **One exemption:** `docs/research/assets/` holds
+  binary payloads (screenshots, captures) for the docs that cite them, sharded
+  `assets/<date>-<slug>/`. It is not a research doc — the date belongs on the shard, and
+  the exemption is narrower than moving payloads under the docs they serve, which would
+  force a dated research *file* to become a directory and break its citations, seals
+  included.
 - **Fed line:** each doc ends `**Fed:** <the decision, spec or reference it fed>` — a doc
   that fed nothing says so, which is the honest answer and a finding in its own right
   (**ratified; pending at `genre-contracts`**). The line is what makes a research doc

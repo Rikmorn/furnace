@@ -27,7 +27,7 @@ and package docs), so folding it in would trade many live re-points for one fewe
 
 **Status reframed 2026-06-01 (the physics pivot).** The basic **CPU-authoritative rigid-body physics module** — borrow a mature engine (**Rapier — backend resolved 2026-06-01**; ADR 0001 + `jolt-backend-swap.md`) wrapped behind a clean furnace `physics` API — is now **ACTIVE as Demo 1** (the bowling demo), no longer deferred. This entry now tracks only the **advanced gameplay-physics concerns the bowling demo does NOT need**: cross-platform **determinism**, **networked / lockstep** simulation, and **rollback / replay**.
 
-furnace's physics is a deliberate two-track posture (`docs/research/gpu-resident-vs-cpu-gameplay-physics.md`): CPU-authoritative for gameplay-critical / interactive physics (the active track — this demo), GPU-resident for visual / throughput sim (deferred — the *GPU-resident physics* section).
+furnace's physics is a deliberate two-track posture (`docs/research/2026-06-01-gpu-resident-vs-cpu-gameplay-physics.md`): CPU-authoritative for gameplay-critical / interactive physics (the active track — this demo), GPU-resident for visual / throughput sim (deferred — the *GPU-resident physics* section).
 
 **Build/borrow (active, for the module):** borrow **Rapier (Rust → wasm)** — web-native, opt-in cross-platform determinism, with joints / scene queries / CCD / sensors / character-controller all provided. Wrapped behind furnace's own `physics` API so consumer code never imports the backend (a clean wrapper over one backend — good hygiene, *not* speculative pluggable multi-backend machinery). `static` / `dynamic` / `kinematic` are the furnace-owned, backend-agnostic body concepts. JS stays authoritative for transforms (the existing `mesh.setPosition` path). wasm is permitted in core (AGENTS.md anticipates wasm hot-path crates). Tracked in the CPU-borrow epic (pivoted from the superseded GPU epic).
 
@@ -37,13 +37,13 @@ furnace's physics is a deliberate two-track posture (`docs/research/gpu-resident
 
 **Trigger to revisit:** First demo needing **deterministic, networked, or replay** physics — multiplayer lockstep, deterministic replay, or cross-platform-reproducible simulation. Basic single-player interactive physics (bowling and similar) does **not** trigger it — that is the active module.
 
-**Reference:** `docs/research/gpu-resident-vs-cpu-gameplay-physics.md` (determinism evidence — Box2D/Rapier/Jolt/Havok); ADR 0001 (`docs/reference/adr/0001-physics-two-track-architecture.md`); the CPU-borrow physics epic. Related: `jolt-backend-swap.md` (deferred Jolt scale-up backend), the *GPU-resident physics* section (the deferred GPU visual/throughput track).
+**Reference:** `docs/research/2026-06-01-gpu-resident-vs-cpu-gameplay-physics.md` (determinism evidence — Box2D/Rapier/Jolt/Havok); ADR 0001 (`docs/reference/adr/0001-physics-two-track-architecture.md`); the CPU-borrow physics epic. Related: `jolt-backend-swap.md` (deferred Jolt scale-up backend), the *GPU-resident physics* section (the deferred GPU visual/throughput track).
 
 ## GPU-resident physics — visual / throughput simulation track
 
 Shared GPU buffers for solver writes and renderer reads, no CPU↔GPU state copy per frame (from `docs/reference/engine-architecture.md` §4).
 
-**Status reframed 2026-06-01 (the physics pivot).** This is furnace's **deferred GPU visual/throughput simulation track — NOT the gameplay rigid-body physics module.** Two research passes (`docs/research/gpu-resident-physics-solver.md`, `docs/research/gpu-resident-vs-cpu-gameplay-physics.md`) established a two-track posture: gameplay-critical rigid-body physics is **CPU-authoritative** (now the active Demo 1, borrowing Rapier — see the *CPU-authoritative physics* section); GPU-resident is the right tool only for **visual / throughput sim where no CPU game logic reacts per-frame** — particles, cloth, fluids, large-scale debris, big non-interactive simulations.
+**Status reframed 2026-06-01 (the physics pivot).** This is furnace's **deferred GPU visual/throughput simulation track — NOT the gameplay rigid-body physics module.** Two research passes (`docs/research/2026-06-01-gpu-resident-physics-solver.md`, `docs/research/2026-06-01-gpu-resident-vs-cpu-gameplay-physics.md`) established a two-track posture: gameplay-critical rigid-body physics is **CPU-authoritative** (now the active Demo 1, borrowing Rapier — see the *CPU-authoritative physics* section); GPU-resident is the right tool only for **visual / throughput sim where no CPU game logic reacts per-frame** — particles, cloth, fluids, large-scale debris, big non-interactive simulations.
 
 Why deferred, not built first: GPU is *weakest* at stable rigid-body stacking (XPBD's documented weak regime), and the WebGPU readback wall + cross-GPU non-determinism make it wrong for interactive/gameplay physics. It is *strongest* at massively-parallel, loosely-coupled elements — so the right first GPU-resident demo is a particle/cloth/debris piece, not bowling.
 
@@ -51,7 +51,7 @@ Inherits the **compute/storage shader-bridge completion** scope: storage address
 
 **Trigger to revisit:** First demo needing large-scale GPU visual/throughput sim — particles, cloth, fluids, debris fields, or any simulation with thousands of loosely-coupled elements where no CPU game logic reacts per-frame. The CPU bowling demo does **not** trigger it.
 
-**Reference:** `docs/research/gpu-resident-vs-cpu-gameplay-physics.md` (two-track posture + readback/determinism evidence); `docs/research/gpu-resident-physics-solver.md` (substep-XPBD + graph coloring + analytic narrowphase); `docs/research/shallot.md` §5 (prior art); ADR 0001 (`docs/reference/adr/0001-physics-two-track-architecture.md`). Related: the *CPU-authoritative physics* section (the active CPU track).
+**Reference:** `docs/research/2026-06-01-gpu-resident-vs-cpu-gameplay-physics.md` (two-track posture + readback/determinism evidence); `docs/research/2026-06-01-gpu-resident-physics-solver.md` (substep-XPBD + graph coloring + analytic narrowphase); `docs/research/2026-05-21-shallot.md` §5 (prior art); ADR 0001 (`docs/reference/adr/0001-physics-two-track-architecture.md`). Related: the *CPU-authoritative physics* section (the active CPU track).
 
 ## Physics body setters
 

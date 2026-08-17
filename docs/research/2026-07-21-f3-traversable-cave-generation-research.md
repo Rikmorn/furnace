@@ -317,3 +317,5 @@ system to copy.
   floor-quantization + Surface-Nets interaction early (does a 0.25 m-stepped floor
   survive the mesher and the 47° capsule check?) rather than trusting any precedent to
   have proven it.
+
+**Fed:** the F3 cave-generation design, sealed at `docs/learnings/seals/2026-07-25-epic3-f3b-cave-and-entities.md`; its topology findings are cited by name from `docs/backlog/engine-architecture/cave-generator-topology-richness.md`.

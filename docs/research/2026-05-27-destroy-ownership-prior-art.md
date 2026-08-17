@@ -179,3 +179,5 @@ Bundles C#, Java `Closeable`, PixiJS, and (de facto) WebGPU itself.
 **Type-system enforcement (Strategy C) has no prior art in JS-side engines.** Three.js, Babylon, PixiJS, and Cocos2d-x all chose runtime mechanisms. The TC39 proposal sidesteps the question. This is a signal — not a proof, but a strong prior — that JS's escape hatches make compile-time ownership too leaky to be load-bearing.
 
 The viable strategies for a JS/TS WebGPU engine are A1, A2, and B. C is theoretically attractive and practically rare; D is documented as a long-running regret in the one engine that picked it.
+
+**Fed:** the handle + generation-counter resource-manager choice in `docs/reference/engine-conventions.md` §Resource manager, which cites this file and `2026-05-27-resource-manager-prior-art.md` as the prior art that drove it.

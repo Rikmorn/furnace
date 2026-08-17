@@ -92,3 +92,5 @@ Default ~1024 px longest edge, PNG, MCP image content block (~1-1.5K vision toke
 the earlier 8-16×-over arithmetic priced base64-as-text, wrong for image blocks).
 Canvas snapshot ships only as a debug secondary or not at all (decide in-plan).
 Spatial lint read is first-class beside it (evidence line 4). Capture-on-demand only.
+
+**Fed:** the viewport-capture seam in `docs/reference/editor-architecture.md` (cited there as the source for the capture path) and the capture caveats recorded at `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md`.

@@ -6,7 +6,7 @@ It is the companion to two siblings:
 - `engine-conventions.md` — *behavioural* contracts (coords, color, DPR, lifecycle, **failure policy**). That document's §Failure policy remains the **authority** on the four performance stances; this document maps each concept kind to a *default* stance, it does not override them.
 - `core-modules.md` — the module-by-module *inventory* of public exports.
 
-The evidence behind these rules — a six-engine survey (bevy, raylib, three.js, PixiJS, wgpu, sokol-gfx) — is in `docs/research/api-posture-prior-art.md`.
+The evidence behind these rules — a six-engine survey (bevy, raylib, three.js, PixiJS, wgpu, sokol-gfx) — is in `docs/research/2026-05-29-api-posture-prior-art.md`.
 
 ## Guiding principle — the abstraction tier
 
@@ -178,6 +178,6 @@ An explicit public `Sampler` handle (analogous to `Texture`) is the correct expe
 
 ## References
 
-- `docs/research/api-posture-prior-art.md` — the six-engine prior-art survey + comparison table this posture is grounded in.
+- `docs/research/2026-05-29-api-posture-prior-art.md` — the six-engine prior-art survey + comparison table this posture is grounded in.
 - `engine-conventions.md` §Failure policy — the authority on the four performance stances R9 maps kinds onto.
 - `core-modules.md` — the full signature-level inventory of the surface classified above.

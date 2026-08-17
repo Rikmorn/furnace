@@ -199,7 +199,7 @@ The manager's contract slots into the four-stance taxonomy of §Failure policy:
 
 ### Why this shape
 
-See `docs/research/destroy-ownership-prior-art.md` and `docs/research/resource-manager-prior-art.md` for the prior-art research that drove the choice. Short version: the Sokol pool + generation counter pattern is unusually well-suited to JS-on-WebGPU because (a) WebGPU's spec already handles mid-frame destroy safely, (b) the JS layer provides cheap `Uint32Array`-backed counters, and (c) the alternative refcount-handle pattern (wgpu-style `Arc`) has no JS equivalent. The ctxId extension to uint48 was a Session 1 discovery — uint32 alone collides across multiple `Context`s on a single page.
+See `docs/research/2026-05-27-destroy-ownership-prior-art.md` and `docs/research/2026-05-27-resource-manager-prior-art.md` for the prior-art research that drove the choice. Short version: the Sokol pool + generation counter pattern is unusually well-suited to JS-on-WebGPU because (a) WebGPU's spec already handles mid-frame destroy safely, (b) the JS layer provides cheap `Uint32Array`-backed counters, and (c) the alternative refcount-handle pattern (wgpu-style `Arc`) has no JS equivalent. The ctxId extension to uint48 was a Session 1 discovery — uint32 alone collides across multiple `Context`s on a single page.
 
 ## Disposal
 

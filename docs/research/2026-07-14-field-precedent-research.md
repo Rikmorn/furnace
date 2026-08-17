@@ -130,3 +130,5 @@ in-browser re-measure gate.
 - Event-sourcing snapshot/compaction guidance (kurrent.io; eventsourcing.dev).
 - Jota et al., "How Fast Is Fast Enough" (CHI 2013); Ng, Annett et al. (2014) — direct
   manipulation latency thresholds.
+
+**Fed:** the precedent grounding for the One Field recharter in `docs/reference/dungeon-architecture.md` (the five-lane precedent sweep), sealed at `docs/learnings/seals/2026-07-15-epic3-f0-f1-the-medium.md`.

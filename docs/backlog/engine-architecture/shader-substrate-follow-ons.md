@@ -47,7 +47,7 @@ Low immediate appetite at E-B close; it's a Rust/tooling build in a different pa
 ### Reference
 
 - Overarching E design: E5 = the codegen decision; E4 = reflection-deferred-not-precluded; "the chokepoint" = `slot.layout.fields` is the additive seam all populators feed.
-- Research (committed): `docs/research/uniform-params-prior-art.md` §3 (layout-source options matrix), §3.1 (pure-JS reflection is viable — the backlog's "needs heavy wasm parser" was FALSE), §7 (keeping the reflection door open).
+- Research (committed): `docs/research/2026-05-31-uniform-params-prior-art.md` §3 (layout-source options matrix), §3.1 (pure-JS reflection is viable — the backlog's "needs heavy wasm parser" was FALSE), §7 (keeping the reflection door open).
 - `@furnace/tools` architecture: `docs/reference/packaging-and-distribution.md`.
 
 ## Shader composition — deferred follow-ons
@@ -84,7 +84,7 @@ built, so the items below slot in without reshaping it.
 **Not planned:** node-graph / typed-IO shader editor (Unreal Material Function / Unity Sub
 Graph) — a higher layer that *generates* `ShaderSource`; out of the Visual Fidelity epic.
 
-**Reference:** Stage 2.5 spec (above); `docs/research/shader-resource-prior-art.md`.
+**Reference:** Stage 2.5 spec (above); `docs/research/2026-05-30-shader-resource-prior-art.md`.
 
 ## Hot reload of shaders
 
@@ -113,7 +113,7 @@ Should be off in production (no `import.meta.hot` access, no dev-server listener
 - A WebGPU pipeline **captures the compiled module at creation time** — once `material.create` builds the pipeline, the `Shader`'s module is irrelevant to rendering (the pipeline in the GPU process is self-contained).
 - `GPUShaderModule` has **no `.destroy()`** (unlike `GPUBuffer`/`GPUTexture`) — it is GC-reclaimed when unreferenced. There is no GPU-timeline free to schedule or defer.
 
-`Geometry`/`Material` are refcounted because their GPU resources (vertex buffer, pipeline) are read **every frame** — destroying them mid-render breaks drawing. A `Shader` has a **create-time-only** dependency, so the refcount rationale does not transfer. Consumer-owned shaders get an idempotent immediate `destroy`; built-in shaders are engine-owned (shared per-ctx, freed by the dispose cascade). See `docs/research/shader-resource-prior-art.md` §Q1 (the GC + pipeline-capture observation; sokol is also non-refcounted).
+`Geometry`/`Material` are refcounted because their GPU resources (vertex buffer, pipeline) are read **every frame** — destroying them mid-render breaks drawing. A `Shader` has a **create-time-only** dependency, so the refcount rationale does not transfer. Consumer-owned shaders get an idempotent immediate `destroy`; built-in shaders are engine-owned (shared per-ctx, freed by the dispose cascade). See `docs/research/2026-05-30-shader-resource-prior-art.md` §Q1 (the GC + pipeline-capture observation; sokol is also non-refcounted).
 
 ### Trigger to revisit
 
@@ -125,4 +125,4 @@ Revisit (add an `Arc`-style refcount, à la wgpu/bevy) **only if** furnace adds 
 
 None of these are in furnace's current or planned design as of 2026-05-30.
 
-**Reference:** D-1 brainstorm 2026-05-30; `docs/research/shader-resource-prior-art.md` §Q1. Cross-refs the *Hot reload of shaders* section.
+**Reference:** D-1 brainstorm 2026-05-30; `docs/research/2026-05-30-shader-resource-prior-art.md` §Q1. Cross-refs the *Hot reload of shaders* section.

@@ -91,7 +91,7 @@ detectable without running the mover:
   step-FEEL becomes the limiting factor, (b) runtime-JIT generation without a
   curator (where analyzer + auto-fix — automatic lip-shaving, trivial in a field —
   is the likelier guarantee mechanism anyway), or (c) prefab traversal quality.
-  Jolt remains the quality endgame ([[docs/learnings/jolt-mesh-collision-spike.md]],
+  Jolt remains the quality endgame ([[docs/learnings/2026-06-22-jolt-mesh-collision-spike.md]],
   `docs/backlog/engine-architecture/jolt-backend-swap.md`); it is no longer the
   price of admission.
 
@@ -162,3 +162,5 @@ a spec is replayable as a brush-op sequence).
 
 Pending user input: further editor-direction topics were deferred to after 3.3
 completes — fold them into the same brainstorm.
+
+**Fed:** the One Field recharter, as-built in `docs/reference/dungeon-architecture.md` (which cites this file as its grounding) and sealed at `docs/learnings/seals/2026-07-13-epic3-3.3-w4-clean-cut-sweep.md`; three `docs/backlog/dungeon/` entries cite its §6 for the grid-vocabulary question.

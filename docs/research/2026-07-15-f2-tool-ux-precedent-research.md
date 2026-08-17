@@ -157,3 +157,5 @@ hologram blue/red ghosts with Enter/Esc; visible seed + re-roll; entities-list r
 stamp merge-policy param; the smooth spec above; persistent swatch strip; the shortcut
 set. Flagged as unprecedented (kept, own risk): brush-level lattice snap; flood-select
 void.
+
+**Fed:** the F2 "tools & materials" spec — tool semantics, brushes, masks, stamps — cited by name in `docs/learnings/seals/2026-07-16-epic3-f2a-material-field.md`.

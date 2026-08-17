@@ -286,6 +286,6 @@ The placement constraint — "a published package must not pull internal tooling
 **See also:**
 
 - `docs/reference/engine-architecture.md` — engine architecture notes (ECS, WebGPU, wasm strategy)
-- `docs/research/shallot.md` — consolidated reference notes on Shallot, the project that informed several of these patterns
+- `docs/research/2026-05-21-shallot.md` — consolidated reference notes on Shallot, the project that informed several of these patterns
 - `docs/backlog/` — deferred work register, including the follow-up spec items called out above
 - `packages/core/tests/no-bun-leakage.test.ts` — static guardrail against Bun-API imports in core's source (one check among the full consumer contract; see `AGENTS.md`)

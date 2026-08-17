@@ -1,7 +1,7 @@
 # Rapier vs Jolt — threading, scalability & debuggability (the backend-lock follow-up)
 
 **Date:** 2026-06-01
-**Context:** The CPU-physics backend choice (`cpu-physics-backend-comparison.md`) nominally locked Rapier, but ADR 0001 reopened it (marking the backend provisional) with Jolt under reconsideration for featureset breadth. The initial reopening was framed around vehicle physics; on review the owner refocused it onto the axes that actually matter for furnace: **performance, multi-threading/scalability, and debuggability**, plus a wrapper-implications through-line. This doc records that follow-up and the resolution it produced.
+**Context:** The CPU-physics backend choice (`2026-06-01-cpu-physics-backend-comparison.md`) nominally locked Rapier, but ADR 0001 reopened it (marking the backend provisional) with Jolt under reconsideration for featureset breadth. The initial reopening was framed around vehicle physics; on review the owner refocused it onto the axes that actually matter for furnace: **performance, multi-threading/scalability, and debuggability**, plus a wrapper-implications through-line. This doc records that follow-up and the resolution it produced.
 **Method:** Deep-research harness, **lighter run** (single-vote skeptical verification, not the 3-vote adversarial pass) — 5 angles, 23 sources fetched, 105 claims extracted, top 20 verified, **17 confirmed / 3 refuted**. Confidence labels below reflect the lighter verification. The pivot finding was independently confirmed at the **wasm-binary level**, so it does not rest on the lighter vote count.
 **Outcome:** Backend **resolved → Rapier** (start simple), with the *real* future-proofing being a **backend-neutral, thread-ready wrapper**, not the engine underneath. Jolt → backlog scale-up (`docs/backlog/engine-architecture/jolt-backend-swap.md`). Decision recorded in ADR 0001.
 
@@ -91,3 +91,5 @@ The lighter run left four questions unanswered; none plausibly outweighs the def
 - Jolt PerformanceTest (native): https://github.com/jrouwe/JoltPhysics/blob/master/Docs/PerformanceTest.md
 - Cross-origin isolation / SAB: https://web.dev/articles/coop-coep
 - furnace native model: `docs/reference/packaging-and-distribution.md` §6–7; `docs/reference/engine-architecture.md` §3
+
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` Decision 6 and its Rapier-vs-Jolt rationale, which cites this evaluation for the multicore-wasm finding; the reopening conditions and the four evidence gaps it left live at `docs/backlog/engine-architecture/jolt-backend-swap.md`.

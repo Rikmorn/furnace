@@ -4,7 +4,7 @@ summary: swapping the physics backend to Jolt, or exposing backend choice, for s
 
 # Jolt as the physics scale-up backend (and/or consumer-selectable backend)
 
-**Filed 2026-06-01** when the CPU-physics backend was resolved to **Rapier** (ADR 0001; `docs/research/rapier-vs-jolt-threading-debuggability.md`). This entry tracks the **deferred option to swap the physics backend to Jolt** — or to expose backend choice to consumers — once a real need arrives.
+**Filed 2026-06-01** when the CPU-physics backend was resolved to **Rapier** (ADR 0001; `docs/research/2026-06-01-rapier-vs-jolt-threading-debuggability.md`). This entry tracks the **deferred option to swap the physics backend to Jolt** — or to expose backend choice to consumers — once a real need arrives.
 
 ## Context
 
@@ -43,7 +43,7 @@ Spike-verified facts that shrink the swap's risk:
 Any **one** of:
 1. **A demo or consumer need for single-scene multicore CPU physics** — heavy interactive rigid-body simulation that must scale across compute and *cannot* move to the GPU-resident track (i.e. gameplay-critical, per-frame-readback physics, not fire-and-forget visual sim). This is the primary trigger and maps onto the deferred job-system / compute-scalability ambition.
 2. **A decision to offer a consumer-selectable backend** (`physics` API stays fixed; consumer picks Rapier vs Jolt at build/config time) — the "who knows" upside the neutral wrapper enables.
-3. A Jolt-only featureset becoming a real gameplay need (soft bodies, large-scale destruction, etc.) — the original AAA-breadth flip condition from `cpu-physics-backend-comparison.md`.
+3. A Jolt-only featureset becoming a real gameplay need (soft bodies, large-scale destruction, etc.) — the original AAA-breadth flip condition from `2026-06-01-cpu-physics-backend-comparison.md`.
 4. **Edge-aware mesh collision for procgen geometry** (added 2026-06-22) — wanting to
    collide the detailed Surface-Nets render mesh directly (ghost-free) and retire the blocky
    voxel proxies. Spike-confirmed viable (see the Slice 2.2.1 section above). This is a
@@ -54,7 +54,7 @@ Bowling and similar single-player, low-body-count, single-scene interactive phys
 
 ## Evidence gaps to fill first (left open by the lighter research run)
 
-When triggered, resolve these before committing to the swap (detailed in `docs/research/rapier-vs-jolt-threading-debuggability.md` §Open gaps):
+When triggered, resolve these before committing to the swap (detailed in `docs/research/2026-06-01-rapier-vs-jolt-threading-debuggability.md` §Open gaps):
 1. **Jolt's debug wasm** — what `jolt-physics` actually exposes from JS (debug-render geometry, runtime introspection). Repo: https://github.com/jrouwe/JoltPhysics.js. *Partially characterized 2026-06-22:* the core sim/mesh/character surface is confirmed bound and usable headless (see the Slice 2.2.1 spike section + `docs/learnings/2026-06-22-jolt-mesh-collision-spike.md`); the debug-render/introspection surface specifically is still uncharacterized.
 2. **Jolt threaded JS callbacks** — has an official/safe path landed since the 2024 `JoltPhysics.js#134`/`#110` discussion, or is the unofficial post-js worker swizzle still required? Determines how thread-ready a Jolt wrapper really is. (Less critical if the wrapper holds the drainable-event shape, which sidesteps cross-worker callbacks.)
 3. **Rapier multi-world-on-workers + `wasm-bindgen-rayon` Rapier** — confirm whether either is a real, used scaling path before assuming Jolt is the *only* multicore option.
@@ -63,5 +63,5 @@ When triggered, resolve these before committing to the swap (detailed in `docs/r
 ## Reference
 
 - ADR: `docs/reference/adr/0001-physics-two-track-architecture.md` (Decision 6–7, Consequences, Resolved 2026-06-01)
-- Research: `docs/research/rapier-vs-jolt-threading-debuggability.md` (this evaluation), `docs/research/cpu-physics-backend-comparison.md` (the original Rapier-vs-Jolt comparison)
+- Research: `docs/research/2026-06-01-rapier-vs-jolt-threading-debuggability.md` (this evaluation), `docs/research/2026-06-01-cpu-physics-backend-comparison.md` (the original Rapier-vs-Jolt comparison)
 - Related: `physics-tracks.md` §CPU-authoritative physics (deferred determinism/networking remainder), `physics-tracks.md` §GPU-resident physics (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)

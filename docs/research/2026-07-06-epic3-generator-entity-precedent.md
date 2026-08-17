@@ -44,3 +44,5 @@ Minecraft: reproducible from world seed + chunk coords ([wiki](https://minecraft
 5. **Nobody runs raw WFC unsupervised in production sockets** — Qud brackets it with constructive pre/post passes ([Mills](https://christianjmills.com/posts/dungeon-generation-via-wavefunctioncollapse-notes/)).
 
 **Implication for the editor-time/runtime split:** the precedent overwhelmingly supports authored/baked *structure* + runtime sockets restricted to truncation-safe (jigsaw-style) or construction-guaranteed (maze/BSP/fixed-grid/bounded-CA-with-deterministic-flood-fill) vocabularies, with pool-ID theming, explicit depth budgets, and seed-from-placement as a viable alternative to stored seeds.
+
+**Fed:** the same Epic 3 Generation-Cockpit refocus design as its two companion lanes (`2026-07-06-epic3-cockpit-workflow-prior-art.md`, `2026-07-06-editor-cockpit-audit.md`), which the B1 seal cites; this lane alone is not cited by name anywhere live.

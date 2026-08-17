@@ -146,3 +146,5 @@ CoplayDev/unity-mcp docs, Epic UE 5.8 MCP docs, developers.figma.com MCP tools
 reference, tldraw.dev/starter-kits/agent, arxiv 2506.21458 (MindCube), 2504.01786
 (BlenderGym), 2512.22351 (VULCAN), 2403.11756 (Just Undo It), 2505.03275 (RAG-MCP),
 figma.com multiplayer engineering posts, Unreal Multi-User Editing docs.
+
+**Fed:** the agent-door design in `docs/reference/editor-architecture.md`, which cites this file for the loopback-bind requirement on local HTTP servers.

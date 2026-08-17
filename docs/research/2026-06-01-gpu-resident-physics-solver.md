@@ -1,7 +1,7 @@
 # GPU-resident rigid-body physics — solver & pipeline research
 
 **Date:** 2026-05-31
-**Context:** Pre-decision research for Demo 1 (GPU-resident rigid-body physics — bowling / angry-birds style, ~10–100 analytic-primitive bodies, stable stacking + toppling). Feeds the demo epic spec. Sibling to `shallot.md`; explicitly *not* anchored on shallot (which built the full Bullet-style pipeline).
+**Context:** Pre-decision research for Demo 1 (GPU-resident rigid-body physics — bowling / angry-birds style, ~10–100 analytic-primitive bodies, stable stacking + toppling). Feeds the demo epic spec. Sibling to `2026-05-21-shallot.md`; explicitly *not* anchored on shallot (which built the full Bullet-style pipeline).
 **Method:** Deep-research harness — 5 search angles, 23 sources fetched, 113 claims extracted, 25 adversarially verified (3-vote), 22 confirmed / 3 refuted. Confidence labels below mirror the verification result; "inference" = sound-by-construction but not primary-source-cited.
 
 ## TL;DR recommendation
@@ -72,3 +72,5 @@ Per frame = **1 collision pass + N substeps × M color-passes** of compute dispa
 - Catto — *Sequential Impulses* (GDC 2006): https://box2d.org/files/ErinCatto_SequentialImpulses_GDC2006.pdf
 - Avian colored-GS solver PR #771: https://github.com/Jondolf/avian/pull/771
 - XPBD survey (2023): https://arxiv.org/pdf/2311.09327
+
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the GPU-resident half of the two-track posture. The deferred track it defined is tracked at `docs/backlog/engine-architecture/physics-tracks.md`.

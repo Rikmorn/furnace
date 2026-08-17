@@ -305,3 +305,5 @@ Concretely for furnace **[INFERRED — recommendation]**:
   are collidable entities with identity. If an identityless moss/crystal-crust tier
   appears later, that's when the density-field + deterministic-re-scatter model earns its
   place **[INFERRED]**.
+
+**Fed:** the scatter-brush, catalog-entity and placement-artifact sections of the F3 spec, sealed at `docs/learnings/seals/2026-07-23-epic3-f3a-smart-objects.md` and `docs/learnings/seals/2026-07-25-epic3-f3b-cave-and-entities.md`. No live doc cites this lane by name — its sibling `2026-07-21-f3-traversable-cave-generation-research.md` is the cited one.

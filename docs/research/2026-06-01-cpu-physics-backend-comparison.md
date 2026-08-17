@@ -1,9 +1,9 @@
 # CPU physics backend comparison — choosing the borrow
 
-> **Superseded / reframed 2026-06-01.** This comparison's conclusion ("Rapier LOCKED, Jolt = fallback") was the *starting* posture. The backend was subsequently reopened and re-resolved in `rapier-vs-jolt-threading-debuggability.md` (threading / scalability / debuggability) and **ADR 0001**: Rapier is the chosen start, and **Jolt is the deferred *scale-up* backend — not a break-glass fallback.** Read the "fallback" language below as historical; current posture lives in `docs/backlog/engine-architecture/jolt-backend-swap.md`.
+> **Superseded / reframed 2026-06-01.** This comparison's conclusion ("Rapier LOCKED, Jolt = fallback") was the *starting* posture. The backend was subsequently reopened and re-resolved in `2026-06-01-rapier-vs-jolt-threading-debuggability.md` (threading / scalability / debuggability) and **ADR 0001**: Rapier is the chosen start, and **Jolt is the deferred *scale-up* backend — not a break-glass fallback.** Read the "fallback" language below as historical; current posture lives in `docs/backlog/engine-architecture/jolt-backend-swap.md`.
 
 **Date:** 2026-06-01
-**Context:** The physics pivot (`gpu-resident-vs-cpu-gameplay-physics.md`) chose to *borrow* a CPU rigid-body engine for Demo 1 (bowling), wrapped behind furnace's own clean `physics` API. This picks which engine. Leading candidate going in: Rapier.
+**Context:** The physics pivot (`2026-06-01-gpu-resident-vs-cpu-gameplay-physics.md`) chose to *borrow* a CPU rigid-body engine for Demo 1 (bowling), wrapped behind furnace's own clean `physics` API. This picks which engine. Leading candidate going in: Rapier.
 **Method:** Deep-research harness — 5 angles, 21 sources, 100 claims, 25 verified (3-vote). **25 confirmed / 0 refuted.** Important: the verified evidence is **asymmetric** — heavily Rapier-favoring; several criteria (headless TDD, bundle size, Jolt web-binding depth) were *not* verified. Confidence labels reflect that.
 
 ## Recommendation: **Rapier** (`@dimforge/rapier3d`) — LOCKED
@@ -68,3 +68,5 @@ Spiked `jolt-physics@1.0.0` (JoltPhysics.js wasm-compat) the same way. **It also
 - dimforge 2025 review: https://dimforge.com/blog/2026/01/09/the-year-2025-in-dimforge/
 - Jolt Physics: https://github.com/jrouwe/JoltPhysics · JoltPhysics.js: https://github.com/jrouwe/JoltPhysics.js
 - rapier-node (headless): https://github.com/Thorium-Sim/rapier-node
+
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md`, which lists this file on its Evidence line — Decision 6 (Rapier as the starting backend). The deferred alternative it opened is tracked at `docs/backlog/engine-architecture/jolt-backend-swap.md`.

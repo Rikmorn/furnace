@@ -131,3 +131,5 @@ treat the agreement as a cross-check between two independent code paths rather t
 actual run (the cave is Pr-2-deterministic and the walk is deterministic, so the numbers are
 stable). Each row's reproduction recipe names the seed, theme, verticality, lane, and segment
 that first exhibits the class.
+
+**Fed:** the F3b stepped-floor decision, cited by name in `docs/learnings/seals/2026-07-25-epic3-f3b-cave-and-entities.md`.

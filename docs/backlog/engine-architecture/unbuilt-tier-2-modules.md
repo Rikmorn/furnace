@@ -269,7 +269,7 @@ The Tier 1 `transform` module is pure JS/TS to start; this entry is its eventual
 
 **Trigger to revisit:** When transforms become a hot path.
 
-**Reference:** `docs/research/shallot.md` § "Engine library + wasm hot loops" for the reference pattern.
+**Reference:** `docs/research/2026-05-21-shallot.md` § "Engine library + wasm hot loops" for the reference pattern.
 
 ## Debug drawing primitives
 

@@ -49,3 +49,5 @@ Texture authoring is the easiest of the three to drive from a Claude session —
 1. Re-verify model availability and quality — the 2026 AI tooling landscape is moving fast; some tools listed here will have been surpassed, deprecated, or licence-changed.
 2. Pull the editor backend backlog entry out of `docs/backlog/` and start a proper architecture doc in `docs/reference/`.
 3. The MCP-first decision should be reconsidered against MCP's state at that time. If MCP has been superseded or fragmented, the conclusion changes.
+
+**Fed:** no decision — the AI-authoring landscape here was never ruled on. It is cited as the standing research pointer by three live backlog entries: `docs/backlog/editor-and-tooling/editor-backend-architecture.md`, `docs/backlog/editor-and-tooling/outbound-llm-editor-features.md` and `docs/backlog/ai-agents/llm-as-planner-experiments.md`.

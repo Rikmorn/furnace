@@ -1,6 +1,6 @@
 # Modern Game Engine Architecture — Exploration Notes
 
-*Conversation captured 2026-05-14. Architectural thinking that informed furnace's engine direction — covering ECS, event-loop architecture, GPU vs CPU work, game AI, and LLM-as-planner agent architectures. The specific reference implementation we studied while shaping these notes is consolidated separately at `docs/research/shallot.md`.*
+*Conversation captured 2026-05-14. Architectural thinking that informed furnace's engine direction — covering ECS, event-loop architecture, GPU vs CPU work, game AI, and LLM-as-planner agent architectures. The specific reference implementation we studied while shaping these notes is consolidated separately at `docs/research/2026-05-21-shallot.md`.*
 
 **A note on confidence**: comparisons to Babylon, Unity, Unreal, and discussion of broader research directions are mostly general/training knowledge — flagged inline where relevant. The GPU physics landscape and ML/game-AI research areas move fast; expect some staleness.
 
@@ -35,7 +35,7 @@
 
 **How the two halves connect:** an orchestrator script (Bun) shells out to `cargo` / `wasm-pack` / `wasm-opt`, fixes up the generated `pkg/` (sets `sideEffects: false`, lints the output), and then the TS source imports the produced wasm packages like any other JS module. No FFI, no NAPI native node addon, no `build.rs` glue — just **Rust → wasm → JS module → `import` from TS**.
 
-For a concrete worked example of this layout — file paths, build orchestration, what the actual `wasm-pack` import looks like in TS — see `docs/research/shallot.md` § "Engine library + wasm hot loops".
+For a concrete worked example of this layout — file paths, build orchestration, what the actual `wasm-pack` import looks like in TS — see `docs/research/2026-05-21-shallot.md` § "Engine library + wasm hot loops".
 
 ## 2. What wasm-pack emits, and what's *not* in wasm
 
@@ -85,7 +85,7 @@ If you want physics that scales with thousands of bodies *and* shares the GPU wi
 
 **Tradeoff summary:** architectural purity now, multi-year maturity debt forever. Bet only pays off if the engine finds a niche where GPU-resident physics matters more than feature breadth.
 
-For one worked example of an engine that took this route, see `docs/research/shallot.md` § "Hand-rolled GPU-resident physics".
+For one worked example of an engine that took this route, see `docs/research/2026-05-21-shallot.md` § "Hand-rolled GPU-resident physics".
 
 **What furnace settled on (physics pivot, 2026-06-01):** furnace took the *wrap-a-mature-CPU-engine* path for its first physics need — **Rapier** (wasm) behind a clean `physics` API, JS-authoritative transforms. The GPU-resident route above is **deferred, not chosen**: it is the right tool only for visual/throughput sim (particles, cloth, debris) where no CPU logic reacts per frame — not interactive gameplay rigid bodies, where the GPU is weakest at stable stacking and the WebGPU readback wall + cross-GPU non-determinism rule it out. This two-track boundary is the canonical decision in **ADR 0001** (`docs/reference/adr/0001-physics-two-track-architecture.md`); the deferred GPU track is tracked in `docs/backlog/engine-architecture/physics-tracks.md` §GPU-resident physics, and the shipped CPU track is the bowling demo's `physics` module (`docs/reference/core-modules.md`).
 
@@ -158,7 +158,7 @@ The thesis isn't quite "maximum performance" — it's "**modern foundations with
 - **Figma**: C++/WASM rendering, JS UI
 - **VS Code / Cursor**: Electron shell, Rust acceleration (ripgrep, rust-analyzer)
 - **1Password 8**: Rust core, Electron UI
-- WebGPU game engines like the one in `docs/research/shallot.md`: Bun + TS + WebGPU shell, Rust hot loops + native window
+- WebGPU game engines like the one in `docs/research/2026-05-21-shallot.md`: Bun + TS + WebGPU shell, Rust hot loops + native window
 
 The pattern: **web platform is the lowest-friction surface for tooling; the gap that remains gets filled with Rust because Rust integrates cleanly with wasm.** C++ used to fill that gap but the tooling is worse.
 
@@ -196,7 +196,7 @@ velocities_y: [vy0, vy1, ...]
 ```
 Physics system: `for i in 0..N: positions_x[i] += velocities_x[i] * dt`. Each cache line holds 16 floats. Prefetcher predicts perfectly. SIMD processes 4-8 entities per instruction. GPU warps coalesce 32 thread reads into one memory transaction.
 
-**The reference example** (`docs/research/shallot.md` § "ECS with struct-of-arrays layout") shows this concretely: `posX`, `posY`, `posZ` as separate `Float32Array`s, not `Vec3` objects. Pure SoA. Wasm sweeps linearly; GPU ingests coalesced.
+**The reference example** (`docs/research/2026-05-21-shallot.md` § "ECS with struct-of-arrays layout") shows this concretely: `posX`, `posY`, `posZ` as separate `Float32Array`s, not `Vec3` objects. Pure SoA. Wasm sweeps linearly; GPU ingests coalesced.
 
 **Secondary modern benefits:**
 - **Auto-parallelization** — systems declare which components they read/write, scheduler proves non-conflict and runs in parallel

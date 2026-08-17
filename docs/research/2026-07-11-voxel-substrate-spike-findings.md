@@ -89,7 +89,7 @@ move to grid-friendly values, or the grid accommodates (finer coarse cell).
 The `CharacterMover` rim-rides/wedges on carved voxel rims (y oscillates,
 pins; two carve geometries, identical wedge; everything un-carved walks clean).
 Known class: `docs/learnings/` 2.2.1 rim-riding + the Jolt proof
-(`docs/learnings/jolt-mesh-collision-spike.md`,
+(`docs/learnings/2026-06-22-jolt-mesh-collision-spike.md`,
 `docs/backlog/engine-architecture/jolt-backend-swap.md`). Roadmapped fix =
 field→mesh→collide-on-Jolt (`CharacterVirtual`), which ALSO unifies the
 render/collision rim (in the spike you collide invisible voxel steps under a
@@ -111,3 +111,5 @@ carves away from the walkable band.
 5. Door/wall standard drift (above).
 6. Patch field is BINARY (±0.5) → smoothed-blocky carves; a signed-distance
    neighborhood field would give organic curvature (charter refinement).
+
+**Fed:** the substrate half of the same 3.3 "Worlds" recharter — the two-resolution voxel substrate — cited by name in `docs/learnings/seals/2026-07-11-epic3-recharter-w1-world-model.md`, `docs/backlog/dungeon/jit-runtime-regions.md` and `packages/dungeon/README.md`.

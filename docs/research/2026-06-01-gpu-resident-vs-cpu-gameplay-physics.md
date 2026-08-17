@@ -62,3 +62,5 @@ This warrants an **ADR**: positions GPU-resident physics as furnace's visual/thr
 - Unreal Niagara — Events & Event Handlers (CPU-only): https://dev.epicgames.com/documentation/unreal-engine/events-and-event-handlers-in-niagara-effects-for-unreal-engine
 - NVIDIA CCCL — Controlling Floating-Point Determinism: https://developer.nvidia.com/blog/controlling-floating-point-determinism-in-nvidia-cccl/
 - Gaffer On Games — Floating-Point Determinism / Deterministic Lockstep: https://gafferongames.com/post/floating_point_determinism/
+
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the CPU-authoritative-for-gameplay / GPU-for-visual-throughput split, restated at `docs/backlog/engine-architecture/physics-tracks.md`.

@@ -39,4 +39,4 @@ Open design questions: how to handle data crossing the boundary (textures source
 
 **Trigger to revisit:** When main-thread time becomes the bottleneck — heavy ECS logic, large simulations, AAA-style game loops where DOM/input contention starves the renderer.
 
-**Reference:** `docs/research/shallot.md` for prior art on running WebGPU in non-main-thread contexts (none specifically uses worker contexts but the substrate-offload thinking matches).
+**Reference:** `docs/research/2026-05-21-shallot.md` for prior art on running WebGPU in non-main-thread contexts (none specifically uses worker contexts but the substrate-offload thinking matches).

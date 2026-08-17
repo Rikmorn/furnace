@@ -8,4 +8,4 @@ Native host is currently macOS-only (milestone 1 shipped macOS; Windows is its o
 
 **Trigger to revisit:** A Linux user wants to run the native target, or a contributor offers to wire it up.
 
-**Reference:** see `docs/research/shallot.md` § "Native shell via Rust + wry/winit" for one working precedent (`cef = 145` under `[target.'cfg(target_os = "linux")'.dependencies]`).
+**Reference:** see `docs/research/2026-05-21-shallot.md` § "Native shell via Rust + wry/winit" for one working precedent (`cef = 145` under `[target.'cfg(target_os = "linux")'.dependencies]`).

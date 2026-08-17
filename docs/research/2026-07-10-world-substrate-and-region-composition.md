@@ -173,3 +173,5 @@ Non-issue.
   voxel collider. Tests both under-evidenced fusion points at once.
 - **Shelf (only if S1 re-enters):** Manifold capability spike on an actual
   `pillarHall` piece list + cross-engine wasm-determinism check.
+
+**Fed:** the Slice 3.3 "Worlds" recharter — worlds as graphs of regions plus connectors — cited by name in `docs/learnings/seals/2026-07-11-epic3-recharter-w1-world-model.md` and in `docs/backlog/dungeon/connector-geometry-stitching.md`.
