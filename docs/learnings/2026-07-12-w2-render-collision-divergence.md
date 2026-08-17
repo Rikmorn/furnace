@@ -5,7 +5,7 @@ all 15 tasks, and four full-collider traversal probes — and still arrived at t
 Safari gate with the collar-bore opening RENDERING CLOSED (while crossable), a
 Surface-Nets blob bulging into the hall, and void holes at the floor rim. Two gate
 rounds fixed it (commits `f2104e9`, `900606f`). This records why every layer missed
-it and what changes. Sibling of `shadow-mapping-stage4-silent-bugs.md` — same class,
+it and what changes. Sibling of `2026-06-08-shadow-mapping-stage4-silent-bugs.md` — same class,
 generator-side.
 
 ## What each layer verified (and the hole between them)

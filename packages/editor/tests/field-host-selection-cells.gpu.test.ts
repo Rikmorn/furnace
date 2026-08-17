@@ -11,7 +11,8 @@
 // What is asserted here is the WIRING — which selections get cubes, how many, and
 // what the seam then says about it. NOT that they are VISIBLE: nothing here reads a
 // pixel, and this repo's own shadow-mapping lesson is that a renders-clean GPU test
-// cannot catch wrong output (docs/learnings/shadow-mapping-stage4-silent-bugs.md).
+// cannot catch wrong output
+// (docs/learnings/2026-06-08-shadow-mapping-stage4-silent-bugs.md).
 // The f2b finding's actual words — "invisible from inside" — are an eyeball claim and
 // belong to the gate. What this file CAN do about it is assert the premise the gate
 // then checks, which the cap case below does: the camera really is inside the flooded

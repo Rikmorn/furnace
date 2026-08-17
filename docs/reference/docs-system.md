@@ -89,13 +89,21 @@ Post-mortems, "we tried this and walked away" notes, and the chronological seal 
   feeding the generated index row; `sealed:`, the true seal date, which may differ from the
   filename's where a seal was extracted from an older record; `seq:`, an integer giving the
   seal's position in the true slice sequence, which is the index's sort key.
-- **Lifecycle:** immutable. A seal is a dated snapshot of a moment and is never edited to
-  match later truth; a later seal supersedes it.
+- **Lifecycle:** immutable, at two strengths. **The seal record is absolutely immutable** — a
+  seal is a dated snapshot of a moment, never edited to match later truth; a later seal
+  supersedes it. **Dated learnings records are content-immutable** — what a record *claims* is
+  never rewritten — permitting exactly three touches: (1) **filename dating that preserves the
+  slug**, (2) **additive metadata** (the seal frontmatter above), (3) **mechanical repair of a
+  citation broken by a later file move** — restoring a record's original referent is a
+  correction, not a rewrite. Nothing else.
 
 ### `docs/research/` — pre-decision material
 
 What fed a decision, kept so the decision can be re-litigated with the same inputs.
-Immutable, and carrying no frontmatter.
+**Content-immutable** — what a doc *claims* is never rewritten — and carrying no frontmatter.
+The same three touches the learnings genre permits apply here: filename dating that preserves
+the slug, additive metadata (the `Fed:` line below), and mechanical repair of a citation
+broken by a later file move.
 
 - **Filename:** `YYYY-MM-DD-<slug>.md`, or a dated directory `YYYY-MM-DD-<slug>/` carrying a
   `README.md` when the research is multi-file. Pattern-checked; content stays exempt from

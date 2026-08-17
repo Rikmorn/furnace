@@ -1,6 +1,6 @@
 # Render-to-texture learnings (May 2026)
 
-*Captured from the UI Foundation milestone — see [`docs/reference/ui-foundation.md`](../docs/reference/ui-foundation.md) and commit `7249001` (the WGSL UI plane proof, kept in git history; reverted from the working tree).*
+*Captured from the UI Foundation milestone — see [`docs/reference/ui-foundation.md`](../reference/ui-foundation.md) and commit `7249001` (the WGSL UI plane proof, kept in git history; reverted from the working tree).*
 
 ## Context
 
@@ -66,5 +66,5 @@ When the time comes to revisit (the trigger: "first concrete need for in-scene U
 ## See also
 
 - Commit `7249001` — the WGSL UI plane proof of concept (preserved in git history, not the working tree).
-- Spec: [`docs/reference/ui-foundation.md`](../docs/reference/ui-foundation.md), particularly the "Research write-up" section.
+- Spec: [`docs/reference/ui-foundation.md`](../reference/ui-foundation.md), particularly the "In-scene UI" section.
 - BACKLOG entries: "In-scene UI primitive — for occluded cases only (γ)" and "Screen-space projection helper for world-tracked Svelte UI".

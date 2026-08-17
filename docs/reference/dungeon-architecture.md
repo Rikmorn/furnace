@@ -91,7 +91,7 @@ The editor cockpit's loop shipped in 3.1: generate → reroll → freeze & bake 
   colliders (§8). Voxels remain a confirmed BRIDGE around Rapier trimesh ghost collisions;
   endgame = collide the render mesh on Jolt
   (`docs/backlog/engine-architecture/jolt-backend-swap.md`,
-  `docs/learnings/jolt-mesh-collision-spike.md`).
+  `docs/learnings/2026-06-22-jolt-mesh-collision-spike.md`).
 - **Walkability is single-sourced** in `src/agent/walkability.ts` — `STEP_HEIGHT` 0.4 (the
   auto-step ceiling; sizes the step-up sweep and the ground-snap reach) and
   `SLOPE_LIMIT_COS` (55°, which normals count as ground), both read out of

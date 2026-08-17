@@ -34,4 +34,4 @@ A shared `TEST_CTX_ID` constant in `tests/_helpers/` (currently `0xffff` duplica
 
 **Before the next `InternalState` field is added.** Anyone editing `packages/core/src/gpu/internal.ts` to add a field should grep this backlog and decide: do the helper refactor first, or extend the 8 inline literals again (and accept that they're now N+1 inline literals).
 
-**Reference:** Stage 1 learning #4 — `docs/learnings/resource-manager-stage-1.md`. Reactive fix shipped in commit `15292ed`. Preventive fix tracked here.
+**Reference:** Stage 1 learning #4 — `docs/learnings/2026-05-28-resource-manager-stage-1.md`. Reactive fix shipped in commit `15292ed`. Preventive fix tracked here.

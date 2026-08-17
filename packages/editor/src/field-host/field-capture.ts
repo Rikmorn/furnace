@@ -34,7 +34,8 @@
 // path paints a canvas this module created from bytes it already owns
 // (`putImageData`) and asks it for a PNG (`toBlob`) — ordinary 2D canvas API with
 // no WebGPU interop in it, so 316538 cannot reach it. But the direction has never
-// been run on macOS Safari or in the wry shell: `docs/learnings/render-to-texture.md`
+// been run on macOS Safari or in the wry shell:
+// `docs/learnings/2026-05-17-render-to-texture.md`
 // records that the OPPOSITE direction (`copyExternalImageToTexture`, CPU canvas →
 // GPU) silently no-ops there and had to be replaced with `writeTexture` +
 // `getImageData`. Nothing about that finding implicates this direction, and

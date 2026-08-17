@@ -25,7 +25,7 @@ A throwaway headless spike confirmed **Jolt's `CharacterVirtual` walks those exa
 trimeshes ghost-free** (single-frame deflection never exceeds the walk step on any surface)
 — so the endgame is **field → Surface-Nets mesh → collide on Jolt** (the NMS pattern),
 adopting Jolt's `CharacterVirtual` KCC in place of the custom `CharacterMover`, with voxels
-retired. Full method/results/caveats: `docs/learnings/jolt-mesh-collision-spike.md`.
+retired. Full method/results/caveats: `docs/learnings/2026-06-22-jolt-mesh-collision-spike.md`.
 
 Spike-verified facts that shrink the swap's risk:
 - `jolt-physics@1.0.0` exposes the needed surface from JS (`MeshShapeSettings`,
@@ -55,7 +55,7 @@ Bowling and similar single-player, low-body-count, single-scene interactive phys
 ## Evidence gaps to fill first (left open by the lighter research run)
 
 When triggered, resolve these before committing to the swap (detailed in `docs/research/rapier-vs-jolt-threading-debuggability.md` §Open gaps):
-1. **Jolt's debug wasm** — what `jolt-physics` actually exposes from JS (debug-render geometry, runtime introspection). Repo: https://github.com/jrouwe/JoltPhysics.js. *Partially characterized 2026-06-22:* the core sim/mesh/character surface is confirmed bound and usable headless (see the Slice 2.2.1 spike section + `docs/learnings/jolt-mesh-collision-spike.md`); the debug-render/introspection surface specifically is still uncharacterized.
+1. **Jolt's debug wasm** — what `jolt-physics` actually exposes from JS (debug-render geometry, runtime introspection). Repo: https://github.com/jrouwe/JoltPhysics.js. *Partially characterized 2026-06-22:* the core sim/mesh/character surface is confirmed bound and usable headless (see the Slice 2.2.1 spike section + `docs/learnings/2026-06-22-jolt-mesh-collision-spike.md`); the debug-render/introspection surface specifically is still uncharacterized.
 2. **Jolt threaded JS callbacks** — has an official/safe path landed since the 2024 `JoltPhysics.js#134`/`#110` discussion, or is the unofficial post-js worker swizzle still required? Determines how thread-ready a Jolt wrapper really is. (Less critical if the wrapper holds the drainable-event shape, which sidesteps cross-worker callbacks.)
 3. **Rapier multi-world-on-workers + `wasm-bindgen-rayon` Rapier** — confirm whether either is a real, used scaling path before assuming Jolt is the *only* multicore option.
 4. **Jolt wasm determinism** — guarantee + any optimization trade-off analogous to Rapier's `-deterministic` vs SIMD/parallel mutual exclusion.

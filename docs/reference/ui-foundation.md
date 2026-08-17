@@ -60,7 +60,7 @@ When a UI surface must be occluded per-pixel by 3D geometry — a touchpanel on 
 
 For those cases, Furnace will use a **WGSL-native textured-plane primitive**: a depth-tested quad rendered in the same render pass as scene geometry, sampling a texture that's populated by whatever content pipeline fits (offscreen 2D-canvas rasterization at low frequencies; an SDF font atlas for sharp text at varying scales; etc.).
 
-This path was proven end-to-end in commit `7249001` (depth interleave with the triangle, FPS text from a 2D canvas) then reverted from the working tree pending a real use case. The render-to-texture pipeline has one known gotcha: `device.queue.copyExternalImageToTexture` silently no-ops on macOS WKWebView WebGPU — use `device.queue.writeTexture` with raw `ImageData` bytes instead. Full notes in `docs/learnings/render-to-texture.md`.
+This path was proven end-to-end in commit `7249001` (depth interleave with the triangle, FPS text from a 2D canvas) then reverted from the working tree pending a real use case. The render-to-texture pipeline has one known gotcha: `device.queue.copyExternalImageToTexture` silently no-ops on macOS WKWebView WebGPU — use `device.queue.writeTexture` with raw `ImageData` bytes instead. Full notes in `docs/learnings/2026-05-17-render-to-texture.md`.
 
 When the first concrete in-scene UI need surfaces, see `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *In-scene UI primitive — for occluded cases only (γ)* and start from the reverted commit.
 
@@ -76,7 +76,7 @@ A handful of approaches were evaluated and rejected:
 ## See also
 
 - `packages/hello-world/src/overlay/` — live Svelte 5 + `@furnace/core` integration.
-- `docs/learnings/render-to-texture.md` — render-to-texture gotchas from the WGSL primitive proof.
+- `docs/learnings/2026-05-17-render-to-texture.md` — render-to-texture gotchas from the WGSL primitive proof.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *In-scene UI primitive — for occluded cases only (γ)* — WGSL textured-plane primitive, deferred.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *SDF font atlas + glyph rendering* — sharp text at varying scales, deferred.
 - `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *Emerging-tech watch: WICG HTML-in-Canvas / Vello browser readiness*.

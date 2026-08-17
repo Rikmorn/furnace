@@ -72,6 +72,6 @@ a footgun — a consumer naturally reads "1" as "one unit."
   what the Stage-4 strict check did, and what turned a "green, shipped, broken" feature
   into a "green, shipped, working" one.
 
-See also `webgpu-empty-intermediate-bind-group.md` and the
+See also `2026-06-07-webgpu-empty-intermediate-bind-group.md` and the
 `project_furnace_primary_browser` memory (Safari/Chrome are stricter than headless
 `bun-webgpu` — but even Chrome's *validation* doesn't catch wrong-output logic bugs).
