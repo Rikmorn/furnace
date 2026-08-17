@@ -298,7 +298,11 @@ test files, each a bake→load→walk end-to-end through the REAL loader rather 
 - `tests/field-world.gpu.test.ts` — two cases: dig a tunnel in memory, `bakeFieldWorld`, load
   through `loadWorld` and walk it; and the masonry wall probe (through the gap, blocked by
   the wall — collision is density, not material).
-- `tests/field-cave-walk.gpu.test.ts` — the `cave` generator's output, walked.
+- `tests/field-cave-walk.gpu.test.ts` — the `cave` generator's output, walked. It also EMITS a
+  committed deliverable: `docs/research/2026-07-23-f3b-p-f3-1-stepped-floor-probe.md` is
+  rewritten whole on every run that reaches it, so hand edits to that file are lost — the report
+  template in this test is the place to change it (marked in the file; the genre exception is
+  `docs/reference/docs-system.md` §2).
 - `tests/field-placements.gpu.test.ts` — props: the rock's measured 0.56/0.77 m climb
   thresholds and the base-anchored stalagmite blocking at scale 2 (§8).
 - `src/agent/char-move-*.gpu.test.ts` — the locomotion probes (ground, step, slide, shove,

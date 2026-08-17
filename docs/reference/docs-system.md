@@ -111,6 +111,12 @@ The same three touches the learnings genre permits apply here: filename dating t
 the slug, additive metadata (the `Fed:` line below), and mechanical repair of a citation
 broken by a later file move.
 
+**One exception:** `2026-07-23-f3b-p-f3-1-stepped-floor-probe.md` is re-emitted whole by the
+test that produced it and carries a generated-by mark saying so, because a probe deliverable
+is only re-litigable while its figures track the live suite — the record's authority sits in
+the emitting test rather than in the file, which is why no new generator writes into a content
+register without that mark and a ruling.
+
 - **Filename:** `YYYY-MM-DD-<slug>.md`, or a dated directory `YYYY-MM-DD-<slug>/` carrying a
   `README.md` when the research is multi-file. Pattern-checked (§9); content stays exempt
   from the register checks. **One exemption:** `docs/research/assets/` holds
