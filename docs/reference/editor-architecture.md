@@ -4880,7 +4880,11 @@ diverging) and `field-reconfigure-and-parse-edges.md`
 §"`reconfigureGenerator`'s empty-evaluation leg" (Task 5 pinned one of the two
 failure classes `reconfigureGenerator`'s `@throws` names, not both). AGENTS.md asks that
 end-of-tranche surfaced findings be summarised so the user can decide follow-ups; this is that
-list, and it stood at one until the count was taken from the diff.
+list, and it stood at one until the count was taken from the diff. *(Both trackers named above
+were un-merged at genre-contracts and no longer exist; the four sections cited here are now
+`parseops-cannot-resolve-a-class-id.md`, `artifact-ts-is-four-codecs.md`,
+`locator-rethrow-spelled-six-times.md` and `reconfigure-empty-evaluation-unheld.md`. The
+dispositions above are kept as written — they record what T4a did.)*
 
 ## 26. Foundations T4b — an agent reads a live session (2026-08-09)
 
@@ -5198,7 +5202,8 @@ a restart). **Three appended to** rather than duplicated:
 `editor-test-harness-fragility.md` (the SDK's per-process cost, the eliminations, and the three
 programme-level fixes), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
 parameters), and `core-internal-structure-debt.md`
-§"One locator re-throw, spelled six times", whose standing trigger was
+§"One locator re-throw, spelled six times" (that tracker was itself un-merged at
+genre-contracts; the section is now `locator-rethrow-spelled-six-times.md`), whose standing trigger was
 **checked and did not fire** — the MCP edge converts a throw into a value rather than
 re-throwing one and adds no locator, so it is still six sites, with T4c's mutation verbs named
 as the clause's remaining live half. **One re-cited**: `world-verb-follow-ons.md`'s
@@ -6093,9 +6098,11 @@ because of foundations T5 (§28): `agent-cannot-read-generator-params` and
 `locator-rethrow-primitive-respelled-six-ways`, `reconfigure-empty-evaluation-leg-unheld`,
 `render-pass-target-union` and `studio-key-light-blows-out-near-camera-geometry` were
 CONSOLIDATED into merged trackers with their content intact — respectively
-`core-internal-structure-debt.md` §"One locator re-throw, spelled six times",
+`core-internal-structure-debt.md` §"One locator re-throw, spelled six times" (that tracker was
+itself un-merged at genre-contracts; the section is now `locator-rethrow-spelled-six-times.md`),
 `field-reconfigure-and-parse-edges.md` §"`reconfigureGenerator`'s empty-evaluation leg is
-documented but unheld", `frame-surface-gaps.md` §"`render` / `renderToTexture` unified
+documented but unheld" (same — the section is now `reconfigure-empty-evaluation-unheld.md`),
+`frame-surface-gaps.md` §"`render` / `renderToTexture` unified
 pass-target union" (that tracker was itself un-merged at genre-contracts; the section is now
 `unified-pass-target-union.md`), and `editor-seams-and-preview-deferrals.md` §"The studio key light blows
 out geometry close to the camera". Nothing in this table is a live register; the live register is

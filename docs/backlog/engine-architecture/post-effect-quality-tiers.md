@@ -28,7 +28,7 @@ linear chain. It is not a render-graph concern and does not wait on one.
   `getCompilationInfo` on bun-webgpu). A systematic version would centralize "which variant
   for this adapter."
 - **Shader permutations / ubershaders** — `#define`-driven variant compilation vs a single
-  branchy shader. Couples to shader composition (`shader-substrate-follow-ons.md` §Shader composition / Stage 2.5 landed
+  branchy shader. Couples to shader composition (`include-composition-resolver.md` and siblings / Stage 2.5 landed
   the `ShaderSource` core) — `#define`/permutation generation is a deferred follow-on that
   would ride the same composition machinery.
 - **Dynamic degradation** — drop effects or scale resolution when over the frame budget
@@ -53,5 +53,5 @@ tier* framing is what this entry guards). Do **not** build the variant/tier/fall
 *system* until one of these is real — the per-effect parameterizations (enums, counts)
 are the right *small* shape until then.
 
-**Reference:** `shader-substrate-follow-ons.md` §Shader composition (composition core landed; permutation/`#define` gen would be a follow-on),
+**Reference:** `include-composition-resolver.md` and its siblings (composition core landed; permutation/`#define` gen would be a follow-on),
 `unexposed-render-state.md` (MSAA off/4× as a tier axis).

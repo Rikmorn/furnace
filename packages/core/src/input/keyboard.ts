@@ -30,7 +30,7 @@ export function handleKeyUpDomEvent(e: KeyboardEvent): void {
 
 export function handleBlur(): void {
   // Stuck-key recovery: clear held state without synthesizing keyup events.
-  // See docs/backlog/engine-architecture/input-stuck-key-recovery.md for the
+  // See docs/backlog/engine-architecture/stuck-key-recovery.md for the
   // future onBlur event that closes the symmetric-streams gap.
   state.keysDown.clear();
   state.keysPressed.clear();

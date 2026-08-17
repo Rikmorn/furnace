@@ -294,7 +294,7 @@ test("cross-module imports take only names the target module declares", async ()
 // that is the house pattern, 23 sites strong). LIMITATION: this regex catches
 // module-scope `let` and Map/Set containers; a mutable object literal behind
 // a `const` evades it (e.g. input/state.ts's singleton — tracked by backlog
-// entry input-module-pass.md, not by this test).
+// entry input-attach-per-ctx.md, not by this test).
 const PINNED_GLOBALS = [
   "frame/render-lines.ts::warnedMsaaPostChain",
   "frame/render.ts::warnedLightOverflow",

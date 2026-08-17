@@ -240,8 +240,7 @@ describe("reconfigureGenerator — re-evaluate + replay", () => {
   // influence, which all four effects, the class-kind masks and region
   // selections do. A FLOOD-masked op reads unboundedly and can replay against
   // un-rewound end-of-log state — see the known gap on reconfigureGenerator and
-  // `docs/backlog/engine-architecture/field-reconfigure-and-parse-edges.md`,
-  // §"a flood-masked downstream op replays against end-of-log state".
+  // `docs/backlog/engine-architecture/flood-masked-op-replays-against-end-state.md`.
   test("with bounded-read downstream ops, the result is byte-identical to committing the new params from the start", () => {
     const reconfigured = makeWorld();
     const e = commitHall(reconfigured.store, reconfigured.log, { depth: 12 });
@@ -945,8 +944,7 @@ describe("reconfigureGenerator — setup-loud guards", () => {
   // least its shell fill, so no params reach it — the same unreachable guard
   // commitGenerator carries. It is left untested rather than faked, and the
   // `evaluate` swap above would hold it the same way. Filed:
-  // docs/backlog/engine-architecture/field-reconfigure-and-parse-edges.md
-  // (§"`reconfigureGenerator`'s empty-evaluation leg")
+  // docs/backlog/engine-architecture/reconfigure-empty-evaluation-unheld.md
 });
 
 describe("setGeneratorFrozen / bakeGeneratorEntity — the protection verbs", () => {

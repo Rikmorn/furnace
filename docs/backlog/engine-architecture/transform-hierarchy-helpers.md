@@ -46,5 +46,5 @@ props are flat instanced records with baked world poses.
 
 **Reference:** Core architecture design § "Tier 2 modules"; `docs/reference/api-posture.md` R8;
 `docs/backlog/engine-architecture/shadow-frustum-auto-fit.md` (the auto-fit dependency);
-`docs/backlog/engine-architecture/resource-lifetime-ownership-and-tracking.md` §A resource ownership root (lifetime, not composition — a
+`docs/backlog/engine-architecture/resource-ownership-root.md` (lifetime, not composition — a
 separate question, judged separately since T2).

@@ -35,4 +35,4 @@ If kept long-term, the "currently unused" TSDoc note must not rot — re-confirm
 - `packages/core/src/material/material.ts` — `materialTeardown`, the `ownedBuffers`/`ownedBufferBytes` fields, the `create` TSDoc note.
 - `packages/core/src/material/types.ts` — `MaterialSlot` shape.
 - Tranche E-B Task 7 (commit `7be9e46`) — the deletion that orphaned this.
-- `resource-lifetime-ownership-and-tracking.md` §Consumer-owned uniform buffers (sibling — the broader ownership-model question).
+- `consumer-owned-uniform-buffers.md` (sibling — the same escape hatch from the ownership-model side).

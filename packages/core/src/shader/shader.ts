@@ -154,7 +154,7 @@ export function create<L extends LayoutSchema = LayoutSchema>(
 
 /**
  * Fetch WGSL from `url` and compile it. Does **not** resolve `// @include`
- * (deferred — see `shader-substrate-follow-ons.md` §"Shader composition") and
+ * (deferred — see `include-composition-resolver.md`) and
  * does not cache by URL (the
  * browser HTTP-caches the bytes; reuse the returned handle to dedup). Setup-loud.
  *

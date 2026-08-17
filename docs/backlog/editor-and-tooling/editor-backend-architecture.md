@@ -32,7 +32,7 @@ Dependency order: **scene representation → serialization / loader (the interch
 Scene-model cluster this keystone draws from:
 - `engine-architecture/transform-hierarchy-helpers.md` — runtime hierarchy / world-matrix composition (the *structure*). *(Renamed from `scene-graph-helpers.md` at T2, un-merged out of the Tier-2 tracker at genre-contracts — still deferred, still unbuilt.)*
 - the save/load format + core loader (the *interchange contract*; the linchpin of dual-mode — created from this exploration and SHIPPED at M1 as the scene document. **DELETED at foundations T2**; the interchange contract that replaced it is the field artifact + op log, canonical in `docs/reference/engine-architecture.md` §15 and `core-modules.md` §field).
-- `engine-architecture/resource-lifetime-ownership-and-tracking.md` §A resource ownership root — an ownership / teardown root. *(Renamed from `scene-based-resource-ownership.md` at T2; the root is deliberately not called Scene any more.)*
+- `engine-architecture/resource-ownership-root.md` — an ownership / teardown root. *(Renamed from `scene-based-resource-ownership.md` at T2; the root is deliberately not called Scene any more.)*
 - `engine-architecture/behaviour-runtime-contract.md` / `engine-architecture/ecs-soa-storage.md` — component definitions / data-oriented storage (heavier; not required to start).
 
 ## Relationship to the cookbook
