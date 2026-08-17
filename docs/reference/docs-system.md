@@ -362,10 +362,16 @@ that scaled past a hundred records — Rust RFCs, PEPs, KEPs, Oxide RFDs, MADR �
 record per file with merged views generated. The existing merged trackers are scheduled to
 be un-merged, and no new merge is made.
 
-**Size bars are provisional and are not the real question.** A file count is a proxy for
-findability, and a poor one: the register grows at roughly +2 net entries per day, so any
-fixed count is re-crossed within weeks of the prune that satisfied it. The holding numbers
-live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
+**Size bars are provisional and are not the real question.** Prune when `docs/backlog/`
+exceeds **~150 entries**, or one topic directory exceeds **~50**, by promoting actionable
+items out. Both are a provisional holding number, not settled policy: a file count is a
+proxy for findability, and a poor one — the register grows at roughly +2 net entries per
+day, so any fixed count is re-crossed within weeks of the prune that satisfied it. The
+previous ~100 / ~20 pair sat in violation continuously for two months, and ~20 was never
+once satisfiable for `engine-architecture/`. The real question — how a growing body of
+deferred-work markdown stays **findable** — is filed as
+`docs/backlog/infrastructure/docs-registers-findability.md` and wants its own brainstorm and
+research session. Re-derive the numbers there; don't re-dial them here.
 
 ## 9. Checks
 

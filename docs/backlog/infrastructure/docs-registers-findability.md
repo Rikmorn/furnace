@@ -5,8 +5,10 @@ consumer: genre-contracts
 
 # Keeping a growing body of markdown findable — the register needs a design, not a number
 
-**Context.** `AGENTS.md` § "Deferred work — `docs/backlog/`" has carried a size bar since the
-register was created: prune when the register, or one topic dir, gets too big. At foundations T5
+**Context.** The register has carried a size bar since it was created — prune when the register,
+or one topic dir, gets too big. The bar lived in `AGENTS.md` § "Deferred work — `docs/backlog/`"
+until the genre-contracts slice moved its ownership into `docs/reference/docs-system.md` §8,
+which now states it. At foundations T5
 (2026-08-11) the user ruled that the bar gets relaxed *and* that relaxing it is not the fix:
 
 > "these will only grow bigger, i think we should relax the threshold, and if it's truly a
@@ -15,8 +17,8 @@ register was created: prune when the register, or one topic dir, gets too big. A
 > chore i would rather do properly and thoughtfully instead of just dialing numbers and keeping
 > the doc strategy a mess"
 
-The numbers moved to ~150 / ~50 in the same commit that filed this entry, marked provisional in
-`AGENTS.md` and pointing here. This entry holds the real question, and it is deliberately a
+The numbers moved to ~150 / ~50 in the same commit that filed this entry, marked provisional and
+pointing here — as canon §8 still marks them. This entry holds the real question, and it is deliberately a
 charter, not a proposal — it frames the problem and does not pre-solve it.
 
 **The question.** How does a long-lived project keep a growing body of deferred-work markdown
@@ -150,7 +152,7 @@ Two independent reasons, both visible in the numbers above.
    has to legitimise the exact state (169) that everyone agreed needed pruning. Set it lower and
    it fires every few weeks and gets ignored, which is what happened: the ~100 bar was in
    continuous violation for two months and no session acted on it until T5. The ~150 / ~50 pair
-   now in `AGENTS.md` is the compromise between those two failures, and it is a compromise, not a
+   now in canon §8 is the compromise between those two failures, and it is a compromise, not a
    finding.
 
 2. **The remaining moves make things less findable, not more.** T5 stopped at 101 rather than 100
@@ -266,9 +268,10 @@ naming nothing, unnoticed because the field was not machine-checked — was clos
 review: `consumer:` values are now checked against the live work register, and the seal
 ritual carries a clause that sweeps them.
 
-**Reference:** `AGENTS.md` § "Deferred work — `docs/backlog/`" (the provisional bar and its
-pointer here) · `docs/reference/docs-system.md` (the answer: pruning's three moves, the unit
-rule that retired the merged tracker, the checks) · prune commits `a531088c` and `9e12a3a1` · the entry this
+**Reference:** `docs/reference/docs-system.md` §8 (the provisional bar, its pointer here, and
+pruning's three moves) · the same file's §2 (the unit rule that retired the merged tracker) and
+§9 (the checks) · `AGENTS.md` § "Deferred work — `docs/backlog/`" (the operational half: when to
+file, when to fix inline) · prune commits `a531088c` and `9e12a3a1` · the entry this
 one succeeds, resolved by the T5 prune and recoverable with
 `git show 9e12a3a1^:docs/backlog/engine-architecture/backlog-topic-dirs-over-the-prune-threshold.md`
 — it is where the "re-derived because nobody found it" framing and the ~150 escalation number

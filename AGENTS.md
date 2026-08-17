@@ -31,7 +31,7 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
 - `bun run typecheck` — one incremental whole-repo `tsc` run (all packages + root `scripts/`)
 - `bun run sitrep` — the owner's board, projected from `docs/work/` + reference freshness
-- `bun run docs:index` — regenerate `docs/backlog/README.md` (generated; `bun run check` fails on drift)
+- `bun run docs:index` — regenerate the generated indexes: `docs/backlog/README.md` and the marked region of `docs/learnings/seals/README.md` (`bun run check` fails on drift in either)
 - `bun run hello-world:dev` — hello-world in the browser
 - `bun run hello-world:dev:native` — hello-world in the native window (macOS Tahoe 26+)
 - `bun run edit` (in `packages/hello-world`) — open the editor on hello-world
@@ -109,25 +109,21 @@ For more, see the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
 
 ## Deferred work — `docs/backlog/`
 
-The repo uses `docs/backlog/` to track deferred work and ideas across sessions. This is durable, multi-session storage — distinct from `TaskCreate` (within-session only) and from architecture docs (decisions, not tasks).
+`docs/backlog/` tracks deferred work across sessions — durable, multi-session storage, distinct from `TaskCreate` (within-session only) and from architecture docs (decisions, not tasks). Entry shape, frontmatter and lifecycle: `docs/reference/docs-system.md` §2. **Size thresholds and pruning: canon §8** — it owns the numbers and the three prune moves.
 
 **When working in this repo:**
-- **Defer something mid-session?** Add an entry to `docs/backlog/` before moving on. Use the entry shape documented in that file (title, Context, Trigger to revisit, Reference).
-- **Starting new work?** Scan `docs/backlog/` first for items that just became actionable. Promote them out by removing the entry and tracking the work in the current session.
+- **Defer something mid-session?** File an entry before moving on.
+- **Starting new work?** Scan `docs/backlog/` first for items that just became actionable, and promote them out into the current session's work.
 - **Don't put bugs there** — fix urgent bugs; use GitHub Issues for non-urgent ones once the repo is on GitHub.
 - **Don't put decisions there** — decisions go in `docs/reference/` or ADRs.
-- **Doing bulk standardisation work (TSDoc pass, type migration, audit sweep)?** Expect ~5–15% of items to surface engine-side findings outside your task's scope. Capture each as a `docs/backlog/` entry mid-tranche rather than silently expanding scope or silently dropping the finding. At end of tranche, summarise surfaced findings to the user and let them decide which warrant a follow-up tranche. Example: Tranche A-1's TSDoc bulk pass surfaced four engine API hygiene items (destroy-policy inconsistency, missing input validation, pre-existing type casts, math-primitive edge cases) which became Tranche A-3 candidates.
-- **Inline-fix threshold (added 2026-05-28 from RM tranche learnings).** Before filing a backlog entry, check whether the item qualifies for inline fix instead:
+- **Doing bulk standardisation work (TSDoc pass, type migration, audit sweep)?** Expect ~5–15% of items to surface findings outside your task's scope; capture each as an entry mid-tranche rather than silently expanding scope or silently dropping the finding. Summarise them to the user at end of tranche and let them decide which warrant a follow-up (Tranche A-1's TSDoc pass surfaced four engine API hygiene items that way, which became Tranche A-3 candidates).
+- **Inline-fix threshold (added 2026-05-28 from RM tranche learnings).** Before filing an entry, check whether the item qualifies for an inline fix instead:
   - **< 10 LOC change** to source or docs
   - **In a file you are already touching** in the current task/tranche
   - **No new design decision required** (no "should we use X or Y" question)
   - **No new public API surface** introduced
 
-  If all four conditions hold, fix inline in the same commit as the surrounding work. Files growing with "trivial-deferred" backlog entries are a smell — the RM tranche surfaced 4 such items (`setmaterial-failure-policy-stance-docs`, `validate-effects-resolved-slot-shape`, one cookbook destroy-order asymmetry, one stale `as number` cast site) each individually defensible but aggregating to cognitive load that outlasted the tranche.
-
-  Backlog entries remain right for: cross-tranche refactors, design decisions, anything needing a separate brainstorm, items whose trigger hasn't fired.
-
-**Size — a provisional holding number, not settled policy.** Prune when `docs/backlog/` exceeds ~150 entries or one topic subdirectory exceeds ~50, by promoting actionable items out (`docs/reference/docs-system.md` §8 has the three moves — deletion is not one of them, and consolidation now means a generated view, never a merged file). Treat both numbers as **provisional**: the register has grown at roughly +2 net entries per day since June, so any fixed count is re-crossed within weeks of the prune that satisfied it — the previous ~100/~20 pair sat in violation continuously for two months, and ~20 was never once satisfiable for `engine-architecture/`. A file count is a proxy for findability, and a poor one. The real question — how a growing body of deferred-work markdown stays findable — is filed as `docs/backlog/infrastructure/docs-registers-findability.md` and wants its own brainstorm + research session. Re-derive these numbers there; don't re-dial them here.
+  If all four conditions hold, fix inline in the same commit as the surrounding work — files growing with "trivial-deferred" entries are a smell (the RM tranche surfaced 4, each individually defensible, aggregating to cognitive load that outlasted the tranche). Entries remain right for: cross-tranche refactors, design decisions, anything needing a separate brainstorm, items whose trigger hasn't fired.
 
 ## Keeping docs current
 
@@ -145,7 +141,7 @@ Documentation rots quietly. The lifecycle is `docs/backlog/` → implementation 
 - **Changed a public export's behaviour (new throws, new edge cases, changed contract)?** Update its TSDoc. The `bun run check:tsdoc` check catches *missing* TSDoc but not *stale* TSDoc — semantic drift is a review concern. See `docs/reference/tsdoc-conventions.md`.
 - **Materialized a new design or changed an existing one?** Update the relevant `docs/reference/*.md` to reflect the new reality. The reference is "how the project IS today" — if it's stale, it's broken.
 - **Renamed a file, moved a directory, changed a path that other files mention?** Grep for the old path before committing. Stale path references rot silently because nothing tests them.
-- **Never point a tracked doc at `docs/superpowers/`.** Everything under `docs/superpowers/` (specs, plans, archive) is **gitignored** — local design/plan scaffolding that goes stale the moment it's referenced and that other clones don't even have. Tracked docs (`docs/reference/`, `docs/backlog/`, `AGENTS.md`, `README.md`) must cite **facts in `docs/reference/`** (or the source files themselves), never a `docs/superpowers/...` path. `docs/reference/` is where we document how things are; if a decision or design from a superpowers spec needs to be citable, promote the fact into `docs/reference/` and cite that. The ban is on **citing a scaffolding file**; naming the directory to state the rule is fine, and three tracked files do (here, `.claude/rules/docs-authoring.md`, and `docs/reference/docs-system.md` §2/§6 — the canon). So the check is the narrower `grep -rnE "docs/superpowers/[a-z]+/" docs/reference docs/backlog docs/learnings docs/work .claude`, which must return nothing.
+- **Never point a tracked doc at `docs/superpowers/`.** Everything under `docs/superpowers/` (specs, plans, archive) is **gitignored** — local design/plan scaffolding that goes stale the moment it's referenced and that other clones don't even have. Tracked docs (`docs/reference/`, `docs/backlog/`, `AGENTS.md`, `README.md`) must cite **facts in `docs/reference/`** (or the source files themselves), never a `docs/superpowers/...` path. `docs/reference/` is where we document how things are; if a decision or design from a superpowers spec needs to be citable, promote the fact into `docs/reference/` and cite that. The ban is on **citing a scaffolding file**; naming the directory — to state the rule, or to scope a grep past it — is fine, and several tracked files do, this one and the canon (`docs/reference/docs-system.md` §2/§6) among them. So the check requires a filename component: `grep -rnE "docs/superpowers/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+" docs/reference docs/backlog docs/learnings docs/work .claude`, which must return nothing.
 - **Tried an approach and walked away?** Capture the lesson in `docs/learnings/<topic>.md` so the next person doesn't retry it.
 - **Writing or updating API docs?** Read the implementation source to verify behaviour — don't synthesise from existing reference docs (`core-modules.md`, ADRs, sibling TSDoc), which can be stale or aspirational. Grep the function body for `throw new`, `console.warn`, early-return guards, etc. The code is authoritative; reference docs are summaries that decay. When the reference disagrees with the source, the source wins — and update the reference in the same change. Tranche A-1 caught several `core-modules.md` rows that mis-described actual behaviour (e.g. `stats.measure` no-invoke conditions) only because the TSDoc work read each implementation directly.
 - **MIGRATION (until X) comment convention** (added 2026-05-28 from RM Stage 1 learnings #6). For multi-session migrations, mark TSDoc lines and inline comments that will become stale at a specific future point with a `// MIGRATION (until <session/tranche>):` prefix. Example: `// MIGRATION (until Session 3): Material refcount not yet wired; this slot's userCount is always 0`. The grep `grep -rn "MIGRATION (until" packages/` at the named session boundary surfaces all comments to revisit. Prevents the predictable rot pattern where mid-migration scaffolding comments survive past their relevance window.
@@ -169,5 +165,5 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `docs-system.md` — the docs system itself: genres, values rule, statuses, the work register, scaffolding lifecycle, prose-pin taxonomy, pruning, checks
 - `docs/backlog/` — deferred work register (one file per entry, grouped by topic); `README.md` is GENERATED (`bun run docs:index`).
 - `docs/work/` — the live work register (epic = directory, slice = file); `bun run sitrep` projects the board.
-- `docs/learnings/` — post-mortems and "what we tried" notes; `seals/` is the chronological slice/epic seal record — one file per seal plus an index.
+- `docs/learnings/` — post-mortems and "what we tried" notes; `seals/` is the chronological slice/epic seal record — one file per seal plus an index row GENERATED from that seal's frontmatter (`bun run docs:index`), never hand-written.
 - `docs/research/` — pre-decision research that fed canonical docs.
