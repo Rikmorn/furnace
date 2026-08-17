@@ -30,7 +30,7 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun test -t "name"` — run tests matching a name pattern
 - `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
 - `bun run typecheck` — one incremental whole-repo `tsc` run (all packages + root `scripts/`)
-- `bun run sitrep` — the owner's board, projected from `docs/work/`
+- `bun run sitrep` — the owner's board, projected from `docs/work/` + reference freshness
 - `bun run docs:index` — regenerate `docs/backlog/README.md` (generated; `bun run check` fails on drift)
 - `bun run hello-world:dev` — hello-world in the browser
 - `bun run hello-world:dev:native` — hello-world in the native window (macOS Tahoe 26+)

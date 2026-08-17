@@ -26,7 +26,8 @@ imperatives and no rationale. Anything that needs a "because" belongs here inste
 suite, so it adds nothing to the long gate. It re-derives what can be re-derived and fails
 on what it can prove wrong. §9 is the table of what it enforces.
 
-**Projection.** `bun run sitrep` reads the work register and prints the owner's board.
+**Projection.** `bun run sitrep` reads the work register, the backlog and the reference
+docs' `verified:` stamps, and prints the owner's board.
 Nothing about the board is committed; it is computed from the same store each time, so it
 cannot disagree with it.
 
@@ -55,9 +56,12 @@ subsystems splits into a directory of per-subsystem files plus a generated index
   kind-subdirectories** (owner ruling, 2026-08-13): a doc's kind is read from its content,
   and a path that encodes it invites a re-file every time the reading changes.
 - **Frontmatter:** optional `verified: <date>` — when the doc was last checked against
-  source; read by `bun run sitrep`'s freshness block (**ratified; pending at
-  `genre-contracts`** — the block lands with that slice). Stamp only at an actual
-  verification, never at an edit that didn't re-check.
+  source. `bun run sitrep`'s REFERENCE FRESHNESS block lists every reference doc, stamped
+  ones oldest first and unstamped ones after; it sets no staleness threshold, because how
+  old is too old is a judgement about the doc's subject rather than the tool's to make.
+  Stamp only at an actual verification, never at an edit that didn't re-check — an
+  unstamped doc is an honest "never checked", and a stamp bought by an edit is a lie the
+  block would then repeat.
 - **Lifecycle:** never deleted, continuously corrected. When the reference disagrees with
   the source, the source wins and the reference is fixed in the same change.
 
@@ -410,6 +414,7 @@ it earns it.
 **What is not checked, and why.** Semantic claim rot — a sentence that is well-formed,
 cites live paths, and is simply no longer true — is not mechanically detectable, and is an
 open problem in the industry, not a gap in this design. The mitigation ladder is: shrink
-the unfalsifiable surface (§3 tiers 2 and 3), then freshness stamps, then agent
+the unfalsifiable surface (§3 tiers 2 and 3), then freshness stamps (§2, surfaced by
+`bun run sitrep`), then agent
 re-verification sweeps. The checks buy the mechanical classes so review attention can go to
 the class that needs judgement.
