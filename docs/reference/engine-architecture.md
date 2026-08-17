@@ -87,7 +87,7 @@ If you want physics that scales with thousands of bodies *and* shares the GPU wi
 
 For one worked example of an engine that took this route, see `docs/research/2026-05-21-shallot.md` § "Hand-rolled GPU-resident physics".
 
-**What furnace settled on (physics pivot, 2026-06-01):** furnace took the *wrap-a-mature-CPU-engine* path for its first physics need — **Rapier** (wasm) behind a clean `physics` API, JS-authoritative transforms. The GPU-resident route above is **deferred, not chosen**: it is the right tool only for visual/throughput sim (particles, cloth, debris) where no CPU logic reacts per frame — not interactive gameplay rigid bodies, where the GPU is weakest at stable stacking and the WebGPU readback wall + cross-GPU non-determinism rule it out. This two-track boundary is the canonical decision in **ADR 0001** (`docs/reference/adr/0001-physics-two-track-architecture.md`); the deferred GPU track is tracked in `docs/backlog/engine-architecture/physics-tracks.md` §GPU-resident physics, and the shipped CPU track is the bowling demo's `physics` module (`docs/reference/core-modules.md`).
+**What furnace settled on (physics pivot, 2026-06-01):** furnace took the *wrap-a-mature-CPU-engine* path for its first physics need — **Rapier** (wasm) behind a clean `physics` API, JS-authoritative transforms. The GPU-resident route above is **deferred, not chosen**: it is the right tool only for visual/throughput sim (particles, cloth, debris) where no CPU logic reacts per frame — not interactive gameplay rigid bodies, where the GPU is weakest at stable stacking and the WebGPU readback wall + cross-GPU non-determinism rule it out. This two-track boundary is the canonical decision in **ADR 0001** (`docs/reference/adr/0001-physics-two-track-architecture.md`); the deferred GPU track is tracked in `docs/backlog/engine-architecture/gpu-resident-physics-track.md`, and the shipped CPU track is the bowling demo's `physics` module (`docs/reference/core-modules.md`).
 
 ---
 
@@ -391,6 +391,18 @@ program, 2026-08-04). `@furnace/core` is one package but names two tiers:
 - **World tier** — the modules that model *content* on top of the substrate: **`field`** and
   **`registry`** (the neutral definer machinery, landed T1b 2026-08-04). World-tier modules
   may import the substrate freely; the substrate must NEVER import upward.
+
+**Vocabulary caution — "Tier 2" is a different axis.** The original core-architecture design
+spec's **Tier 2** names cross-cutting modules layered *over* the shipped surface — animation,
+assets, audio, a central event bus, ECS storage, a job scheduler, transform-hierarchy helpers,
+a behaviour runtime, a wasm transform crate, debug draw. **None of them is built**, so none
+appears in either tier above, which name only shipped modules. Each is its own deferral under
+`docs/backlog/engine-architecture/` (`animation-module.md`, `assets-module.md`,
+`audio-module.md`, `event-bus-module.md`, `ecs-soa-storage.md`, `jobs-scheduler-module.md`,
+`transform-hierarchy-helpers.md`, `behaviour-runtime-contract.md`,
+`rust-transforms-wasm-crate.md`, `debug-draw-primitives.md`, `gltf-import-path.md`). The word
+is older than this section; read "Tier 2" in a backlog entry as the spec's term, never as a
+claim about the split recorded here.
 
 It was three modules for one day. **`scene` — the text-JSON document format with its
 consumer-extensible registry and `loadScene` — was deleted in foundations T2 (2026-08-05)**,

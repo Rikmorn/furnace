@@ -63,4 +63,4 @@ This warrants an **ADR**: positions GPU-resident physics as furnace's visual/thr
 - NVIDIA CCCL — Controlling Floating-Point Determinism: https://developer.nvidia.com/blog/controlling-floating-point-determinism-in-nvidia-cccl/
 - Gaffer On Games — Floating-Point Determinism / Deterministic Lockstep: https://gafferongames.com/post/floating_point_determinism/
 
-**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the CPU-authoritative-for-gameplay / GPU-for-visual-throughput split, restated at `docs/backlog/engine-architecture/physics-tracks.md`.
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the CPU-authoritative-for-gameplay / GPU-for-visual-throughput split, restated at `docs/backlog/engine-architecture/deterministic-and-networked-physics.md` and `docs/backlog/engine-architecture/gpu-resident-physics-track.md`.

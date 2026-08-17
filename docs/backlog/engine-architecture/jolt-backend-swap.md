@@ -6,6 +6,13 @@ summary: swapping the physics backend to Jolt, or exposing backend choice, for s
 
 **Filed 2026-06-01** when the CPU-physics backend was resolved to **Rapier** (ADR 0001; `docs/research/2026-06-01-rapier-vs-jolt-threading-debuggability.md`). This entry tracks the **deferred option to swap the physics backend to Jolt** — or to expose backend choice to consumers — once a real need arrives.
 
+**This file is the canonical home of the *voxels-are-a-bridge* ruling**, and it carries the
+heaviest external citation load of any entry in the register — across research, reference,
+learnings and package docs (`grep -rln "jolt-backend-swap" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=target`).
+Both facts are why the 2026-07 physics consolidation deliberately left it standing alone
+rather than folding it into a merged tracker; recorded here at the genre-contracts un-merge
+so the reason survives the tracker that stated it.
+
 ## Context
 
 Rapier was chosen as the *simple start*: lowest wrapper cost for the immediate problem (the bowling demo), Rust/wasm-bindgen memory ergonomics (cascading `World.free()`), and a ready `-deterministic` package. The threading/scalability/debuggability evaluation surfaced a **genuine, deferred Jolt advantage**:
@@ -64,4 +71,4 @@ When triggered, resolve these before committing to the swap (detailed in `docs/r
 
 - ADR: `docs/reference/adr/0001-physics-two-track-architecture.md` (Decision 6–7, Consequences, Resolved 2026-06-01)
 - Research: `docs/research/2026-06-01-rapier-vs-jolt-threading-debuggability.md` (this evaluation), `docs/research/2026-06-01-cpu-physics-backend-comparison.md` (the original Rapier-vs-Jolt comparison)
-- Related: `physics-tracks.md` §CPU-authoritative physics (deferred determinism/networking remainder), `physics-tracks.md` §GPU-resident physics (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)
+- Related: `deterministic-and-networked-physics.md` (the deferred determinism/networking remainder of the CPU track), `gpu-resident-physics-track.md` (the deferred GPU visual/throughput track — note: NOT a substitute for multicore *interactive* CPU physics)

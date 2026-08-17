@@ -1,0 +1,17 @@
+---
+summary: an effect that composites onto its own input reads the global scene token for its composite base, so any effect placed before it in the chain is silently discarded; the fix is per-effect input semantics in the evaluator
+---
+
+# T2 post chain: effects that composite onto their own input can't be preceded
+
+The T2 `"scene"` token is the **global original scene target**, preserved read-only across the *whole* chain (see `engine-conventions.md` §Post-chain model, `core-modules.md` `PassInput`). `"prev"` is the rolling output of the immediately preceding pass.
+
+An effect that **composites onto its own input** — `post.bloom` does `input + glow(input)` — must read a *preserved* reference to its input for the composite base, because within a multi-pass effect `"prev"` rolls forward through the effect's own internal passes (by bloom's composite pass, `"prev"` is the last upsample mip, NOT the effect's input). bloom therefore reads `"scene"` for both its bright-extraction and its composite base (`bloom.ts`). But `"scene"` equals the effect's input **only when bloom is the first scene-reading effect**.
+
+**Consequence:** an effect placed BEFORE bloom in `effects[]` is silently ignored by bloom — bloom re-reads the original scene, discarding the upstream output. Surfaced in `cookbook/post` (2026-06-06 Safari gate): the consumer 2-pass blur originally read `"scene"`, so with `[bloom, blur, tonemap]` the blur re-read the original and discarded bloom's output ("bloom doesn't work when blur is on"). **Worked around** by authoring chain-transforming effects (the blur) to read `"prev"` (the running image) and keeping bloom first — every cookbook toggle combination then composes. But a general reorderable chain, or any effect that must run BEFORE bloom (a pre-blur, a DoF pass, a pre-grade), is not supported.
+
+**Fix direction — per-effect-input semantics.** The evaluator (`post/evaluate.ts`) currently flattens all effects into one pass list, losing effect boundaries. Instead, track effect boundaries and pin each effect's **input** (the running chain image at that effect's start); resolve `"scene"` (or a new `"input"`/`"self"` token, keeping `"scene"` as the global original if a use for it appears) to the effect's input rather than the global original. Then bloom blooms whatever is upstream, at any chain position. This redefines the documented `"scene"` semantics, so it touches the spec, `bloom.ts`, the conventions/core-modules docs, and the chain tests — out of Stage 2b scope, hence deferred.
+
+**Trigger to revisit:** a consumer needs an effect to run before bloom; OR a general reorderable / user-orderable post chain (e.g. an effect-stack UI); OR a second built-in composite-onto-input effect (DoF, SSR) lands and hits the same wall.
+
+**Reference:** `packages/core/src/post/evaluate.ts` (`_evaluateChain` — flatten + rolling `prev`, no per-effect input), `packages/core/src/post/bloom.ts` (reads `"scene"`), `packages/cookbook/src/demos/post/entry.ts` (`buildBlur` reads `"prev"` — the workaround), `docs/reference/engine-conventions.md` §Post-chain model.

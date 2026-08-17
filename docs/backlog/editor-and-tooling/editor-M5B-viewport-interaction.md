@@ -39,7 +39,7 @@ The live descendants, if either want returns: live preview against the FIELD is 
 `FieldHost` reconfigure session (`editor-architecture.md` §13, §17.3), and a hierarchy over
 generator entities — a different object model — would start from the entities palette
 (§17.2/§17.7). The general transform-hierarchy question stays open as
-`engine-architecture/unbuilt-tier-2-modules.md` §Transform-hierarchy helpers.
+`engine-architecture/transform-hierarchy-helpers.md`.
 
 (Item 7, editor fly-camera/WASD, **landed in Slice 3.2** — RMB-hold + WASD/QE fly with wheel
 speed-trim; `field-host/camera-control.ts` `flyLook`/`flyMove`.)

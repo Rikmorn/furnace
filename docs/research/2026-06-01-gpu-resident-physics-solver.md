@@ -73,4 +73,4 @@ Per frame = **1 collision pass + N substeps × M color-passes** of compute dispa
 - Avian colored-GS solver PR #771: https://github.com/Jondolf/avian/pull/771
 - XPBD survey (2023): https://arxiv.org/pdf/2311.09327
 
-**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the GPU-resident half of the two-track posture. The deferred track it defined is tracked at `docs/backlog/engine-architecture/physics-tracks.md`.
+**Fed:** `docs/reference/adr/0001-physics-two-track-architecture.md` (Evidence line) — the GPU-resident half of the two-track posture. The deferred track it defined is tracked at `docs/backlog/engine-architecture/gpu-resident-physics-track.md`.

@@ -141,7 +141,7 @@ B-1's deliberate non-foreclosure: by codifying the simple ownership rule in
 everything; the rule applies inside its boundaries) or *layer over* it (the root tracks
 references but the rule still describes the underlying handles). Either path stays open.
 
-### Distinct from `unbuilt-tier-2-modules.md` §Transform-hierarchy helpers
+### Distinct from `transform-hierarchy-helpers.md`
 
 That entry is about *transform composition* (parent/child, world matrices, traversal). This one
 is about *resource lifetime*. They used to be described as candidates to ship together as one
@@ -163,7 +163,7 @@ scale (more than ~20 long-lived handles to track).
   or layer over.
 - `packages/dungeon/src/world/world-loader.ts` — `LoadedWorld.destroy()`, the live hand-rolled
   instance and its three-lifetime asymmetry.
-- Adjacent: `docs/backlog/engine-architecture/unbuilt-tier-2-modules.md` §Transform-hierarchy helpers (transform
+- Adjacent: `docs/backlog/engine-architecture/transform-hierarchy-helpers.md` (transform
   composition; not the same scope).
 
 ## Wrap `device.createBuffer` / `createTexture` for automatic resource tracking
