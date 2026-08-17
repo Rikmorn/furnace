@@ -78,13 +78,13 @@ Post-mortems, "we tried this and walked away" notes, and the chronological seal 
 
 - **Unit:** one file per learning; one file per seal plus an index row. No tracked doc may
   be a constant write target — an append-only record is a *directory*, never a file.
-- **Filename:** `YYYY-MM-DD-<slug>.md`, pattern-checked (**ratified; pending at
-  `genre-contracts`** — the shelf is not yet all dated and no check reads the pattern). The
+- **Filename:** `YYYY-MM-DD-<slug>.md`, pattern-checked (§9). The
   slug is a content-name (§5). Slugs of dated records are **immutable**: an ordinal token in
   one is a historical join key to the seal record, not a defect. New files cite slices by
   their content-names. Learnings files carry no frontmatter — **the date is the status.**
 - **Seal filename:** `YYYY-MM-DD-<slice-slug>.md` — the seal's date plus the slug the slice
-  died under. **Frontmatter, seals only** (**ratified; pending at `genre-contracts`** — no
+  died under; pattern-checked by the same rule (§9). **Frontmatter, seals only**
+  (**ratified; pending at `genre-contracts`** — no
   seal carries these yet and the index is still hand-maintained): `summary:`, one line,
   feeding the generated index row; `sealed:`, the true seal date, which may differ from the
   filename's where a seal was extracted from an older record; `seq:`, an integer giving the
@@ -106,17 +106,17 @@ the slug, additive metadata (the `Fed:` line below), and mechanical repair of a 
 broken by a later file move.
 
 - **Filename:** `YYYY-MM-DD-<slug>.md`, or a dated directory `YYYY-MM-DD-<slug>/` carrying a
-  `README.md` when the research is multi-file. Pattern-checked; content stays exempt from
-  the register checks (**ratified; pending at `genre-contracts`** — the shelf is not yet all
-  dated and no check reads the pattern). **One exemption:** `docs/research/assets/` holds
+  `README.md` when the research is multi-file. Pattern-checked (§9); content stays exempt
+  from the register checks. **One exemption:** `docs/research/assets/` holds
   binary payloads (screenshots, captures) for the docs that cite them, sharded
   `assets/<date>-<slug>/`. It is not a research doc — the date belongs on the shard, and
   the exemption is narrower than moving payloads under the docs they serve, which would
   force a dated research *file* to become a directory and break its citations, seals
   included.
 - **Fed line:** each doc ends `**Fed:** <the decision, spec or reference it fed>` — a doc
-  that fed nothing says so, which is the honest answer and a finding in its own right
-  (**ratified; pending at `genre-contracts`**). The line is what makes a research doc
+  that fed nothing says so, which is the honest answer and a finding in its own right.
+  Checked (§9), **one Fed line per doc**: a dated directory is one doc, so its `README.md`
+  carries the line and the files beside it carry none. The line is what makes a research doc
   re-findable from the decision rather than only from its own title.
 
 ### `docs/work/` — scheduled and live (§5)
@@ -354,7 +354,9 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
 ## 9. Checks
 
 `scripts/check-docs.ts`, run by `bun run check`. Scanned registers: `docs/backlog/`,
-`docs/reference/`, `docs/work/`.
+`docs/reference/`, `docs/work/`. The dated shelves — `docs/learnings/`,
+`docs/learnings/seals/`, `docs/research/` — are read for their **filenames**, and research
+additionally for its `Fed:` line; their content is never scanned.
 
 | check | catches | polarity |
 | --- | --- | --- |
@@ -365,6 +367,8 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
 | generated-index diff | index rot | fail |
 | work-register consistency — at most one `next`, `after:` targets exist, an `in-flight` epic still owns a slice | a board that lies | fail |
 | `consumer:` names a live `docs/work/` item | pointers into a sealed slice | fail |
+| shelf filenames are dated — `YYYY-MM-DD-<slug>.md`, or a dated directory for multi-file research | a record with no date, and so no status | fail |
+| every research doc carries a `**Fed:**` line naming something | research findable only from its own title | fail |
 
 **Scope rules.**
 
@@ -377,6 +381,10 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
   history, not the working tree.
 - **Template placeholders are exempt** by construction: the path pattern excludes angle
   brackets, so `docs/backlog/<topic>/<slug>.md` never matches.
+- **Shelf exemptions, all three narrow.** `README.md` is an index, not a dated record.
+  `docs/research/assets/` is out of scope entirely — binary payloads, dated per shard (§2).
+  Inside a dated research directory only the `README.md` is the doc, so the files beside it
+  need neither a date of their own nor a Fed line.
 - **Cite the symbol, not the coordinate.** `markUnreachable` in `field-analyzer.ts`, never
   the file with a line number appended. Line numbers rot silently while the claim around
   them stays true, which is the worst failure shape: the reader trusts the sentence and

@@ -4,8 +4,11 @@ import {
   checkBacklogFrontmatter,
   checkConsumers,
   checkDeriveMarkers,
+  checkFedLine,
+  checkShelfFilenames,
   checkWorkRegister,
   collectLiveRegisterFiles,
+  collectShelfFiles,
   scanDeadPaths,
   scanFileLineCitations,
 } from "./check-docs";
@@ -277,11 +280,13 @@ describe("checkWorkRegister", () => {
 });
 
 describe("checkConsumers", () => {
-  const live = new Set(["door-set", "docs-system-rung-5"]);
+  // Deliberately synthetic slugs. A fixture that borrows a LIVE board slug rots the day
+  // that item seals — which is the very failure this check exists to catch.
+  const live = new Set(["oak-doors", "copper-pipes"]);
 
   test("passes a consumer naming a live work item", () => {
     expect(
-      checkConsumers(new Map([["docs/backlog/x/a.md", "door-set"]]), live),
+      checkConsumers(new Map([["docs/backlog/x/a.md", "oak-doors"]]), live),
     ).toEqual([]);
   });
 
@@ -305,11 +310,204 @@ describe("checkConsumers", () => {
     const v = checkConsumers(
       new Map([
         ["a.md", "gone-one"],
-        ["b.md", "door-set"],
+        ["b.md", "oak-doors"],
         ["c.md", "gone-two"],
       ]),
       live,
     );
     expect(v.map((x) => x.file)).toEqual(["a.md", "c.md"]);
+  });
+});
+
+describe("checkShelfFilenames", () => {
+  test("flags an undated learnings file", () => {
+    expect(
+      checkShelfFilenames(["docs/learnings/render-to-texture.md"]),
+    ).toEqual([
+      {
+        file: "docs/learnings/render-to-texture.md",
+        line: 1,
+        kind: "shelf-filename",
+        detail:
+          "render-to-texture.md — a shelf record is named YYYY-MM-DD-<slug>.md",
+      },
+    ]);
+  });
+
+  test("passes a dated learnings file", () => {
+    expect(
+      checkShelfFilenames(["docs/learnings/2026-05-17-render-to-texture.md"]),
+    ).toEqual([]);
+  });
+
+  test("flags an undated seal", () => {
+    const v = checkShelfFilenames(["docs/learnings/seals/undo-attribution.md"]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("shelf-filename");
+    expect(v[0]?.file).toBe("docs/learnings/seals/undo-attribution.md");
+  });
+
+  test("passes a dated seal", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/learnings/seals/2026-08-14-undo-attribution.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("exempts README.md on every shelf — an index is not a dated record", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/learnings/README.md",
+        "docs/learnings/seals/README.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("flags an undated research file", () => {
+    const v = checkShelfFilenames(["docs/research/shallot.md"]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("shelf-filename");
+  });
+
+  test("passes a dated research file", () => {
+    expect(
+      checkShelfFilenames(["docs/research/2026-05-21-shallot.md"]),
+    ).toEqual([]);
+  });
+
+  test("passes a dated research directory — the date is on the DIRECTORY", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/research/2026-05-19-build-distribution/README.md",
+        "docs/research/2026-05-19-build-distribution/cli-libraries.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("flags an undated research directory ONCE, against the directory", () => {
+    const v = checkShelfFilenames([
+      "docs/research/build-distribution/README.md",
+      "docs/research/build-distribution/cli-libraries.md",
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.file).toBe("docs/research/build-distribution");
+    expect(v[0]?.detail).toContain("YYYY-MM-DD-<slug>/");
+  });
+
+  test("exempts docs/research/assets/ entirely — binary payloads, dated per shard", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/research/assets/2026-07-11-substrate-spike/mesh-aisle.md",
+        "docs/research/assets/loose-note.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("admits a legacy dotted slug — dated slugs are immutable history", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/research/2026-07-29-f4.5-editor-chrome-precedent-research.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("flags a dated file whose slug is not lower-kebab", () => {
+    const v = checkShelfFilenames([
+      "docs/learnings/2026-08-14-Process_Retro.md",
+    ]);
+    expect(v[0]?.kind).toBe("shelf-filename");
+  });
+
+  test("ignores files outside the shelves", () => {
+    expect(
+      checkShelfFilenames([
+        "docs/backlog/topic/a.md",
+        "docs/reference/docs-system.md",
+        "docs/work/genre-contracts.md",
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("checkFedLine", () => {
+  const fed = "# Doc\n\nbody\n\n**Fed:** the api-posture contract.\n";
+
+  test("passes a research doc carrying a Fed line", () => {
+    expect(checkFedLine("docs/research/2026-05-21-shallot.md", fed)).toEqual(
+      [],
+    );
+  });
+
+  test("flags a research doc with no Fed line", () => {
+    expect(
+      checkFedLine("docs/research/2026-05-21-shallot.md", "# Doc\n\nbody\n"),
+    ).toEqual([
+      {
+        file: "docs/research/2026-05-21-shallot.md",
+        line: 1,
+        kind: "fed-line-missing",
+        detail:
+          "no `**Fed:**` line — name what this doc fed, or say it fed nothing",
+      },
+    ]);
+  });
+
+  test("flags a bare `**Fed:**` naming nothing", () => {
+    const v = checkFedLine(
+      "docs/research/2026-05-21-shallot.md",
+      "# Doc\n\n**Fed:**\n",
+    );
+    expect(v[0]?.kind).toBe("fed-line-missing");
+  });
+
+  test("requires a Fed line on a dated directory's README — the dir is one doc", () => {
+    const v = checkFedLine(
+      "docs/research/2026-05-19-build-distribution/README.md",
+      "# Build distribution\n",
+    );
+    expect(v[0]?.kind).toBe("fed-line-missing");
+  });
+
+  test("exempts a file INSIDE a dated directory — the README carries the doc's Fed line", () => {
+    expect(
+      checkFedLine(
+        "docs/research/2026-05-19-build-distribution/cli-libraries.md",
+        "# CLI libraries\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("exempts docs/research/assets/ entirely", () => {
+    expect(
+      checkFedLine("docs/research/assets/2026-07-11-spike/notes.md", "# x\n"),
+    ).toEqual([]);
+  });
+
+  test("ignores learnings and seals — the Fed line is a research contract", () => {
+    expect(
+      checkFedLine("docs/learnings/2026-08-14-process-retro.md", "# x\n"),
+    ).toEqual([]);
+    expect(
+      checkFedLine(
+        "docs/learnings/seals/2026-08-14-undo-attribution.md",
+        "# x\n",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("collectShelfFiles", () => {
+  test("includes learnings, seals and research; excludes the live registers", () => {
+    const files = collectShelfFiles();
+    expect(files.some((f) => f.startsWith("docs/learnings/seals/"))).toBe(true);
+    expect(
+      files.some(
+        (f) => f.startsWith("docs/learnings/") && !f.includes("/seals/"),
+      ),
+    ).toBe(true);
+    expect(files.some((f) => f.startsWith("docs/research/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("docs/backlog/"))).toBe(false);
+    expect(files.some((f) => f.startsWith("docs/reference/"))).toBe(false);
   });
 });

@@ -109,8 +109,12 @@ export function checkDeriveMarkers(file: string, text: string): Violation[] {
 }
 
 const LIVE_REGISTERS = ["docs/backlog", "docs/reference", "docs/work"];
+const LEARNINGS = "docs/learnings";
+const RESEARCH = "docs/research";
+// The dated shelves. `docs/learnings/seals/` is reached by the walk, not named separately.
+const SHELVES = [LEARNINGS, RESEARCH];
 
-export function collectLiveRegisterFiles(): string[] {
+function collectMarkdown(roots: readonly string[]): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
@@ -119,10 +123,22 @@ export function collectLiveRegisterFiles(): string[] {
       else if (e.name.endsWith(".md")) out.push(rel);
     }
   };
-  for (const r of LIVE_REGISTERS) {
+  for (const r of roots) {
     if (existsSync(join(ROOT, r))) walk(r);
   }
   return out.sort();
+}
+
+export function collectLiveRegisterFiles(): string[] {
+  return collectMarkdown(LIVE_REGISTERS);
+}
+
+/** Every markdown file on the dated shelves — `docs/learnings/`, its `seals/`
+ *  subdirectory, and `docs/research/`. These are NOT live registers: their content is
+ *  exempt from the citation checks (§9 scope rules), and only their filenames and, for
+ *  research, their `Fed:` line are read. */
+export function collectShelfFiles(): string[] {
+  return collectMarkdown(SHELVES);
 }
 
 /** Backlog entries must parse and satisfy the entry schema. `docs/backlog/README.md` is
@@ -269,6 +285,96 @@ export function checkConsumers(
     }));
 }
 
+// A dated shelf record: `YYYY-MM-DD-<slug>.md`, or the same stem as a directory when the
+// research is multi-file. The dot inside the slug admits legacy dated slugs like `f4.5` —
+// slugs of dated records are immutable history, never renamed to satisfy a later contract.
+const SHELF_STEM = String.raw`\d{4}-\d{2}-\d{2}-[a-z0-9.-]+`;
+const DATED_DOC = new RegExp(`^${SHELF_STEM}\\.md$`);
+const DATED_DIR = new RegExp(`^${SHELF_STEM}$`);
+
+// Not a research doc: binary payloads (screenshots, captures) for the docs that cite them,
+// sharded `assets/<date>-<slug>/`. The date belongs on the shard, so neither the filename
+// contract nor the Fed line reaches inside. Canon §2 research §Filename states the
+// exemption and why it beats moving payloads under the docs they serve.
+const RESEARCH_ASSETS = `${RESEARCH}/assets/`;
+
+/** The doc unit a shelf path belongs to. A dated research DIRECTORY is ONE doc represented
+ *  by its `README.md`, so the files inside it are that doc's parts rather than records of
+ *  their own — there the unit is the directory. Everywhere else the unit is the file.
+ *  `undefined` means the path is off-shelf or exempt. */
+type ShelfUnit = { path: string; name: string; isDir: boolean };
+
+function shelfUnit(file: string): ShelfUnit | undefined {
+  if (file.startsWith(RESEARCH_ASSETS)) return undefined;
+  if (file.startsWith(`${RESEARCH}/`)) {
+    const rest = file.slice(RESEARCH.length + 1);
+    const head = rest.split("/")[0] ?? "";
+    return rest.includes("/")
+      ? { path: `${RESEARCH}/${head}`, name: head, isDir: true }
+      : { path: file, name: head, isDir: false };
+  }
+  if (file.startsWith(`${LEARNINGS}/`)) {
+    return {
+      path: file,
+      name: file.slice(file.lastIndexOf("/") + 1),
+      isDir: false,
+    };
+  }
+  return undefined;
+}
+
+/** Shelf records are named by date, because on the shelves **the date is the status** — an
+ *  undated file makes no claim about when it was true. `README.md` is an index, not a
+ *  record, so it is exempt; a violation is reported once per doc unit, which for a dated
+ *  research directory is the directory rather than each file inside it. */
+export function checkShelfFilenames(files: readonly string[]): Violation[] {
+  const out: Violation[] = [];
+  const seen = new Set<string>();
+  for (const f of files) {
+    const unit = shelfUnit(f);
+    if (unit === undefined || seen.has(unit.path)) continue;
+    seen.add(unit.path);
+    if (!unit.isDir && unit.name === "README.md") continue;
+    if ((unit.isDir ? DATED_DIR : DATED_DOC).test(unit.name)) continue;
+    out.push({
+      file: unit.path,
+      line: 1,
+      kind: "shelf-filename",
+      detail: unit.isDir
+        ? `${unit.name}/ — a multi-file research doc is a dated directory YYYY-MM-DD-<slug>/`
+        : `${unit.name} — a shelf record is named YYYY-MM-DD-<slug>.md`,
+    });
+  }
+  return out;
+}
+
+// Anchored to the line start so a prose mention of the convention cannot satisfy it, and
+// requiring a payload: "fed nothing" is itself an answer the line has to carry.
+const FED_RE = /^\*\*Fed:\*\* *\S/m;
+
+/** Every research doc ends by naming what it fed, which is what makes it re-findable from
+ *  the decision rather than only from its own title. One Fed line per *doc*: a dated
+ *  directory carries it in its `README.md`, and the files inside that directory carry
+ *  none. */
+export function checkFedLine(file: string, text: string): Violation[] {
+  const unit = shelfUnit(file);
+  if (unit === undefined || !unit.path.startsWith(`${RESEARCH}/`)) return [];
+  if (!file.endsWith(".md")) return [];
+  const isDoc = unit.isDir
+    ? file === `${unit.path}/README.md`
+    : unit.name !== "README.md";
+  if (!isDoc || FED_RE.test(text)) return [];
+  return [
+    {
+      file,
+      line: 1,
+      kind: "fed-line-missing",
+      detail:
+        "no `**Fed:**` line — name what this doc fed, or say it fed nothing",
+    },
+  ];
+}
+
 if (import.meta.main) {
   const violations: Violation[] = [];
   const consumers = new Map<string, string>();
@@ -282,6 +388,11 @@ if (import.meta.main) {
       ...checkDeriveMarkers(f, text),
       ...checkBacklogFrontmatter(f, text),
     );
+  }
+  const shelf = collectShelfFiles();
+  violations.push(...checkShelfFilenames(shelf));
+  for (const f of shelf) {
+    violations.push(...checkFedLine(f, readFileSync(join(ROOT, f), "utf8")));
   }
   const work = collectWorkItems();
   violations.push(...checkWorkRegister(work));
