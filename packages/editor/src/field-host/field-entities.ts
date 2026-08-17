@@ -461,8 +461,7 @@ export function createEntities(deps: EntitiesDeps): Entities {
   // box mis-aims a click and self-heals on the next mutation, it corrupts
   // nothing. (`currentLogStats` at the op-cost meter — `field-stats.ts` — has the
   // world-swap exposure too, filed rather than fixed here:
-  // `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Log-signature
-  // caches can miss a world swap*.)
+  // `docs/backlog/editor-and-tooling/log-signature-cache-misses-world-swap.md`.)
   let footprintCache: Map<number, Box> | null = null;
   let footprintSig = "";
   const entityFootprints = (): Map<number, Box> => {

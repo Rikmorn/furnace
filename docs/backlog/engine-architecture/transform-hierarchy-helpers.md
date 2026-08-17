@@ -29,6 +29,14 @@ computation.
 > ENTITY PLACEMENTS, not a node tree — so a transform hierarchy has no interchange to be
 > compatible with until something needs to serialize one.
 
+**The editor's own hierarchy want is CLOSED BY DELETION, and this entry is what survives it.**
+M5B fenced out a parent→children tree in the entities panel, gated on the scene format gaining
+an entity-parenting field; foundations T2 (2026-08-05) deleted `@furnace/core/scene`, so there
+is no scene format to add that field to and the `EntitiesPanel` it was measured against went at
+F4.5a. The general transform-hierarchy question — this entry — is the part that stayed open. A
+hierarchy over *generator entities* would be a different object model again and would start
+from the entities palette (`docs/reference/editor-architecture.md` §17.2/§17.7).
+
 **A-8 note (2026-05-29):** the API-posture tranche classified scene-graph-style hierarchy as a
 higher-tier convenience built *on top* of the core handle layer (`api-posture.md` R8 —
 abstraction tier). That framing is unchanged and is why this is Tier 2, not core surface. A-8

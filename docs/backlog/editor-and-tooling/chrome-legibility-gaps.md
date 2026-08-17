@@ -248,8 +248,8 @@ rest of the workspace blob (today it is per-mount, no persistence).
 **The deferral had no durable home until now**, which is why this section exists rather than
 just the comment. The comment defers to "the palette-layout pass (Task 8)" — F4.5b Task 8,
 which shipped 2026-08-01 and did not touch this file. A source comment pointing at a trigger
-that has already fired and passed is the exact shape `field-host-internals.md` §"The
-`field-host/` prune tranche" was created to stop.
+that has already fired and passed is the exact shape `field-host-prune-tranche.md` was
+created to stop.
 
 ### Trigger to revisit
 

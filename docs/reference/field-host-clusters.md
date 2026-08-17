@@ -939,7 +939,7 @@ Nothing stayed on either side. Plus one disposition that was owed rather than op
   peers is a naming decision with no code consequence whose only spelling would make two
   sibling modules value-import a third for a literal; that is a deletion-pass question and it
   is left to the prune tranche, declared at source — and, since the T3d Task 6 review,
-  written down: `docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune tranche" collects all
+  written down: `docs/backlog/editor-and-tooling/field-host-prune-tranche.md` collects all
   EIGHT in-source "prune tranche" declarations plus three items that had no record anywhere,
   because eight deferrals with no durable entry is what AGENTS.md's backlog rule exists to
   prevent. **`AXIS_COLOR` did NOT stay**: one reader,
@@ -1652,8 +1652,7 @@ a boolean. **The one value edge is §2.10's own deferral in its single live inst
 value-import a third for a literal" shape §2.10 kept the three accent constants in
 `field-host.ts` to avoid. It is recorded here and **not ruled** — choosing an owner among
 peers is the prune tranche's call
-(`docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune
-tranche"), and resolving it means moving the record to a shared point, not weakening the
+(`docs/backlog/editor-and-tooling/field-host-prune-tranche.md`), and resolving it means moving the record to a shared point, not weakening the
 check.
 
 ---

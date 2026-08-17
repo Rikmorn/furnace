@@ -196,7 +196,7 @@ export function SessionCard() {
 	// a state write DURING render. `structuredClone` in `notifyStamp` hands the card a fresh
 	// `params` identity on every push, nudge and phase transition, so holding that identity
 	// stable is a value-equality guard on the stamp seam — the provider's call, and filed
-	// (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The stamp seam pushes fresh identities per frame, so no consumer memo can hold*).
+	// (`docs/backlog/editor-and-tooling/stamp-seam-pushes-fresh-identities.md`).
 	const params = stamp?.params ?? record?.params ?? NO_PARAMS;
 
 	// The parked touch, applied to the session the promotion opened. ONE SHOT: cleared on

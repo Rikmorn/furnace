@@ -118,8 +118,7 @@
 // `stats`: if either stops, the unwatched span becomes a real editing window and
 // nothing here would notice. The op-cost meter is advisory besides (a hint
 // meter, in the cache's own words), and the fix for the whole family is already
-// filed: `docs/backlog/editor-and-tooling/field-tool-follow-ons.md`
-// §*Log-signature caches can miss a world swap*.
+// filed: `docs/backlog/editor-and-tooling/log-signature-cache-misses-world-swap.md`.
 //
 // No published payload changes outside that window. `field.logStats` is a pure
 // query (core's `field/maintenance.ts` says so in its TSDoc), `currentLogStats`

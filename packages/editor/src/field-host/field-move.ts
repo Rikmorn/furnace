@@ -224,8 +224,8 @@ export function advanceMove(
  *  back two, and the drag still read "moved" while the region had returned to
  *  where it started, spending an undo entry on a no-op. Asking the region answers
  *  both, and is the question the rule was always trying to ask
- *  (foundations T3c; the defect was `field-tool-follow-ons.md` § *A `G` grab moved
- *  by the ARROW keys reads as idle, and ⏎ discards it*). */
+ *  (foundations T3c; the defect was filed as *A `G` grab moved by the ARROW keys reads
+ *  as idle, and ⏎ discards it* and the entry was deleted when it was fixed). */
 export const sameRegion = (a: StampRegion, b: StampRegion): boolean =>
   a.min[0] === b.min[0] &&
   a.min[1] === b.min[1] &&

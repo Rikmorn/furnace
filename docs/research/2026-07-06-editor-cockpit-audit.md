@@ -49,7 +49,7 @@
 
 Backlog `docs/backlog/editor-and-tooling/` (14 entries; 7 editor-core, 7 adjacent/unrelated):
 - `editor-interaction-model-redesign.md` — **the master entry**: 7 gate-evidence items; editor shelved pending target-app needs.
-- `editor-M5B-viewport-interaction.md` — deferred: resource live-preview cascade (`rebuildResource`), WASD fly-camera, hierarchy tree; reopened ⑫ (no-op commit suppression regression, reverted).
+- `editor-M5B-viewport-interaction.md` (gone) — deferred: resource live-preview cascade (`rebuildResource`), WASD fly-camera, hierarchy tree; reopened ⑫ (no-op commit suppression regression, reverted). *(The tracker was un-merged at genre-contracts; the fly-camera landed in Slice 3.2, the cascade and the hierarchy tree are closed by the scene deletion, and the ⑫ successor is `no-op-revision-suppression.md`.)*
 - `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` § *Editor viewport HDR context + post-chain preview* — non-HDR context, `effects: []` deferral.
 - `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` § *Editor authoring of the `textures` + `effects` resource tables* — `tableEnum` blocks texture/effect mutation.
 - `editor-ai-integration-milestone.md` — MCP mount, `viewport.capture`, embedded agent (descoped from M4).

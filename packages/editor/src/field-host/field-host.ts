@@ -933,8 +933,7 @@ export type FieldHost = {
    *  differ from what the apply produces (the apply rewinds the affected chunks
    *  to their pre-span state first). Exactness needs worker-side restore —
    *  backlogged:
-   *  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Reconfigure ghost
-   *  previews against CURRENT field state, not the entity's pre-span state*.
+   *  `docs/backlog/editor-and-tooling/reconfigure-ghost-previews-current-state.md`.
    *
    *  Runtime-quiet on everything it can refuse: an unknown id, a FROZEN or
    *  BAKED entity, and an entity whose recorded generator has left the registry

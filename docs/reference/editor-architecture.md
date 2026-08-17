@@ -577,7 +577,7 @@ recorded inline at the claim it falsified rather than left for the reader to rec
   (`fill-tool-solid-volume-surprise.md`) was resolved in F2b — stamps + hollow fill +
   the filled kit ghost (§12). The F2b gate's deferred remainder was consumed into the F4.5
   stage and is discharged except for one item, now its own entry:
-  `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md` §"A box selection is two clicks, not a press-drag-release".
+  `docs/backlog/editor-and-tooling/box-selection-is-two-clicks.md`.
 - **Remesh worker** (`frontend/field-worker.ts` + `field-host/field-protocol.ts` /
   `field-host/field-client.ts`) — a third frontend bundle entry that imports core's mesher +
   skinner DIRECTLY (engine code; the project `/engine.js` is not involved). v2
@@ -724,7 +724,7 @@ F2b stamp-session machinery end to end.
   seeded from recorded provenance (`startReconfigureSession`; params/seed/region;
   merge policy is NOT recorded — opens at core's `"replace"` fallback, surfaced in the
   inspector). Same ghost-preview worker path (known v0 limit: the ghost previews
-  against CURRENT field state — `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Reconfigure ghost previews against CURRENT field state*); StampInspector
+  against CURRENT field state — `docs/backlog/editor-and-tooling/reconfigure-ghost-previews-current-state.md`); StampInspector
   relabels commit as **Apply** → `applyReconfigure` runs core `reconfigureGenerator`
   (in-place span splice, affected-set-culled downstream replay), remeshes the dirty
   set, ONE undo entry. Frozen entities refuse Open at the row (badge + reason);
@@ -783,7 +783,7 @@ F2b stamp-session machinery end to end.
 - **Deferred UX set** — mouse-driven region move, an in-viewport pointer/select tool, and
   box/wand selection feel. All three were taken by the F4.5 stage: the pointer tool and the
   committed-entity move shipped (§17.1, §17.3), and what is still owed is two entries —
-  `editor-M5B-viewport-interaction.md` §"A CREATE session's ghost cannot be dragged" and `editor-M5B-viewport-interaction.md` §"A box selection is two clicks, not a press-drag-release".
+  `create-session-ghost-cannot-be-dragged.md` and `box-selection-is-two-clicks.md`.
 
 ## 14. One Field F3b — scatter authoring, placed props, and two tools of its own (sealed 2026-07-25)
 
@@ -802,7 +802,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   a catalog error is a toast plus a durable log entry, §16.3.)* The parser normalises the catalog's
   authoring vocabulary into the scatter generator's param spelling (`scaleRange` →
   `scaleMin`/`scaleMax`) and deliberately drops the `meshes` paths — editor props are
-  proxies (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Editor props render as collision PROXIES, not the archetype's actual meshes*). **The catalog SEEDS, it never gates:** absent
+  proxies (`docs/backlog/editor-and-tooling/props-render-as-collision-proxies.md`). **The catalog SEEDS, it never gates:** absent
   file → scatter still runs on schema defaults and every prop draws at a nominal 0.5 m box.
 - **Archetype-driven params** — `listGenerators()` fills any generator's `archetypeId`
   property with an `enum` of the catalog ids (`withArchetypeOptions`); the inspector's kind
@@ -810,7 +810,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   text. `startStamp` overlays the chosen archetype's authored `scatter` block on the schema
   defaults (`seedArchetypeParams`). Seeding is ONCE-at-open — switching archetype
   mid-session keeps the current numbers
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Switching archetype mid-session keeps the previous archetype's scatter hints*).
+  (`docs/backlog/editor-and-tooling/archetype-switch-keeps-stale-hints.md`).
   **`listGenerators()` is a SNAPSHOT, and the catalog necessarily lands after the first
   possible read** (engine-ready fires before an async fetch can settle), so the catalog
   owner signals once the catalog is installed and the panel re-reads the registry — the
@@ -855,9 +855,9 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   otherwise write-only GPU state, so `FieldHost.propInstanceCounts()` exposes its
   per-archetype instance counts — the one readable fact, and what the rebuild is held to in
   tests. Two filed gaps: props are NOT slice-clipped
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Placed props ignore the slice plane*), and the rebuild is UNCONDITIONAL — it runs whether or
+  (`docs/backlog/editor-and-tooling/props-ignore-the-slice-plane.md`), and the rebuild is UNCONDITIONAL — it runs whether or
   not a placement op actually moved, re-creating the three unit proxy geometries each time
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The editor's prop layer rebuilds unconditionally*; a change-detection signature has to cover
+  (`docs/backlog/editor-and-tooling/prop-layer-rebuilds-unconditionally.md`; a change-detection signature has to cover
   record CONTENT, since a re-cook can return the same count at different poses).
 - **Entity rows carry a prop line** — a scatter is an ordinary generator entity, so F3a's row
   already had every verb and the generic params `<dl>`. What it lacked is the one fact the row
@@ -934,7 +934,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   of worker time depending on fill, on bun/JSC — and browser V8 is not JSC, so re-measure
   before moving it); and a torn-down context, which is silent by design. Refusing where
   COALESCING belongs is a filed gap, not a settled shape
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*): there is no cancel — an invalidated job grinds on
+  (`docs/backlog/editor-and-tooling/void-cast-monopolises-the-worker.md`): there is no cancel — an invalidated job grinds on
   in the worker — and a toggle-off-then-on during a cast drops the user's last intent instead
   of queueing it, though `createPreviewCoalescer` already solves exactly that for the stamp
   preview. **The sequence to watch at the gate**, because it will read as "the editor
@@ -943,7 +943,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   the cast, when it arrives, is thrown away by the very edit that was waiting on it. Every
   part of that is working as designed; the whole is not. The cast also ignores the slice
   plane — `requestVoidCast` sends the worker no `sliceY`, so the X-ray paints over the cut
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Placed props ignore the slice plane*, third instance; arguably right for an X-ray, but it is
+  (`docs/backlog/editor-and-tooling/props-ignore-the-slice-plane.md`, third instance; arguably right for an X-ray, but it is
   the third display layer to disagree with the slice and wants one rule with the other two).
 - **Void-cast lifetime — it is a snapshot, not a live view** — `invalidateVoidCast` sits at the single density-mutation
   choke point (strokes, stamp commits, ⌘Z/⇧⌘Z, reconfigure apply) and DROPS the cast, saying so
@@ -992,7 +992,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   `assertOpValid`'s shape leg (finite endpoints, finite positive radius, kit-class
   rejection; T4a widened the leg to cover sphere and box too) — is in `core-modules.md`; the
   box cross-section variant is explicitly NOT shipped
-  (`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *Segment brush: a BOX cross-section*).
+  (`docs/backlog/editor-and-tooling/segment-brush-box-cross-section.md`).
 - **Host extractions + the worker seam** — `field-host/field-placements.ts` (pure: proxy
   extents/scale, oriented corners, `groupPlacements`, `placementGhostBatch`,
   `placementsByEntity`, and the two catalog-seeding helpers) with
@@ -1064,7 +1064,7 @@ mind.
   stays excluded: a higher chunk reads down into the dirty one only at its own bottom row,
   i.e. only when it is already a 26-neighbour. The halo's sufficiency for the BOUNDED probes
   is lattice-dependent and filed:
-  `docs/backlog/editor-and-tooling/field-host-internals.md` §"Analyzer re-analysis halo assumes every bounded probe reach stays under one chunk".
+  `docs/backlog/editor-and-tooling/analyzer-halo-assumes-sub-chunk-reach.md`.
 - **Serialized dispatch, and it is load-bearing.** `self.onmessage` re-enters per message
   regardless of whether the previous one settled, and `verify` suspends twice (the bundle
   import, then inside `analyzerVerify`, which awaits `createWorld` BEFORE reading the store).
@@ -1360,7 +1360,7 @@ mind.
   advisor a worker of its OWN rather than touching that, so its passes never queue behind a
   cast and the cast's scheduling is exactly as F3b left it.
   The gap stands as filed —
-  `docs/backlog/editor-and-tooling/field-tool-follow-ons.md` § *The void cast monopolises the one field worker*.
+  `docs/backlog/editor-and-tooling/void-cast-monopolises-the-worker.md`.
 - **Panel-orchestrator slope.** *(F4.5a reversed it: 817 → 463 lines and 8 → 4
   subscriptions, by moving the stats/tool-error/entity/drift seams to a shell provider and
   the world, view and catalog concerns out entirely; F4.5b Task 2 finished it at 261 lines
@@ -4553,7 +4553,7 @@ exclusive five-member list, `ToolStrip` still compensates at render time, and `a
 still walks a one-dimensional ring over two-dimensional state. Changing the type is a
 chrome-visible decision with consequences for the keyboard ring, the flyout and `armedIndex` —
 a MOVE task is the wrong place to change a contract
-(`docs/backlog/editor-and-tooling/field-tool-follow-ons.md` §"Segment reads as a fifth brush, but it is a modifier on the other four", whose
+(`docs/backlog/editor-and-tooling/segment-is-a-modifier-not-a-brush.md`, whose
 state half T3c closed and whose presentation half it did not).
 
 ### 23.7 The T3 exit, measured at T3c
@@ -4767,7 +4767,7 @@ each at source with the words "prune tranche" — **eight sites across six files
 Task-6 review found there was no `docs/backlog/` entry for any of them, plus three more items
 (the `boxCorners` move, `field-host.ts`'s tombstone density, the `~N lines` hint staleness)
 with no record at all. That is now
-`docs/backlog/editor-and-tooling/field-host-internals.md` §"The `field-host/` prune tranche", which lists the eight sites so
+`docs/backlog/editor-and-tooling/field-host-prune-tranche.md`, which lists the eight sites so
 the two records cannot drift, and carries one shape the code-quality review surfaced:
 `field-world.ts`' seven pure-read verbs need `{ substrate }` and nothing else, so a
 world-lifetime / chunk-geometry split is available at 16 deps + 1 dep. Not taken — ~150 lines

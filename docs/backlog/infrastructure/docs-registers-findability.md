@@ -96,7 +96,8 @@ are a second, independent argument that the register's problem is not its size:
   **nine hours later** (`a0d76354`, same day) by an unrelated task. The prune carried it forward
   unread; it stood as a false assertion for two weeks.
 - **A table that failed its own regenerating command.**
-  `editor-and-tooling/field-host-internals.md` stated a grep and said it listed "eight" sites.
+  `editor-and-tooling/field-host-prune-tranche.md` (then a section of the merged
+  `field-host-internals.md`) stated a grep and said it listed "eight" sites.
   The grep returned seven, four rows had drifted line numbers, and the eighth row was one the
   stated command could never return.
 - **A citation to a module that has never existed**, written by the tranche itself:
@@ -140,7 +141,7 @@ re-derive.** Candidate directions, named for the research pass and not endorsed:
 citations instead of line ranges (already the repo's post-T4a preference, unenforced); a
 path-validity check in CI over all three doc registers, which the sweep above shows is a
 five-line script; or entries that carry the command that regenerates their own evidence, which
-is what `field-host-internals.md`'s table now does.
+is what `field-host-prune-tranche.md`'s table now does.
 
 ## Why a number alone cannot be the answer
 

@@ -204,4 +204,4 @@ webgpufundamentals.org/webgpu/lessons/webgpu-picking.html; W3C WebGPU spec textu
 Picker/TransformGizmo API docs; urholaukkarinen/transform-gizmo (full crate read);
 github.com/jameskerr/react-arborist; headless-tree.lukasbach.com + successor announcement.
 
-**Fed:** the editor M5A inspector + M5B viewport-interaction design (picking, gizmo math, form engine), as-built in `docs/reference/editor-architecture.md`; cited by name from `docs/backlog/editor-and-tooling/editor-M5B-viewport-interaction.md`.
+**Fed:** the editor M5A inspector + M5B viewport-interaction design (picking, gizmo math, form engine), as-built in `docs/reference/editor-architecture.md`; cited by name from the M5B viewport entries in `docs/backlog/editor-and-tooling/` — `gizmo-controller-extraction.md`, `per-field-focus-guard-redundancy.md`, `gizmo-commit-materializes-defaults.md`, `no-op-revision-suppression.md` and `inspector-fields-have-no-component-tests.md` (one merged tracker, `editor-M5B-viewport-interaction.md` (gone), until the genre-contracts un-merge).
