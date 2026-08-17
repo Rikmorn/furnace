@@ -8,6 +8,8 @@ Write-time rules for every tracked doc. Canon with rationale, schemas, and lifec
 those three, so everywhere else (`docs/learnings/`, `AGENTS.md`, `.claude/`, package
 READMEs) they are yours to hold.
 
+- **The boundary test.** true now → reference · happened → learnings/research · to do →
+  backlog · doing → work. Every misfiling violates that one line.
 - **One record per file.** Never merge entries into tracker files; merged views are
   generated only. Directories shard by topic when crowded.
 - **Backlog entries carry frontmatter:** `summary:` (one line, feeds the generated
@@ -29,7 +31,10 @@ READMEs) they are yours to hold.
   slice = file. Slice frontmatter: `status: queued | next | in-flight | blocked-on-owner`
   (≤1 item `next`), `summary:`, `injected: true` when scheduled ahead of an in-flight
   epic's remaining slices, optional `after: <slug>` for ruled order. Sealed slice → delete
-  the file; the seal is the tombstone.
+  the file; the seal is the tombstone. **Naming:** epic (directory) → slice (file) → task
+  (plan segment; the only ordinal tier). Slugs are content-names in work + backlog — no
+  position codes (rung-5, F5, T4b); order lives in `after:`, never the name. Guidance (D8),
+  not checked.
 - **Scaffolding joins work by slug, never by path.** Name specs/plans/reports after the
   work-item slug (`specs/<date>-<slug>-design.md`). Tracked docs never cite
   `docs/superpowers/` paths.

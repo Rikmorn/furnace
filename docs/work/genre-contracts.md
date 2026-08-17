@@ -1,9 +1,9 @@
 ---
 status: in-flight
-summary: rung 5 — un-merge the merged trackers, split editor-architecture.md, trim AGENTS.md §Deferred work, and finish the genre contracts for reference/learnings/research
+summary: finish the genre contracts — un-merge the merged trackers, split editor-architecture.md, trim AGENTS.md §Deferred work
 ---
 
-# Docs system, rung 5 — the motion the checks were landed to protect
+# Genre contracts — the motion the checks were landed to protect
 
 Rungs 1–4 shipped 2026-08-12 (sealed; canon at `docs/reference/docs-system.md`). Rung 5 was
 excluded from that slice **by design**: it is the only rung that MOVES existing content, and

@@ -38,16 +38,26 @@ detection is the one that actually holds, because it runs whether or not anyone 
 Every tracked doc belongs to exactly one genre. The genre fixes its unit rule, its
 metadata, and how it dies.
 
+**The boundary test:** true now → reference · happened → learnings/research · to do →
+backlog · doing → work. Every misfiling violates that one line.
+
 ### `docs/reference/` — how the project IS today
 
 Present tense, no history. One subsystem per file; a file that accumulates several
 subsystems splits into a directory of per-subsystem files plus a generated index.
 
 - **Unit:** one subsystem.
-- **Frontmatter:** none required. A `verified: <date>` freshness stamp is **designed but not
-  yet live** — no doc carries one, no schema accepts one, and nothing reads one. It lands
-  with a consumer or not at all (an index with no consumer and no check that exercises it is
-  the failure shape this system exists to avoid).
+- **Kinds:** three share the genre — **as-builts** (`*-architecture`), **contracts**
+  (conventions, posture, tsdoc), **consumer patterns** (`docs/reference/ui-foundation.md`,
+  `docs/reference/fixed-step-interpolation.md`). Naming stays loose and the register stays
+  flat until roughly 20 top-level files — reference paths are the repo's most-cited strings
+  and churn buys nothing below that — then revisit flat-vs-sharded. **No
+  kind-subdirectories** (owner ruling, 2026-08-13): a doc's kind is read from its content,
+  and a path that encodes it invites a re-file every time the reading changes.
+- **Frontmatter:** optional `verified: <date>` — when the doc was last checked against
+  source; read by `bun run sitrep`'s freshness block (**ratified; pending at
+  `genre-contracts`** — the block lands with that slice). Stamp only at an actual
+  verification, never at an edit that didn't re-check.
 - **Lifecycle:** never deleted, continuously corrected. When the reference disagrees with
   the source, the source wins and the reference is fixed in the same change.
 
@@ -55,6 +65,8 @@ subsystems splits into a directory of per-subsystem files plus a generated index
 
 - **Unit:** one deferral, one file, at `docs/backlog/<topic>/<slug>.md`. Topic dirs are
   kebab-case; add as needed, don't pre-create empty ones. **Nothing merges** (§8).
+- **Naming:** slugs are content-names (§5 naming contract); same guidance as work items,
+  because both are live to-do registers where the slug is identity rather than history.
 - **Frontmatter:** see §4. `summary:` is required and feeds the generated index.
 - **Body:** Context → **Trigger to revisit** → **Reference**.
 - **Lifecycle:** promoted to `docs/work/` (entry deleted in the same commit) or resolved
@@ -64,16 +76,35 @@ subsystems splits into a directory of per-subsystem files plus a generated index
 
 Post-mortems, "we tried this and walked away" notes, and the chronological seal record.
 
-- **Unit:** one file per learning; one file per seal plus an index line. No tracked doc may
+- **Unit:** one file per learning; one file per seal plus an index row. No tracked doc may
   be a constant write target — an append-only record is a *directory*, never a file.
-- **Frontmatter:** none. **The date is the status.**
+- **Filename:** `YYYY-MM-DD-<slug>.md`, pattern-checked (**ratified; pending at
+  `genre-contracts`** — the shelf is not yet all dated and no check reads the pattern). The
+  slug is a content-name (§5). Slugs of dated records are **immutable**: an ordinal token in
+  one is a historical join key to the seal record, not a defect. New files cite slices by
+  their content-names. Learnings files carry no frontmatter — **the date is the status.**
+- **Seal filename:** `YYYY-MM-DD-<slice-slug>.md` — the seal's date plus the slug the slice
+  died under. **Frontmatter, seals only** (**ratified; pending at `genre-contracts`** — no
+  seal carries these yet and the index is still hand-maintained): `summary:`, one line,
+  feeding the generated index row; `sealed:`, the true seal date, which may differ from the
+  filename's where a seal was extracted from an older record; `seq:`, an integer giving the
+  seal's position in the true slice sequence, which is the index's sort key.
 - **Lifecycle:** immutable. A seal is a dated snapshot of a moment and is never edited to
   match later truth; a later seal supersedes it.
 
 ### `docs/research/` — pre-decision material
 
 What fed a decision, kept so the decision can be re-litigated with the same inputs.
-Immutable, dated, no metadata.
+Immutable, and carrying no frontmatter.
+
+- **Filename:** `YYYY-MM-DD-<slug>.md`, or a dated directory `YYYY-MM-DD-<slug>/` carrying a
+  `README.md` when the research is multi-file. Pattern-checked; content stays exempt from
+  the register checks (**ratified; pending at `genre-contracts`** — the shelf is not yet all
+  dated and no check reads the pattern).
+- **Fed line:** each doc ends `**Fed:** <the decision, spec or reference it fed>` — a doc
+  that fed nothing says so, which is the honest answer and a finding in its own right
+  (**ratified; pending at `genre-contracts`**). The line is what makes a research doc
+  re-findable from the decision rather than only from its own title.
 
 ### `docs/work/` — scheduled and live (§5)
 
@@ -191,8 +222,38 @@ file deleted; the seal is the tombstone. Epic closed → directory deleted with 
 slice. The register holds only the present and near future — roughly 5–15 files. If it is
 growing, that is the signal, not the storage.
 
-**Sessions are not work items.** A session is execution mechanics; a slice may note its
-session protocol in its body, but the board never shows sessions.
+### The naming contract
+
+Ruled 2026-08-17. The tier vocabulary, settled:
+
+| tier | form | named by | ordinals |
+| --- | --- | --- | --- |
+| **epic** | a directory in `docs/work/` | content | never |
+| **slice** | a file, in an epic directory or standalone | content | never |
+| **task** | a numbered segment of a slice's plan | its ordinal within that slice | the only tier where they are legal |
+
+- **A slug names its content and stands alone.** It has to be readable on the board without
+  the reader supplying the parent epic or the queue position. Order lives in `after:` and in
+  the directory structure — never in the name, which is the one place it cannot be corrected
+  when the order changes.
+- **Retired synonyms.** rung, wave, tranche, cycle, phase, stage, and letter-digit codes
+  (F5, T4b, W2, 2.2.1) were all historical spellings of "slice". None is minted going
+  forward. History stays as written: a seal, a learning or a body paragraph describing what
+  happened keeps the word it happened under, and a dated record's slug is immutable (§2).
+- **The bundle corollary.** An item that cannot carry one honest content-name is a bundle —
+  split it or narrow it. This is the `summary:` rule one tier up: rungs 1–4 measured that a
+  merged tracker cannot have one honest summary because it is not one record (§8), and the
+  same test applied at naming time catches the same shape a register earlier.
+- **Enforcement is guidance**, under the D8 posture — guidance over machinery, ruled
+  2026-08-04 (`.claude/rules/working-standards.md` §Design) — **not a check.** A violation
+  announces itself on every `sitrep`, is reversible by a rename, and the joins that would
+  make a rename dangerous (`consumer:`, `after:`) are already checked, so a rename that
+  misses an edge fails `bun run check` anyway. A denylist would buy that with permanent
+  exemption-list curation. **Reopening trigger:** a position-code slug landing in a live
+  register after this contract reopens the check decision.
+
+**Sessions are not work items**, and are not a tier. A session is execution mechanics; a
+slice may note its session protocol in its body, but the board never shows sessions.
 
 ## 6. Scaffolding lifecycle
 
