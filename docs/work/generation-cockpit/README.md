@@ -20,6 +20,7 @@ owns this?" questions on sight.
 shell, hands, finish). Each is sealed; the seals under `docs/learnings/seals/` are the
 record, and `docs/reference/editor-architecture.md` is the as-built.
 
-**Remaining:** F5 (scale) — the huge-world slice, held last by ruling. Its handoff register
-is `docs/reference/engine-architecture.md` §16, which is where the realization assumptions
-that F5 has to satisfy were written down as they were discovered.
+**Remaining:** huge-worlds (scale, formerly F5) — the huge-world slice, held last by ruling.
+Its handoff register is `docs/reference/engine-architecture.md` §16, which is where the
+realization assumptions that huge-worlds has to satisfy were written down as they were
+discovered.

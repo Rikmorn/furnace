@@ -1,10 +1,10 @@
 ---
 status: queued
 after: vocabulary-expansion
-summary: F5 scale — the huge-world slice, held last by ruling
+summary: the huge-world slice (scale, formerly F5) — held last by ruling
 ---
 
-# F5 — scale
+# Huge worlds — scale
 
 The huge-world slice: making the cockpit's loop hold at a world size the current one does
 not reach.

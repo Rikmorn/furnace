@@ -1,6 +1,6 @@
 ---
 summary: charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument
-consumer: docs-system-rung-5
+consumer: genre-contracts
 ---
 
 # Keeping a growing body of markdown findable — the register needs a design, not a number
@@ -252,7 +252,7 @@ index, `docs/work/` plus `bun run sitrep`.
 
 **What is still open: rung 5** — the tracker un-merge, the `editor-architecture.md` split,
 and the AGENTS.md trim. It was deliberately excluded so the checks would land before the
-motion they protect. It is on the board as `docs/work/docs-system-rung-5.md`, which carries
+motion they protect. It is on the board as `docs/work/genre-contracts.md`, which carries
 the two demand measurements rungs 1–4 produced.
 
 **This entry is kept, not deleted** — it is the design's provenance, and it holds the
@@ -260,7 +260,8 @@ measured framing (the growth rate, the two failed prune shapes) that the canon s
 conclusions rather than evidence.
 
 **Resolved at the docs-system seal (2026-08-12).** This entry's `consumer:` was re-pointed
-from the sealed slice to `docs-system-rung-5`, and the rot seed it flagged — a `consumer:`
+from the sealed slice to the rung-5 item (renamed `genre-contracts` on 2026-08-17 by the
+naming contract that item carries), and the rot seed it flagged — a `consumer:`
 naming nothing, unnoticed because the field was not machine-checked — was closed in the same
 review: `consumer:` values are now checked against the live work register, and the seal
 ritual carries a clause that sweeps them.

@@ -42,7 +42,7 @@ Eleven `dungeon/` entries cite them, plus one in `editor-and-tooling/`:
 
 ```sh
 grep -rlE "dungeon/src/(substrate|themes|bake\.ts|built\.ts|scatter\.ts|world-build\.ts)" \
-  docs/backlog --include="*.md"      # → 13 files (11 dungeon, t3-fold-ins-dropped,
+  docs/backlog --include="*.md"      # → 13 files (11 dungeon, dropped-fold-ins,
                                      #    and this charter's own recovery reference)
 ```
 

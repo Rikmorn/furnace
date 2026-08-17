@@ -1,5 +1,5 @@
 ---
-status: next
+status: in-flight
 summary: rung 5 — un-merge the merged trackers, split editor-architecture.md, trim AGENTS.md §Deferred work, and finish the genre contracts for reference/learnings/research
 ---
 
@@ -89,16 +89,11 @@ session's follow-up and approved as rung-5 scope — planning inherits this, no 
    learnings/research · to do → backlog · doing → work.** Every misfiling above violates
    that one line; it is the keystone if anything else gets cut.
 
-## Candidate extension — work-item NAMING (owner, 2026-08-14; not yet ruled)
+## Naming — ruled IN SCOPE (owner, 2026-08-17)
 
-Floated at the undo-attribution close, for the planning session to dispose (in-scope or
-filed): a naming contract for WORK ITEMS themselves. "rung-5" is a slug that carries no
-meaning on the board — the queue mix-up at that close (the planner reported the injected
-chain's successor as "next" over this item) was read by the owner as a documentation gap,
-and slug legibility is part of it: a board is only as scannable as its names. Fits the
-genre-contract family this rung already owns (filename contracts for learnings/research
-are items 1 and 3 above); if taken, it likely wants a rename of this item as its own
-first test case.
+**Design:** the 2026-08-17 genre-contracts naming spec.
+**Scope:** canon §5 contract, genre one-liners, three renames — this file's own rename is
+the first test case, shelf audit folded into the learnings/research triage.
 
 ## Provenance
 
