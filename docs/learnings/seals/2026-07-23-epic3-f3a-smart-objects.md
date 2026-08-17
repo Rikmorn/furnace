@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field F3a — smart objects
+sealed: 2026-07-23
+seq: 23
+---
+
 # Epic 3 · One Field F3a — smart objects
 
 - **Sealed:** 2026-07-23

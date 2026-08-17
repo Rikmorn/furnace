@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field F2a — "the material field"
+sealed: 2026-07-16
+seq: 21
+---
+
 # Epic 3 · One Field F2a — "the material field"
 
 - **Sealed:** 2026-07-16

@@ -1,3 +1,9 @@
+---
+summary: Undo + attribution — the fence lifts behind an ownership guard, and the wire learns who — *injected; oplog v4 (`origin?: string`, absent = human — the migration IS the default); every committing path stamps two altitudes; compaction folds stop at origin boundaries; fence → tab-side guard promising AGENT-AUTHORED (the mechanism's true word); `session.confirm` unstamped + tripwired; door headroom 200, tenth row unaffordable — door-set opens with the re-derivation*
+sealed: 2026-08-14
+seq: 39
+---
+
 # Undo + attribution — the fence lifts behind an ownership guard, and the wire learns who
 
 - **Sealed** — 2026-08-14

@@ -50,21 +50,32 @@ below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
   into it, so the ritual that closes a slice is the ritual that breaks them. `bun run
   check` fails on a dangling `consumer:`, so this one cannot be forgotten quietly.
 
-Then one index line, and nothing else in the index — the row points at the file, the
-content lives in the file.
+Then the frontmatter that generates its index row, and nothing hand-written in the index —
+the row points at the file, the content lives in the file.
 
 ## Index
 
+**GENERATED between the `<!-- seals-index -->` markers — `bun run docs:index`. Do not edit
+the table by hand;** it is rebuilt from every seal's `summary:`/`sealed:`/`seq:`
+frontmatter, and `bun run check` fails on drift. The prose outside the markers is
+hand-written and survives regeneration.
+
 Every seal in this directory, ordered by **true slice sequence, oldest first** — the order the
-original append-only log accumulated them in. The count is deliberately not written here: it
-changes with every seal, and this file's own § "Writing a seal" says counts are computed from
-the artifact and never typed. Derive it —
+original append-only log accumulated them in, now carried per-file by `seq:`. The count is
+deliberately not written here: it changes with every seal, and this file's own § "Writing a
+seal" says counts are computed from the artifact and never typed. Derive it —
 
 ```sh
 ls docs/learnings/seals/*.md | grep -v README | wc -l
 ```
 
-— and cross-foot it against the rows below, which must agree.
+— and the rows below cannot disagree with it: every seal file produces exactly one row, so
+the cross-foot is what the generator does rather than something a reader repeats.
+
+**Packages are not a column.** Every seal states them in its own **Package(s)** head field
+(see [Head conventions](#head-conventions)); a second copy in the index would be a second
+thing to rot. `grep -il "package(s).*editor" docs/learnings/seals/*.md` answers the "which
+seals touched X" question against the record itself.
 
 **Filename order is NOT slice order.** Three files carry the 2026-07-06 extraction date
 rather than their real seal date, because their source prose stated no date of its own:
@@ -74,49 +85,56 @@ landed before 2.1.1 (2026-06-18) — sorting by filename would place them roughl
 weeks too late, after slices that shipped after them. 2.2.3b carries no date evidence
 either; it is placed here between 2.2.3a and 2.2.4 by slice-number adjacency (2.2.3a →
 2.2.3b → 2.2.4), not by a date in its prose — this is an inference, not a measurement.
-Dates marked `*` below are extraction-filed, not real seal dates.
+Their `sealed:` fields carry that extraction date, and `seq:` is what puts them in the
+right place regardless. The table itself marks no such row: an extraction date is a fact
+about a seal's own provenance, so it is named here and in the note below the table (which
+covers the fourth such row, the pre-3.2 package record) rather than glossed by a glyph.
 
-| Sealed | Seal | Package(s) |
-|---|---|---|
-| 2026-07-06 * | [Pre-3.2 package record — the AGENTS.md-era bullets, frozen at extraction](2026-07-06-pre-3.2-package-record.md) — *not a slice seal, see note below* | core, dungeon, editor |
-| 2026-07-06 * | [Epic 2 · Slice 2.0 — "Player Physics"](2026-07-06-epic2-2.0-player-physics.md) | core, dungeon |
-| 2026-07-06 * | [Epic 2 · Slice 2.1 — "Field→Baked Region"](2026-07-06-epic2-2.1-field-baked-region.md) | core, dungeon |
-| 2026-06-18 | [Epic 2 · Slice 2.1.1 — "Traversal Foundation"](2026-06-18-epic2-2.1.1-traversal-foundation.md) | core, dungeon |
-| 2026-06-22 | [Epic 2 · Slice 2.2.1 — "World collision via field-derived voxels"](2026-06-22-epic2-2.2.1-world-collision-voxels.md) | core, dungeon |
-| 2026-06-24 | [Epic 2 · Slice 2.2.2 — "Theme-Generator Architecture"](2026-06-24-epic2-2.2.2-theme-generator-architecture.md) | dungeon |
-| 2026-06-26 | [Epic 2 · Slice 2.2.3a — "Decorative scatter"](2026-06-26-epic2-2.2.3a-decorative-scatter.md) | dungeon |
-| 2026-07-06 * | [Epic 2 · Slice 2.2.3b — "Colliding fixtures + interactive props"](2026-07-06-epic2-2.2.3b-colliding-fixtures-and-props.md) | dungeon |
-| 2026-06-29 | [Epic 2 · Slice 2.2.4 — "Seams — the connection primitive"](2026-06-29-epic2-2.2.4-seams-connection-primitive.md) | dungeon |
-| 2026-07-02 | [Epic 2 · Slice 2.2.5a — "World Graph & Collision-Aware Placement"](2026-07-02-epic2-2.2.5a-world-graph-and-placement.md) | dungeon |
-| 2026-07-03 | [Epic 2 · Slice 2.2.5b Phase A — "Connector enclosure"](2026-07-03-epic2-2.2.5b-phase-a-connector-enclosure.md) | dungeon |
-| 2026-07-04 | [Epic 2 · Slice 2.2.5b Phase B1 — "Built interfaces"](2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md) — also carries the Epic 2 closure + the Epic 3 charter | dungeon |
-| 2026-07-06 | [Epic 3 · Slice 3.0 — "Foundations"](2026-07-06-epic3-3.0-foundations.md) | dungeon |
-| 2026-07-06 | [Epic 3 · Slice 3.1 — "The Loop"](2026-07-06-epic3-3.1-the-loop.md) | dungeon, editor |
-| 2026-07-08 | [Epic 3 · Slice 3.2.1 — Consolidated bake artifact](2026-07-08-epic3-3.2.1-consolidated-bake-artifact.md) | dungeon, editor |
-| 2026-07-09 | [Epic 3 · Slice 3.2 — Editor foundation pass](2026-07-09-epic3-3.2-editor-foundation.md) | editor |
-| 2026-07-10 | [Epic 3 · Slice 3.2.3 — Cockpit hardening](2026-07-10-epic3-3.2.3-cockpit-hardening.md) | dungeon, editor |
-| 2026-07-11 → 2026-07-13 | [Epic 3 · recharter + Slice 3.3 W1 — World model, field-only](2026-07-11-epic3-recharter-w1-world-model.md) — also carries W2 (substrate + grid-built halls) and W3 (maze + World-panel assembly, the phase gate) | dungeon, editor |
-| 2026-07-13 | [Epic 3 · Slice 3.3 W4 — clean-cut sweep + PHASE SEAL](2026-07-13-epic3-3.3-w4-clean-cut-sweep.md) | dungeon, editor |
-| 2026-07-15 | [Epic 3 · One Field (the 3.4+ recharter) — charter + F0 + F1 "the medium"](2026-07-15-epic3-f0-f1-the-medium.md) | core, dungeon, editor |
-| 2026-07-16 | [Epic 3 · One Field F2a — "the material field"](2026-07-16-epic3-f2a-material-field.md) | dungeon (others not recorded) |
-| 2026-07-21 | [Epic 3 · One Field F2b — "the palette"](2026-07-21-epic3-f2b-the-palette.md) | cookbook, core, editor (dungeon stated byte-untouched) |
-| 2026-07-23 | [Epic 3 · One Field F3a — smart objects](2026-07-23-epic3-f3a-smart-objects.md) | core, editor |
-| 2026-07-25 | [Epic 3 · One Field F3b — the cave & the entities](2026-07-25-epic3-f3b-cave-and-entities.md) | core, dungeon, editor |
-| 2026-07-27 | [Epic 3 · One Field F4 — seeing](2026-07-27-epic3-f4-seeing.md) | core, dungeon, editor |
-| 2026-08-03 | [Epic 3 · F4.5 — the overlay cockpit](2026-08-03-epic3-f4.5-overlay-cockpit.md) | editor (core, dungeon stated byte-untouched except two comment-only changes) |
-| 2026-08-04 | [Structural housekeeping — the seal record, tests beside modules, two src splits](2026-08-04-structural-housekeeping.md) — *written retroactively 2026-08-12; the arc merged unsealed and the docs-system archive sweep found it* | core, dungeon, editor |
-| 2026-08-07 | [Foundations program · T1a→T3c — consolidated backfill](2026-08-07-foundations-t1a-t3c-backfill.md) — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d* | core, editor, dungeon |
-| 2026-08-08 | [Foundations T3d — the facade, finished · T3 CLOSES](2026-08-08-foundations-t3d-facade-finish.md) — *carries the objectives-audit rulings* | editor |
-| 2026-08-09 | [Foundations T4a — the honest substrate](2026-08-09-foundations-t4a-honest-substrate.md) — *user visual gate deferred to T4 close by ruling* | editor, core |
-| 2026-08-09 | [Foundations T4b — claim, backchannel, mount](2026-08-09-foundations-t4b-claim-backchannel-mount.md) — *the agent door opens, reads only; clause 5 walked live; MSAA-removal ruling* | editor |
-| 2026-08-11 | [Foundations T4c — verbs, eyes, and the gate · T4 CLOSES](2026-08-11-foundations-t4c-verbs-eyes-gate.md) — *gate 1 walked+measured; gate 2 waived to daily use by ruling — NOT a passed visual gate* | editor, core, cookbook |
-| 2026-08-11 | [Foundations T5 — polish, guidance, and the register · THE PROGRAMME CLOSES](2026-08-11-foundations-t5-polish-guidance-register.md) — *live Chromium walk; Safari waived to daily use; audit 150/10/1 keep-by-default; register 169→101, one closure; four ratifications at close* | core, editor |
-| 2026-08-12 | [Sculpting worlds · cycle 1 — aim and judgement, not discipline](2026-08-12-sculpting-worlds-cycle-1.md) — *RED baseline owner-walked; skill 948 words + registry-checked guardrail; review 20/0/2, no fifth false fact; the skill itself unused until cycle 2* | dungeon, editor |
-| 2026-08-12 | [Sculpting worlds · cycle 2 — the skill held, and material is what makes a place](2026-08-12-sculpting-worlds-cycle-2.md) — *first real use, 3 sessions; 58/80 calls, 5 places, owner-walked blind; material beats a 2.4× width contrast; low-clearance 0-on-walkable-ground in all 12 worlds; §Composing 1 keep / 2 rewrite / 1 strike; register 109→118* | dungeon, editor |
-| 2026-08-12 | [Docs system · rungs 1–4 — the registers get a design, checks, and a board](2026-08-12-docs-system-rungs-1-4.md) — *injected; prevention/canon/detection + `docs/work/` and `bun run sitrep`; 188 citation violations triaged to 0; the archive rule found an unsealed arc; rung 5 deliberately deferred* | none (root scripts + docs) |
-| 2026-08-13 | [Build-speed — one typecheck lane, the docs-only gate, an overruling](2026-08-13-build-speed.md) — *injected; five redundant lanes deleted for one incremental root run (22.9→6.9/2.05 s); scoped-gate script overruled at take; tooling-digest corrections promoted* | cookbook, core, dungeon, editor, hello-world |
-| 2026-08-14 | [Isolate hardening — the whole suite under the fast gate, and one Bun defect under both classes](2026-08-14-isolate-hardening.md) — *injected; `bun run test` = 4-worker gate running the FULL population (~21 s vs 55 s serial); both broken classes one Bun TLA/TDZ defect, filed with repro; review sabotage closed a live gate hole; D1=D2 (worker count IS the budget policy)* | core, dungeon, editor |
-| 2026-08-14 | [Undo + attribution — the fence lifts behind an ownership guard, and the wire learns who](2026-08-14-undo-attribution.md) — *injected; oplog v4 (`origin?: string`, absent = human — the migration IS the default); every committing path stamps two altitudes; compaction folds stop at origin boundaries; fence → tab-side guard promising AGENT-AUTHORED (the mechanism's true word); `session.confirm` unstamped + tripwired; door headroom 200, tenth row unaffordable — door-set opens with the re-derivation* | core, editor |
+<!-- seals-index -->
+
+| Sealed | Seal |
+|---|---|
+| 2026-07-06 | [Pre-3.2 package record — the AGENTS.md-era bullets, frozen at extraction — *not a slice seal, see note below*](2026-07-06-pre-3.2-package-record.md) |
+| 2026-07-06 | [Epic 2 · Slice 2.0 — "Player Physics"](2026-07-06-epic2-2.0-player-physics.md) |
+| 2026-07-06 | [Epic 2 · Slice 2.1 — "Field→Baked Region"](2026-07-06-epic2-2.1-field-baked-region.md) |
+| 2026-06-18 | [Epic 2 · Slice 2.1.1 — "Traversal Foundation"](2026-06-18-epic2-2.1.1-traversal-foundation.md) |
+| 2026-06-22 | [Epic 2 · Slice 2.2.1 — "World collision via field-derived voxels"](2026-06-22-epic2-2.2.1-world-collision-voxels.md) |
+| 2026-06-24 | [Epic 2 · Slice 2.2.2 — "Theme-Generator Architecture"](2026-06-24-epic2-2.2.2-theme-generator-architecture.md) |
+| 2026-06-26 | [Epic 2 · Slice 2.2.3a — "Decorative scatter"](2026-06-26-epic2-2.2.3a-decorative-scatter.md) |
+| 2026-07-06 | [Epic 2 · Slice 2.2.3b — "Colliding fixtures + interactive props"](2026-07-06-epic2-2.2.3b-colliding-fixtures-and-props.md) |
+| 2026-06-29 | [Epic 2 · Slice 2.2.4 — "Seams — the connection primitive"](2026-06-29-epic2-2.2.4-seams-connection-primitive.md) |
+| 2026-07-02 | [Epic 2 · Slice 2.2.5a — "World Graph & Collision-Aware Placement"](2026-07-02-epic2-2.2.5a-world-graph-and-placement.md) |
+| 2026-07-03 | [Epic 2 · Slice 2.2.5b Phase A — "Connector enclosure"](2026-07-03-epic2-2.2.5b-phase-a-connector-enclosure.md) |
+| 2026-07-04 | [Epic 2 · Slice 2.2.5b Phase B1 — "Built interfaces" — also carries the Epic 2 closure + the Epic 3 charter](2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md) |
+| 2026-07-06 | [Epic 3 · Slice 3.0 — "Foundations"](2026-07-06-epic3-3.0-foundations.md) |
+| 2026-07-06 | [Epic 3 · Slice 3.1 — "The Loop"](2026-07-06-epic3-3.1-the-loop.md) |
+| 2026-07-08 | [Epic 3 · Slice 3.2.1 — Consolidated bake artifact](2026-07-08-epic3-3.2.1-consolidated-bake-artifact.md) |
+| 2026-07-09 | [Epic 3 · Slice 3.2 — Editor foundation pass](2026-07-09-epic3-3.2-editor-foundation.md) |
+| 2026-07-10 | [Epic 3 · Slice 3.2.3 — Cockpit hardening](2026-07-10-epic3-3.2.3-cockpit-hardening.md) |
+| 2026-07-11 → 2026-07-13 | [Epic 3 · recharter + Slice 3.3 W1 — World model, field-only — also carries W2 (substrate + grid-built halls) and W3 (maze + World-panel assembly, the phase gate)](2026-07-11-epic3-recharter-w1-world-model.md) |
+| 2026-07-13 | [Epic 3 · Slice 3.3 W4 — clean-cut sweep + PHASE SEAL](2026-07-13-epic3-3.3-w4-clean-cut-sweep.md) |
+| 2026-07-15 | [Epic 3 · One Field (the 3.4+ recharter) — charter + F0 + F1 "the medium"](2026-07-15-epic3-f0-f1-the-medium.md) |
+| 2026-07-16 | [Epic 3 · One Field F2a — "the material field"](2026-07-16-epic3-f2a-material-field.md) |
+| 2026-07-21 | [Epic 3 · One Field F2b — "the palette"](2026-07-21-epic3-f2b-the-palette.md) |
+| 2026-07-23 | [Epic 3 · One Field F3a — smart objects](2026-07-23-epic3-f3a-smart-objects.md) |
+| 2026-07-25 | [Epic 3 · One Field F3b — the cave & the entities](2026-07-25-epic3-f3b-cave-and-entities.md) |
+| 2026-07-27 | [Epic 3 · One Field F4 — seeing](2026-07-27-epic3-f4-seeing.md) |
+| 2026-08-03 | [Epic 3 · F4.5 — the overlay cockpit](2026-08-03-epic3-f4.5-overlay-cockpit.md) |
+| 2026-08-04 | [Structural housekeeping — the seal record, tests beside modules, two src splits — *written retroactively 2026-08-12; the arc merged unsealed and the docs-system archive sweep found it*](2026-08-04-structural-housekeeping.md) |
+| 2026-08-07 | [Foundations program · T1a→T3c — consolidated backfill — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d*](2026-08-07-foundations-t1a-t3c-backfill.md) |
+| 2026-08-08 | [Foundations T3d — the facade, finished · T3 CLOSES — *carries the objectives-audit rulings*](2026-08-08-foundations-t3d-facade-finish.md) |
+| 2026-08-09 | [Foundations T4a — the honest substrate — *user visual gate deferred to T4 close by ruling*](2026-08-09-foundations-t4a-honest-substrate.md) |
+| 2026-08-09 | [Foundations T4b — claim, backchannel, mount — *the agent door opens, reads only; clause 5 walked live; MSAA-removal ruling*](2026-08-09-foundations-t4b-claim-backchannel-mount.md) |
+| 2026-08-11 | [Foundations T4c — verbs, eyes, and the gate · T4 CLOSES — *gate 1 walked+measured; gate 2 waived to daily use by ruling — NOT a passed visual gate*](2026-08-11-foundations-t4c-verbs-eyes-gate.md) |
+| 2026-08-11 | [Foundations T5 — polish, guidance, and the register · THE PROGRAMME CLOSES — *live Chromium walk; Safari waived to daily use; audit 150/10/1 keep-by-default; register 169→101, one closure; four ratifications at close*](2026-08-11-foundations-t5-polish-guidance-register.md) |
+| 2026-08-12 | [Sculpting worlds · cycle 1 — aim and judgement, not discipline — *RED baseline owner-walked; skill 948 words + registry-checked guardrail; review 20/0/2, no fifth false fact; the skill itself unused until cycle 2*](2026-08-12-sculpting-worlds-cycle-1.md) |
+| 2026-08-12 | [Sculpting worlds · cycle 2 — the skill held, and material is what makes a place — *first real use, 3 sessions; 58/80 calls, 5 places, owner-walked blind; material beats a 2.4× width contrast; low-clearance 0-on-walkable-ground in all 12 worlds; §Composing 1 keep / 2 rewrite / 1 strike; register 109→118*](2026-08-12-sculpting-worlds-cycle-2.md) |
+| 2026-08-12 | [Docs system · rungs 1–4 — the registers get a design, checks, and a board — *injected; prevention/canon/detection + `docs/work/` and `bun run sitrep`; 188 citation violations triaged to 0; the archive rule found an unsealed arc; rung 5 deliberately deferred*](2026-08-12-docs-system-rungs-1-4.md) |
+| 2026-08-13 | [Build-speed — one typecheck lane, the docs-only gate, an overruling — *injected; five redundant lanes deleted for one incremental root run (22.9→6.9/2.05 s); scoped-gate script overruled at take; tooling-digest corrections promoted*](2026-08-13-build-speed.md) |
+| 2026-08-14 | [Isolate hardening — the whole suite under the fast gate, and one Bun defect under both classes — *injected; `bun run test` = 4-worker gate running the FULL population (~21 s vs 55 s serial); both broken classes one Bun TLA/TDZ defect, filed with repro; review sabotage closed a live gate hole; D1=D2 (worker count IS the budget policy)*](2026-08-14-isolate-hardening.md) |
+| 2026-08-14 | [Undo + attribution — the fence lifts behind an ownership guard, and the wire learns who — *injected; oplog v4 (`origin?: string`, absent = human — the migration IS the default); every committing path stamps two altitudes; compaction folds stop at origin boundaries; fence → tab-side guard promising AGENT-AUTHORED (the mechanism's true word); `session.confirm` unstamped + tripwired; door headroom 200, tenth row unaffordable — door-set opens with the re-derivation*](2026-08-14-undo-attribution.md) |
+
+<!-- /seals-index -->
 
 **On the first row:** `2026-07-06-pre-3.2-package-record.md` is not a slice seal — it is the
 frozen `AGENTS.md`-era package description, carried over verbatim at the 2026-07-06
@@ -128,7 +146,10 @@ not a real seal date.
 
 ## Head conventions
 
-Each seal file opens with a title, then four metadata fields in this order:
+Each seal file opens with frontmatter — `summary:` (the one line its index row carries),
+`sealed:` (the true seal date, or the extraction date where the record states none), `seq:`
+(its position in the true slice sequence, which is the index's sort key) — then a title,
+then four metadata fields in this order:
 
 - **Sealed** — the date the slice/epic actually sealed (or a range, for multi-part entries).
 - **Package(s)** — every package the slice touched, **listed alphabetically**.
@@ -151,10 +172,14 @@ is a historical fact about what was true when it sealed, not a bug to fix here.
 
 ## Adding a seal
 
-1. Create `docs/learnings/seals/<YYYY-MM-DD>-<epic>-<slice>-<slug>.md` with the four head
-   fields above, then the seal prose.
-2. Add **one row** to the table in this README.
+1. Create `docs/learnings/seals/<YYYY-MM-DD>-<slice-slug>.md` opening with the frontmatter
+   — `summary:`, `sealed:`, `seq:` (the highest existing `seq:` plus one) — then the four
+   head fields above, then the seal prose.
+2. Run `bun run docs:index`. The row appears in the table above; you never write one.
 
-Never append prose to this README — it stays one line per seal, plus the conventions and
-procedure above. If it starts accumulating history, it is repeating `seal-log.md`'s mistake
-one level up.
+This table was **the repo's last hand-maintained per-entry index**; with it generated, both
+of them are (`docs/backlog/README.md` is the other, and `docs/learnings/` and
+`docs/research/` have no index at all — `ls` is theirs and cannot go stale). Hand
+maintenance is exactly what let a row drift from the file it describes. Never append prose
+to this README either: it stays the conventions, the procedure, and a generated table. If
+it starts accumulating history, it is repeating `seal-log.md`'s mistake one level up.

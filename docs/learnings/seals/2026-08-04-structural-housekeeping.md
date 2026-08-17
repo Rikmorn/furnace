@@ -1,3 +1,9 @@
+---
+summary: Structural housekeeping — the seal record, tests beside modules, two src splits — *written retroactively 2026-08-12; the arc merged unsealed and the docs-system archive sweep found it*
+sealed: 2026-08-04
+seq: 27
+---
+
 # Structural housekeeping — the seal record, tests beside modules, two src splits
 
 - **Sealed:** written **retroactively 2026-08-12**. The arc was verified and FF-merged to

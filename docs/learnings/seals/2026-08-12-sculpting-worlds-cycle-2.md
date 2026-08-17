@@ -1,3 +1,9 @@
+---
+summary: Sculpting worlds · cycle 2 — the skill held, and material is what makes a place — *first real use, 3 sessions; 58/80 calls, 5 places, owner-walked blind; material beats a 2.4× width contrast; low-clearance 0-on-walkable-ground in all 12 worlds; §Composing 1 keep / 2 rewrite / 1 strike; register 109→118*
+sealed: 2026-08-12
+seq: 35
+---
+
 # Sculpting worlds · cycle 2 — the skill held, and material is what makes a place
 
 - **Sealed:** 2026-08-12 (work 2026-08-12) — the skill's FIRST real use, which is what

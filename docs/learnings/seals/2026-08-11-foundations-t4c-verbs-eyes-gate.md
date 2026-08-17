@@ -1,3 +1,9 @@
+---
+summary: Foundations T4c — verbs, eyes, and the gate · T4 CLOSES — *gate 1 walked+measured; gate 2 waived to daily use by ruling — NOT a passed visual gate*
+sealed: 2026-08-11
+seq: 32
+---
+
 # Foundations T4c — verbs, eyes, and the gate · T4 CLOSES
 
 - **Sealed:** 2026-08-11 — the tranche that closes foundations T4. The agent has hands,

@@ -1,3 +1,9 @@
+---
+summary: Foundations T5 — polish, guidance, and the register · THE PROGRAMME CLOSES — *live Chromium walk; Safari waived to daily use; audit 150/10/1 keep-by-default; register 169→101, one closure; four ratifications at close*
+sealed: 2026-08-11
+seq: 33
+---
+
 # Foundations T5 — polish, guidance, and the register · THE PROGRAMME CLOSES
 
 - **Sealed:** 2026-08-11 — the foundations programme's closing tranche (T1a → T5, all

@@ -1,3 +1,9 @@
+---
+summary: Foundations T4a — the honest substrate — *user visual gate deferred to T4 close by ruling*
+sealed: 2026-08-09
+seq: 30
+---
+
 # Foundations T4a — the honest substrate
 
 - **Sealed:** 2026-08-09 — the first tranche of foundations T4 (MCP), deliberately

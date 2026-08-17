@@ -1,3 +1,9 @@
+---
+summary: Foundations T3d — the facade, finished · T3 CLOSES — *carries the objectives-audit rulings*
+sealed: 2026-08-08
+seq: 29
+---
+
 # Foundations T3d — the facade, finished · T3 CLOSES
 
 - **Sealed:** 2026-08-08 — the first per-tranche seal since the consolidated backfill;

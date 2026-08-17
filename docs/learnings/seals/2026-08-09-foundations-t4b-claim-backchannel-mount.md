@@ -1,3 +1,9 @@
+---
+summary: Foundations T4b — claim, backchannel, mount — *the agent door opens, reads only; clause 5 walked live; MSAA-removal ruling*
+sealed: 2026-08-09
+seq: 31
+---
+
 # Foundations T4b — claim, backchannel, mount
 
 - **Sealed:** 2026-08-09 — the middle tranche of foundations T4: the agent door opens,

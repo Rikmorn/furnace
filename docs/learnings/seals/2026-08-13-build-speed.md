@@ -1,3 +1,9 @@
+---
+summary: Build-speed — one typecheck lane, the docs-only gate, an overruling — *injected; five redundant lanes deleted for one incremental root run (22.9→6.9/2.05 s); scoped-gate script overruled at take; tooling-digest corrections promoted*
+sealed: 2026-08-13
+seq: 37
+---
+
 # Build-speed — one typecheck lane, the docs-only gate, an overruling
 
 - **Sealed** — 2026-08-13

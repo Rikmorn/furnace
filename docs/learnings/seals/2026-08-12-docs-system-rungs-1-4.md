@@ -1,3 +1,9 @@
+---
+summary: Docs system · rungs 1–4 — the registers get a design, checks, and a board — *injected; prevention/canon/detection + `docs/work/` and `bun run sitrep`; 188 citation violations triaged to 0; the archive rule found an unsealed arc; rung 5 deliberately deferred*
+sealed: 2026-08-12
+seq: 36
+---
+
 # Docs system, rungs 1–4 — the registers get a design, checks, and a board
 
 - **Sealed:** 2026-08-12 (review closed 2026-08-13). Injected ahead of the cockpit epic's

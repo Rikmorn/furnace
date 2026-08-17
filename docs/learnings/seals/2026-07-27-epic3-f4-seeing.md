@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field F4 — seeing
+sealed: 2026-07-27
+seq: 25
+---
+
 # Epic 3 · One Field F4 — seeing
 
 - **Sealed:** 2026-07-27

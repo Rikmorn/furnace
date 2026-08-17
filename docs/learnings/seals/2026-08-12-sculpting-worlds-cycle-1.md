@@ -1,3 +1,9 @@
+---
+summary: Sculpting worlds · cycle 1 — aim and judgement, not discipline — *RED baseline owner-walked; skill 948 words + registry-checked guardrail; review 20/0/2, no fifth false fact; the skill itself unused until cycle 2*
+sealed: 2026-08-12
+seq: 34
+---
+
 # Sculpting worlds · cycle 1 — the agent learns aim and judgement, not discipline
 
 - **Sealed:** 2026-08-12 (work 2026-08-11 → 12) — the first post-programme queue item:

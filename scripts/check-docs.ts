@@ -7,7 +7,7 @@ import {
   validateBacklogEntry,
   validateWorkFile,
 } from "./docs-frontmatter.ts";
-import { checkIndex } from "./docs-index.ts";
+import { checkIndex, checkSealsIndex } from "./docs-index.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export type Violation = {
@@ -399,14 +399,13 @@ if (import.meta.main) {
   violations.push(
     ...checkConsumers(consumers, new Set(work.map((i) => i.slug))),
   );
-  const indexDrift = checkIndex();
-  if (indexDrift) {
-    violations.push({
-      file: "docs/backlog/README.md",
-      line: 1,
-      kind: "index-stale",
-      detail: indexDrift,
-    });
+  for (const [file, drift] of [
+    ["docs/backlog/README.md", checkIndex()],
+    ["docs/learnings/seals/README.md", checkSealsIndex()],
+  ] as const) {
+    if (drift) {
+      violations.push({ file, line: 1, kind: "index-stale", detail: drift });
+    }
   }
   if (violations.length > 0) {
     for (const v of violations)

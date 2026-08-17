@@ -1,3 +1,9 @@
+---
+summary: Foundations program · T1a→T3c — consolidated backfill — *backfill seal: eight tranches in one record, per-tranche seals resume from T3d*
+sealed: 2026-08-07
+seq: 28
+---
+
 # Foundations program · T1a→T3c — consolidated backfill seal
 
 - **Sealed:** 2026-08-07 — **a BACKFILL**, written at the T3c merge by user decision ("we

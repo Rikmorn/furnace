@@ -68,8 +68,9 @@ Run these two concurrently — they do not depend on each other:
 
 1. **Fast-forward merge** the branch to master (`--ff-only`; if it will not fast-forward, stop
    and report rather than creating a merge commit).
-2. **Seal** — add the seal file per `docs/learnings/seals/README.md` §Writing a seal, plus its
-   one index line.
+2. **Seal** — add the seal file per `docs/learnings/seals/README.md` §Writing a seal, with its
+   `summary:`/`sealed:`/`seq:` frontmatter, then run `bun run docs:index`. The index row is
+   generated; never write one by hand.
 3. **Update the reference docs and the affected package README** — `docs/reference/*.md` is
    "how the project IS today"; `packages/<pkg>/README.md` owns that package's current state.
 4. **Clear the promotion gate — four verifications, all four before the seal closes.**

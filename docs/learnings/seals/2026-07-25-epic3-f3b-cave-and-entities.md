@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field F3b — the cave & the entities
+sealed: 2026-07-25
+seq: 24
+---
+
 # Epic 3 · One Field F3b — the cave & the entities
 
 - **Sealed:** 2026-07-25

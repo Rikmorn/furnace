@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field F2b — "the palette"
+sealed: 2026-07-21
+seq: 22
+---
+
 # Epic 3 · One Field F2b — "the palette"
 
 - **Sealed:** 2026-07-21

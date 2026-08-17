@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · recharter + Slice 3.3 W1 — World model, field-only — also carries W2 (substrate + grid-built halls) and W3 (maze + World-panel assembly, the phase gate)
+sealed: 2026-07-11 → 2026-07-13
+seq: 18
+---
+
 # Epic 3 · recharter + Slice 3.3 W1 — World model, field-only
 
 - **Sealed:** 2026-07-11 → 2026-07-13

@@ -1,3 +1,9 @@
+---
+summary: Isolate hardening — the whole suite under the fast gate, and one Bun defect under both classes — *injected; `bun run test` = 4-worker gate running the FULL population (~21 s vs 55 s serial); both broken classes one Bun TLA/TDZ defect, filed with repro; review sabotage closed a live gate hole; D1=D2 (worker count IS the budget policy)*
+sealed: 2026-08-14
+seq: 38
+---
+
 # Isolate hardening — the whole suite under the fast gate, and one Bun defect under both classes
 
 - **Sealed** — 2026-08-14

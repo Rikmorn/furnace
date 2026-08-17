@@ -83,12 +83,18 @@ Post-mortems, "we tried this and walked away" notes, and the chronological seal 
   one is a historical join key to the seal record, not a defect. New files cite slices by
   their content-names. Learnings files carry no frontmatter — **the date is the status.**
 - **Seal filename:** `YYYY-MM-DD-<slice-slug>.md` — the seal's date plus the slug the slice
-  died under; pattern-checked by the same rule (§9). **Frontmatter, seals only**
-  (**ratified; pending at `genre-contracts`** — no
-  seal carries these yet and the index is still hand-maintained): `summary:`, one line,
-  feeding the generated index row; `sealed:`, the true seal date, which may differ from the
-  filename's where a seal was extracted from an older record; `seq:`, an integer giving the
-  seal's position in the true slice sequence, which is the index's sort key.
+  died under; pattern-checked by the same rule (§9). **Frontmatter, seals only:** `summary:`,
+  one line, feeding the generated index row; `sealed:`, the true seal date — where the record
+  states none it carries the date the seal was extracted under, and `docs/learnings/seals/README.md`
+  names those seals in prose rather than the table marking them, because provenance is a fact
+  about one seal, not a column; `seq:`, an integer giving the seal's position in the true slice
+  sequence, which is the index's sort key. Filename order is not slice order, which is why
+  `seq:` exists and neither date field is the sort key.
+- **Seals index:** `docs/learnings/seals/README.md` is generated between its
+  `<!-- seals-index -->` markers from that frontmatter (`bun run docs:index`) and checked for
+  drift (§9); the prose outside the markers is hand-written. One row is `sealed | linked
+  summary` — packages are not a column, because every seal states them in its own head fields
+  and a second copy is a second thing to rot.
 - **Lifecycle:** immutable, at two strengths. **The seal record is absolutely immutable** — a
   seal is a dated snapshot of a moment, never edited to match later truth; a later seal
   supersedes it. **Dated learnings records are content-immutable** — what a record *claims* is
@@ -355,8 +361,9 @@ live in `AGENTS.md` § "Deferred work"; don't re-dial them there.
 
 `scripts/check-docs.ts`, run by `bun run check`. Scanned registers: `docs/backlog/`,
 `docs/reference/`, `docs/work/`. The dated shelves — `docs/learnings/`,
-`docs/learnings/seals/`, `docs/research/` — are read for their **filenames**, and research
-additionally for its `Fed:` line; their content is never scanned.
+`docs/learnings/seals/`, `docs/research/` — are read for their **filenames**, research
+additionally for its `Fed:` line, and seals additionally for their **frontmatter**, which
+generates the seals index; their prose is never scanned.
 
 | check | catches | polarity |
 | --- | --- | --- |
@@ -364,7 +371,8 @@ additionally for its `Fed:` line; their content is never scanned.
 | file-plus-line-number ban | citations guaranteed to rot | fail |
 | derive markers re-run and diffed | typed-count drift | fail |
 | frontmatter schema per genre (zod) | contract violations | fail |
-| generated-index diff | index rot | fail |
+| generated-index diff — `docs/backlog/README.md` re-derived from every entry's `summary:` | index rot | fail |
+| seals-index diff — the marked region of `docs/learnings/seals/README.md` re-derived from every seal's `summary:`/`sealed:`/`seq:` | a seal index hand-edited, or a seal added without its row | fail |
 | work-register consistency — at most one `next`, `after:` targets exist, an `in-flight` epic still owns a slice | a board that lies | fail |
 | `consumer:` names a live `docs/work/` item | pointers into a sealed slice | fail |
 | shelf filenames are dated — `YYYY-MM-DD-<slug>.md`, or a dated directory for multi-file research | a record with no date, and so no status | fail |

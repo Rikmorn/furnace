@@ -1,3 +1,9 @@
+---
+summary: Epic 3 · One Field (the 3.4+ recharter) — charter + F0 + F1 "the medium"
+sealed: 2026-07-15
+seq: 20
+---
+
 # Epic 3 · One Field (the 3.4+ recharter) — charter + F0 + F1 "the medium"
 
 - **Sealed:** 2026-07-15
