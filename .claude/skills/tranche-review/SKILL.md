@@ -93,8 +93,9 @@ Run these two concurrently — they do not depend on each other:
    (ruled 2026-08-14 at the undo-attribution close — the first managed-execution run):
    - **execution mode** — subagent-per-task by default for any multi-task plan, and the
      kickoff NAMES the skill: "execute via `superpowers:subagent-driven-development`" —
-     naming it invokes the skill's own flow, including the TodoWrite task list (one todo
-     per plan task) the owner tracks progress by; a kickoff that only describes the
+     naming it invokes the skill's own flow, including the visible task list (one item
+     per plan task — TodoWrite where the build has it, the TaskCreate/TaskUpdate tools
+     otherwise) the owner tracks progress by; a kickoff that only describes the
      mechanics invites the executor to skip the skill, and the list with it (owner note,
      2026-08-17). Gate output stays inside task subagents (pass/fail + counts +
      deviations come back, never raw logs); the orchestrator reviews each task's diff
