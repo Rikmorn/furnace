@@ -93,4 +93,4 @@ the earlier 8-16×-over arithmetic priced base64-as-text, wrong for image blocks
 Canvas snapshot ships only as a debug secondary or not at all (decide in-plan).
 Spatial lint read is first-class beside it (evidence line 4). Capture-on-demand only.
 
-**Fed:** the viewport-capture seam in `docs/reference/editor-architecture.md` (cited there as the source for the capture path) and the capture caveats recorded at `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md`.
+**Fed:** the viewport-capture seam in `docs/reference/editor-architecture.md` (cited there as the source for the capture path) and the capture caveats recorded at `docs/backlog/editor-and-tooling/editor-seams-and-preview-deferrals.md` (gone). *(That tracker was un-merged at genre-contracts; the caveats are now `studio-key-light-blows-out-near-geometry.md` — the rig the capture deliberately borrows — and `editor-viewport-is-non-hdr.md`, which carries `drawLinesToTexture`'s refusal of HDR contexts.)*

@@ -69,5 +69,4 @@ move should first re-run the full suite at the proposed count enough times to sa
 recurs.
 Related: [`bun-isolate-top-level-await-tdz.md`](./bun-isolate-top-level-await-tdz.md) (a
 different, understood Bun defect from the same slice); the `--parallel=4` ruling and its
-evidence live in
-[`editor-test-harness-fragility.md`](../editor-and-tooling/editor-test-harness-fragility.md).
+evidence live in `docs/reference/test-gate.md`.

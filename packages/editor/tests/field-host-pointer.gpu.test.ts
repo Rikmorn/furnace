@@ -19,7 +19,7 @@
 // `bunWebGpuAvailable()` keeps answering true, so a `.gpu` test in any
 // subdirectory sorting after `chrome/` is not skipped — it runs and fails at
 // `requestContext`. Every other host GPU test is in this directory for the same
-// reason (filed: docs/backlog/editor-and-tooling/editor-test-harness-fragility.md).
+// reason (filed: docs/backlog/editor-and-tooling/bun-test-single-process-fragility.md).
 //
 // The world arrives through `loadWorld`'s oplog path rather than through a
 // stamp commit. That is a real host path (it is how every saved world opens)

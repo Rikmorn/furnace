@@ -14,7 +14,8 @@
 // takes `navigator.gpu` with it. The bun-webgpu fixture memoizes and never
 // reinstalls while `bunWebGpuAvailable()` keeps answering true — so a `.gpu` file
 // in a subdirectory sorting after `chrome/` is not skipped, it RUNS and dies at
-// `requestContext` (filed: docs/backlog/editor-and-tooling/editor-test-harness-fragility.md).
+// `requestContext` (filed:
+// docs/backlog/editor-and-tooling/bun-test-single-process-fragility.md).
 //
 // The store is left EMPTY on purpose (the pointer suite's rule): an unallocated
 // chunk reads SOLID, so `selectionPoint`'s raycast resolves against rock right at

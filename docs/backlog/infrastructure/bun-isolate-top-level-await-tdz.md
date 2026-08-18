@@ -81,7 +81,7 @@ Both were landed by the `isolate-hardening` slice; each is commented at its site
    `screen` to `document.body`) but it does not need to be *asynchronous* — and as a
    top-level await it put every harness binding in TDZ for every importing file under
    `--isolate`. Context on the ordering constraint itself:
-   [`editor-test-harness-fragility.md`](../editor-and-tooling/editor-test-harness-fragility.md).
+   [`bun-test-single-process-fragility.md`](../editor-and-tooling/bun-test-single-process-fragility.md).
 
 ## Trigger to revisit
 
@@ -92,5 +92,6 @@ then the workarounds are the correct code and the comments at both sites say why
 ## Reference
 
 - `bun test --help` (the `--parallel` / `--isolate` relationship)
-- [`editor-test-harness-fragility.md`](../editor-and-tooling/editor-test-harness-fragility.md)
-  — the contamination-class record this defect is NOT one of
+- [`bun-test-single-process-fragility.md`](../editor-and-tooling/bun-test-single-process-fragility.md)
+  and [`mcp-sdk-construction-slows-the-process.md`](../editor-and-tooling/mcp-sdk-construction-slows-the-process.md)
+  — the contamination-class records this defect is NOT one of

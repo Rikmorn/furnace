@@ -1001,7 +1001,7 @@ the void cast (an X-ray view mode) and the segment brush (a two-click swept caps
   DI seam for the worker: production omits it and gets the real `/field-worker.js`, while a test
   injects the protocol handler directly — the host's worker-backed paths are otherwise unreachable
   under `bun test`, where a job posted to a Worker spawned from that browser URL never settles
-  in-process. Backlog status: `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` § *FieldHost's worker seam exists now*.
+  in-process. Backlog status: `docs/backlog/editor-and-tooling/field-host-worker-coverage-reach.md`.
 
 ## 15. One Field F4 — the walkability advisor in the editor (tranche B, 2026-07-26)
 
@@ -3648,7 +3648,7 @@ a drifted copy would not merely misdescribe the clamp but make the control refus
 host accepts. `HOLLOW_STEP_M` went the other way and was **deleted** rather than moved: it was
 `LATTICE` spelled again, and the hollow field now reads the lattice directly. **Nothing pins
 the three** — sabotaging each reddens no test in the package (measured) — which is filed at
-`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` §"`RADIUS_MIN` / `RADIUS_MAX` / `HOLLOW_MIN_M` are pinned by nothing".
+`docs/backlog/editor-and-tooling/radius-constants-pinned-by-nothing.md`.
 
 **Measured, not assumed:** Tailwind v4's automatic source detection **does** scan
 `src/shared/`. With `STRIP_PARAMS_MIN`'s four container-query classes present only in
@@ -5149,7 +5149,7 @@ mounted and unexercised). So `tests/mcp.test.ts` spawns `tests/_helpers/mcp-prob
 on — the same remedy `tests/action-registry/node-door.test.ts` already uses for a different kind
 of process pollution. Nothing in `src/` changed to accommodate it, and the whole table plus the
 eliminations is filed under
-`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`.
+`docs/backlog/editor-and-tooling/mcp-sdk-construction-slows-the-process.md`.
 
 ### 26.3 The T4b exit — all seven clauses
 
@@ -5200,7 +5200,9 @@ cross-boundary contracts are still hand-mirrored), and two at this seal:
 timer instead of telling it the daemon is gone; unreachable today, live the day an ask outlives
 a restart). **Three appended to** rather than duplicated:
 `editor-test-harness-fragility.md` (the SDK's per-process cost, the eliminations, and the three
-programme-level fixes), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
+programme-level fixes — that tracker was itself un-merged at genre-contracts; the section is
+now `mcp-sdk-construction-slows-the-process.md`, and the gate ruling it ended in is
+`docs/reference/test-gate.md`), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
 parameters — that tracker was itself un-merged at genre-contracts; the section is now
 `worldsversion-rides-the-context.md`), and `core-internal-structure-debt.md`
 §"One locator re-throw, spelled six times" (that tracker was itself un-merged at
@@ -5208,7 +5210,10 @@ genre-contracts; the section is now `locator-rethrow-spelled-six-times.md`), who
 **checked and did not fire** — the MCP edge converts a throw into a value rather than
 re-throwing one and adds no locator, so it is still six sites, with T4c's mutation verbs named
 as the clause's remaining live half. **One re-cited**: `world-verb-follow-ons.md`'s
-`handlers.ts` line numbers, which the session family's split into `session-handlers.ts` moved.
+`handlers.ts` line numbers, which the session family's split into `session-handlers.ts` moved
+(that tracker was itself un-merged at genre-contracts; the `handlers.ts` citation now lives in
+`rename-duplicate-teach-by-error-toast.md` and `world-name-case-folding-overwrites.md`, cited
+by symbol rather than by line).
 Nothing was reclassified as "defer" without being written down, and nothing surfaced was
 absorbed silently — this list is the summary AGENTS.md asks for at a tranche's end.
 
@@ -5991,7 +5996,7 @@ declared order) when the mechanism is `stack.pop()` over seven. All four are cor
    meet, changing no behaviour — "branch on `ready` first" is correct either way.
 6. **The advisor, the studio rig and the capture share one light setup, so near-camera rock
    photographs white.** Not a defect and not new: the F4.5 gate accepted it as a tuning note
-   on a rig that works (`editor-seams-and-preview-deferrals.md` §"The studio key light blows out geometry close to the camera"). What IS new is
+   on a rig that works (`studio-key-light-blows-out-near-geometry.md`). What IS new is
    that the capture borrows that rig deliberately, so an agent now sees it too and may report
    it as a world defect. The cheap mitigation costs nothing and is a caller-side choice:
    capture from a named axis view rather than `user` when the subject is close.
@@ -6106,7 +6111,8 @@ documented but unheld" (same — the section is now `reconfigure-empty-evaluatio
 `frame-surface-gaps.md` §"`render` / `renderToTexture` unified
 pass-target union" (that tracker was itself un-merged at genre-contracts; the section is now
 `unified-pass-target-union.md`), and `editor-seams-and-preview-deferrals.md` §"The studio key light blows
-out geometry close to the camera". Nothing in this table is a live register; the live register is
+out geometry close to the camera" (that tracker was itself un-merged at genre-contracts; the
+section is now `studio-key-light-blows-out-near-geometry.md`). Nothing in this table is a live register; the live register is
 `docs/backlog/` and its per-dir index.
 
 | Entry | Verdict |
@@ -6124,7 +6130,7 @@ out geometry close to the camera". Nothing in this table is a live register; the
 | `backchannel-refusals-blur-two-causes` | **NARROWED, and item 1's trigger did NOT fire the way it predicted.** It expected the mutation verbs to force the chrome-refusal/daemon-fault split. They did not, because a refused WRITE never reaches the failure path at all: it travels the `ok: true` leg as an `ActionResult` an agent branches on. So the verbs made the distinction more available rather than more urgent, and item 1 now waits on a client that retries differently for a stale tab than for a broken daemon. **Item 2 got its first live evidence** — see the harness entry. |
 | `read-only-chrome-for-an-unclaimed-session` | **NARROWED (Task 0), still open.** Its sibling shipped: the claim's world is TRUE now, so it is usable as a routing key for the first time and a read-only mode would be read-only *for a world*. The obstacle went, not the question. Its "seventh `RefusalClass` arm" arithmetic is corrected here — the union has eight arms, so the proposed one is the ninth. |
 | `core-zero-consumer-module-exports` | **UPDATED (Task 6), open by design.** It now carries the projected vocabulary — advertised and relayed — with T5's rule written as subtraction. The blocking half ("we cannot prune until T4 says what projects") is closed. |
-| `editor-test-harness-fragility` | **UPDATED (Task 7).** The digest predicted "T4c will hit this wall again" and it did NOT: every gate that recorded a wall clock landed in **54.2–68.2 s** against a ~64 s baseline and a ~90 s tripwire, because every SDK construction stayed in the spawn-child probe — the first real load test of that remedy, and it held. A DIFFERENT contamination class bit instead: an unsettled `ask()` promise outliving its file and rejecting 30 s later inside a stranger, with the failure MOVING between runs. Fixed per-site; the `EventHub.close()` gap behind it is `backchannel-refusals-blur-two-causes` item 2, which now has its first live evidence. |
+| `editor-test-harness-fragility` *(un-merged at genre-contracts; this row's subject is now `mcp-sdk-construction-slows-the-process.md`)* | **UPDATED (Task 7).** The digest predicted "T4c will hit this wall again" and it did NOT: every gate that recorded a wall clock landed in **54.2–68.2 s** against a ~64 s baseline and a ~90 s tripwire, because every SDK construction stayed in the spawn-child probe — the first real load test of that remedy, and it held. A DIFFERENT contamination class bit instead: an unsettled `ask()` promise outliving its file and rejecting 30 s later inside a stranger, with the failure MOVING between runs. Fixed per-site; the `EventHub.close()` gap behind it is `backchannel-refusals-blur-two-causes` item 2, which now has its first live evidence. |
 | `agent-cannot-read-generator-params` | **FILED NEW (Task 6).** The one place the projection is incomplete; the gate walk is its trigger. See caveat 1 above. |
 | `session-query-entities-list-is-unbounded` | **FILED NEW (Task 4).** The prop scan is capped twice and the entity list is not — a payload-size risk whose fix is a shape decision. |
 | `locator-rethrow-primitive-respelled-six-ways` | **CHECKED, DID NOT FIRE — still six sites, and the count is re-derived rather than assumed.** Its second trigger clause named T4c explicitly ("adding locators on the MCP verb boundary"). T4c added none: `applyOps` PASSES core's locator through as the refusal's message unreworded, and the two verbs' other failures answer `failed` with core's own sentence — a throw converted into a VALUE, never re-thrown under a new prefix. **The command is `grep -rn --exclude="*.test.ts" "instanceof Error ? e" packages/core/src`, which returns exactly the six** — `ops.ts`'s `logApplyGroup`, `generators.ts`'s `commitGenerator`, `reconfigure.ts`'s `evaluateSpan` and `artifact.ts`'s `atOp` / `parseOplogJson` / `parsePlacementJson`, every one in `@furnace/core/field`. Two notes a reader needs, because an earlier draft of this row named a different command and mis-described it. **Do NOT grep `"cause: "`**: it returns 15 lines, not six — the two JSON sites deliberately do NOT pass `cause` (that divergence is the entry's founding observation, so the grep cannot return them), `maintenance.ts`'s `verifyFold` chains a cause for an unrelated reason, and the string is a substring of `because: `, which the editor's refusal vocabulary uses about ten times. And the same message-extraction idiom appears **33** times under `packages/editor/src` without producing a site: those extract a sentence to REPORT (a toast, a log, an `ActionResult`), where a site extracts one to RE-THROW under a prefix. The idiom is not the convention; the throw is. Taking the extraction anyway was weighed and declined: it still reaches `artifact.ts`, which nothing in this tranche touched, and it still carries the `cause`-or-not decision — the two conditions the AGENTS.md inline-fix threshold fails on, unchanged since T4a. Noted in the entry. |
@@ -6407,10 +6413,13 @@ files name each other.
 
 ### 28.4 Two rulings — the gate, and the malformed `build` question (Task 6)
 
-**RULING 1 — the whole-workspace `bun test` from the root STAYS**, recorded in
-`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` §"The gate question, RULED
-at foundations T5". It is written as a RECOMMENDATION carried to the review, not a decision a
-task took, because how this repo gates is a programme-level call. Its five numbered parts:
+**RULING 1 — the whole-workspace `bun test` from the root STAYS**, recorded at T5 in
+`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` (gone) §"The gate
+question, RULED at foundations T5". It is written as a RECOMMENDATION carried to the review, not a decision a
+task took, because how this repo gates is a programme-level call. *(The tracker was un-merged
+at genre-contracts and the ruling rehomed to `docs/reference/test-gate.md`, which carries it
+as it stands today — clause 4 struck, clause 5's trigger fired and answered. The five clauses
+below are the T5 record.)* Its five numbered parts:
 (1) containment is structural rather than fragile (T4c's own wall clocks are the load test);
 (2) the stance is MACHINERY now, not discipline (§28.3's second case is the premise a "the
 convention might slip" argument no longer has); (3) per-package runs stay the documented
@@ -6437,8 +6446,8 @@ The **2-file, 3-test delta is unchanged** — `bun test packages/hello-world pac
 by the tests four later commits on this branch added. The figures this section first carried
 (3,215 / 3,218) were the harness entry's, measured mid-branch at `0fd37ad7` and correct there;
 they were reproduced here without their commit label, which is what made them read as stale.
-`docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`'s own table states its
-`0fd37ad7` provenance and is left as the dated measurement it is.*
+that table states its `0fd37ad7` provenance and is left as the dated measurement it is — it
+now lives in `docs/reference/test-gate.md`.*
 
 **RULING 2 — `ToolDefinition.build`, and the substance is that the question CONFLATES TWO
 REGISTRIES.** The full ruling is at §27.5 fact (b), where the deferral lived; in one line:
@@ -6604,7 +6613,7 @@ stated honestly is worth more than a HOLDS a reviewer disproves in one command.
 | **1. All six gate filings resolved smallest-honest or narrowed to their explicitly-untaken rungs — none silent** | **HOLDS, with one filing HALF closed and saying so.** *(The clause's "six gate filings" is the plan's phrase for the whole set; strictly, four are the walk's own findings and two — `agent-cannot-read-generator-params`, `session-query-entities-list-is-unbounded` — were filed by T4c tasks 6 and 4. All six were in scope and all six are resolved.)* Four DELETED (`inert-refusals-answer-with-their-label`, `view-frame-without-selection-frames-something-unstated`, `agent-cannot-read-generator-params`, `session-query-entities-list-is-unbounded`), two NARROWED in place. `entity-list-has-no-legible-order` keeps only the presence half (creation-time grouping, "added since your last look"), which needs attribution state the chrome does not have. **`where-am-i-position-legibility` is the half-closed one**: what shipped is the SELECTION's world box, not the camera's pivot, because `CameraPose` is `{yaw, pitch}` and `CameraRig.orbit()`'s docblock refuses widening it (that shape is published as `SessionState.camera`) — both routes were stop conditions, so the entry was narrowed to name them rather than closed. The go-to affordance is likewise narrowed with both of its blockers named. | `git diff --diff-filter=D --name-only 2e2b01cd..HEAD -- docs/backlog/editor-and-tooling/` lists the four deletions among its rows. The two survivors each open with a **What shipped** section: `docs/backlog/editor-and-tooling/entity-list-has-no-legible-order.md`, `where-am-i-position-legibility.md`. Behaviour: `bun test packages/editor/tests/chrome/entities-palette.test.tsx packages/editor/tests/chrome/shell.test.tsx packages/editor/tests/actions.test.ts` → 253 pass. |
 | **2. An agent can read generator params through `session_query`; the entity answer is list/detail-shaped with an honest total; the door is still nine tools and instructions ≤ 2,048 B** | **HOLDS on all four, measured.** Five `about` arms on one row (**six since cycle 2**, §28.2); `entities` slim + `entityTotal`, `entity {entityId}` in full answering `null` for an unknown id; `generators` relaying the host's own projection with its key set pinned. Nine rows, 1,970 / 2,048 B of instructions, 7,502 / 8,192 B of row prose **at T5's exit — 7,865 at cycle 2's head, still under**. | `bun test packages/editor/tests/field-host/query.test.ts packages/editor/tests/session-query.test.ts packages/editor/tests/mcp.test.ts` → 53 pass, including *"the generators arm RELAYS the host's projection — it authors no second schema"*, *"the DETAIL arm carries what the list dropped — for ONE entity"*, *"an unknown entityId answers null"*, *"`entityTotal` counts the committed entities"* and *"tools/list advertises the nine, with readOnlyHint per ROW"* (which carries both byte pins). |
 | **3. The guidance is tracked: four §Design rules + two §Discipline lines + the seal section + the `tranche-review` skill; and the two enforceable stances have checks** | **HOLDS.** | `git diff 2e2b01cd..HEAD -- .claude/rules/working-standards.md` shows six added bullets, four under §Design and two under §Discipline. `grep -n "^## Writing a seal" docs/learnings/seals/README.md`; `test -f .claude/skills/tranche-review/SKILL.md`. Checks: `bun test packages/editor/tests/field-host-boundaries.test.ts packages/editor/tests/harness-conventions.test.ts` → 6 pass. |
-| **4. The gate question is RULED in the harness entry with evidence** | **HOLDS, as a RECOMMENDATION for the review to ratify** — which is the honest verdict, because no task gets to decide how the repo gates. Five numbered parts, each with its measurement; the new finding (the per-package fallback does not cover the workspace) is what disqualifies it as a candidate gate. | `grep -n "The gate question, RULED at foundations T5" docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`. Re-measure: `bun test packages/hello-world packages/cookbook` → 3 pass across 2 files, the two the three-command form drops. |
+| **4. The gate question is RULED in the harness entry with evidence** | **HOLDS, as a RECOMMENDATION for the review to ratify** — which is the honest verdict, because no task gets to decide how the repo gates. Five numbered parts, each with its measurement; the new finding (the per-package fallback does not cover the workspace) is what disqualifies it as a candidate gate. | `grep -n "The gate question, RULED at foundations T5" docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` (gone) — that tracker was un-merged at genre-contracts and the ruling rehomed; the live command is `grep -n "Why four workers" docs/reference/test-gate.md`. Re-measure: `bun test packages/hello-world packages/cookbook` → 3 pass across 2 files, the two the three-command form drops. |
 | **5. `ToolDefinition.build` is judged against the nine-tool evidence table and dispositioned** | **HOLDS, and the judgement is that the question was MALFORMED.** Two registries were being conflated; PARTIAL on the door population, UNTESTABLE at n = 2 on `build`'s own; the deferred item is RETIRED on §23.4 still binding rather than on the criterion holding. **Flagged for ratification: this is a third shape the plan's binary did not offer.** No entry filed, on purpose. | §27.5 fact (b) and the ruling block under it. `grep -n "ToolId =" packages/editor/src/shared/tool-registry.ts` → `"brush" \| "segment"`; `grep -c "^defineTool(" packages/editor/src/shared/tool-registry.ts` → 2, the whole population. |
 | **6. Every zero-consumer core export is classified keep / cookbook-debt / delete-with-argument; deletions executed atomically; the cull entry gone** | **HOLDS.** 418 names classified 150 / 10 / 1 at the audit's input; the one deletion relocated behind the registry's package-private door in the same commit as its caller and as the guardrail it cites. | Surface at head: the `bun -e` block in §28.5 → **22 modules, 417 exported names** (418 minus the one deletion). `test ! -f docs/backlog/engine-architecture/core-zero-consumer-module-exports.md` (gone). `grep -rn "resetServicesForTests" packages/core/src` → **five** lines and **none in `registry/index.ts`**, which is the whole check: the declaration in `registry.ts`, the re-export and its comment in the new `registry/internal.ts`, and the two in `registry/registry.test.ts` — every one of them `_`-prefixed. Guardrail: `bun test packages/core/tests/architecture.test.ts packages/core/src/registry/registry.test.ts` → 16 pass. Debt: `test -f docs/backlog/engine-architecture/cookbook-debt-kcc-collision-events-shader-composition.md` (gone) — the tracker was un-merged at genre-contracts; the clause's evidence is now `test -f docs/backlog/engine-architecture/tier-1-names-with-no-demo-decision.md`. |
 | **7. The register is at or under its thresholds with nothing lost — closures ratified at review, merge-docs reference-clean** | **PARTIAL against the bars this clause was written to, and the bars themselves then MOVED — see §28.9.** *Nothing lost* HOLDS and *reference-clean* HOLDS. **Against the ~100 / ~20 pair the clause was authored against, the thresholds do NOT hold**: head is **103 total** with **`engine-architecture` at 33** and **`editor-and-tooling` at 21** — three bars, none met, two barely. Getting under would mean merging a charter input (forbidden by the "nothing is lost" bar) or re-merging already-merged 200–570-line trackers into 700–1,000-line documents, which destroys the findability the merge exists to buy. **That impasse is what produced §28.9's relaxation**, so under the bars now in `AGENTS.md` (~150 / ~50, provisional) head is inside all three — which is a change of instrument, not a clause that came true. **One closure, for the review to ratify**: `region-recipe-as-truth`, net zero because its live residual is re-filed. | The two commands in §28.6. Head count: `git ls-tree -r --name-only HEAD -- docs/backlog \| grep '\.md$' \| grep -v 'README\.md$' \| wc -l` → **103** (101 at the prune, +1 for §28.9's charter entry, +1 for the dungeon dead-citations entry the tranche's own last commit filed). Reference-clean, run per deleted entry name over the whole tree (`grep -rln "<name>" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=target`): **it deliberately does NOT return nothing**, and every surviving hit is one of four kinds — dated **seal records** (left alone by rule), **this document's own historical tables** (§27.5, which now says which seven of its names are in that class), **two provenance notes that say in their own text they are not live pointers** (`field-bake-has-no-content-hash.md` on the one closure, `frame-surface-gaps.md` naming the section it is inside), and **one substring false positive** (`gpu-resident-physics` matches `docs/research/2026-06-01-gpu-resident-physics-solver.md` and an `engine-architecture.md` heading anchor — neither is the entry). A fifth kind, or any hit presenting a deleted name as a live register, is the failure. |

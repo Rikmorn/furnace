@@ -54,7 +54,7 @@ import { join } from "node:path";
 // the MCP SDK's spawn containment; this one holds where the registration LINE must sit inside
 // the two subdirectories that file sends them to. Neither rule is derivable from the other,
 // and both were "convention, not enforced" in
-// `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md` until foundations T5.
+// `docs/backlog/editor-and-tooling/bun-test-single-process-fragility.md` until foundations T5.
 //
 // AND THE SCAN ITSELF HAS BEEN DEFEATED ONCE, which is the thing to read before trusting it:
 // its first `HARNESS` predicate required a one-line import, so `bunx biome format --write`

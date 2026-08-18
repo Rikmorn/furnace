@@ -80,7 +80,8 @@ past the count that had triggered the prune.
 **Shape at `ddb49283`.** 101 entries, **10,425 lines**, mean 103 lines
 (`find docs/backlog -mindepth 2 -name '*.md' -exec wc -l {} + | sort -rn`). The distribution is
 bimodal, not smooth: **61 entries under 60 lines** and **19 at 200 lines or more**, the largest
-702 (`editor-and-tooling/editor-test-harness-fragility.md`), with six between 296 and 702.
+702 (`editor-and-tooling/editor-test-harness-fragility.md` (gone) — un-merged into seven
+entries at genre-contracts), with six between 296 and 702.
 
 ## Citation integrity — measured at the T5 branch review, 2026-08-11
 

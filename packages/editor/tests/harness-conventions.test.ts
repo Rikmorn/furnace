@@ -5,12 +5,14 @@ import { walk } from "./_source-scan.ts";
 
 // TWO PROCESS-WIDE COSTS THIS PACKAGE'S TEST HARNESS PAYS BY DISCIPLINE, until now.
 //
-// Both come from one mechanism, which `docs/backlog/editor-and-tooling/editor-test-harness-fragility.md`
-// opens by stating: `bun test` runs every file the invocation covers in ONE shared process,
+// Both come from one mechanism, which
+// `docs/backlog/editor-and-tooling/bun-test-single-process-fragility.md` opens by stating: `bun test` runs every file the invocation covers in ONE shared process,
 // with NO per-file isolation. A file cannot contain what it does to that process, so a rule
 // about where a file sits or what it imports is not style — it is the only containment there
 // is. That entry recorded both rules below as "convention, not enforced"; this file is what
-// changes that, and the entry now says so.
+// changes that, and the entry now says so. The MCP half is
+// `docs/backlog/editor-and-tooling/mcp-sdk-construction-slows-the-process.md`; the gate the
+// containment protects is `docs/reference/test-gate.md`.
 //
 // WHY A NEW FILE RATHER THAN THREE RULES IN `register-first.test.ts`, which is the package's
 // other test-file-placement scan and the shape this one follows. Weighed both ways, and the
