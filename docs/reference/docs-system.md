@@ -62,6 +62,17 @@ subsystems splits into a directory of per-subsystem files plus a generated index
   Stamp only at an actual verification, never at an edit that didn't re-check — an
   unstamped doc is an honest "never checked", and a stamp bought by an edit is a lie the
   block would then repeat.
+- **Shards:** the directory a split produces. Its `README.md` is the index, generated
+  between `<!-- reference-index -->` markers from each member's H1 and `summary:`
+  (`bun run docs:index`) and checked for drift (§9); the prose outside the markers is
+  hand-written, because what a shard is and where its history went differs per shard. A
+  row is `linked title — summary` and carries no `verified:` column: the freshness block
+  above already reports every shard member's stamp, and the index answers "which file do I
+  open", not "how stale is it". **The README is what declares a shard** — a reference
+  subdirectory carrying none is not indexed and not checked, which is how a directory that
+  is not a split subsystem stays out of the contract. **Shard members** therefore carry a
+  required `summary:` beside the optional `verified:`, one line, feeding their row; a
+  member with no `summary:` or no H1 fails the generator rather than being listed blank.
 - **Lifecycle:** never deleted, continuously corrected. When the reference disagrees with
   the source, the source wins and the reference is fixed in the same change.
 
@@ -389,6 +400,7 @@ generates the seals index; their prose is never scanned.
 | frontmatter schema per genre (zod) | contract violations | fail |
 | generated-index diff — `docs/backlog/README.md` re-derived from every entry's `summary:` | index rot | fail |
 | seals-index diff — the marked region of `docs/learnings/seals/README.md` re-derived from every seal's `summary:`/`sealed:`/`seq:` | a seal index hand-edited, or a seal added without its row | fail |
+| reference-shard index diff — the marked region of each `docs/reference/<shard>/README.md` re-derived from every member's H1 and `summary:` | a shard index hand-edited, or a subsystem file added without its row | fail |
 | work-register consistency — at most one `next`, `after:` targets exist, an `in-flight` epic still owns a slice | a board that lies | fail |
 | `consumer:` names a live `docs/work/` item | pointers into a sealed slice | fail |
 | shelf filenames are dated — `YYYY-MM-DD-<slug>.md`, or a dated directory for multi-file research | a record with no date, and so no status | fail |

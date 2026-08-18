@@ -7,7 +7,11 @@ import {
   validateBacklogEntry,
   validateWorkFile,
 } from "./docs-frontmatter.ts";
-import { checkIndex, checkSealsIndex } from "./docs-index.ts";
+import {
+  checkIndex,
+  checkReferenceIndexes,
+  checkSealsIndex,
+} from "./docs-index.ts";
 
 export const ROOT = join(import.meta.dir, "..");
 export type Violation = {
@@ -406,6 +410,16 @@ if (import.meta.main) {
     if (drift) {
       violations.push({ file, line: 1, kind: "index-stale", detail: drift });
     }
+  }
+  // One message per shard, each naming its own README — the register is the file here
+  // because the shard set is discovered, not listed.
+  for (const drift of checkReferenceIndexes()) {
+    violations.push({
+      file: "docs/reference",
+      line: 1,
+      kind: "index-stale",
+      detail: drift,
+    });
   }
   if (violations.length > 0) {
     for (const v of violations)

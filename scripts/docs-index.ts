@@ -1,7 +1,7 @@
 // Generates docs/backlog/README.md from every entry's `summary:` frontmatter.
 // `--write` emits, `--check` exits 1 on drift. Canon: docs/reference/docs-system.md §2.
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { parseFrontmatter } from "./docs-frontmatter.ts";
 
 // Declared here rather than imported from check-docs.ts: that module imports this one,
@@ -77,19 +77,37 @@ export function buildSealsIndex(entries: readonly SealEntry[]): string {
   return ["| Sealed | Seal |", "|---|---|", ...rows].join("\n");
 }
 
+/** Swap a generated region into a hand-written file, leaving every line outside the
+ *  markers alone. One implementation for both indexes: the line-anchored matching is scar
+ *  tissue (a substring search once ate the prose explaining the marker), and two copies of
+ *  it would be two places for that lesson to be un-learned. */
+function replaceMarkedRegion(
+  text: string,
+  markers: { open: RegExp; close: RegExp; name: string },
+  region: string,
+  label: string,
+): string {
+  const open = text.match(markers.open);
+  const close = text.match(markers.close);
+  if (open?.index === undefined || close?.index === undefined)
+    throw new Error(
+      `${label}: no <!-- ${markers.name} --> … <!-- /${markers.name} --> region to write into (each marker on a line of its own)`,
+    );
+  if (close.index < open.index)
+    throw new Error(`${label}: ${markers.name} markers are inverted`);
+  const head = text.slice(0, open.index + open[0].length);
+  return `${head}\n\n${region}\n\n${text.slice(close.index)}`;
+}
+
 /** Swap the generated region in, leaving every hand-written line outside the markers
  *  alone — the seals README is part prose (conventions, procedure) and part index. */
 export function replaceSealsIndex(readme: string, table: string): string {
-  const open = readme.match(SEALS_OPEN);
-  const close = readme.match(SEALS_CLOSE);
-  if (open?.index === undefined || close?.index === undefined)
-    throw new Error(
-      `${SEALS}/README.md: no <!-- seals-index --> … <!-- /seals-index --> region to write into (each marker on a line of its own)`,
-    );
-  if (close.index < open.index)
-    throw new Error(`${SEALS}/README.md: seals-index markers are inverted`);
-  const head = readme.slice(0, open.index + open[0].length);
-  return `${head}\n\n${table}\n\n${readme.slice(close.index)}`;
+  return replaceMarkedRegion(
+    readme,
+    { open: SEALS_OPEN, close: SEALS_CLOSE, name: "seals-index" },
+    table,
+    `${SEALS}/README.md`,
+  );
 }
 
 /** Regenerate and compare. Returns the drift message, or null when the committed region
@@ -184,6 +202,135 @@ export function checkIndex(): string | null {
     : `${BACKLOG}/README.md is stale — run \`bun run docs:index\``;
 }
 
+const REFERENCE = "docs/reference";
+// Same line-of-its-own discipline as the seals markers, and for the same reason: a shard
+// README explains its own generated region in prose.
+const REF_MARKERS = {
+  open: /^<!-- reference-index -->$/m,
+  close: /^<!-- \/reference-index -->$/m,
+  name: "reference-index",
+};
+const H1 = /^# (.+)$/m;
+
+/** One subsystem file inside a reference shard — a `docs/reference/<shard>/` directory,
+ *  which is what a reference doc that accumulated several subsystems splits into (canon
+ *  §2). `title` is the file's H1, `summary` its frontmatter line. */
+export type ReferenceShardEntry = {
+  file: string;
+  title: string;
+  summary: string;
+};
+
+/** The index rows: one per subsystem, `- [title](file) — summary`, sorted by filename.
+ *  Two facts and no third — the `verified:` stamp is NOT a column, because `bun run
+ *  sitrep`'s freshness block already reports it for every reference doc including shard
+ *  members, and the index's job is "which file do I open", not "how stale is it".
+ *  Filename order rather than a curated reading order: any curation would need a declared
+ *  field to hold it, and a hand-kept order is the first thing to rot. */
+export function buildReferenceIndex(
+  entries: readonly ReferenceShardEntry[],
+): string {
+  return [...entries]
+    .sort((a, b) => a.file.localeCompare(b.file))
+    .map((e) => `- [${e.title}](${e.file}) — ${e.summary}`)
+    .join("\n");
+}
+
+/** Swap the generated rows into a shard README, leaving its hand-written prose alone. */
+export function replaceReferenceIndex(readme: string, rows: string): string {
+  return replaceMarkedRegion(
+    readme,
+    REF_MARKERS,
+    rows,
+    `${REFERENCE}/<shard>/README.md`,
+  );
+}
+
+/** Regenerate and compare. Returns the drift message, or null when the committed region
+ *  matches what the shard's files would produce right now. */
+export function diffReferenceIndex(
+  shard: string,
+  readme: string,
+  entries: readonly ReferenceShardEntry[],
+): string | null {
+  return replaceReferenceIndex(readme, buildReferenceIndex(entries)) === readme
+    ? null
+    : `${REFERENCE}/${shard}/README.md is stale — run \`bun run docs:index\``;
+}
+
+/** Read one shard directory. `summary:` is required of a shard member — the row it feeds
+ *  is the file's handle in the index, and an author-declared line beats a first-paragraph
+ *  heuristic that no check can hold to one line. The H1 is required for the same reason
+ *  the row links by title: a subsystem file with no title has nothing to be listed as. */
+export function collectShard(dir: string): ReferenceShardEntry[] {
+  const shard = basename(dir);
+  const out: ReferenceShardEntry[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isFile() || !e.name.endsWith(".md") || e.name === "README.md")
+      continue;
+    const path = `${REFERENCE}/${shard}/${e.name}`;
+    const text = readFileSync(join(dir, e.name), "utf8");
+    const summary = parseFrontmatter(text)?.["summary"];
+    if (!summary)
+      throw new Error(
+        `${path}: no summary — a shard member's summary: is its index row`,
+      );
+    const title = text.match(H1)?.[1]?.trim();
+    if (!title)
+      throw new Error(
+        `${path}: no H1 — the index links a subsystem by its title`,
+      );
+    out.push({ file: e.name, title, summary });
+  }
+  return out.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/** Every shard in the reference register: a subdirectory that carries a `README.md`.
+ *  Discovered rather than listed, so the next file that splits needs no edit here — and
+ *  the README is what DECLARES the shard, the same "declared, never inferred" line
+ *  `summary:` draws for a row. `docs/reference/adr/` is a subdirectory today and is not a
+ *  split subsystem; a check that conscripted it would be ruling on a genre canon §2 has
+ *  not described. */
+export function collectShards(dir: string = join(ROOT, REFERENCE)): string[] {
+  return readdirSync(dir, { withFileTypes: true })
+    .filter(
+      (e) => e.isDirectory() && existsSync(join(dir, e.name, "README.md")),
+    )
+    .map((e) => e.name)
+    .sort();
+}
+
+/** One drift message per stale shard index; empty when every shard is current. A shard
+ *  whose README carries no marker region THROWS rather than reporting — the seals
+ *  generator's stance: a half-built index is a mistake to fix, not drift to report. */
+export function checkReferenceIndexes(
+  dir: string = join(ROOT, REFERENCE),
+): string[] {
+  const out: string[] = [];
+  for (const shard of collectShards(dir)) {
+    const drift = diffReferenceIndex(
+      shard,
+      readFileSync(join(dir, shard, "README.md"), "utf8"),
+      collectShard(join(dir, shard)),
+    );
+    if (drift !== null) out.push(drift);
+  }
+  return out;
+}
+
+function writeReferenceIndexes(dir: string = join(ROOT, REFERENCE)): void {
+  for (const shard of collectShards(dir)) {
+    const readme = join(dir, shard, "README.md");
+    writeFileSync(
+      readme,
+      replaceReferenceIndex(
+        readFileSync(readme, "utf8"),
+        buildReferenceIndex(collectShard(join(dir, shard))),
+      ),
+    );
+  }
+}
+
 if (import.meta.main) {
   if (process.argv.includes("--write")) {
     writeFileSync(
@@ -198,9 +345,14 @@ if (import.meta.main) {
         buildSealsIndex(collectSeals()),
       ),
     );
+    writeReferenceIndexes();
     console.log("docs-index: written.");
   } else {
-    const drift = [checkIndex(), checkSealsIndex()].filter((d) => d !== null);
+    const drift = [
+      checkIndex(),
+      checkSealsIndex(),
+      ...checkReferenceIndexes(),
+    ].filter((d) => d !== null);
     if (drift.length > 0) {
       for (const d of drift) console.error(d);
       process.exit(1);
