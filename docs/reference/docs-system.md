@@ -54,7 +54,10 @@ subsystems splits into a directory of per-subsystem files plus a generated index
   flat until roughly 20 top-level files — reference paths are the repo's most-cited strings
   and churn buys nothing below that — then revisit flat-vs-sharded. **No
   kind-subdirectories** (owner ruling, 2026-08-13): a doc's kind is read from its content,
-  and a path that encodes it invites a re-file every time the reading changes.
+  and a path that encodes it invites a re-file every time the reading changes. One
+  exception predates the ban and is legal: `reference/adr/` holds dated decision records
+  (ADRs, an industry-standard shape; today one file). The ban continues to bar NEW
+  kind-subdirectories (owner ruling, 2026-08-18).
 - **Frontmatter:** optional `verified: <date>` — when the doc was last checked against
   source. `bun run sitrep`'s REFERENCE FRESHNESS block lists every reference doc, stamped
   ones oldest first and unstamped ones after; it sets no staleness threshold, because how

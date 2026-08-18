@@ -1,6 +1,5 @@
 ---
 summary: charter: how a growing body of deferred-work markdown stays findable, with the evidence that a file-count threshold is the wrong instrument
-consumer: genre-contracts
 ---
 
 # Keeping a growing body of markdown findable — the register needs a design, not a number
@@ -254,10 +253,36 @@ index, `docs/work/` plus `bun run sitrep`.
   economics) or **drift alarm** (ratified size × slack), each stating kind, basis and binding
   response, and a binding pin triggers re-derivation or re-review rather than a silent bump.
 
-**What is still open: rung 5** — the tracker un-merge, the `editor-architecture.md` split,
-and the AGENTS.md trim. It was deliberately excluded so the checks would land before the
-motion they protect. It is on the board as `docs/work/genre-contracts.md`, which carries
-the two demand measurements rungs 1–4 produced.
+**Rung 5 is done** — the tracker un-merge, the `editor-architecture.md` split, and the
+AGENTS.md trim all landed as the `genre-contracts` slice, sealed 2026-08-18
+(`docs/learnings/seals/2026-08-18-genre-contracts.md`); the two demand measurements
+rungs 1–4 produced live there and in this entry.
+
+## Inputs received at the genre-contracts seal (2026-08-18)
+
+The slice that executed the motion handed this charter its measured outcomes; they are the
+demand evidence for the redesign this entry wants:
+
+1. **The un-merge's real cost is the index shape — 10 firings across 6 batches.** Merged
+   trackers indexed their items by *watch-file* ("one place to check whenever you touch
+   `frame/render.ts`"), by *shared trigger*, or by *reading order*; N one-record successors
+   replace each, and nothing indexes them that way. Logged and deliberately unpatched every
+   time, by ruling — this loss class is exactly the findability question this charter owns.
+2. **A genre gap: the living decision record.**
+   `docs/backlog/editor-and-tooling/editor-backend-architecture.md` fits no genre: its
+   file-level trigger is spent, its settled facts are already promoted, and it has been
+   amended three times — which research's content-immutability forbids. Independent
+   corroboration: `docs/research/2026-05-25-ai-asset-authoring/README.md`'s Fed line names
+   it as a "live backlog entry" — a research doc pointing at backlog as its consumer, an
+   edge written by a different session for a different purpose.
+3. **The scale measurement.** 129 → 284 entries against canon §8's provisional ~150, two
+   topic dirs past the ~50 bar (`engine-architecture` 121, `editor-and-tooling` 103) —
+   handed over as the measured outcome of the motion (owner ruling: the count rising is the
+   motion working), not as a violation.
+
+**Trigger to revisit:** the register-redesign brainstorm/research session this charter has
+always wanted (its own session, per canon §8) — now with the three inputs above as its
+opening evidence.
 
 **This entry is kept, not deleted** — it is the design's provenance, and it holds the
 measured framing (the growth rate, the two failed prune shapes) that the canon states as

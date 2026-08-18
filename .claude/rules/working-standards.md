@@ -25,6 +25,8 @@ These are general defaults. Where they conflict with a committed engine conventi
 - Before claiming work is done, verify it — at minimum a type check, ideally run the relevant tests. Match the verification to the scope of the change.
 - Numbers in tracked docs are computed from the artifact — state the deriving command beside the count; a typed number is a defect.
 - Before trusting that an assertion pins a behaviour, delete the line it pins and watch the test go red.
+- A measuring instrument you build to grade your own work needs a **positive control** before its clean result is believed — inject a known-dirty input and watch it fire. (Genre-contracts, 2026-08-18: two self-built instruments produced flattering false results in consecutive batches; both self-caught only by controls.)
+- Before/after figures come from **one instrument** — mixing two fabricates the delta.
 
 ## Planning
 

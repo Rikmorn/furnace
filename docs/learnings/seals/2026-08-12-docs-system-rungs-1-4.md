@@ -66,7 +66,8 @@ tracker's H1 names a subsystem while its body names the items, so a summary writ
 H1 is indistinguishable from its siblings.
 
 Both measurements name the merged tracker, independently of each other and of the T5 review
-that first named it. They are carried forward in `docs/work/genre-contracts.md` as that
+that first named it. They are carried forward in `docs/work/genre-contracts.md` (sealed
+2026-08-18 → `2026-08-18-genre-contracts.md` in this directory) as that
 slice's demand evidence rather than left in the execution report.
 
 ## Did any file grow disproportionately? Yes — two, both by design.
@@ -102,7 +103,8 @@ behaviour. Eleven minors were fixed in-session and four rulings were taken:
    the work item, so the ritual that closes a slice is the one that dangles every pointer into
    it, at the moment nobody is reading the backlog.
 3. **Rung 5 went on the board** (`docs/work/genre-contracts.md`, renamed from
-   `docs-system-rung-5.md` when the slice was taken), carrying the two demand
+   `docs-system-rung-5.md` when the slice was taken; sealed 2026-08-18 →
+   `2026-08-18-genre-contracts.md`), carrying the two demand
    measurements, and the charter re-points at it.
 4. **The canon's live derive marker was demoted to command-only** — its own tier-2 rule applied
    to itself. It fired three times in one day, each time on a doc the change had nothing to do

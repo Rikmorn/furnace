@@ -30,6 +30,10 @@ below. Mechanics (filename, index row) are in [Adding a seal](#adding-a-seal).
   This is guidance, not a gate: nothing ratchets on the answer (D8, 2026-08-04 — guidance
   over machinery for file size). The value is that the growth is *named* while whoever grew
   it still remembers why.
+- **Name the measurements a live constant was chosen against, or say where they live.**
+  Seals carry narrative and decisions, but the numbers behind a constant orphan silently —
+  the `ANALYZER_IDLE_MS` justification existed in no seal and survived the annals retirement
+  only because a receipts probe caught it (genre-contracts, 2026-08-18).
 - **Budget: answer everything above in roughly 80 lines or fewer** (owner ruling at the
   process retro, 2026-08-14, resolving `seal-entries-are-growing-into-essays.md` (gone)).
   Depth lives in the slice's archived execution report, which the seal may name by date —
@@ -133,6 +137,7 @@ covers the fourth such row, the pre-3.2 package record) rather than glossed by a
 | 2026-08-13 | [Build-speed — one typecheck lane, the docs-only gate, an overruling — *injected; five redundant lanes deleted for one incremental root run (22.9→6.9/2.05 s); scoped-gate script overruled at take; tooling-digest corrections promoted*](2026-08-13-build-speed.md) |
 | 2026-08-14 | [Isolate hardening — the whole suite under the fast gate, and one Bun defect under both classes — *injected; `bun run test` = 4-worker gate running the FULL population (~21 s vs 55 s serial); both broken classes one Bun TLA/TDZ defect, filed with repro; review sabotage closed a live gate hole; D1=D2 (worker count IS the budget policy)*](2026-08-14-isolate-hardening.md) |
 | 2026-08-14 | [Undo + attribution — the fence lifts behind an ownership guard, and the wire learns who — *injected; oplog v4 (`origin?: string`, absent = human — the migration IS the default); every committing path stamps two altitudes; compaction folds stop at origin boundaries; fence → tab-side guard promising AGENT-AUTHORED (the mechanism's true word); `session.confirm` unstamped + tripwired; door headroom 200, tenth row unaffordable — door-set opens with the re-derivation*](2026-08-14-undo-attribution.md) |
+| 2026-08-18 | [rung 5 executed — canon's genre + naming contracts finished, 32 merged trackers un-merged into 186 one-record entries, editor-architecture.md rewritten into a 17-file shard with 40 live falsehoods retired, seals index generated, freshness block live; the immutability rule refined (claims frozen, pointers repaired) and the instrument class named](2026-08-18-genre-contracts.md) |
 
 <!-- /seals-index -->
 
