@@ -91,11 +91,15 @@ Run these two concurrently — they do not depend on each other:
      closes a slice is the ritual that breaks them.
 5. **Write the next plan and its prompt.** The handoff prompt states, every run
    (ruled 2026-08-14 at the undo-attribution close — the first managed-execution run):
-   - **execution mode** — subagent-per-task by default for any multi-task plan; gate
-     output stays inside task subagents (pass/fail + counts + deviations come back, never
-     raw logs); the orchestrator reviews each task's diff between dispatches and
-     re-dispatches on a bad result rather than absorbing fixes inline — inline absorption
-     is how the orchestrator's context dies;
+   - **execution mode** — subagent-per-task by default for any multi-task plan, and the
+     kickoff NAMES the skill: "execute via `superpowers:subagent-driven-development`" —
+     naming it invokes the skill's own flow, including the TodoWrite task list (one todo
+     per plan task) the owner tracks progress by; a kickoff that only describes the
+     mechanics invites the executor to skip the skill, and the list with it (owner note,
+     2026-08-17). Gate output stays inside task subagents (pass/fail + counts +
+     deviations come back, never raw logs); the orchestrator reviews each task's diff
+     between dispatches and re-dispatches on a bad result rather than absorbing fixes
+     inline — inline absorption is how the orchestrator's context dies;
    - **branch policy** — which branch the tasks commit to, stated rather than inherited
      from whatever HEAD happens to be (undo-attribution landed on master because nothing
      said otherwise);
