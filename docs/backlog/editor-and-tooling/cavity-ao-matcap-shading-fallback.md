@@ -12,7 +12,7 @@ never fired and the entry was never filed — it is recorded here because the pr
 retires the fallback's *schedule*, not the answer it holds. It was one of two members of the
 charter's backlog column that were deliberately left unfiled; the other,
 scene-chrome-as-consumer-surface, is closed by deletion and recorded at
-`docs/reference/editor-architecture.md` §19.
+`docs/reference/editor/overview.md` §"There is no scene document".
 
 **Trigger to revisit:** if studio shading ever reads flat on dig-heavy terrain, this is the
 answer to reach for.

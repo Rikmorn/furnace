@@ -20,7 +20,8 @@
 //
 // There is no exception left: the rail, the family keys, the top strip and the keymap line
 // are FOUR views of one table. `status-keymap.ts` carries the primary retirement note and
-// the reasoning; editor-architecture §22.2 is the decision.
+// the reasoning; `docs/reference/editor/tools.md` "One table states a tool fact" is the
+// decision.
 // ─────────────────────────────────────────────────────────────────────────────────────────
 //
 // In particular:

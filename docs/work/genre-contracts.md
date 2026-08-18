@@ -18,7 +18,7 @@ citation cannot land silently.
    the merged tracker (one H1 naming a subsystem, a body carrying many independent items) is
    the shape that violates it. Consolidation as a *move* is retired — a merged view is
    generated now, never a merged file.
-2. **Split `docs/reference/editor-architecture.md`.** It is the repo's largest reference doc
+2. **Split the editor-architecture reference.** It was the repo's largest reference doc
    and carries several distinct subjects.
 3. **Trim `AGENTS.md` §Deferred work.** Rungs 1–4 corrected the statements they falsified and
    deliberately did no more; the section still restates canon that `docs-system.md` now owns.

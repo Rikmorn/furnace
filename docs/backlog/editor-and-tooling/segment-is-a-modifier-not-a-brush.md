@@ -75,5 +75,5 @@ rather than merely misleading. The state side is no longer a blocker.
 `packages/editor/src/frontend/lib/actions.ts`; the name/suffix compensation in
 `packages/editor/src/frontend/components/shell/ToolStrip.tsx`; the segment brush itself in
 `packages/editor/src/field-host/field-segment.ts` (its `commitToolOp` path is what makes
-the composition real rather than cosmetic); `docs/reference/editor-architecture.md` for the
+the composition real rather than cosmetic); `docs/reference/editor/tools.md` for the
 rail/strip split.

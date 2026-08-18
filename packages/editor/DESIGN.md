@@ -3,7 +3,7 @@
      chrome is actually written in and, where noted, one a test holds. The arithmetic behind
      the contrast pairs is argued once at each token's own declaration in styles.css and
      pinned in tests/design-tokens.test.ts — this file states the rule, not the derivation.
-     As-built layout: docs/reference/editor-architecture.md §16-§18. -->
+     As-built layout: docs/reference/editor/chrome.md and docs/reference/editor/design-system.md. -->
 
 ---
 name: furnace editor

@@ -13,7 +13,7 @@ A Bun workspace (`workspaces: ["packages/*"]`, Bun v1.3.14) experimenting with W
 - `packages/hello-world/` (`@furnace/hello-world`, private) — the reference consumer (WebGPU triangle + Svelte 5 FPS overlay; own toolchain; native dev dogfood). Details: `packages/hello-world/README.md`.
 - `packages/dungeon/` (`@furnace/dungeon`, private) — the first-person dungeon-crawler demo, the engine's go-forward consumer app. As-built: `docs/reference/dungeon-architecture.md`. Details + current state: `packages/dungeon/README.md`.
 - `packages/cookbook/` (`@furnace/cookbook`, private) — the reference cookbook (one demo page per Tier 1 feature; co-evolves with `docs/reference/core-modules.md`). Details: `packages/cookbook/README.md`.
-- `packages/editor/` (`@furnace/editor`, private) — the editor: Node-portable daemon + React chrome, project-first (contains no engine). As-built: `docs/reference/editor-architecture.md`. Details + current state: `packages/editor/README.md`.
+- `packages/editor/` (`@furnace/editor`, private) — the editor: Node-portable daemon + React chrome, project-first (contains no engine). As-built: `docs/reference/editor/` (indexed at `docs/reference/editor/README.md`). Details + current state: `packages/editor/README.md`.
 - `packages/tools/` (`@furnace/tools`, private) — the harness (Rust CLI + vendored runtime shell + npm shim); the only package that produces binaries. Details: `packages/tools/README.md`.
 - Two runtime targets, shared TS/HTML/WGSL between them: `bun run hello-world:dev` (browser tab) and `bun run hello-world:dev:native` (desktop window — macOS Tahoe 26+ / Windows; Linux deferred per `docs/backlog/`).
 - Build outputs: `dist/core/` (core publish layout) and `dist/web/` (bundled hello-world demo, with optional `dist/web/dev/` from `build:web:dev` for unminified inspection). The CLI binary builds in-place to `packages/tools/crates/target/{debug,release}/furnace`; the `dist/tools/` publish layout is deferred — see `docs/backlog/`.
@@ -158,7 +158,7 @@ Before claiming a piece of work is complete: search `AGENTS.md`, `README.md`, an
   - `engine-architecture.md` — broader architectural rationale
   - `dungeon-architecture.md` — as-built dungeon: game loop, traversal/collision (voxel-proxy bridge), the generator library, the bake/load pipeline, invariants, testing posture
   - `packaging-and-distribution.md` — what we ship to consumers
-  - `editor-architecture.md` — as-built M3+M4+M5A+M5B editor: daemon, project-first bundling, command registry, document session, SSE change feed + file watching, error contract, chrome, config namespacing; M5A inspector module (SchemaForm, kind→renderer registry, live-preview seam, multi-select, echo suppression); M5B viewport interaction (orbit camera, GPU picking, AABB highlight, translate gizmo, drag-scrub, echo-guard)
+  - `editor/` — the editor as built, one subsystem per file, indexed at `editor/README.md`: overview, daemon, commands, error contract, change feed, bundling, inspector, field host, tools, interaction, action registry, history, chrome, design system, world, advisor, agent door
   - `field-host-clusters.md` — the editor field-host's cluster map (the un-growing of the 7.4K-line host)
   - `ui-foundation.md` — Svelte 5 + screen-space projection patterns for consumer UI
   - `fixed-step-interpolation.md` — engine posture + consumer recipe for interpolating between fixed-step ticks

@@ -32,12 +32,12 @@
 // import, and the chrome bundle must gain neither zod nor `@furnace/core` behind it. So the
 // input schemas live in `schemas.ts` — the one module under this directory the chrome may
 // not value-import (`tests/frontend-no-engine-leakage.test.ts`, narrowed to it plus bare
-// `zod` in Task 4; editor-architecture §22.5).
+// `zod` in Task 4; `docs/reference/editor/action-registry.md` "The layer").
 //
 // TWO VALUE IMPORTS, both for the same reason: a `hint` that STATES a fact some other module
 // owns must READ it, not restate it. `LATTICE` (`edit.grab`'s nudge step) was the first —
 // Task 2 stopped that row hardcoding `0.5`, one of the six chrome sites that did
-// (editor-architecture §22.4). The tool table is the second: four hints promise a family's
+// (`docs/reference/editor/tools.md` "The restated host constants"). The tool table is the second: four hints promise a family's
 // CYCLE ORDER by name, and the order is `FAMILY_ROWS`' — see {@link cycleOrder} for why four.
 // Every one of those rows is a template literal for that reason and not for style.
 //
@@ -156,7 +156,8 @@ export type ActionDescriptor = {
    *  Six rows carry it, and they are the whole membership: the axis views. The chrome keeps
    *  six literal ids — `view.snapNegZ` has to be greppable, and the six rows are the WCAG
    *  2.5.8 equivalent affordance for `AxisTriad`'s six sub-minimum tips, so deleting them
-   *  re-opens a closed finding (editor-architecture §18.5) — while an agent wants one
+   *  re-opens a closed finding (`docs/reference/editor/action-registry.md` "Input
+   *  schemas") — while an agent wants one
    *  `view.snap {axis, sign}` tool rather than six nullary ones. Both, stated once: the id
    *  stays literal, and the row says what it collapses to. */
   readonly mcpProjection?: {

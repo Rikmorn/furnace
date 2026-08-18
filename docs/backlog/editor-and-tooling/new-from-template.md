@@ -13,4 +13,4 @@ already there and what is missing is only the affordance.
 **Trigger to revisit:** the user keeping a world around purely to duplicate it. That is the signal the
 affordance is owed.
 
-**Reference:** `world.new` and `world.duplicate` (the capability half that already exists); `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `world.new` and `world.duplicate` (the capability half that already exists); `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

@@ -45,7 +45,7 @@ Ten of 27 distinct clauses. The other seventeen are NOT duplications and must no
 with them: `LMB …` and `click ×2 …` name a mouse gesture rather than a key, and `[ ] radius`,
 `⇧ smooth`, `⌃ dig` / `⌃ fill`, `← → ↑ ↓ nudge` and `drag ghost move` are canvas-owned keys
 the registry does not carry at all. That split is exactly what the retired non-derivation
-decision got half right (editor-architecture §22.2): it claimed the whole line was
+decision got half right (`docs/reference/editor/tools.md` §"One table states a tool fact"): it claimed the whole line was
 canvas-owned vocabulary, and half of it is.
 
 **Why T3b2 did not close it.** `keycap()` lives in `src/action-registry/`, which sits ABOVE
@@ -90,5 +90,5 @@ Any of:
 - `packages/editor/src/action-registry/keys.ts` — `keycap()` and `NAMED_CAPS`.
 - `packages/editor/src/action-registry/descriptors.ts` — the seven bindings.
 - `packages/editor/tests/no-chrome-leakage.test.ts` — the arrow that forbids the direct fix.
-- `docs/reference/editor-architecture.md` §22.2 — the full-derivation decision this is the
+- `docs/reference/editor/tools.md` §"One table states a tool fact" — the full-derivation decision this is the
   residue of.

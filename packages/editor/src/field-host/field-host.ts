@@ -859,8 +859,8 @@ export type FieldHost = {
    *  binding lives on the CANVAS, so it fires only while the canvas has focus,
    *  and clicking any panel control takes focus away and silently stops it
    *  working (the standing F2b gate finding about the nudge buttons —
-   *  `docs/reference/editor-architecture.md` §18.9, where the arrows-are-canvas-only
-   *  position it settled into is recorded). A panel affordance is the fix, and it
+   *  `docs/reference/editor/action-registry.md` "Who owns a key", where the
+   *  arrows-are-canvas-only position it settled into is recorded). A panel affordance is the fix, and it
    *  calls this.
    *
    *  Remeshes what the step dirtied, refreshes the entity highlight (a
@@ -1998,7 +1998,8 @@ export function createFieldHost(deps?: {
   // thunk — which is past T3a's two-extracted-readers bar for ADDING a
   // `HostSubstrate` member. The bar did not apply: it governs state the HOST still
   // owns and shares, and state that acquires an OWNER rides on that owner's seam
-  // instead (`editor-architecture.md` §21.1 — `layers` and `sliceY` had five
+  // instead (`docs/reference/editor/field-host.md` "The deps-record law" — `layers`
+  // and `sliceY` had five
   // reader clusters between them and became `viewState.layers()`). All three
   // thunks are `tool.digRadius` now and nothing inside those three modules moved.
   //

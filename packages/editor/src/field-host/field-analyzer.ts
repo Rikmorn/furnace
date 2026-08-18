@@ -84,7 +84,8 @@
 //     It never became one, and the reason is the rule `field-host.ts` states
 //     verbatim at `digRadius`' deleted declaration: **state that acquires an OWNER
 //     rides on that owner's seam instead, and reader COUNT is the wrong question
-//     once it has one** (`editor-architecture.md` §21.1; `view`'s `layers`/`sliceY`
+//     once it has one** (`docs/reference/editor/field-host.md` "The deps-record
+//     law"; `view`'s `layers`/`sliceY`
 //     are the precedent, five reader clusters between them). The substrate is for
 //     state with NO owner to ride on. **T3d Task 6 gave this one an owner**: the
 //     counter is `field-world.ts`'s private state now and both extracted readers

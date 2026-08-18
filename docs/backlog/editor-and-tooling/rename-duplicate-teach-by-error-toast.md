@@ -42,5 +42,5 @@ same place, so doing them together is most of the saving.
   `grep -n 'already-exists' packages/editor/src/daemon/handlers.ts` is the durable
   instrument; the file's line numbers move whenever the registry gains or sheds a family, and
   it shed one to `session-handlers.ts` in T4b.
-- `docs/reference/editor-architecture.md` §4 and §16.4 — the `world.*` verbs and the drawer
+- `docs/reference/editor/commands.md` and `docs/reference/editor/world.md` — the `world.*` verbs and the drawer
   that drives them, as-built.

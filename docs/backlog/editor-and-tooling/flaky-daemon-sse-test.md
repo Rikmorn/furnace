@@ -95,6 +95,6 @@ retry — one sighting, no class claimed, but budget for it rather than assuming
 code + message" test; `packages/editor/src/daemon/watch.ts` + `src/daemon/events.ts` (the file
 watcher and SSE feed it exercises — `src/daemon/session.ts` was cited here too and does not
 exist: this entry's own text records the session store as deleted in foundations T2),
-`docs/reference/editor-architecture.md` (SSE change feed + file watching);
+`docs/reference/editor/change-feed.md` (SSE change feed + file watching);
 `readsse-timeout-not-honoured.md` — the lying instrument this entry's own analysis runs on,
 and the reason a diagnosis should start there rather than here.

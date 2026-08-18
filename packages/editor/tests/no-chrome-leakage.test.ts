@@ -8,7 +8,8 @@ import { walk } from "./_source-scan.ts";
 // The mirror of `frontend-no-engine-leakage.test.ts`. That one keeps the ENGINE out of the
 // chrome; this one keeps the CHROME out of every layer underneath it. Both halves of the
 // editor's `frontend/ → { field-host/, action-registry/ } → shared/` arrow
-// (editor-architecture §7) are machine-enforced, in both directions, and neither half is
+// (`docs/reference/editor/bundling.md`) are machine-enforced, in both directions, and
+// neither half is
 // prose any more.
 //
 // WHY ONE TEST FOR THREE DIRECTORIES: they are the same rule read at three depths. React is

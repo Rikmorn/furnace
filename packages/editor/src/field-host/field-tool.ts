@@ -77,7 +77,8 @@
 //     past T3a's two-reader bar for ADDING a `HostSubstrate` member. It is not a
 //     substrate member and must not become one — the bar governs state the HOST
 //     still owns and shares, and state that acquires an OWNER rides on that
-//     owner's seam instead (`editor-architecture.md` §21.1; `layers` and `sliceY`
+//     owner's seam instead (`docs/reference/editor/field-host.md` "The deps-record
+//     law"; `layers` and `sliceY`
 //     had five reader clusters between them and became `viewState.layers()`).
 //     All three thunks are now `tool.digRadius` and nothing inside those three
 //     modules changed.

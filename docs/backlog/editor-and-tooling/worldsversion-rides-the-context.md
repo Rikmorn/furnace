@@ -70,4 +70,4 @@ take then — the provider stack already exists and `WorldProvider` is the natur
 `ViewportFocus` beside it as the contrast case),
 `packages/editor/src/frontend/components/shell/WorldDrawer.tsx`,
 `packages/editor/src/frontend/hooks/useActionContext.tsx` (the provider the registry took);
-`docs/reference/editor-architecture.md` §16.8.
+`docs/reference/editor/change-feed.md`.

@@ -147,4 +147,4 @@ reference, tldraw.dev/starter-kits/agent, arxiv 2506.21458 (MindCube), 2504.0178
 (BlenderGym), 2512.22351 (VULCAN), 2403.11756 (Just Undo It), 2505.03275 (RAG-MCP),
 figma.com multiplayer engineering posts, Unreal Multi-User Editing docs.
 
-**Fed:** the agent-door design in `docs/reference/editor-architecture.md`, which cites this file for the loopback-bind requirement on local HTTP servers.
+**Fed:** the agent-door design in `docs/reference/editor/agent-door.md`; `docs/reference/editor/daemon.md` cites this file for the loopback-bind requirement on local HTTP servers.

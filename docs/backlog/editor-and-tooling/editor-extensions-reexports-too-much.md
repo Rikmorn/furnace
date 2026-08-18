@@ -41,4 +41,4 @@ so the next boundary pass doesn't have to re-derive which members are load-beari
 `packages/editor/src/frontend/components/WorldPanel.tsx` (gone) (main-thread cast — three members),
 `packages/editor/src/frontend/lib/generation-protocol.ts` (gone) (`WorkerEngine` — two members),
 `packages/editor/src/field-host/analyzer-protocol.ts` (`AnalyzerEngine` — one member),
-`docs/reference/editor-architecture.md` §13.2 + §19 (the as-built seams).
+`docs/reference/editor/bundling.md` (the `export * as extensions` seam, as built).

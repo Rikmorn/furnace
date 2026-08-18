@@ -7,7 +7,7 @@ import { walk } from "./_source-scan.ts";
 
 const FRONTEND = join(import.meta.dir, "..", "src", "frontend");
 // `src/shared/` is the neutral layer both arrows point at (`frontend/ → field-host/ →
-// shared/`, editor-architecture §7). It is scanned by the SAME rules and with NO
+// shared/`, `docs/reference/editor/bundling.md`). It is scanned by the SAME rules and with NO
 // exemptions, and that is not decoration: EVERY ONE of its six modules is VALUE-imported by
 // chrome components — `catalog.ts`, `field-brush.ts`, `field-entity.ts`, `field-limits.ts`
 // (since T3b2), `action-table.ts` (four consumers since T3b2 Task 5: `ToolStrip.tsx`,
@@ -77,7 +77,7 @@ const FIELD_HOST = `["'][^"']*field-host(/|["'])`;
 // `descriptors.ts`, `keys.ts`, `result.ts` and the barrel are plain, zod-free and
 // chrome-value-importable, and every zod value lives in `schemas.ts`. What the guard checks
 // is the constraint itself (no zod, no core, in the chrome bundle) rather than a proxy for it
-// (editor-architecture §22.5, which recorded the decision in Task 3).
+// (`docs/reference/editor/action-registry.md` "The layer", which recorded the decision).
 //
 // THE BARREL IS COVERED BY CONSTRUCTION, not by a second pattern: `index.ts` re-exports the
 // schema module's TYPES only, so there is no value edge for a chrome import of it to follow.

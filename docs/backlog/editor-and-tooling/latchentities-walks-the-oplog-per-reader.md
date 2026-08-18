@@ -14,7 +14,7 @@ cost without applying its own huge-world lens.
 `host.listEntities()`, which **walks the whole op log**, and after T3b1's
 context→latch conversion it runs **once per reader — up to four times where the old
 provider walked it once**. Accepted at the time with "revisit if the entity list gets
-long or the tick gets chattier" (`editor-architecture.md` §21.3, final paragraph) —
+long or the tick gets chattier" (`docs/reference/editor/chrome.md` §"The seams the chrome reads") —
 this entry is that revisit trigger's home. Under the huge-world handoff's lens
 (`engine-architecture.md` §16) this is a per-reader multiplication of an O(oplog) walk,
 exactly the class the four named assumptions are watched for.
@@ -29,4 +29,4 @@ exactly the class the four named assumptions are watched for.
 ## Reference
 
 - `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (`latchEntities`);
-  `docs/reference/editor-architecture.md` §21.3; `engine-architecture.md` §16.
+  `docs/reference/editor/chrome.md` §"The seams the chrome reads"; `engine-architecture.md` §16.

@@ -15,7 +15,7 @@ triggers them (`edit.undo` then reads them as the human's), pinned by the tripwi
 `field-host-move.test.ts` ("session.confirm commits stay UNATTRIBUTED whoever triggers
 them"). Cost is only the benign direction: an agent that `edit.grab`s and confirms its own
 move cannot step it back (it can reverse via inverse ops, or ask). Posture documented at
-`docs/reference/editor-architecture.md` §29.2.
+`docs/reference/editor/agent-door.md` §"`session.confirm` commits are left UNSTAMPED, whoever triggers them".
 
 **The open question.** Whose work IS a confirm — the stager's, the trigger's, or a third
 thing (e.g. stamp from the session's own provenance)? The answer decides this verb and any

@@ -73,5 +73,5 @@ Size proves the model works; position is the remaining half of it.
   each rider is paid; a cell-relative arrangement changes what those proofs are computed from.
 - `packages/editor/src/frontend/hooks/useWorkspace.tsx` — the three workspace creators and the
   `touched` / `restored` / `clearOnArrival` flags.
-- `docs/reference/editor-architecture.md` §palette layer — the as-built three columns and the
+- `docs/reference/editor/chrome.md` §"The palette layer, the workspace store, and geometry" — the as-built three columns and the
   resize mechanism this entry is the remainder of.

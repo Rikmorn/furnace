@@ -44,5 +44,5 @@ gate — now there); `packages/editor/src/field-host/field-host.ts` (`setSlice`)
 `packages/editor/src/field-host/field-machine.ts` (`applyStampGhost`'s existing
 full-height note — now there);
 `packages/editor/src/field-host/field-protocol.ts` (`sliceAprons` — how the field is
-actually clipped); `docs/reference/editor-architecture.md` §16 (Layers + slice) and §18
-(the prop layer).
+actually clipped); `docs/reference/editor/tools.md` §"Layers and the slice plane" (the gates, and the
+`props` layer they gate).

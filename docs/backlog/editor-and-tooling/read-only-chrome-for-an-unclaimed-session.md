@@ -8,9 +8,9 @@ The session-claim policy, settled at the foundations programme design (2026-08-0
 
 *(It was recorded in `editor-ai-integration-milestone.md`, which had no other home for it at
 the time. That entry was DELETED at foundations T4c Task 7 with its four items dispositioned —
-`docs/reference/editor-architecture.md` §27.5 carries the disposition — so this quotation is now
-the policy's own provenance. The as-built it describes is §5.1 (the claim table and the
-connection token) and §26.1; nothing in the wording below is aspirational any more except the
+`docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md` carries the disposition — so this quotation is now
+the policy's own provenance. The as-built it describes is `docs/reference/editor/change-feed.md` (the claim table and the
+connection token) and `docs/reference/editor/agent-door.md`; nothing in the wording below is aspirational any more except the
 "read-only" clause this entry exists to track.)*
 
 > exactly one chrome session may claim a world for authoring; the daemon tracks the claim; **a
@@ -53,7 +53,7 @@ stale — and the whole-branch review found that a stale label composed with the
 claim COUNT into a silent two-claims state. Foundations T4c fixed it: `useSessionClaim` owns
 the authored world and re-keys on every change, `editor-context.ts` carries the verb
 (`setAuthoredWorld`) instead of the old `worldNameRef`, and a refused re-claim releases what
-this tab left. See `editor-architecture.md` §26.1 for the shipped shape.
+this tab left. See `docs/reference/editor/agent-door.md` §"The backchannel — one ask, one id, one budget" for the shipped shape.
 
 **What that leaves for THIS entry.** The claim's world is now TRUE, which makes it usable as
 a routing key for the first time — a read-only mode would be read-only *for a world*, and
@@ -82,8 +82,8 @@ about it.
   world-name-at-connect narrowing.
 - `packages/editor/src/daemon/claims.ts` — the table, and the connection-scoped-ephemera
   reconciliation.
-- `docs/reference/editor-architecture.md` §5.1 — the as-built claim.
-- `docs/reference/editor-architecture.md` §27.5 — where the settled policy this entry narrows
+- `docs/reference/editor/change-feed.md` §"The session claim, and the connection token" — the as-built claim.
+- `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md` — where the settled policy this entry narrows
   ended up, after `editor-ai-integration-milestone.md` (its first home) was deleted at
   foundations T4c Task 7. The policy text itself is quoted at the top of this file.
 - `packages/editor/src/action-registry/result.ts` — `RefusalClass`, where a "not the editing

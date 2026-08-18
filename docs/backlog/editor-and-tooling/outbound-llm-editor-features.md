@@ -31,7 +31,7 @@ the human is in the chrome and the model is a tool they reach for, one result at
    the process environment. A browser-side call ships the key to the browser; a daemon-side
    call means the daemon composes a prompt about a world it cannot read (every fact but the
    project root and the worlds on disk lives in the other bundle —
-   `docs/reference/editor-architecture.md` §2), so it would have to ask the tab for its
+   `docs/reference/editor/daemon.md`), so it would have to ask the tab for its
    context over the backchannel and then call out. The backchannel makes the second shape
    possible for the first time; it did not exist when this was filed.
 2. **Key management.** Where a key lives, who may read it, and what the editor does with no
@@ -57,7 +57,7 @@ the human is in the chrome and the model is a tool they reach for, one result at
 **What it is NOT.** Not AI *generation* of assets (textures, meshes, audio) — that is the
 fenced-out Rust asset-pipeline backend. Not runtime AI (NPC planning, TTS), which is
 `docs/backlog/ai-agents/llm-as-planner-experiments.md`. Not the inbound MCP door, which is
-built and whose as-built is `docs/reference/editor-architecture.md` §26–§27.
+built and whose as-built is `docs/reference/editor/agent-door.md`.
 
 **Why it did not ride T4.** T4's whole thesis is that furnace exposes a substrate an agent
 drives; the agent, its model, its keys and its budget are the CALLER's. Outbound inverts
@@ -85,8 +85,8 @@ plumbing excuse; they are not a reason.
 
 ## Reference
 
-- `docs/reference/editor-architecture.md` §26–§27 — the inbound half, as built; §27's exit
-  table for what T4c closed.
+- `docs/reference/editor/agent-door.md` — the inbound half, as built; `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md`
+  for what T4c closed.
 - `packages/editor/src/field-host/field-mutation.ts` — `applyOps`, the one-undo-entry seam a
   reviewed proposal would land through.
 - `packages/editor/src/field-host/field-capture.ts` — the capture a prompt would carry.

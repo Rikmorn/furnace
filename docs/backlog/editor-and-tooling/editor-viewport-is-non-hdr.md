@@ -58,6 +58,6 @@ for capture, so an HDR preview mode must not reach for `{ sampleCount: 4, hdr: t
 **Reference:** `packages/editor/src/field-host/field-host.ts` (the `requestContext` call and
 the `effects: []` render), `packages/dungeon/src/main.ts` (what the game actually requests),
 `packages/core/src/frame/render.ts` (the HDR↔effects throw contract),
-`docs/reference/editor-architecture.md` §16.1 (what `init` asks for and the teardown chain
+`docs/reference/editor/chrome.md` §"The canvas host" (what `init` asks for and the teardown chain
 that would order a re-init), `studio-key-light-blows-out-near-geometry.md` (the other
 deferral on this same render path — a tuning note whose subject changes if this one lands).

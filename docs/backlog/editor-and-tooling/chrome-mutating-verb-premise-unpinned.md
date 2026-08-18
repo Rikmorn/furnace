@@ -24,4 +24,4 @@ the obvious candidate — it reworks the door anyway).
 
 **Reference:** the trust-argument docblocks in `frontend/lib/session-answerers.ts`
 (the `AGENT_ORIGIN` authoring note) and `tests/session-mutation.test.ts`;
-`editor-architecture.md` §29.1.
+`docs/reference/editor/agent-door.md` §"The ownership guard".

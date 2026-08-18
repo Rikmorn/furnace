@@ -56,5 +56,5 @@ most of the saving.
   case-insensitive-filesystem comment: the two verbs that get this right.
   `grep -n 'already-exists' packages/editor/src/daemon/handlers.ts` is the durable
   instrument; this entry has carried wrong line numbers for that file twice.
-- `docs/reference/editor-architecture.md` §4 and §16.4 — the `world.*` verbs and the drawer
+- `docs/reference/editor/commands.md` and `docs/reference/editor/world.md` — the `world.*` verbs and the drawer
   that drives them, as-built.

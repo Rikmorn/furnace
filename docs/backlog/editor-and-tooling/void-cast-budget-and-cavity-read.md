@@ -49,6 +49,6 @@ existing build, not work.
   `VOID_CAST_CHUNK_BUDGET`, the four refusals, `voidCastGen` / `voidCastJobGen`. (All of it
   lived in `field-host.ts` until foundations T3b1, 2026-08-06.)
 - `packages/editor/scripts/analyzer-pixel-check.md` — the pixel-check recipe to copy.
-- `docs/reference/editor-architecture.md` §14 (the void cast, its refusals and its lifetime).
+- `docs/reference/editor/tools.md` §"The void cast — an X-ray view mode" (its refusals and its lifetime).
 - `docs/learnings/2026-07-21-invisible-line-overlays.md` — why "it is drawn" is not a claim to
   make from a green test suite.

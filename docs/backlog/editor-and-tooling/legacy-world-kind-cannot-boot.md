@@ -64,5 +64,5 @@ to still work in the game, which is what the word now promises and no longer del
 - `packages/editor/src/daemon/worlds.ts` — `listWorlds` and the `oplog.json` test.
 - `packages/dungeon/src/world/world-loader.ts` — `loadWorld` and `isWorldManifest`,
   the gate that made `legacy` mean "cannot boot".
-- `docs/reference/editor-architecture.md` §4 and §16.4 — the daemon's world verbs and the
+- `docs/reference/editor/commands.md` and `docs/reference/editor/world.md` — the daemon's world verbs and the
   drawer that renders their rows, as-built.

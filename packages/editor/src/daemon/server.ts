@@ -145,10 +145,11 @@ function requestUrl(req: IncomingMessage): URL {
 function readBody(req: IncomingMessage): Promise<string> {
   // No body-size cap by design: the daemon binds 127.0.0.1 and serves one local
   // single-user editor session — authentication and non-localhost access are
-  // both out of scope (`editor-architecture.md` §2). Revisit if it ever accepts
-  // non-localhost connections. (The "§9" this cited from the daemon's first
-  // commit until T4a was a section of a gitignored spec — `editor-architecture.md`
-  // did not exist yet — so it had always resolved against the wrong document.)
+  // both out of scope (`docs/reference/editor/daemon.md`). Revisit if it ever
+  // accepts non-localhost connections. (The "§9" this cited from the daemon's
+  // first commit until T4a was a section of a gitignored spec — the editor
+  // architecture reference did not exist yet — so it had always resolved against
+  // the wrong document.)
   return new Promise((resolvePromise, reject) => {
     let data = "";
     req.on("data", (chunk: Buffer) => {

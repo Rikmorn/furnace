@@ -13,4 +13,4 @@ dig stroke means nothing without a position.
 **Trigger to revisit:** a repeated PARAMETERISED verb worth repeating — a stamp with the same params at a
 new region is the plausible one, and that is really "duplicate, then move", which exists.
 
-**Reference:** `packages/editor/src/frontend/lib/actions.ts` (the action registry — it knows what ran, which is why it is the natural home); `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `packages/editor/src/frontend/lib/actions.ts` (the action registry — it knows what ran, which is why it is the natural home); `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

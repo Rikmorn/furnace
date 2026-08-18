@@ -18,4 +18,4 @@ they are the consumer's, and the editor should be able to host a view the consum
 consumer — the analyzer worker's `analyzerVerify` — and this is the second one that would
 justify formalising it.
 
-**Reference:** the editor-extensions seam, whose ONE consumer today is the analyzer worker's `analyzerVerify` — this would be the second, and the one that justifies formalising the contract; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** the editor-extensions seam, whose ONE consumer today is the analyzer worker's `analyzerVerify` — this would be the second, and the one that justifies formalising the contract; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

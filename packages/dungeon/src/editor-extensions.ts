@@ -11,7 +11,7 @@
 // (`AnalyzerEngine`). `AGENT` and `MaterialCache` ride along as the analyzer's agent profile and
 // the dungeon's one GPU-material seam; they are not a live editor contract, so do not treat a
 // change to their shape as an editor-facing break.
-// `docs/reference/editor-architecture.md` §3a records the same fact from the editor's side.
+// `docs/reference/editor/bundling.md` records the same fact from the editor's side.
 import { defineService } from "@furnace/core/registry";
 import { analyzerVerify } from "./agent/walk-probe.ts";
 

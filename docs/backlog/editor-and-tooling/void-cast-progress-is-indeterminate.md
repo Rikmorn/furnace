@@ -38,7 +38,7 @@ the argument rests on.)
 
 **The stated reason changed at foundations T3a, the conclusion did not.** The seams were
 "deliberately single-slot and deliberately few" when this was filed; T3a made all thirteen
-multicast (`field-host/view-channel.ts`, `editor-architecture.md` §20). A fourteenth is
+multicast (`field-host/view-channel.ts`, `docs/reference/editor/field-host.md`). A fourteenth is
 therefore cheaper to *implement* than it was — the primitive exists and a seam is now three
 lines — but the deferral never rested on the implementation. It rests on the surface, and
 that is unchanged.

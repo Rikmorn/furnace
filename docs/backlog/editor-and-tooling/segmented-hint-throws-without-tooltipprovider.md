@@ -24,7 +24,7 @@ one of two costs named by *Two layering back-edges: `ui/` reaching app chrome, a
 `field-host/` reaching `frontend/lib/`* — an entry in
 `docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` (gone), un-merged at
 genre-contracts — taken at foundations T3b1 (2026-08-06); the move's as-built is
-`docs/reference/editor-architecture.md` §7. That move fixed the **direction** problem — the tooltip trio
+`docs/reference/editor/bundling.md`. That move fixed the **direction** problem — the tooltip trio
 moved to `components/ui/tips.tsx`, so no file under `ui/` imports app-layer chrome any more.
 It did **not** fix this, because the throw is a Radix runtime requirement that travels with
 `ActionTip` wherever the file lives. Filed separately rather than dropped with the section.
@@ -57,5 +57,5 @@ that claim.
   `Tooltip` outside one does not degrade, it throws").
 - `packages/editor/src/frontend/components/ui/tooltip.tsx` — `TooltipProvider`, the
   separately-exported piece nothing forces a caller to mount.
-- `docs/reference/editor-architecture.md` §7 (the layer rule the T3b1 move established) and
+- `docs/reference/editor/bundling.md` (the layer arrow the T3b1 move established) and
   §18's tips paragraph (the trio's two moves).

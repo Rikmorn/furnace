@@ -18,8 +18,8 @@ second, tiny scatter answers it, which is the in-model solution.
 ---
 
 **Reference:** the F4.5 charter's §7 capability sweep (the adjudication this file is the
-backlog column of), `docs/reference/editor-architecture.md` §16–§18 for everything in the
+backlog column of), `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything in the
 adopt column, and `docs/learnings/seals/2026-08-03-epic3-f4.5-overlay-cockpit.md` for the
 stage that produced both.
 
-**Reference:** the placement records the scatter emits and the op log that would have to carry a per-record override; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** the placement records the scatter emits and the op log that would have to carry a per-record override; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

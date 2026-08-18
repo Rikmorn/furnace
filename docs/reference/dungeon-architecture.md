@@ -352,7 +352,7 @@ out of the retiring region-world fixture before it went.
   authoring truth) + `oplog.json` + `meshes/*.fmesh` + `materials/*.mat` + `kit/*.json`
   (all derived). `bakeFieldWorld` in core is PURE and shared by the editor's export, the
   committed world's bake script (§5) and the headless GPU walk test. The editor authoring
-  surface is the overlay cockpit (`editor-architecture.md` §11–§18).
+  surface is the overlay cockpit (`docs/reference/editor/README.md` indexes it).
 - **F2a materials (2026-07-16, user-gated):** the field carries a per-cell material
   class (charter §2.1 made real — see `core-modules.md` §field). The dungeon supplies
   the catalog's world-materials half as DATA: `catalog/materials.json` (rock/dirt/

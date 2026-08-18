@@ -369,6 +369,6 @@ All into deleted files; use `git show 4197f807:<path>`.
 | `packages/editor/src/daemon/mutations.ts` | the pure structural edits `apply` composed |
 | `packages/editor/src/daemon/handlers.ts:234-261` | `scene.batch` — grouping for free |
 
-The as-built prose for this design lived in `docs/reference/editor-architecture.md` §4.2 and
-was accurate at `4197f807`. That section is removed along with the code — this file is the
+The as-built prose for this design lived at §4.2 of the editor architecture reference and
+was accurate at `4197f807` (`git show 4197f807:docs/reference/editor-architecture.md`). That section is removed along with the code — this file is the
 surviving record.

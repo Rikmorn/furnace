@@ -45,5 +45,5 @@ and cannot find what they just made.
   `packages/editor/src/frontend/components/CollapsibleSection.tsx`.
 - `docs/backlog/editor-and-tooling/entity-list-has-no-legible-order.md` — the sibling half of
   the same gate finding, narrowed at T5.
-- `docs/reference/editor-architecture.md` §28 (the T5 as-built), §18.8 (palettes the user can
+- `docs/learnings/seals/2026-08-11-foundations-t5-polish-guidance-register.md` (the T5 narration), `docs/reference/editor/chrome.md` §"The palettes" (palettes the user can
   size — the space this default would spend).

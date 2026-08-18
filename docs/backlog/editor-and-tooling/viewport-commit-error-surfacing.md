@@ -15,4 +15,4 @@ viewport showing the transformed state while the document is unchanged — the S
 **Trigger to revisit:** When adding editor error-toast or notification UX (the
 `commitComponents`/`commitSettings` paths have the same gap).
 
-**Reference:** M5B Task 14 review. The M5A/M5B as-built sections were deleted from `docs/reference/editor-architecture.md` when the surface was (F4.5a chrome, T2 daemon + core) and git history is the record; what stands today is §9 (the inspector module, which survived intact) and §16–§18 (the overlay cockpit that replaced the rest).
+**Reference:** M5B Task 14 review. The M5A/M5B as-built sections were deleted from the editor as-built when the surface was (F4.5a chrome, T2 daemon + core) and git history is the record; what stands today is `docs/reference/editor/inspector.md` (the inspector module, which survived intact) and `docs/reference/editor/chrome.md` with its siblings (the overlay cockpit that replaced the rest).

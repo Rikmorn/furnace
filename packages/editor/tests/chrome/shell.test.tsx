@@ -2582,7 +2582,8 @@ test("the overlay renders the REGISTRY — every keyed action has a row, with it
 // being VISIBLE, which a submenu would hide.
 //
 // THE FOLD IS ARITHMETIC HERE, NOT A MEASUREMENT, and this comment is its ONE home — the
-// numbers are cited from `BurgerMenu.tsx`'s header and from `editor-architecture.md` rather
+// numbers are cited from `BurgerMenu.tsx`'s header and from
+// `docs/reference/editor/chrome.md` rather
 // than repeated there. happy-dom runs no layout, so no case in this file can see a pixel.
 //
 // Read off the BUILT stylesheet rather than off `tailwindcss/theme.css`, because the two

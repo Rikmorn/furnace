@@ -16,4 +16,4 @@ exists), and a decision about what delete/duplicate/move do to a set.
 **Trigger to revisit:** a workflow that repeats the same edit across several stamps — most likely the
 first time a world has enough entities that one-at-a-time is the bottleneck.
 
-**Reference:** `FieldHost.selectEntity` and `subscribeEntitySelection` (the one-id contract); the inspector module's N-target and `isMixed` handling (the half that already exists); `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `FieldHost.selectEntity` and `subscribeEntitySelection` (the one-id contract); the inspector module's N-target and `isMixed` handling (the half that already exists); `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

@@ -26,7 +26,7 @@ const NEG_CAP = 5; // the −axis cap: smaller and unlabelled, the way a ViewCub
 // reader can CHECK this dependency instead of trusting it. It runs one way: delete those
 // six and these two constants are a live finding again. The full argument is on
 // `axisView` there; the finding this closes is recorded at
-// `docs/reference/editor-architecture.md` §18.5.
+// `docs/reference/editor/action-registry.md`, "Input schemas".
 const HIT = 18;
 const NEG_HIT = 14;
 

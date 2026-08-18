@@ -20,7 +20,8 @@ import { walk } from "./_source-scan.ts";
 // of which all 59 now cross a module line. It is a measurement of who WRITES whose state, not
 // of who IMPORTS whom, and the map never measured the import graph at all. So this file does
 // not turn that 0 into a gate; it gates the MECHANISM the map describes those 59 edges
-// travelling through, which §5.5 and editor-architecture §20.3 both spell the same way:
+// travelling through, which §5.5 and `docs/reference/editor/field-host.md` ("The substrate
+// record") both spell the same way:
 //
 //   `field-picking.ts` reaches `field-machine.ts` through the arrow pair in its deps record
 //   `field-view.ts`'s two deps are VERBS on another extracted module (voidcast's discard/request)
@@ -32,7 +33,8 @@ import { walk } from "./_source-scan.ts";
 // THE ALLOWED EDGES, re-derived from the map rather than from the shape it suggests:
 //   - a seam module may import the SHARED SEAMS and the PURE modules beside it —
 //     `substrate.ts`, `view-channel.ts`, `input-router.ts`, the two worker-protocol pairs,
-//     and the sixteen stateless helpers (editor-architecture §21's accounting of the 46 files)
+//     and the sixteen stateless helpers (`docs/reference/editor/field-host.md` derives the
+//     directory from the artifact)
 //   - the FACADE may import every seam module, because assembling them is what it is
 //   - a seam module may import another seam module's TYPES. `import type` is erased, so it
 //     carries no runtime edge and cannot become an unassembled call. This is the same
@@ -71,7 +73,7 @@ const names = (): string[] =>
  *  "extracted cluster", it IS the shape — a module assembled by the facade with an explicit
  *  dependency record is what every one of T3's extractions produced, and what the three T4c
  *  modules written from scratch (`field-capture.ts`, `field-mutation.ts`, `field-query.ts`)
- *  adopted unchanged. It reproduces `docs/reference/editor-architecture.md` §21's roster
+ *  adopted unchanged. It reproduces `docs/reference/editor/field-host.md`'s roster
  *  exactly — that table names 21 modules, and so does this predicate.
  *
  *  Anchored at column 0 so a `//`-commented mention cannot match, which is the discipline

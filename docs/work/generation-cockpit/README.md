@@ -18,7 +18,7 @@ owns this?" questions on sight.
 
 **Shipped:** 3.0 → 3.3, then the ONE FIELD slices F0–F4, then F4.5 (the overlay cockpit —
 shell, hands, finish). Each is sealed; the seals under `docs/learnings/seals/` are the
-record, and `docs/reference/editor-architecture.md` is the as-built.
+record, and `docs/reference/editor/README.md` indexes the as-built.
 
 **Remaining:** huge-worlds (scale, formerly F5) — the huge-world slice, held last by ruling.
 Its handoff register is `docs/reference/engine-architecture.md` §16, which is where the

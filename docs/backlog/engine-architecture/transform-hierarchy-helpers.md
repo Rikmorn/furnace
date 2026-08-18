@@ -35,7 +35,7 @@ an entity-parenting field; foundations T2 (2026-08-05) deleted `@furnace/core/sc
 is no scene format to add that field to and the `EntitiesPanel` it was measured against went at
 F4.5a. The general transform-hierarchy question — this entry — is the part that stayed open. A
 hierarchy over *generator entities* would be a different object model again and would start
-from the entities palette (`docs/reference/editor-architecture.md` §17.2/§17.7).
+from the entities palette (`docs/reference/editor/interaction.md` §"One selection, two surfaces"; `docs/reference/editor/chrome.md` §"The palettes").
 
 **A-8 note (2026-05-29):** the API-posture tranche classified scene-graph-style hierarchy as a
 higher-tier convenience built *on top* of the core handle layer (`api-posture.md` R8 —

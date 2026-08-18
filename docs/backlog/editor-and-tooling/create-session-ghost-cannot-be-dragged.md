@@ -53,5 +53,5 @@ inside the canvas means while something is armed.
   ~1,000-line hole and every line number below it drifted by a different amount.
 - `packages/editor/src/frontend/components/shell/session-card/AdvancedSection.tsx` — the d-pad
   that is the current answer.
-- `docs/reference/editor-architecture.md` §17.3 (move as a reconfigure session), §17.8 (the
+- `docs/reference/editor/interaction.md` (move as a reconfigure session), `docs/reference/editor/tools.md` (the
   pending-stamp arm and region-draw entry).

@@ -7,7 +7,7 @@
 
 ## 1. Inventory
 
-**Commands — 17, all in `packages/editor/src/daemon/handlers.ts`** (verified against the registry; matches `docs/reference/editor-architecture.md` §4/§10.1): `scene.list`, `scene.read`, `scene.open`, `scene.get`, `scene.save`, `scene.validate`, `scene.introspect`, `scene.addEntity`, `scene.removeEntity`, `scene.setComponent`, `scene.removeComponent`, `scene.setResource`, `scene.removeResource`, `scene.setSettings`, `scene.batch`, `scene.undo`, `scene.redo`. All zod `strictObject`, single `dispatch()` choke point (handlers.ts:248). `tableEnum = ["geometries","shaders","materials"]` (handlers.ts:23) — textures/effects not command-mutable.
+**Commands — 17, all in `packages/editor/src/daemon/handlers.ts`** (verified against the registry as it then stood; that scene-era table is gone — today's is `docs/reference/editor/commands.md`): `scene.list`, `scene.read`, `scene.open`, `scene.get`, `scene.save`, `scene.validate`, `scene.introspect`, `scene.addEntity`, `scene.removeEntity`, `scene.setComponent`, `scene.removeComponent`, `scene.setResource`, `scene.removeResource`, `scene.setSettings`, `scene.batch`, `scene.undo`, `scene.redo`. All zod `strictObject`, single `dispatch()` choke point (handlers.ts:248). `tableEnum = ["geometries","shaders","materials"]` (handlers.ts:23) — textures/effects not command-mutable.
 
 **Panels/UI surfaces:** exactly 3 dockview panels — `entities`, `viewport`, `inspect` — added once in `App.tsx` `onReady` (App.tsx:228–246), plus non-docked `Toolbar` (scene picker/save/undo/redo) and `StatusBar`. Module-level `COMPONENTS` map (App.tsx:25–29); state reaches panels via `EditorContext` through dockview portals, fresh context value per render (App.tsx:250).
 
@@ -70,4 +70,4 @@ Backlog `docs/backlog/editor-and-tooling/` (14 entries; 7 editor-core, 7 adjacen
 
 **Bottom line:** substrate (~30% of LOC) is sound and cockpit-ready, including the load-bearing answer that project-first bundling can reach the dungeon's generators exactly the way it reaches extensions (one config line + one devDep away). The product layer (~55%) is scene-inspector-shaped and mostly dead weight or partial-reuse for a cockpit. The chrome (~15%) is small but is where both named pains live, plus one doc↔code drift (`revertSettings` unwired) worth fixing or re-documenting regardless of direction.
 
-**Fed:** the Epic 3 Generation-Cockpit refocus, cited by name in `docs/learnings/seals/2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md` and in `docs/reference/editor-architecture.md`.
+**Fed:** the Epic 3 Generation-Cockpit refocus, cited by name in `docs/learnings/seals/2026-07-04-epic2-2.2.5b-phase-b1-built-interfaces.md` and in the editor as-built, now `docs/reference/editor/README.md`.

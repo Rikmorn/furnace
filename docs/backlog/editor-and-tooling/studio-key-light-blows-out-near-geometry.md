@@ -54,7 +54,7 @@ count: see the T4c note above — the instrument is the problem, not the rig.)*
 - `packages/editor/src/field-host/field-render.ts` — the studio rig (`sceneLights`: key
   light + hemisphere fill, now there); the shading-mode switch remains `field-host.ts`'s
   `setShading` facade.
-- `docs/reference/editor-architecture.md` §16.5 (studio shading as the default and why the
+- `docs/reference/editor/chrome.md` §"Seeing — the view provider and the axis triad" (studio shading as the default and why the
   advisor's markers stay unlit under it).
 - The F4.5 charter's premises table, P5 — the passed premise and the fallback that therefore
   was not scheduled (`cavity-ao-matcap-shading-fallback.md`).

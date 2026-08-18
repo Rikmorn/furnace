@@ -17,4 +17,4 @@ time someone reaches for a corner and finds nothing there). Take it with the giz
 — `field-host/gizmo.ts` already owns handle picking and `field-move.ts` the anchored
 arithmetic, and a resize is a third gesture through the same arbitration.
 
-**Reference:** `packages/editor/src/field-host/gizmo.ts` (handle picking) and `field-move.ts` (the anchored arithmetic) — a resize is a third gesture through the same arbitration; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `packages/editor/src/field-host/gizmo.ts` (handle picking) and `field-move.ts` (the anchored arithmetic) — a resize is a third gesture through the same arbitration; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

@@ -8,7 +8,8 @@
 // `descriptors.ts` stays plain, zod-free, chrome-value-importable data, and every schema
 // lives HERE. The guard was narrowed to match: `tests/frontend-no-engine-leakage.test.ts`
 // forbids a chrome value-import of `action-registry/schemas` and of bare `zod`, and permits
-// the rest of the directory (editor-architecture §22.5, where the decision was recorded
+// the rest of the directory (`docs/reference/editor/action-registry.md` "The layer",
+// where the decision was recorded
 // before T3b2 Task 4 implemented it).
 //
 // `index.ts` re-exports the TYPES below and deliberately not the values, for the same
@@ -33,8 +34,8 @@
 // a caller hand `view.snapNegZ` an axis of `x` and make the id a lie. What they carry
 // instead is `mcpProjection`, which records that the six collapse onto ONE `view.snap
 // {axis, sign}` agent tool while the chrome keeps six literal, greppable ids — the WCAG
-// 2.5.8 equivalent affordance for `AxisTriad`'s sub-minimum tips (editor-architecture
-// §18.5). Both facts, stated once each, in the place that can hold them.
+// 2.5.8 equivalent affordance for `AxisTriad`'s sub-minimum tips
+// (`docs/reference/editor/action-registry.md` "Input schemas"). Both facts, stated once each, in the place that can hold them.
 //
 // EVERY FIELD IS REQUIRED, and the OPTIONALITY lives one level up: `InputOf` admits
 // `undefined`, so "no input at all" is expressible and "an input that names nothing" is

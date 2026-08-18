@@ -87,6 +87,6 @@ this line pointed until the T5 branch review, 2026-08-11). **The eleven falsifie
 hints are recorded NOWHERE but this entry** — `grep -c "distance" docs/reference/field-host-clusters.md`
 returns 0, so the bullet above is the only record of that measurement and must not be deleted
 on the assumption a reference doc carries it;
-`docs/reference/editor-architecture.md` §21.5 (the live module roster) and §24 (the T3d
-as-built); `.claude/rules/working-standards.md` §Design ("deletion pass before addition
+`docs/reference/editor/field-host.md` (the live module roster and the T3d
+as-built facade); `.claude/rules/working-standards.md` §Design ("deletion pass before addition
 pass").

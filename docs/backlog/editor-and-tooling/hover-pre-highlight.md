@@ -22,4 +22,4 @@ half is id materials (or id geometry) for the mesh-less candidate kinds — whic
 work does NOT produce, since it draws the viewport's own pipelines rather than an id pass.
 Until then this is still a consequence rather than a deferral, on one reason instead of two.
 
-**Reference:** `frame.renderToTexture`'s `sampleCount` constraint (the blocker T4c removed by taking MSAA out of the editor) and the T4c capture path, which draws the viewport's own pipelines rather than an id pass; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `frame.renderToTexture`'s `sampleCount` constraint (the blocker T4c removed by taking MSAA out of the editor) and the T4c capture path, which draws the viewport's own pipelines rather than an id pass; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

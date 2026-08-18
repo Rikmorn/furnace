@@ -49,4 +49,4 @@ items, which have the identical asymmetry.
   and `vetoTipDuringTravel`.
 - `packages/editor/src/frontend/lib/actions.ts` — `controlVerdict`, the one place a refusal's
   sentence is decided.
-- `docs/reference/editor-architecture.md` §18.4 (the refusal rule), §18.5 (the palette as a view).
+- `docs/reference/editor/design-system.md` (the refusal rule, and the command palette as a view).

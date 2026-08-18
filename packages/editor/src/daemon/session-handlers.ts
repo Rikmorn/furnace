@@ -371,7 +371,8 @@ export function createSessionHandlers(
   // end: `daemon/mcp.ts` hands the payload to an agent as text and does NOT import
   // `SessionState` either. An earlier draft of this comment predicted it would — "both ends
   // that care import it" — and that was wrong about which ends care. The second reader is
-  // the AGENT, and what it reads is the tool description and `editor-architecture.md` §4,
+  // the AGENT, and what it reads is the tool description and
+  // `docs/reference/editor/commands.md`,
   // not a TypeScript declaration. A `SessionState` import at the door would be a cast over
   // bytes the daemon did not produce and cannot check: the same third-author problem one
   // hop further along.
@@ -682,7 +683,8 @@ export function createSessionHandlers(
   // A deny-list would have been worse still, and the undo-attribution slice retired the one
   // this clause used to weigh (`FENCED_ACTIONS`): this handler now holds no opinion at all
   // about which of the 39 an agent may name, so vocabulary is the only thing left to decide
-  // here. Recorded in `docs/reference/editor-architecture.md` §27.3.
+  // here. Recorded in `docs/reference/editor/agent-door.md`, "`session_interrupt` — the
+  // Esc key as a verb".
   handlers.set("session.interrupt", {
     input: z.strictObject({}),
     run: () => {

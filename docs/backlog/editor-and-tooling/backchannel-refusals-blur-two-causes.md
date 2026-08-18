@@ -103,4 +103,4 @@ any agent driving through the `bun run edit` loop.
 - `packages/editor/src/daemon/mcp.ts` — `AGENT_REMEDY`'s `internal` row, which is the stopgap.
 - `packages/editor/src/daemon/errors.ts` — `session-timeout`'s row, whose 504 argument is the
   precedent a `session-refused` code would follow.
-- `docs/reference/editor-architecture.md` §26.1, §26.3 clause 1.
+- `docs/reference/editor/agent-door.md` §"The backchannel — one ask, one id, one budget"; the T4b exit clause it narrows is in `docs/learnings/seals/2026-08-09-foundations-t4b-claim-backchannel-mount.md`.

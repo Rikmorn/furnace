@@ -15,4 +15,4 @@ op log to a scratch path is a small mechanism — what makes it a decision is th
 **Trigger to revisit: the first lost session.** The user's own ruling — "not that big a deal… fine to
 backlog".
 
-**Reference:** the host's `dirty` bit and the serialisable op log (`oplog.json` is already part of a saved world) — the mechanism half; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** the host's `dirty` bit and the serialisable op log (`oplog.json` is already part of a saved world) — the mechanism half; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

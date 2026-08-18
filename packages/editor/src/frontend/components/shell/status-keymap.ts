@@ -14,7 +14,8 @@
 //    mode — and the canvas-owned keys (`[`/`]`, ⇧, ⌃, the arrows) are half of what belongs
 //    on this line and are not in the table at all."
 //
-// SUPERSEDED by the full-derivation decision (editor-architecture §22.2). The objection was
+// SUPERSEDED by the full-derivation decision (`docs/reference/editor/tools.md`, "One table
+// states a tool fact"). The objection was
 // right about the ACTION registry — a binding table really does not know which four bindings
 // matter in a mode — and wrong only about whether the table a status line derives from has
 // to be that one. The canvas-owned vocabulary went INTO the tool table: a row states its own

@@ -56,5 +56,5 @@ sufficient on its own; no second occurrence needed.
 - `packages/editor/tests/world-actions.test.ts` — "a world.list failure fails the save
   rather than silently dropping the guard" is the case that changes.
 - D-21 (the overwrite-confirm requirement) in the F4.5 charter.
-- `docs/reference/editor-architecture.md` §4 and §16.4 — the `world.*` verbs (list,
+- `docs/reference/editor/commands.md` and `docs/reference/editor/world.md` — the `world.*` verbs (list,
   make-default, delete, rename, duplicate) and the drawer that drives them, as-built.

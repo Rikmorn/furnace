@@ -15,4 +15,4 @@ introduce it.
 **Trigger to revisit:** a world big enough that returning to a place costs real time. That is F5's
 territory, and this should be decided there rather than filed forward blind.
 
-**Reference:** `view.frameWorld` and the axis snap views (what the camera does have); the F4.5 gate's ruling declining per-world camera persistence; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `view.frameWorld` and the axis snap views (what the camera does have); the F4.5 gate's ruling declining per-world camera persistence; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

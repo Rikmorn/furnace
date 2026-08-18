@@ -49,7 +49,7 @@ population to design onboarding against.
 - `packages/editor/src/action-registry/descriptors.ts` — the authored one-sentence `hint`s
   (optional member; 27 of the 39 rows carry one), which is authored content a usage surface
   could reuse rather than re-write.
-- `docs/reference/editor-architecture.md` §18.5 (the palette and the overlay), §18.4 (what the
+- `docs/reference/editor/design-system.md` (the command palette and the shortcut overlay; and what the
   chrome already says at the point of refusal).
 - `packages/editor/PRODUCT.md` — "capability per pixel"; a permanent help surface has to earn
   its space against that.

@@ -26,6 +26,42 @@ it's escape-hatch / reference-only).
 
 The reference is "what the engine IS today." If it's stale, it's broken.
 
+### The export census
+
+The size of the public surface is **derived, never typed** — every audit that tabulated it
+has been overtaken by the next commit. Two facts make the count mechanical.
+
+**No module index re-exports a wildcard**, so every published name is written down
+somewhere:
+
+```sh
+grep -rn "export \*" packages/core/src --include="*.ts" | wc -l   # 0
+```
+
+**Counting needs the compiler API, not a regex** — type-only exports count toward the
+surface and a runtime import would drop all of them:
+
+```sh
+bun -e 'const ts = await import("./node_modules/typescript/lib/typescript.js");
+  const { existsSync, readdirSync } = await import("node:fs");
+  const SRC = "packages/core/src";
+  const mods = readdirSync(SRC, { withFileTypes: true }).filter(d => d.isDirectory())
+    .map(d => `${SRC}/${d.name}/index.ts`).filter(existsSync).sort();
+  const p = ts.createProgram(mods, { target: ts.ScriptTarget.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true,
+    noEmit: true, skipLibCheck: true });
+  const c = p.getTypeChecker();
+  let n = 0; for (const f of mods) n += c.getExportsOfModule(c.getSymbolAtLocation(p.getSourceFile(f))).length;
+  console.log(mods.length, "modules,", n, "exported names");'
+```
+
+**Zero consumers is not a strike.** This is a capability library for consumers we do not
+know, so a name with no workspace caller is a candidate for JUDGEMENT, never for automatic
+deletion — a deletion needs a per-name argument (wrong abstraction tier, orphaned by a
+deleted subsystem, or a not-for-consumers name sitting on the consumer side of the
+`_`-internal boundary). The third kind is the one that has ever fired; its resolution is the
+`internal.ts` seam, not the prefix alone (`@furnace/core/registry` § *Internal*).
+
 ---
 
 ## `@furnace/core/gpu`

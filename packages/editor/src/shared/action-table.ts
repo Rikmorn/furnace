@@ -11,7 +11,8 @@
 // Why this exists, what the six tables were, which two written non-derivation decisions it
 // overrules, and how the equality was PROVEN before anything switched (the derive-and-diff
 // gate, which stood across three commits — `c7caa42c`, `3caab726`, `55f6b93c` — and was
-// deleted by the fourth): editor-architecture §22, and §22.7 for as-built.
+// deleted by the fourth): `docs/learnings/seals/2026-08-07-foundations-t1a-t3c-backfill.md`;
+// `docs/reference/editor/tools.md` "One table states a tool fact" for the as-built.
 // `tests/shared/action-table.test.ts` is what holds the rows now — shape pins, not a diff.
 import type { BrushEffect } from "./field-brush.ts";
 import { LATTICE } from "./field-brush.ts";

@@ -20,7 +20,7 @@ should say it is dead rather than swallow presses.
 
 The same window exists during a normal boot, for the length of the engine-bundle load. That
 one is short enough to accept and is documented as a delta
-(`docs/reference/editor-architecture.md` §22.8). This entry is only about the states the
+(`docs/reference/editor/tools.md`, the tool state seam). This entry is only about the states the
 window never closes in.
 
 ## What it is not
@@ -47,4 +47,4 @@ Either of:
 - `packages/editor/src/frontend/hooks/useFieldHostState.tsx` (`FieldShell.host`'s docblock,
   which states the superseded "a control that silently did nothing … is a dead control"
   principle and what replaced it)
-- `docs/reference/editor-architecture.md` §22.8, delta 2
+- `docs/reference/editor/tools.md` §"`subscribeTool` is a STATE seam"

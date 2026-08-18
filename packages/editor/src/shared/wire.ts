@@ -43,7 +43,8 @@
  *
  * It is also `shared/`'s first DAEMON-facing member — the others (`catalog.ts`,
  * `field-brush.ts`, `action-table.ts`, `tool-registry.ts`, …) are chrome↔host. The layer
- * arrow `frontend/ → { field-host/, action-registry/ } → shared/` (editor-architecture §7)
+ * arrow `frontend/ → { field-host/, action-registry/ } → shared/`
+ * (`docs/reference/editor/bundling.md` "The layer arrow")
  * is unchanged by that: the daemon is a fourth reader ABOVE the floor like every other, and
  * `shared/` still imports nothing above itself.
  *

@@ -125,7 +125,8 @@ addresses that half: a pending ask surviving its own test file rejects later ins
 file bun happens to be running by then, as an unhandled rejection attributed to a stranger,
 and the failure moves between runs. That stays **per-site discipline** — every case that opens
 an ask settles it. The incident that established the class, and the `EventHub.close()` gap
-behind it, are recorded at `docs/reference/editor-architecture.md` §27.5 and filed as
+behind it, are recorded at
+`docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md` and filed as
 `docs/backlog/editor-and-tooling/backchannel-refusals-blur-two-causes.md` item 2.
 
 **The shared process still has no per-file isolation in the serial lane**, which is the

@@ -39,5 +39,5 @@ seam.
   early return and the adjacent write-the-case-first comment.
 - `packages/editor/src/field-host/field-query.ts` — the flags arm and its `pending`
   docblock.
-- `docs/reference/editor-architecture.md` §28.2 — the caveat's reference-doc record
+- `docs/reference/editor/agent-door.md` §"`session_query` — the spatial read" — the caveat's reference-doc record
   (lands with the `cycle2-flags-arm` merge).

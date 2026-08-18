@@ -5,13 +5,13 @@ summary: AGENT_ORIGIN is one shared tag while the door admits two agents through
 # Per-claim origin tags — the claim mints the tag
 
 **Context.** `AGENT_ORIGIN` (`shared/wire.ts`) is a single hardcoded `"agent:mcp"`, and
-the door explicitly permits two agents through one claim (the editor-architecture exit
+the door explicitly permits two agents through one claim (the undo-attribution exit
 evidence pins "TWO agents read through ONE claim" end-to-end). Two concurrent agents
 therefore stamp the same tag, are indistinguishable to the undo guard, and each can step
 the other's top entry. The guard's honest guarantee — stated in its refusal message and
 docblock since the 2026-08-14 wording fix — is "an agent steps only AGENT-AUTHORED work",
 not "only its own". Ruled a deliberate non-goal at the undo-attribution seal
-(`docs/reference/editor-architecture.md` §29.3); the human-work direction is fully closed
+(`docs/learnings/seals/2026-08-14-undo-attribution.md`); the human-work direction is fully closed
 regardless.
 
 **The shape of the fix.** The wire already affords it: the spec chose `origin?: string`
@@ -27,4 +27,4 @@ log (per-agent blame, per-agent quotas).
 
 **Reference:** `AGENT_ORIGIN` in `shared/wire.ts`; `stepsOwnWork` +
 `undoAgentAuthoredOnly` in `frontend/lib/actions.ts` / `actions.test.ts`;
-`editor-architecture.md` §29.3.
+`docs/learnings/seals/2026-08-14-undo-attribution.md`.

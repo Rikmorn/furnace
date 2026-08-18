@@ -15,4 +15,4 @@ missing is the mode (input capture, a camera the host does not own, an exit).
 **Trigger to revisit:** the bake-and-launch round trip becoming the thing that slows a session down —
 measure it before building, because the bake is fast today.
 
-**Reference:** the walkability advisor's stage 2 (the mechanism precedent — the consumer's mover against the live field, through the project's own `/engine.js`); `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** the walkability advisor's stage 2 (the mechanism precedent — the consumer's mover against the live field, through the project's own `/engine.js`); `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

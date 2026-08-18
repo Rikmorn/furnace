@@ -59,7 +59,7 @@ shape with, not a form you compile.
   data, not derivation → bake becomes a **brush-op edit log** (+ snapshots for
   compaction). Strokes/stamps as replayable commands = the document session's
   existing transactional model — the ephemeral-generation-session wart
-  (editor-architecture §13.4: generation not undoable, beside the session)
+  (generation was not undoable then, and sat beside the session)
   dissolves. The Pr-2 rule survives unchanged: the browser replays/bakes;
   stamp math stays integer/lattice where it matters.
 - **The LLM angle** ([[project_dungeon_crawler_vision]]): a brush-op stream is a

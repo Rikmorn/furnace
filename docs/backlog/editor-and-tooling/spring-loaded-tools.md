@@ -14,4 +14,4 @@ whole tool rail is the item.
 subtle: `deriveMomentary` assigns the saved tool WHOLESALE on release, which is exactly why the
 brush radius had to be moved out of `FieldTool` — a generalisation has to keep that distinction.
 
-**Reference:** `deriveMomentary` (the wholesale assign-on-release that is why the brush radius had to leave `FieldTool`); the momentary ⇧ smooth and ⌃ invert modifiers as the two existing instances; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `deriveMomentary` (the wholesale assign-on-release that is why the brush radius had to leave `FieldTool`); the momentary ⇧ smooth and ⌃ invert modifiers as the two existing instances; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.

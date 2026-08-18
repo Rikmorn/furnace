@@ -4,9 +4,9 @@ summary: decision history for the editor as a fourth furnace pillar — MCP-firs
 
 # Editor backend as fourth pillar
 
-> **As-built reference:** the M3+M4 editor is now documented as the canonical "how it IS today" at **`docs/reference/editor-architecture.md`** (daemon, two-target bundling, command table, SSE events, error contract, chrome, config namespacing). **This file is decision history** — the *why* behind that reality; for *what runs*, read the reference.
+> **As-built reference:** the editor is now documented as the canonical "how it IS today", one subsystem per file, under **`docs/reference/editor/`** — indexed at **`docs/reference/editor/README.md`** (daemon, bundling, commands, change feed, error contract, chrome, config namespacing). **This file is decision history** — the *why* behind that reality; for *what runs*, read the reference.
 
-> **Epic status:** the editor epic (M1→M5B + M1-slices) is **complete and paused** — its objective (replicate the bowling demo's setup from data) was met, and the project then retargeted to the dungeon-crawler app. **This doc is the decision history**; for what runs, read `docs/reference/editor-architecture.md`; for the future-editor gaps, see `docs/backlog/editor-and-tooling/` (the interaction-model-redesign master entry was consumed into the F4.5 charter and deleted at its seal).
+> **Epic status:** the editor epic (M1→M5B + M1-slices) is **complete and paused** — its objective (replicate the bowling demo's setup from data) was met, and the project then retargeted to the dungeon-crawler app. **This doc is the decision history**; for what runs, read `docs/reference/editor/README.md`; for the future-editor gaps, see `docs/backlog/editor-and-tooling/` (the interaction-model-redesign master entry was consumed into the F4.5 charter and deleted at its seal).
 
 > **The scene document is gone — decisions 5, 6 and the Gating-prerequisite section below are re-anchored, not retracted (2026-08-05, foundations T2).** Everything here about *dual-mode* and *core-loadable artifacts* was written when the interchange was a serialized scene document. That document format, its core loader, and the daemon's `scene.*` half are all deleted. **The principle survived the instance and the instance changed: the interchange is now the FIELD ARTIFACT + its OP LOG.** Each affected passage says so in place. The canonical statement of the re-anchored principle is `docs/reference/engine-architecture.md` §15 "Dual-mode, restated on the field artifact" — cite that, not this file, for what is true today.
 
@@ -68,7 +68,7 @@ The editor does **not** replace the cookbook — it absorbs its *boilerplate*. T
   the narrow interface the Tauri shell and M4 command layer version against. (`render()` re-issues the
   current scene on demand — panel resize — since the editor viewport is render-on-demand, no loop.)
 
-## M4 resolutions (2026-06-11; executed — as-built reality in `docs/reference/editor-architecture.md`)
+## M4 resolutions (2026-06-11; executed — as-built reality in `docs/reference/editor/README.md`)
 
 M4 turned the M3 read-only shell into the editor's command layer. Renamed from "MCP command
 layer" to **"command layer"** — MCP was descoped (below). What landed:
@@ -101,7 +101,8 @@ layer" to **"command layer"** — MCP was descoped (below). What landed:
   rather than falling out of M4. **(2026-08-10: that milestone is DONE and its file is deleted.
   The MCP mount and `viewport.capture` shipped in foundations T4b + T4c; the embedded agent was
   dropped as superseded; outbound is re-filed at `outbound-llm-editor-features.md`. As-built:
-  `docs/reference/editor-architecture.md` §26–§27, with the full disposition at §27.5. The
+  `docs/reference/editor/agent-door.md`, with the full disposition in
+  `docs/learnings/seals/2026-08-11-foundations-t4c-verbs-eyes-gate.md`. The
   "three audiences" thesis was borne out — the substrate M4 shipped is what T4 mounted over,
   unchanged.)**
 - **Deferred from M4:** extension-file watching (known gap from M3); concurrent-open await races
@@ -110,7 +111,7 @@ layer" to **"command layer"** — MCP was descoped (below). What landed:
 
 ## Epic execution order (resolved 2026-06-11; M1 slice-1/M2/M3 sealed by then)
 
-> **SUPERSEDED 2026-06-14 — editor epic closed.** M4, M5 (M5A+M5B), and all M1 slices LANDED & SEALED. **M6 (behaviour runtime + bowling gate) and M7 (porting + docs) are DROPPED** by the roadmap retarget from the bowling demo to the actual app (a first-person dungeon crawler); future editor work is driven by that app's procedural-authoring needs — which the One Field phase and the F4.5 stage then did (`docs/reference/editor-architecture.md` §11–§18). The original ordering below is kept for rationale only.
+> **SUPERSEDED 2026-06-14 — editor epic closed.** M4, M5 (M5A+M5B), and all M1 slices LANDED & SEALED. **M6 (behaviour runtime + bowling gate) and M7 (porting + docs) are DROPPED** by the roadmap retarget from the bowling demo to the actual app (a first-person dungeon crawler); future editor work is driven by that app's procedural-authoring needs — which the One Field phase and the F4.5 stage then did (`docs/reference/editor/README.md` indexes the result). The original ordering below is kept for rationale only.
 
 **M4 (MCP commands) → M5 (inspector/hierarchy/gizmos) → all remaining M1 slices as one
 registration batch (lights, textures, physics, full settings, migration, serialize) → M6 (behavior

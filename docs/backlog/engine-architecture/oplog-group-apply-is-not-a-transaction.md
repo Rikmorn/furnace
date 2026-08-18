@@ -157,7 +157,7 @@ world whose re-bake from the log produces different bytes than the live store.
 > The T3c `TransactionManager` (`txn(label, fn)`) DROP still stands: core's OpLog plus
 > `logApplyGroup` plus derived history labels ARE the transaction story, so this is the
 > open question about that story rather than a note beside a bigger one. Recorded in
-> `docs/reference/editor-architecture.md` §23.5.
+> `docs/reference/editor/history.md` §"There is no transaction layer, and that is a decision".
 
 **Reference:** `logApplyGroup` and its residual paragraph in
 `packages/core/src/field/ops.ts`; `commitGenerator`'s pass-1/pass-2 split in

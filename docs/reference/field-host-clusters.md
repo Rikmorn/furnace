@@ -326,8 +326,9 @@ its new module. Three notes for anyone reading §4–§6 as current:
   for either — which is why neither appears in §1's history column except as the 6-line
   import collapse.
 - **The bar the extractions actually settled** is recorded in
-  `docs/reference/editor-architecture.md` §21.1, not here: the substrate's two-extracted-
-  readers rule governs ADDING a member and never declining one already declared, and state
+  `docs/reference/editor/field-host.md` §"The deps-record law, in three clauses", not
+  here: the substrate's two-extracted-readers rule governs ADDING a member and never
+  declining one already declared, and state
   that acquires an owner leaves the closure rather than joining the record (`view` is the
   first instance). §7.3's recommended shape should be read against that section now.
 
@@ -753,7 +754,7 @@ from it.
   readers (`field-segment.ts`, `field-targeting.ts`, `field-render.ts`), each holding a
   `() => digRadius` thunk — past the two-extracted-readers bar. The bar did not apply: it
   governs state the HOST still owns and shares, and state that acquires an OWNER rides on
-  that owner's seam instead (`editor-architecture.md` §21.1; the `view` row here is the
+  that owner's seam instead (`docs/reference/editor/field-host.md`; the `view` row here is the
   precedent — `layers` and `sliceY` had five reader clusters between them and became
   `viewState.layers()`). All three thunks are `tool.digRadius` now and nothing inside those
   three modules changed. **The general rule, which this row states more sharply than `view`
@@ -1632,7 +1633,7 @@ bun -e 'const {readdirSync,readFileSync}=require("node:fs");
 ```
 
 46 files, **21 seam modules** (a module declaring its own `*Deps` record — the same roster
-`editor-architecture.md` §21.5 tables), and **six seam→seam import edges stand: five
+`docs/reference/editor/field-host.md` derives), and **six seam→seam import edges stand: five
 type-only and ONE value.**
 
 | Edge | Kind |
@@ -2224,7 +2225,7 @@ assembled below the `createTool` line — which sits as high as its own deps all
 **`digRadius` IS THE DISPOSITION TO READ THIS ROW FOR.** It reached Task 4 with THREE
 extracted readers, past T3a's two-extracted-readers bar for ADDING a `HostSubstrate` member
 — and it did not become one. The bar governs state the HOST still owns and shares; state
-that acquires an OWNER rides on that owner's seam (`editor-architecture.md` §21.1, and the
+that acquires an OWNER rides on that owner's seam (`docs/reference/editor/field-host.md`, and the
 `view` row below, where `layers` + `sliceY` had five reader clusters between them and became
 `viewState.layers()`). All three thunks are `tool.digRadius` now and no reader changed.
 **Reader count is the wrong question once a cluster has an owner.**
@@ -3671,7 +3672,7 @@ evidence was worth: §7.1's ranking understated every cluster it ranked and miss
 extracted anyway; §7.2's four entanglements resolved in four different ways, two of them
 shapes the paragraph did not offer; §7.3's step 3 (`ViewStore`) was never built and is now
 unnecessary, and its step 4 was half wrong about `render` and wrong about `lifecycle` in a
-clause it never stated. §24 of `editor-architecture.md` is the as-built.
+clause it never stated. `docs/reference/editor/field-host.md` is the as-built.
 
 ### 7.1 Cleanly separable today
 

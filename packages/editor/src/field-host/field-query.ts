@@ -491,7 +491,8 @@ export type Query = {
    *
    * **THE DEFINITION LIVES IN THREE PLACES AND THE THIRD IS THE ONE THAT MATTERS**, said
    * because an agent that cannot read it gets nothing from "ask this, don't squint". It is
-   * HERE, in `editor-architecture.md` §27.2, and — since T4c Task 6 — in `session_query`'s own
+   * HERE, in `docs/reference/editor/agent-door.md` "The contact rule", and — since T4c
+   * Task 6 — in `session_query`'s own
    * MCP tool description, restated in full: the downward ray, the base centre, one cell of
    * tolerance, buried-reports-contact, and why entities are not probed. A tool that said "ask
    * me about contact" without saying what contact MEANS would hand an agent a boolean it

@@ -80,4 +80,4 @@ fires without buying anything.
 - `packages/editor/src/field-host/field-tool.ts` — `sameMask` / `sameTool` (now there)
 - `packages/editor/src/frontend/lib/field-host-mirrors.ts` — `masksEqual` / `toolsEqual`
 - `packages/editor/src/shared/field-limits.ts` — the Task 5 precedent
-- `docs/reference/editor-architecture.md` §22.8, "Two comparators, deliberately"
+- `docs/reference/editor/tools.md` §"`subscribeTool` is a STATE seam" — the two comparators

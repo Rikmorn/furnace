@@ -24,10 +24,10 @@
 // the first two numbers and — in the commit that restated this very procedure — did not
 // re-derive them: `runNamed`/`sayResult` gave `shell/WorldDrawer.tsx` and `hooks/useWorld.tsx`
 // value imports, and `ActionId` gave `EntitiesList.tsx` a type-only one. The eight held.
-// Adding a reader means editing this number and
-// `docs/reference/editor-architecture.md` §17.4, which lists the eight by file. Those are
-// the only two places the count is written down; §16.6 points at §17.4 rather than carrying
-// a third copy.
+// Adding a reader means editing this number, which is now the ONLY place it is written
+// down: `docs/reference/editor/action-registry.md` ("Who renders from the table")
+// deliberately derives the readers by command rather than tabulating them, because every
+// typed re-count of this list has been wrong.
 //
 // WHO OWNS A KEY. There are two keydown listeners in this editor: the field canvas's
 // (`field-host/field-host.ts`) and this registry's, on `window`. The rule:
@@ -42,8 +42,8 @@
 // What the registry adds for those shared keys is REACH and GATES. The canvas listener
 // only fires while the canvas has focus, and clicking any palette control takes focus
 // away — the standing F2b gate finding that a viewport binding silently dies the moment the
-// user touches a panel (`docs/reference/editor-architecture.md` §18.9 carries the datum and
-// the arrows-are-canvas-only-by-design position it settled into). The window listener has no
+// user touches a panel (`docs/reference/editor/action-registry.md` "Who owns a key"
+// carries the arrows-are-canvas-only-by-design position it settled into). The window listener has no
 // such hole, and it is the only one that consults the gate below.
 //
 // This module is PURE and DOM-free (`KeyboardEvent` appears as a type only, erased at
@@ -53,7 +53,7 @@
 // `FieldHost` instance the context hook reads off `fieldHostRef`. It DOES value-import
 // `src/action-registry/`, which is licensed: that barrel is the zod-free surface, and the
 // one module under it that carries zod (`schemas.ts`) is what the leakage guard bans the
-// chrome from reaching (editor-architecture §22.5).
+// chrome from reaching (`docs/reference/editor/action-registry.md` "The layer").
 import {
   ACTION_DESCRIPTORS,
   ACTION_OK,
@@ -874,8 +874,8 @@ type AxisViewId<
  *  tips are hit targets below WCAG 2.2 SC 2.5.8's minimum, and unfixably so at that size;
  *  the measurements live on `HIT`/`NEG_HIT` there. That SC does not apply to a control whose
  *  function is reachable another way on the same page — these rows are that other way.
- *  Delete this list and the finding re-opens (`docs/reference/editor-architecture.md`
- *  §18.5). The labels come from `axisViewLabel`, which is also what each TIP is called — one
+ *  Delete this list and the finding re-opens
+ *  (`docs/reference/editor/action-registry.md`, "Input schemas"). The labels come from `axisViewLabel`, which is also what each TIP is called — one
  *  spelling, so the gizmo and the menu cannot name one view two ways (D-12). That is not
  *  tidiness: two differently-worded controls are two controls to a screen reader rather than
  *  one reachable twice, which is the exception above failing. */

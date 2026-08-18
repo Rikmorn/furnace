@@ -56,5 +56,5 @@ gates by the same user.
   corner draws; `shell/status-keymap.ts` for the line that names the gesture.
 - `packages/editor/src/field-host/field-pick.ts` — the press/threshold/drag arbitration the
   pointer tool already uses, and the precedent this would follow.
-- `docs/reference/editor-architecture.md` §12 (selection as a tool class), §17.1 (the pointer's
-  press arbitration), §17.7 (cell-level selection display).
+- `docs/reference/editor/tools.md` (selection as a tool class), `docs/reference/editor/interaction.md` (the pointer's
+  press arbitration), `docs/reference/editor/chrome.md` (cell-level selection display).

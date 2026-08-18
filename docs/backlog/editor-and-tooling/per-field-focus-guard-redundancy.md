@@ -16,4 +16,4 @@ change.
 **Trigger to revisit:** Post-M5B inspector audit or when a future inspector refactor changes
 the SchemaForm/field architecture. Removable if the architecture doesn't change.
 
-**Reference:** M5B Task 16 review. The M5A/M5B as-built sections were deleted from `docs/reference/editor-architecture.md` when the surface was (F4.5a chrome, T2 daemon + core) and git history is the record; what stands today is §9 (the inspector module, which survived intact) and §16–§18 (the overlay cockpit that replaced the rest). SOTA research on the form engine: `docs/research/2026-06-11-editor-m5-inspector-sota.md`.
+**Reference:** M5B Task 16 review. The M5A/M5B as-built sections were deleted from the editor as-built when the surface was (F4.5a chrome, T2 daemon + core) and git history is the record; what stands today is `docs/reference/editor/inspector.md` (the inspector module, which survived intact) and `docs/reference/editor/chrome.md` with its siblings (the overlay cockpit that replaced the rest). SOTA research on the form engine: `docs/research/2026-06-11-editor-m5-inspector-sota.md`.

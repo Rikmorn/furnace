@@ -31,4 +31,4 @@ question, not an obligation.
 ## Reference
 
 - `packages/editor/src/frontend/hooks/useFieldHostState.tsx`;
-  `docs/reference/editor-architecture.md` §21.3.
+  `docs/reference/editor/chrome.md` §"The seams the chrome reads".

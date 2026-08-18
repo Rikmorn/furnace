@@ -16,4 +16,4 @@ surface.
 with `box-selection-is-two-clicks.md` — all of it is one conversation about what
 selection is for.
 
-**Reference:** `SELECTION_UI_BUDGET` (the flood bound that makes these well-defined) and the selection chip's popover, which holds Clear and Reselect today; `box-selection-is-two-clicks.md`, which this wants taking with; `docs/reference/editor-architecture.md` §16–§18 for everything the same sweep put in the adopt column.
+**Reference:** `SELECTION_UI_BUDGET` (the flood bound that makes these well-defined) and the selection chip's popover, which holds Clear and Reselect today; `box-selection-is-two-clicks.md`, which this wants taking with; `docs/reference/editor/chrome.md`, `design-system.md` and `tools.md` for everything the same sweep put in the adopt column.
