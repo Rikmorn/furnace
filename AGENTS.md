@@ -31,7 +31,7 @@ For deeper context: `docs/reference/packaging-and-distribution.md` (publish mode
 - `bun run check` — biome lint/format + core TSDoc floor + docs-register integrity (`scripts/check-docs.ts`)
 - `bun run typecheck` — one incremental whole-repo `tsc` run (all packages + root `scripts/`)
 - `bun run sitrep` — the owner's board, projected from `docs/work/` + reference freshness
-- `bun run docs:index` — regenerate the generated indexes: `docs/backlog/README.md` and the marked region of `docs/learnings/seals/README.md` (`bun run check` fails on drift in either)
+- `bun run docs:index` — regenerate the generated indexes: `docs/backlog/README.md` and the marked regions of `docs/learnings/seals/README.md` and `docs/reference/editor/README.md` (`bun run check` fails on drift in any)
 - `bun run hello-world:dev` — hello-world in the browser
 - `bun run hello-world:dev:native` — hello-world in the native window (macOS Tahoe 26+)
 - `bun run edit` (in `packages/hello-world`) — open the editor on hello-world

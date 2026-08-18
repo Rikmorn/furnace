@@ -408,7 +408,7 @@ export type FieldStats = {
  *
  *  All default true EXCEPT `voidCast` (D-F3-15), which is a view MODE wearing a
  *  layer's clothes: the X-ray that meshes the field's negative space, so a cave
- *  network reads as a solid from outside. Unlike the other six it names no
+ *  network reads as a solid from outside. Unlike the other seven it names no
  *  resident GPU state — its meshes exist only while it is on, and they are
  *  BUILT by its false→true edge (one all-chunk worker job) and DROPPED by the
  *  next field mutation, which reports the drop on
