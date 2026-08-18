@@ -33,7 +33,7 @@ facade verb (six of seven statements call five distinct modules). The mutation r
 ends at **11 gone, 59 standing — all 59 crossing a module boundary, ZERO
 cluster-to-cluster in the closure**: an extraction tranche CONVERTS edges into
 boundaries rather than deleting them, which is the third answer the exit clause did not
-offer and the honest one. As-built: `editor-architecture.md` §24; the arithmetic:
+offer and the honest one. As-built: `docs/reference/editor/field-host.md`; the arithmetic:
 `field-host-clusters.md` §2.6–§2.11 + §5.7.
 
 **T3's exit, final:** facade HOLDS on the mechanism with the accounting stated · edges —

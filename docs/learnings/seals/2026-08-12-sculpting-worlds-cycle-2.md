@@ -78,7 +78,8 @@ live citation into gitignored plan scaffolding was removed.
 **Rulings at close (owner):** Debt 1 on `pending: 0` LEAVES STANDING — it cannot bite while
 `catalog/agent.json` exists, it costs scarce door prose, and an advisor-liveness fact should
 be shaped alongside the advisor-filtering work · cycle 2 gets NO `editor-architecture.md`
-section of its own; the material stays at the end of §28.2, where 3→5→6 reads as one story ·
+section of its own; the material stays at the end of §28.2 (now `docs/reference/editor/agent-door.md`
+§"`session_query` — the spatial read"), where 3→5→6 reads as one story ·
 branch + `--ff-only`, matching cycle 1 · and, at the disposition sit-rep, EVERYTHING backlogs
 with nothing inserted before the tooling session.
 

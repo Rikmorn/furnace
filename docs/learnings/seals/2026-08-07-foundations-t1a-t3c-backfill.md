@@ -18,7 +18,8 @@ seq: 28
 - **Suite:** 2894 pass / 1 skip / 0 fail at T3b2 → **2912 / 1 / 0** at T3c
 
 **The program** (spec: gitignored superpowers scaffolding — the tracked record is this
-seal, the commits, and `docs/reference/editor-architecture.md` §20–§23) hardens core +
+seal, the commits, and `docs/reference/editor/` — `field-host.md`, `interaction.md`,
+`action-registry.md`, `tools.md`) hardens core +
 editor architecture ahead of T4 MCP and F5. Eight tranches, all merged FF to master:
 
 - **T1a** (`5f80b7dc`) — tier enforcement + mesh-blob.
@@ -73,6 +74,6 @@ may FORCE a product question but never answer it (⇧ / ShiftPolicy) · sabotage
 requirements in plans fire for real · renders-clean tests cannot catch wrong-output —
 state checks are not pixel checks, and the browser gate stays human.
 
-Detail: `docs/reference/editor-architecture.md` §20–§23,
-`docs/reference/field-host-clusters.md`, `packages/editor/README.md`, and the commits
+Detail: `docs/reference/editor/` (`field-host.md`, `interaction.md`, `action-registry.md`,
+`tools.md`), `docs/reference/field-host-clusters.md`, `packages/editor/README.md`, and the commits
 named above.

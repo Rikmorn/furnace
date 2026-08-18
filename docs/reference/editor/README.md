@@ -28,7 +28,7 @@ no H1 fails the generator rather than being listed blank.
 - [The inspector module](inspector.md) — The swappable schema-driven form — kind resolution, the kind→renderer registry, `<SchemaForm>`'s draft/validation/echo-guard contract, and the session card that is its one consumer.
 - [Interaction](interaction.md) — What LMB and Esc do — the gesture machine, the CPU pick arbitration, the recency-ordered Esc capture stack, and the canonical-setter law that keeps the two honest.
 - [What the editor is](overview.md) — Orientation — the three pieces, the project-first invariant that keeps the engine out of the editor, and the run command.
-- [The tools](tools.md) — What the user arms and what it writes — the brush chassis, the selection gestures, stamp and reconfigure sessions, the void cast, and the one table every tool surface derives its words from.
+- [The tools](tools.md) — What the user arms and what it writes — the brush chassis, the selection gestures, stamp and reconfigure sessions, the catalogs that seed a stamp without gating it, the void cast, and the one table every tool surface derives its words from.
 - [The world](world.md) — The world a session is authoring — the untitled scratch, the dirty bit derived from the op count, the one job field, and the drawer that holds every dangerous verb.
 
 <!-- /reference-index -->

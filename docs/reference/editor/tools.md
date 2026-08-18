@@ -1,5 +1,5 @@
 ---
-summary: What the user arms and what it writes — the brush chassis, the selection gestures, stamp and reconfigure sessions, the void cast, and the one table every tool surface derives its words from.
+summary: What the user arms and what it writes — the brush chassis, the selection gestures, stamp and reconfigure sessions, the catalogs that seed a stamp without gating it, the void cast, and the one table every tool surface derives its words from.
 verified: 2026-08-18
 ---
 

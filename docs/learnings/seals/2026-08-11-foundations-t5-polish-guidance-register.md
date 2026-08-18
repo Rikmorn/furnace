@@ -65,7 +65,9 @@ staleness, the tranche's own three-numbers-one-fact instance — fixed at `1feb9
 all four ratifications GRANTED (threshold relaxation as provisional; the one closure;
 the gate stays whole; `build` retired on the third shape) · `EDITOR_PROJECTION`
 seam→seam value edge KEPT as the measured residual (the parked
-`field-host-internals.md` deferral owns the eventual fix).
+`field-host-internals.md` deferral owns the eventual fix — that tracker was un-merged
+2026-08-18 into `remeshone-swallows-gpu-setup-failures.md`, `field-host-prune-tranche.md`
+and `analyzer-halo-assumes-sub-chunk-reach.md`).
 
 **Orphaned surface: none.** The audit's one deletion was a relocation with its caller
 repointed in the same commit; the prune deleted register files, not exports.

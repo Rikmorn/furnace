@@ -64,7 +64,8 @@ T4c early task; cost stated: overlay lines alias slightly at sample count 1).
 human sees Select — truthful (`gesture: "pointer"` is the arming fact; `tool` is
 dormant brush config) but illegible: the reviewing agent misread it live, exactly as a
 T4c agent would (`session-state-armedness-is-two-fields.md` — **resolved at T4c Task 5, entry
-deleted; the fix and the two candidates it rejected are in `editor-architecture.md` §27.3**).
+deleted; the fix and the two candidates it rejected are in `docs/reference/editor/agent-door.md`
+§"`session_state` — what is armed, and the join that used to be missing"**).
 
 **Process lessons.** The restack class recurred and escalated: the execution report
 described Task 5's close ordering with an argument the final code's own docblock

@@ -68,8 +68,9 @@ there, by ruling recorded in the archived execution report.
 ## Cross-seal note
 
 The fence message that named this slice as its lift condition is deleted with the fence;
-`editor-architecture.md` §29.1–§29.3 is the as-built (guard + corrected residue bound,
-confirm posture, ruled non-goals). Six backlog entries filed at this seal — the two
+`docs/reference/editor/agent-door.md` §"Attribution — the origin tag, and what an agent
+may undo" and §"What the door does NOT do" are the as-built (guard + corrected residue
+bound, confirm posture, ruled non-goals). Six backlog entries filed at this seal — the two
 above, the seam pin, `op-origin-stamp-helper-rule-of-three`,
 `compact-threshold-under-mixed-authorship`, `entities-palette-bypasses-action-registry`.
 

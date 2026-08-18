@@ -10,7 +10,7 @@ the same failure mode one level up: a single doc that is a constant write target
 matter where it lives. It was split into 26 per-seal files (the index below has grown
 since), and `seal-log.md`
 was deleted. As-built architecture is distilled separately in `docs/reference/`
-(`dungeon-architecture.md`, `editor-architecture.md`, `core-modules.md`) — this directory
+(`dungeon-architecture.md`, `editor/`, `core-modules.md`) — this directory
 is history, not current state.
 
 ## Writing a seal

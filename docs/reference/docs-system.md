@@ -110,13 +110,20 @@ Post-mortems, "we tried this and walked away" notes, and the chronological seal 
   drift (§9); the prose outside the markers is hand-written. One row is `sealed | linked
   summary` — packages are not a column, because every seal states them in its own head fields
   and a second copy is a second thing to rot.
-- **Lifecycle:** immutable, at two strengths. **The seal record is absolutely immutable** — a
-  seal is a dated snapshot of a moment, never edited to match later truth; a later seal
-  supersedes it. **Dated learnings records are content-immutable** — what a record *claims* is
-  never rewritten — permitting exactly three touches: (1) **filename dating that preserves the
-  slug**, (2) **additive metadata** (the seal frontmatter above), (3) **mechanical repair of a
-  citation broken by a later file move** — restoring a record's original referent is a
-  correction, not a rewrite. Nothing else.
+- **Lifecycle:** immutable in what a record CLAIMS. **A seal is a dated snapshot of a moment,
+  never edited to match later truth** — not a figure, not a judgement, not a word of narration;
+  a later seal supersedes it, nothing amends it. **Dated learnings records are
+  content-immutable** on the same terms. Both permit exactly three touches: (1) **filename
+  dating that preserves the slug**, (2) **additive metadata** (the seal frontmatter above),
+  (3) **mechanical repair of a citation broken by a later file move** — restoring a record's
+  original referent is a correction, not a rewrite. Nothing else. The line runs between what a
+  sentence POINTS at and what it SAYS: re-pointing is licensed, rewording is not, and a pointer
+  whose referent did not survive the move is left as written rather than aimed at an
+  approximation. **The seal record was the stricter tier — no repair, citations left to
+  dangle — until the owner's ruling of 2026-08-18**, taken at the `editor-architecture.md`
+  split, when one reference doc moved out from under every seal that cited it: immutability
+  was meant for feature work, not for doc consistency, and in doc-consistency work correctness
+  beats byte-frozen history. What moved was pointers; claims did not.
 
 ### `docs/research/` — pre-decision material
 
