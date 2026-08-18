@@ -122,8 +122,7 @@ const text = (t: string): StatusFragment => ({ kind: "text", text: t });
 // this floor, so importing it would reverse the import arrow and `no-chrome-leakage.test.ts`
 // would refuse it — and the shape that keeps the arrow costs {@link StatusFragment}'s two-kind
 // model. Filed with the measurement, the per-cap table and the option analysis:
-// `docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md`, §"The status line
-// spells ten keycaps the action registry already derives".
+// `docs/backlog/editor-and-tooling/status-line-respells-derived-keycaps.md`.
 
 /** What separates two clauses of a status line. Stated once because the line is assembled
  *  in three places (the row's own fragments, the effect's modifier tail, and the two

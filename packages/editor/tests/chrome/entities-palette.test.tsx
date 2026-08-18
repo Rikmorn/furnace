@@ -976,8 +976,10 @@ test("Δ lands on exactly the rows the pushed report names", () => {
 	expect(screen.queryByLabelText(/^show drift near entity/)).toBeNull();
 });
 
-// The staleness defect that was filed rather than fixed when the `<dl>` shipped
-// (`docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md`): `loadWorld`
+// The staleness defect that was filed rather than fixed when the `<dl>` shipped, and
+// then FIXED at F4.5b Task 4 — the entry that held it went with the fix, and this test
+// is what pins it (`sameParams` in `frontend/lib/field-host-mirrors.ts` compares the
+// rendered projection of each param, and `sameEntities` calls it): `loadWorld`
 // recomputes `log.nextId` from the loaded ops, so ids and every opSpan RESTART
 // across a world switch — two worlds can hold records agreeing on every compared
 // field and differing only in their params. The world drawer's Open calls

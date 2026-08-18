@@ -231,7 +231,7 @@ test("a re-seed DEFERRED by focus keeps the refusal until the field is actually 
 // It is a different mechanism from the one fixed here (a buffered input cannot tell that
 // its text was superseded mid-edit) and closing it is a contract change to
 // `ExactNumberInput`, so it is FILED rather than fixed:
-// `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` § *A buffered numeric input commits stale text when a push lands mid-edit*.
+// `docs/backlog/editor-and-tooling/buffered-numeric-input-commits-stale-text.md`.
 
 test("unmounting the form retracts its refusal", () => {
 	// The card unmounts the form whenever its palette closes or the record turns

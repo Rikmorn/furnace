@@ -62,7 +62,7 @@ For those cases, Furnace will use a **WGSL-native textured-plane primitive**: a 
 
 This path was proven end-to-end in commit `7249001` (depth interleave with the triangle, FPS text from a 2D canvas) then reverted from the working tree pending a real use case. The render-to-texture pipeline has one known gotcha: `device.queue.copyExternalImageToTexture` silently no-ops on macOS WKWebView WebGPU — use `device.queue.writeTexture` with raw `ImageData` bytes instead. Full notes in `docs/learnings/2026-05-17-render-to-texture.md`.
 
-When the first concrete in-scene UI need surfaces, see `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *In-scene UI primitive — for occluded cases only (γ)* and start from the reverted commit.
+When the first concrete in-scene UI need surfaces, see `docs/backlog/editor-and-tooling/occluded-in-scene-ui-primitive.md` and start from the reverted commit.
 
 ## What's not in consideration
 
@@ -71,12 +71,12 @@ A handful of approaches were evaluated and rejected:
 - **Static SVG → texture asset pipeline.** Cheapest path for static in-scene art (signs, decals). Dropped from active consideration: screen-space projection covers the world-tracked-UI common case more cleanly, and static decorations aren't a near-term need.
 - **resvg in wasm → texture.** SVG rasterized in wasm, uploaded as a texture at low frequencies. Reasonable fallback for a narrow case; same reasoning — screen-space projection wins for live UI, and we'd reach for the WGSL primitive before this for occluded cases.
 - **CSS3D / `CSS3DRenderer` / Drei `<Html>`.** DOM elements transformed into 3D do not write to the depth buffer and cannot be occluded per-pixel by `THREE.Mesh` objects. Workarounds (mask-image, layered renderers) approximate but don't solve it. Right out for occluded in-scene UI.
-- **Rust-side UI rendering (egui via wasm, Vello).** No silver bullet given Furnace's device-sharing constraint: `navigator.gpu` lives in JS-land and a Rust+wgpu wasm module would request a second `GPUDevice` that cannot directly share buffers or textures with the JS-side device. Vello also explicitly does not target the web today. Tracked as an emerging-tech watch (see `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *Emerging-tech watch: WICG HTML-in-Canvas / Vello browser readiness*) alongside the WICG "HTML in Canvas" proposal.
+- **Rust-side UI rendering (egui via wasm, Vello).** No silver bullet given Furnace's device-sharing constraint: `navigator.gpu` lives in JS-land and a Rust+wgpu wasm module would request a second `GPUDevice` that cannot directly share buffers or textures with the JS-side device. Vello also explicitly does not target the web today. Tracked as an emerging-tech watch (see `docs/backlog/editor-and-tooling/html-in-canvas-and-vello-watch.md`) alongside the WICG "HTML in Canvas" proposal.
 
 ## See also
 
 - `packages/hello-world/src/overlay/` — live Svelte 5 + `@furnace/core` integration.
 - `docs/learnings/2026-05-17-render-to-texture.md` — render-to-texture gotchas from the WGSL primitive proof.
-- `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *In-scene UI primitive — for occluded cases only (γ)* — WGSL textured-plane primitive, deferred.
-- `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *SDF font atlas + glyph rendering* — sharp text at varying scales, deferred.
-- `docs/backlog/editor-and-tooling/in-scene-ui-and-text-rendering.md` § *Emerging-tech watch: WICG HTML-in-Canvas / Vello browser readiness*.
+- `docs/backlog/editor-and-tooling/occluded-in-scene-ui-primitive.md` — WGSL textured-plane primitive, deferred.
+- `docs/backlog/editor-and-tooling/sdf-font-atlas-and-glyph-rendering.md` — sharp text at varying scales, deferred.
+- `docs/backlog/editor-and-tooling/html-in-canvas-and-vello-watch.md` — the emerging-tech watch.

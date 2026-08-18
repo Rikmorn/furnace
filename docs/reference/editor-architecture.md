@@ -1712,7 +1712,7 @@ flag beside the ⌘K palette's, which is what makes the key possible at all (it 
 `BurgerMenu`'s own state, unreachable from a window listener). Its matcher is the one in the
 table that states a CHARACTER rather than a modifier + key — `?` is ⇧/ on a US layout and ⇧ß on
 a German one — with AltGr layouts the known residue, filed under
-`docs/backlog/editor-and-tooling/` as `chrome-focus-and-dismissal-follow-ons.md` § *`?` cannot reach the shortcut overlay on a layout that needs AltGr for it*`.
+`docs/backlog/editor-and-tooling/` as `question-key-unreachable-on-altgr-layouts.md`.
 
 **The gate** has two classes plus two per-action flags. `chord` (⌘-chords) is live even
 inside a text input, because the browser default it replaces is worse; `typed` (every bare
@@ -2720,7 +2720,7 @@ prop, and that one import was the only edge reaching out of the control library 
 chrome — which D-24's scope claim (`components/ui/` is the one place a raw control may be
 written) depends on not existing.
 
-**What that bought, stated precisely, because it is less than "`ui/` is now a leaf".** The move relocated the trio's edges into the library rather than removing them: `ui/tips.tsx` has FOUR outward edges (`../../hooks/useRovingList.tsx`, `../../lib/actions.ts`, `../../lib/notify-store.ts`, `../../lib/cn.ts`) where every other file under `ui/` has exactly one (`cn.ts`), so `ui/`'s transitive closure is unchanged. What it removed is the edge pointing at `components/` — the one a reader follows when asking whether the control library may be depended on. No cycle exists: `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and `actions.ts`'s edges back into `components/` and `hooks/` are all `import type`. The `byId` edge is the one to watch — the only value import into `ui/` that is not `cn` — and a future VALUE import in `actions.ts` reaching anything under `ui/` is what would close the loop. One cost of the old back-edge also survives the move untouched: `Segmented`'s optional `hint` still throws outside a `TooltipProvider`, tracked in `docs/backlog/editor-and-tooling/editor-chrome-authoring-gaps.md` §"`Segmented`'s optional `hint` throws when there is no `TooltipProvider` above it".
+**What that bought, stated precisely, because it is less than "`ui/` is now a leaf".** The move relocated the trio's edges into the library rather than removing them: `ui/tips.tsx` has FOUR outward edges (`../../hooks/useRovingList.tsx`, `../../lib/actions.ts`, `../../lib/notify-store.ts`, `../../lib/cn.ts`) where every other file under `ui/` has exactly one (`cn.ts`), so `ui/`'s transitive closure is unchanged. What it removed is the edge pointing at `components/` — the one a reader follows when asking whether the control library may be depended on. No cycle exists: `notify-store.ts` imports nothing, `useRovingList.tsx` imports only `react`, and `actions.ts`'s edges back into `components/` and `hooks/` are all `import type`. The `byId` edge is the one to watch — the only value import into `ui/` that is not `cn` — and a future VALUE import in `actions.ts` reaching anything under `ui/` is what would close the loop. One cost of the old back-edge also survives the move untouched: `Segmented`'s optional `hint` still throws outside a `TooltipProvider`, tracked in `docs/backlog/editor-and-tooling/segmented-hint-throws-without-tooltipprovider.md`.
 
 The wrappers are a PAIR and
 which one a control gets is decided by ONE fact — can the user reach it?
@@ -4043,7 +4043,7 @@ status bar's keymap line, whose clauses spell their own keys as row text (`⌫ d
 cap `keycap()` also derives. It is a real duplication, measured and adjudicated rather than
 assumed, and it is open because `keycap()` lives ABOVE the floor those rows sit on — closing it
 would reverse the import arrow. §22.7 and
-`docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"The status line spells ten keycaps the action registry already derives".
+`docs/backlog/editor-and-tooling/status-line-respells-derived-keycaps.md`.
 
 ### 22.7 As built — the six become derivations (Task 5)
 
@@ -4126,7 +4126,7 @@ member ref (caught by ten cases across the package), and the session verbs swapp
 adapter.
 
 **Two residues were adjudicated rather than closed**, both filed:
-`chrome-shape-follow-ons.md` §"The status line spells ten keycaps the action registry already derives" (the status line's own keycap clauses, measured
+`status-line-respells-derived-keycaps.md` (the status line's own keycap clauses, measured
 and stated once in §22.6 — a real duplication, but `keycap()` lives ABOVE the floor and the
 fix that keeps the arrow costs `StatusFragment`'s two-kind model) and
 `family-member-picks-bypass-the-dispatch-funnel.md` (`member.arm` reached the host directly and
@@ -4176,7 +4176,7 @@ this duplication is the safe kind: both carry the destructure `satisfies Record<
 never>` backstop, so a new `FieldTool` field fails to compile in both places at once. What
 the backstop cannot catch — a comparison someone DELETES from one copy — is covered per-field
 on both sides instead. The move is filed:
-`docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"`sameTool` and `toolsEqual` are one predicate written twice".
+`docs/backlog/editor-and-tooling/sametool-and-toolsequal-written-twice.md`.
 
 **What the chrome lost.** Six cells became four (`gesture`, `flags`, `filters`, `verifying`);
 three shell-held seams became two (`toolError`, `flags`); ten per-consumer latches became
@@ -4208,7 +4208,7 @@ which is the change stated as data.
    can paint. It is not the right PRESENTATION: a control that is permanently dead should
    say so rather than absorb clicks in silence, and that is a visible-affordance question
    for the surfaces, not for this seam. Filed rather than built here —
-   `docs/backlog/editor-and-tooling/chrome-legibility-gaps.md` §"The brush controls are permanently inert with no engine".
+   `docs/backlog/editor-and-tooling/brush-controls-inert-with-no-engine.md`.
 3. **Every `setTool` that changes something reaches every reader.** That is the point; it is
    also the delta with the widest surface, since it puts a push on a path that had none.
 
@@ -4801,7 +4801,7 @@ put three findings to the user; the rulings are decisions of record:
   ~870-line chrome provider would collapse; `useFieldHostState.tsx` is 1,093 lines at
   head — the latch conversion (the real goal, achieved — §21.3) grew the file it was
   supposed to shrink. Not scheduled as work; recorded at
-  `docs/backlog/editor-and-tooling/chrome-shape-follow-ons.md` §"The chrome provider the design promised to collapse grew instead".
+  `docs/backlog/editor-and-tooling/chrome-provider-grew-instead-of-collapsing.md`.
 - **The typed `furnace.*` vendor-key namespace rides T4.** Built at T1b, deleted at T2
   as a scene orphan, never re-typed — a silent regression against the schema-boundary
   design. Ruling: re-filed for T4, where the JSON-Schema projection gives the type its
@@ -5201,7 +5201,8 @@ timer instead of telling it the daemon is gone; unreachable today, live the day 
 a restart). **Three appended to** rather than duplicated:
 `editor-test-harness-fragility.md` (the SDK's per-process cost, the eliminations, and the three
 programme-level fixes), `chrome-shape-follow-ons.md` (`useDaemonFeed` reached four positional
-parameters), and `core-internal-structure-debt.md`
+parameters — that tracker was itself un-merged at genre-contracts; the section is now
+`worldsversion-rides-the-context.md`), and `core-internal-structure-debt.md`
 §"One locator re-throw, spelled six times" (that tracker was itself un-merged at
 genre-contracts; the section is now `locator-rethrow-spelled-six-times.md`), whose standing trigger was
 **checked and did not fire** — the MCP edge converts a throw into a value rather than

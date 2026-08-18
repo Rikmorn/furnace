@@ -510,8 +510,7 @@ export function EntitiesList(props: {
 			// The named deferral used to be "the palette-layout pass (Task 8)". That
 			// trigger FIRED and passed (F4.5b Task 8, 2026-08-01) without touching this
 			// file, so at foundations T5 it moved to a durable entry:
-			// `docs/backlog/editor-and-tooling/chrome-legibility-gaps.md`
-			// §"The Entities section starts collapsed".
+			// `docs/backlog/editor-and-tooling/entities-section-starts-collapsed.md`.
 			defaultOpen={false}
 		>
 			{entities.length === 0 ? (

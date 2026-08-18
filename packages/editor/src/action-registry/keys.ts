@@ -72,7 +72,7 @@ export type KeyBinding =
    *  AltGr is the one keyboard this cannot reach, and it is a known cost rather than an
    *  oversight: Windows reports AltGr as ctrl+alt, which the `mod` and ⌥ exclusions both
    *  refuse. Filed at
-   *  `docs/backlog/editor-and-tooling/chrome-focus-and-dismissal-follow-ons.md`. */
+   *  `docs/backlog/editor-and-tooling/question-key-unreachable-on-altgr-layouts.md`. */
   | { readonly kind: "char"; readonly char: string }
   /** Any one of these NAMED keys, matched verbatim — `Backspace`/`Delete`, `Enter`,
    *  `Escape`. A list rather than a single name because ⌫ and ⌦ are one verb on two
