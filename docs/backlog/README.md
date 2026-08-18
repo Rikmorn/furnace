@@ -13,7 +13,7 @@ work item that reads it — those entries are protected from consolidation.
 - [llm-as-planner-experiments](ai-agents/llm-as-planner-experiments.md) — hand a foundation model structured scene state and execute the JSON actions it returns through the classical layer (A*, animation, physics) — far future
 - [webnn-tensor-npu-acceleration](ai-agents/webnn-tensor-npu-acceleration.md) — browser-native tensor / NPU acceleration via the WebNN API, waiting on ML inference being on the path
 
-## dungeon (22)
+## dungeon (21)
 
 - [backing-masonry-fallback](dungeon/backing-masonry-fallback.md) — fallback if a void ever flashes through the proud-panel reveal gaps: stamp backing masonry behind each panel run
 - [cave-chamber-floor-reconciliation](dungeon/cave-chamber-floor-reconciliation.md) — cave passages clamp their own delivered rise in extreme-aspect regions, leaving a floor discontinuity where a switchback meets its chamber
@@ -24,7 +24,6 @@ work item that reads it — those entries are protected from consolidation.
 - [door-opening-standard-is-not-universal](dungeon/door-opening-standard-is-not-universal.md) — two door heights ship — the grid stamp's 3.0 m and the organic collar's 2.8 m — so the single door-class portal standard is false
 - [dungeon-register-cites-deleted-epic2-architecture](dungeon/dungeon-register-cites-deleted-epic2-architecture.md) — eleven dungeon backlog entries cite Epic 2 modules that were deleted; each needs a live-or-not disposition, not a citation re-point
 - [field-mesher-degenerate-triangles](dungeon/field-mesher-degenerate-triangles.md) — the Surface-Nets mesher emits zero-area triangles and non-manifold edges on symmetric surfaces — harmless to render, risky for a cooked collision mesh
-- [grid-vocabulary-consolidation](dungeon/grid-vocabulary-consolidation.md) — tracker: a third grid vocabulary costs five edit sites, three of them pure TypeScript union tax, plus duplicated door and dressing constants
 - [jit-runtime-regions](dungeon/jit-runtime-regions.md) — attach construction-guaranteed regions to a baked world at play time for an endless feel — needs a socket contract and runtime realize plus collider attach
 - [maze-cells-upper-bound](dungeon/maze-cells-upper-bound.md) — MazeParams.cells has no ceiling — a fat-fingered value expands to a 64 MB grid and hangs the tab, with no budget or fail-fast
 - [organic-cave-mouth-offaxis-rimride](dungeon/organic-cave-mouth-offaxis-rimride.md) — off-axis lanes inside the organic cave hit ~0.80 m floor steps that trip the launch guard and wedge the voxel-proxy mover
@@ -144,7 +143,7 @@ work item that reads it — those entries are protected from consolidation.
 - [world-name-case-folding-overwrites](editor-and-tooling/world-name-case-folding-overwrites.md) — on macOS's case-insensitive filesystem `worlds/Cavern` and `worlds/cavern` are one entry, but the save-as cue and the tracked-overwrite confirm are both exact-match, so typing `Cavern` against a listed `cavern` warns nobody and the write lands on the existing world
 - [worldsversion-rides-the-context](editor-and-tooling/worldsversion-rides-the-context.md) — `useDaemonFeed`'s SSE counter travels through `EditorContextValue` to reach exactly one component, so the chain is held together by a mirror-shape test and every chrome consumer carries a field only the world drawer reads
 
-## engine-architecture (120)
+## engine-architecture (121)
 
 - [additional-fog-modes](engine-architecture/additional-fog-modes.md) — only exponential distance fog ships, and since the authored-scene-document seam was deleted, height-banded, linear and per-area fog need both a decision on where their params come from and a second Scene-UBO lane
 - [alpha-tested-shadow-casters](engine-architecture/alpha-tested-shadow-casters.md) — the caster pipeline writes solid depth with no fragment alpha test, so cutout foliage casts its quad's silhouette and translucent casters cast fully opaque shadows
@@ -209,6 +208,7 @@ work item that reads it — those entries are protected from consolidation.
 - [many-lights-scaling](engine-architecture/many-lights-scaling.md) — a fixed 16-light Scene-UBO array caps simultaneous real light sources regardless of scene size, so scattered emitters that genuinely illuminate need clustered forward+ or deferred shading, chosen by a research pass first
 - [markframeboundary-vs-frame-loop](engine-architecture/markframeboundary-vs-frame-loop.md) — a consumer who calls the public `stats.markFrameBoundary` while also using `frame.loop` gets double boundary signals; the behaviour is documented but not engine-enforced, with three candidate resolutions
 - [material-group1-resolution-extract](engine-architecture/material-group1-resolution-extract.md) — `material.create`'s three-branch `@group(1)` dispatch and its exactly-one-source invariant live in two places; extracting `resolveGroup1` carries the pipeline-cache-release ownership, so it waits on a fourth source
+- [maze-carve-plan-is-a-stringly-typed-seam](engine-architecture/maze-carve-plan-is-a-stringly-typed-seam.md) — the maze generator's carve plan crosses a stringly-typed seam inside one module — `carvePlan` builds `h:a,b` keys that the same module re-parses with a regex, behind an unreachable throw
 - [multi-camera-frames](engine-architecture/multi-camera-frames.md) — `frame.render` takes exactly one camera, so split-screen, picture-in-picture and mini-map scenes need a passes/viewport extension plus a story for how post-effects and depth compose across passes
 - [multi-context-and-worker-gpu](engine-architecture/multi-context-and-worker-gpu.md) — more than one `gpu.Context`: an OffscreenCanvas worker context, and what a resource created against one device may do against another
 - [multi-pass-post-effects](engine-architecture/multi-pass-post-effects.md) — what the shipped `createPasses` surface still cannot express — depth/normal/velocity inputs from the scene pass, cross-frame history targets, and compute passes in the chain
@@ -267,9 +267,10 @@ work item that reads it — those entries are protected from consolidation.
 - [world-transform-vertex-fragment](engine-architecture/world-transform-vertex-fragment.md) — the world-transform vertex prologue is copied across three shader built-ins, one of them a near-miss, so sharing it as a `shader.source` fragment needs a boundary decision rather than a mechanical move
 - [wrap-gpu-create-for-tracking](engine-architecture/wrap-gpu-create-for-tracking.md) — engine-internal buffer/texture create sites register with the resource manager by hand at each site; `gpu.createBuffer`/`createTexture` wrappers would make tracking automatic, against the "ctx is a transparent data carrier" model
 
-## infrastructure (11)
+## infrastructure (14)
 
-- [bare-line-refs-escape-the-citation-check](infrastructure/bare-line-refs-escape-the-citation-check.md) — the docs file:line citation check cannot see bare `:N` continuation refs, so a whole class of line citations rots unflagged
+- [backlog-citations-from-packages-are-unchecked](infrastructure/backlog-citations-from-packages-are-unchecked.md) — source comments and package READMEs cite backlog entries by path, nothing in `check` or `test` opens a file under `packages/`, and several such citations point at entries deleted months ago
+- [bare-line-refs-escape-the-citation-check](infrastructure/bare-line-refs-escape-the-citation-check.md) — the docs file:line citation check anchors on a filename, so bare offsets, space-separated refs and the prose "lines 70–77" spelling all rot unflagged — and a fix has to decide what it does with dated ones
 - [bun-dev-server-prewarm-workaround](infrastructure/bun-dev-server-prewarm-workaround.md) — cookbook's dev server prewarms every route to dodge a Safari first-click failure in Bun 1.3.14 — revert it on the next Bun bump
 - [bun-isolate-top-level-await-tdz](infrastructure/bun-isolate-top-level-await-tdz.md) — bun test --isolate evaluates importers before an async module's top-level await settles, leaving const bindings in TDZ — two in-repo workarounds to revert when upstream fixes it
 - [bun-parallel-worker-panic](infrastructure/bun-parallel-worker-panic.md) — two distinct instability sightings in full-suite runs at one-worker-per-core — a Bun panic (SIGTRAP) and a hang; neither reproduced at the ruled --parallel=4
@@ -277,9 +278,11 @@ work item that reads it — those entries are protected from consolidation.
 - [engine-architecture-topic-dir-wants-sharding](infrastructure/engine-architecture-topic-dir-wants-sharding.md) — `engine-architecture/` is the crowded topic dir and was deferred for sharding once, in a report nothing tracked cited
 - [github-actions-ci](infrastructure/github-actions-ci.md) — no CI exists — a GitHub Actions pipeline running check, typecheck, and tests on PR
 - [harness-cli-follow-ons](infrastructure/harness-cli-follow-ons.md) — two `@furnace/tools` deferrals: the `furnace.config.json` schema, and the Bun ↔ wasm-bindgen wrapper generator's maintenance surface
-- [npm-publish-and-distribution](infrastructure/npm-publish-and-distribution.md) — publishing `@furnace/tools` and `@furnace/core` to npm: release flow, `dist/tools/` staging, and the biome-style per-platform binary migration
+- [npm-release-flow-and-versioning](infrastructure/npm-release-flow-and-versioning.md) — nothing publishes — both shippable packages are `private: true`, and a first publish needs a versioning strategy, a release script, an npm scope and changelog generation decided together
+- [per-platform-binary-packages](infrastructure/per-platform-binary-packages.md) — `@furnace/tools` ships the host binary inline in one package; platform #2 forces the biome pattern — thin shim package plus `@furnace/tools-<os>-<arch>` optionalDependencies
 - [skill-cycle-worlds-have-no-durable-home](infrastructure/skill-cycle-worlds-have-no-durable-home.md) — world-building cycle bakes stay local and gitignored by owner ruling, so a cycle's run numbers cannot be re-derived off the authoring machine
 - [test-emitted-research-records](infrastructure/test-emitted-research-records.md) — a test that writes its deliverable into a content register makes that record live-regenerating, which the immutable-dated-record genre does not model — one instance is marked and ruled, the class is not
+- [tools-publish-staging-layout](infrastructure/tools-publish-staging-layout.md) — `tools:build` leaves the binary in `crates/target/release/` with no `dist/tools/` staging step that assembles the publish-ready npm layout — shim, binary, templates, README, LICENSE, manifest
 
 ## native-runtime (12)
 

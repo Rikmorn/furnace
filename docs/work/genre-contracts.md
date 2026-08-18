@@ -47,9 +47,12 @@ reported **188 violations — 84 `dead-path` occurrences (35 unique paths) and 1
 `file-line-citation` occurrences (95 unique)**. The spec had sized only the dead-path class
 (~27 estimated, 35 actual — the premise held); the `file:line` class was never estimated and
 turned out to be the dominant share of the triage. Concentration matters here too: a single
-entry, `docs/backlog/dungeon/grid-vocabulary-consolidation.md`, carried **19 of the 84**
-dead-path occurrences — a merged tracker citing a retired subsystem's whole module list from
-one body.
+entry, `docs/backlog/dungeon/grid-vocabulary-consolidation.md` (gone), carried **19 of the
+84** dead-path occurrences — a merged tracker citing a retired subsystem's whole module list
+from one body. Task 9 batch C closed that entry (owner ruling O2): three of its four sections
+were resolved by the move of the grid vocabularies into `@furnace/core/field`, and the 19
+dead paths left with it; the one live residue is
+`docs/backlog/engine-architecture/maze-carve-plan-is-a-stringly-typed-seam.md`.
 
 **What both measurements say to rung 5:** the un-merge is not tidying. The merged tracker is
 what makes summaries unwriteable and what concentrates citation rot, and it must precede any

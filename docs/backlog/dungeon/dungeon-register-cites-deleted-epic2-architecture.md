@@ -53,6 +53,16 @@ grep -rlE "dungeon/src/(substrate|themes|bake\.ts|built\.ts|scatter\.ts|world-bu
 `substrate-palette-rle-storage` · `visual-polish-pass` ·
 `world-spec-no-portal-error-is-unactionable`.
 
+**One of the eleven has since been dispositioned, and it is the worked example of what this
+entry asks for.** `grid-vocabulary-consolidation` (gone) was closed at `genre-contracts`
+Task 9 (2026-08-18) by reading each of its four sections against head rather than re-pointing
+its paths: three were resolved outright by the move of the grid vocabularies into
+`@furnace/core/field`, and the one live residue was re-filed against the code that now
+carries it (`docs/backlog/engine-architecture/maze-carve-plan-is-a-stringly-typed-seam.md`).
+The disposition cost one reading pass per section and took the entry's 19 dead-path
+occurrences with it — the largest single concentration in the register. Re-run the command
+above for the current list; it is a T5-dated snapshot, not a live count.
+
 **Re-pointing these would be the wrong move, and that is the whole reason this is an entry
 rather than a fix.** When an entry's *entire subject* was deleted, the live question is not
 "where did that file go" — it is **whether the entry is still live at all**. That is a

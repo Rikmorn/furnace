@@ -9,7 +9,7 @@ A Rust workspace shipped via npm:
 - `crates/furnace-cli/` — the `furnace` command-line tool (init, build, dev, wasm, upgrade-runtime).
 - `crates/furnace-runtime/` — the Rust shell that consumers vendor into their apps on `furnace init`. Wraps `wry` + `winit`, implements the Runtime Contract that the JS engine layer talks to.
 - `templates/` — scaffold files for `furnace init`.
-- `shim.js` — tiny plain-Node JS that finds and execs the furnace binary. Single fat-package model today; per-platform biome-style packages deferred to a future milestone (see `docs/backlog/infrastructure/npm-publish-and-distribution.md`, *Per-platform binary packages — biome-style migration* section).
+- `shim.js` — tiny plain-Node JS that finds and execs the furnace binary. Single fat-package model today; per-platform biome-style packages deferred to a future milestone (see `docs/backlog/infrastructure/per-platform-binary-packages.md`).
 
 ## Consumer surface
 
