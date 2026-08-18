@@ -96,10 +96,17 @@ Nothing a human sees moved: the chrome is served BY this daemon, so it was reach
 loopback by construction and its `fetch` POSTs carry a loopback origin, while its
 `<script>`/`EventSource` GETs carry none. Coverage splits by question:
 `packages/editor/tests/origin.test.ts` holds the spelling table — every row carrying why it
-is admitted or refused, derived from `ACCEPTED` and `REFUSED` there — and
-`packages/editor/tests/server.test.ts` holds the wiring, the refusal on every route branch
-below (the agent door needs its own row precisely because it sits first on the ladder), plus
-the loopback and absent cases.
+is admitted or refused, derived from `ACCEPTED` and `REFUSED` there, plus a row asserting that
+the predicate and the assert agree — and `packages/editor/tests/server.test.ts` holds the
+wiring, the refusal on every route branch below (the agent door needs its own row precisely
+because it sits first on the ladder), plus the loopback and absent cases. A check that had
+drifted into the POST branch would satisfy a POST-only suite, and the SSE case additionally
+asserts JSON, since that branch hijacks the response and a late check would leak an open feed.
+
+**The ORDER is pinned too, because both refusals are typed and both are correct.** A malformed
+cross-origin target must answer `403`, not the `400` the next section is about — the security
+refusal is the one that decides it, and a `400` there would falsify the claim this heading
+makes.
 
 ## Then the request target is parsed, and that can fail
 
@@ -173,6 +180,14 @@ validated separately and more strictly, at commit time (`assertOpValid` in
 `packages/core/src/field/ops.ts`) — `parseOps` runs `assertOpStructure`, defined as that
 predicate's table-independent half, so **an op the editor could commit can never fail to
 load**.
+
+Two things make that subset relation hold rather than merely describe it. `assertOpStructure`
+and `assertOpValid` reach the shape check through **ONE definition** rather than two agreeing
+copies: `assertShapeValid` covers sphere, box and capsule alike — finite centres and endpoints,
+finite POSITIVE radii and half-extents, zero rejected with the negatives — behind an
+exhaustiveness guard, so a fourth shape fails to compile rather than silently validating as a
+box. And `parseOps` runs it on **both** of its brush decode paths, the native decode and the
+legacy upgrade, so an early-format bake gets the same pass a current one does.
 
 ## `furnace.config.json` namespacing
 

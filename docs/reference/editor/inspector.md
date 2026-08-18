@@ -1,5 +1,5 @@
 ---
-summary: The swappable schema-driven form — kind resolution, the kind→renderer registry, `<SchemaForm>`'s draft/validation/echo-guard contract.
+summary: The swappable schema-driven form — kind resolution, the kind→renderer registry, `<SchemaForm>`'s draft/validation/echo-guard contract, and the session card that is its one consumer.
 verified: 2026-08-18
 ---
 
@@ -186,3 +186,64 @@ hand-rolled in the inspector because the frontend cannot value-import `@furnace/
 (intrinsic XYZ) and is pinned to core's convention by
 `packages/editor/tests/inspector-helpers.test.ts`. It is the only remaining frontend
 duplication of core logic in this module.
+
+## The one consumer — the session card
+
+`packages/editor/src/frontend/components/shell/SessionCard.tsx` (D-13) is the editor's
+properties surface and this module's only caller. Its state is decided by two host facts alone —
+is there a session, is an entity selected — and by nothing it remembers:
+
+| State | Subject | ⏎ / Esc |
+| --- | --- | --- |
+| **CREATE** | a `stamp` session; there is no entity yet, so it is about a REGION | commit / discard |
+| **REST** | an entity is selected, nothing is armed; values come off the committed RECORD and no ghost previews | *no verbs at all* |
+| **RECONFIGURE** | a `reconfigure` session (a MOVE is one, flagged); values come off the SESSION and the ghost previews live | apply / revert — **drop** / revert for a move |
+
+**Two sources, one selector.** Rest reads the record, reconfigure reads the session, the card
+PICKS and never merges them — which is the whole answer to how they stay in agreement: they do
+not have to, because only one is on screen at a time. A card that blended them would show a
+number no surface is about to build.
+
+**The promotion** is the subtlest thing here. In REST, the first control the user COMMITS through
+opens a reconfigure carrying that edit, and four rules hold it together:
+
+- **a TOUCH is a commit and never a preview.** Every text field previews per keystroke, so
+  promoting on preview would open, cancel and re-open a session per character — on "1" while the
+  user typed "12".
+- **the touch that promoted is parked** as a `PendingTouch` and pushed against the SESSION's own
+  seed and policy, because the merge policy in particular is not recoverable from the record.
+- **it paints ONCE**, which took two mechanisms: opening the entity publishes the session
+  synchronously so the touch and its arrival land in one React batch, and the parked touch is
+  applied from a **layout** effect, because a passive one runs after paint and the value that
+  would flicker is the number the user just typed.
+- **a REFUSED promotion drops its touch.** Opening an entity is runtime-quiet on an unknown id, a
+  frozen or baked entity and a retired generator, and a surviving edit would land on whatever
+  session opened next.
+
+The card **owns no lifecycle verb** (D-14): freeze, bake and delete are the entity ROW's, because
+they change what an entity IS rather than what it holds ([tools](tools.md)). The seed row is
+gated on core's `usesSeed` — a hall never reads its seed, so a field and a re-roll for it are two
+controls that do nothing. A frozen or baked record renders read-only params instead of a form,
+because opening it refuses and live controls would be a form whose every edit reported a refusal.
+The four leaves in `shell/session-card/` are presentational and hold no host knowledge; the file
+itself keeps the selector, the promotion, and the two funnels every control writes through.
+
+**Its open state is DRIVEN, and keyed on the SUBJECT.** A sibling component renders `null` rather
+than an effect inside the card, because the palette layer unmounts a closed palette's body and
+the thing that opens a palette cannot live inside it. Keying on the subject rather than on the
+open flag is the whole "is this annoying?" answer: closing the card with its × is a statement
+about the thing you were looking at, so the same subject pushed again leaves it closed while a
+DIFFERENT subject re-opens it. Geometry and collapse stay the user's and stay persisted; `open`
+is neither ([chrome](chrome.md)).
+
+**A refusal reported up from `<SchemaForm>` disables the commit verb and names the offending
+field — and it OUTRANKS the preview-settled gate**, because a refused param never previewed.
+The card turns that one slot into the verb's disabled reason and retracts it on unmount.
+
+**Core's generators validate params setup-loud from inside the preview worker**, so an off-grid
+value that slipped past the form comes back as a thrown string one round trip later. That is why
+the step is declared rather than guessed (above) — the two must not disagree.
+
+One boundary cast lives here and nowhere else: a generator's `paramSchema`, typed
+`Record<string, unknown>` in core so the chrome need not value-import it, becomes a
+`JsonSchemaNode` at this call site.

@@ -87,7 +87,35 @@ ships in dev mode.
 the chrome spawns them with `new Worker("/<name>.js", { type: "module" })` and neither can
 ride the html entry's graph. Both run engine code (`@furnace/core/field`) **directly**, not
 through `/engine.js` — the analyzer worker additionally loads `/engine.js` at runtime for its
-stage-2 verify, which drives the project's own mover.
+stage-2 verify, which drives the project's own mover ([advisor](advisor.md)).
+
+Each worker bundle must land **un-hashed at the outdir root** or the URL the chrome spawns it
+by 404s, and `packages/editor/tests/build-frontend.test.ts` asserts exactly that per worker.
+
+### The two worker entries are exempt from the engine rules ONLY
+
+The two protocol modules (`packages/editor/src/field-host/field-protocol.ts` and
+`analyzer-protocol.ts`) VALUE-import `@furnace/core/field`, so they carry core and could never
+sit on the neutral floor. Their only chrome-side consumers are the two worker ENTRIES, which are
+separate bundles in isolated Worker realms — so the leakage guard below exempts those two entries
+from three of its five rule-sets (core, the protocols, the host) and from no others. What must
+never happen is core entering the CHROME's bundle, which is what every rule is about.
+
+**The two exemptions are safe for DIFFERENT reasons, and only one of them is the easy case.**
+The field worker's realm never loads `/engine.js`, so it holds exactly one core. **The analyzer
+worker's realm holds TWO** — the engine bundle inlines core (it defines `createFieldStore` itself
+and has zero external `@furnace/core` imports), so the copy bundled into the worker sits beside
+it. The duplicate is real and this exemption must not be cited as evidence that a worker realm
+cannot have one.
+
+It is INERT for two reasons, and both have to keep holding. **(1)** Everything crossing that seam
+is plain structural DATA — no class identity, no `instanceof`, no symbols — so which core minted
+a value cannot matter. **(2)** The two instances share no module-level state: the worker's copy
+runs only the pure column pass and the placement rasterizer, the bundle's copy owns the physics
+context and the collider derivation, and neither reads the other's registries. That second is a
+claim about EXECUTION, not about bundle content: even with the physics module shipped inside the
+worker bundle, no code path in that realm calls it. The lever is one VALUE import, not the module
+graph of `@furnace/core/field` generally.
 
 ## Zero engine value-imports
 

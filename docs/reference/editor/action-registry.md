@@ -248,6 +248,13 @@ would pass just as happily with the funnel deleted. The instrument's limits are 
 lives: a source scan is a proxy, blind to a caller spelling the receiver differently and — since
 definition and caller share a file — to a second caller added inside that file.
 
+**A second scan holds the asymmetry's other half: `clickGate` has exactly ONE caller, the
+display seam it feeds.** The env pin below catches the two envs COLLAPSING into one; it cannot
+catch a THIRD reader appearing. `clickGate` is exported and asks the modal-blind render env, so
+nothing structural stops a future surface writing `if (clickGate(def, ctx).ok) { …do it… }` and
+getting an enforcement path that silently cannot see a modal — which is what every display call
+site looks like one line before it dispatches. Same instrument, same stated limits.
+
 `runNamedById` is the funnel that knows the whole table: it refuses an unknown id and names the
 verbs that do exist, because a caller with no menu cannot see one.
 

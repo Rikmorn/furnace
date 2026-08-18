@@ -181,3 +181,34 @@ is a world write in flight, not a dirty document: a hard reload is the only way 
 new bundle and it would kill an in-flight upload, so the reload is refused while
 `bakeBusyRef` is set (the shell's world verbs hold the ref for the duration of the upload)
 and taken otherwise.
+
+## The chrome reduces the whole feed to three things
+
+`useDaemonFeed` is the ONE place in the chrome that reads an event `type`, and what it produces
+is:
+
+- a **`worldsVersion` counter** bumped on `worlds-changed` / `generation-baked` — a version
+  rather than a payload, because those events are notification-only dirty bits. Anything
+  rendering the world list refetches on it ([world](world.md)).
+- the **hard reload** a stale engine bundle needs (`bundle-outdated`), refused while a world
+  write is in flight (above).
+- the two **addressed** frames (`session-token`, `claim-lost`) routed into a `SessionFeed` of
+  named handlers, plus `session-request` handed to the answerer, so the claim's POLICY lives in
+  `useSessionClaim` while the type dispatch stays here.
+
+**The reduction is EXHAUSTIVE**, and that is worth stating rather than assuming: every arm of
+the daemon's event union reaches one of the three, so there is no feed member the chrome quietly
+ignores. Adding a seventh event without a branch here is the failure this claim exists to make
+visible.
+
+Both `bakeBusyRef` and the `session` handlers are in the effect's dep list, so **both carry a
+STABILITY rule** — and the cost of breaking the second is worse than the first's: a re-subscribe
+mints a new connection token and re-claims.
+
+It is a hook rather than App-local state for the shell's reason ([chrome](chrome.md)): a feed
+wired inside App is a feed no test can drive, because App owns the WebGPU probe and the
+`/engine.js` import.
+
+**There is nothing to catch up on at `onOpen`** — the editor mirrors no daemon-owned document;
+the field world lives in the host until the user saves it. What a (re)connect DOES mean is that
+the previous connection's token is dead, and forgetting it is the one honest job that seam has.
