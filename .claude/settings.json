@@ -43,6 +43,17 @@
     ]
   },
   "enabledPlugins": {
-    "playwright@claude-plugins-official": true
+    "playwright@claude-plugins-official": true,
+    "sidekick@rikmorn": true,
+    "superpowers@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "rikmorn": {
+      "source": {
+        "source": "github",
+        "repo": "Rikmorn/sidekick"
+      }
+    }
   }
 }
